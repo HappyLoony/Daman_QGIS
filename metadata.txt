@@ -1,0 +1,21 @@
+# This file contains metadata for your plugin.
+# This file should be included when you package your plugin.
+
+[general]
+name=Daman_QGIS
+qgisMinimumVersion=3.40
+description=Плагин для градостроительного проектирования: ДПТ (ППТ, ПМТ) с поддержкой МСК, точностью 0,01м и экспортом в форматы DXF, TAB или иные форматы согласно требованиям к проектированию ДПТ.
+version=0.9.17
+author=Alexander Plahotnyuk
+email=sashaplahot@gmail.com
+
+about=Daman_QGIS - профессиональный инструмент для подготовки документации по планировке территории (ДПТ). Возможности: импорт данных ЕГРН (XML выписки), проверка топологии, работа с МСК (местные системы координат), экспорт в CAD форматы (DXF с HATCH, TAB) и подготовка материалов для кадастрового учета. Поддержка российских стандартов: ГОСТ 2.304, точность 0.01м, трансформация СК-42/ГСК-2011.
+
+tags=planning,cadastre,dxf,tab,topology,russia,msk,egrn,geopackage,vector,export,hatch,automation
+
+hasProcessingProvider=no
+category=Vector
+icon=data/icons/icon.svg
+experimental=True
+deprecated=False
+server=False

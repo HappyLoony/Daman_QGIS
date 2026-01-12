@@ -1,0 +1,272 @@
+[
+  {
+    "parent_manager": "4",
+    "submanager_id": "1",
+    "type": "Reference",
+    "class_name": "VRIReferenceManager",
+    "description": "-",
+    "file_extension": "vri_reference_manager.py",
+    "final_filename": "Msm_4_1_vri_reference_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "2",
+    "type": "Reference",
+    "class_name": "WorkTypeReferenceManager",
+    "description": "-",
+    "file_extension": "work_type_reference_manager.py",
+    "final_filename": "Msm_4_2_work_type_reference_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "3",
+    "type": "Reference",
+    "class_name": "ProjectMetadataManager",
+    "description": "-",
+    "file_extension": "project_metadata_manager.py",
+    "final_filename": "Msm_4_3_project_metadata_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "4",
+    "type": "Reference",
+    "class_name": "ZOUITReferenceManager",
+    "description": "-",
+    "file_extension": "zouit_reference_manager.py",
+    "final_filename": "Msm_4_4_zouit_reference_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "5",
+    "type": "Reference",
+    "class_name": "FunctionReferenceManager",
+    "description": "-",
+    "file_extension": "function_reference_manager.py",
+    "final_filename": "Msm_4_5_function_reference_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "6",
+    "type": "Reference",
+    "class_name": "LayerReferenceManager",
+    "description": "-",
+    "file_extension": "layer_reference_manager.py",
+    "final_filename": "Msm_4_6_layer_reference_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "7",
+    "type": "Reference",
+    "class_name": "EmployeeReferenceManager",
+    "description": "-",
+    "file_extension": "employee_reference_manager.py",
+    "final_filename": "Msm_4_7_employee_reference_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "8",
+    "type": "Reference",
+    "class_name": "UrbanPlanningReferenceManager",
+    "description": "-",
+    "file_extension": "urban_planning_reference_manager.py",
+    "final_filename": "Msm_4_8_urban_planning_reference_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "9",
+    "type": "Reference",
+    "class_name": "LayerStyleManager",
+    "description": "-",
+    "file_extension": "layer_style_manager.py",
+    "final_filename": "Msm_4_9_layer_style_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "10",
+    "type": "Reference",
+    "class_name": "ExcelExportStyleManager",
+    "description": "-",
+    "file_extension": "excel_export_style_manager.py",
+    "final_filename": "Msm_4_10_excel_export_style_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "11",
+    "type": "Reference",
+    "class_name": "ExcelListStyleManager",
+    "description": "-",
+    "file_extension": "excel_list_style_manager.py",
+    "final_filename": "Msm_4_11_excel_list_style_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "12",
+    "type": "Reference",
+    "class_name": "LayerFieldStructureManager",
+    "description": "-",
+    "file_extension": "layer_field_structure_manager.py",
+    "final_filename": "Msm_4_12_layer_field_structure_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "13",
+    "type": "Reference",
+    "class_name": "DrawingsReferenceManager",
+    "description": "-",
+    "file_extension": "drawings_reference_manager.py",
+    "final_filename": "Msm_4_13_drawings_reference_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "14",
+    "type": "Reference",
+    "class_name": "DataValidationManager",
+    "description": "-",
+    "file_extension": "data_validation_manager.py",
+    "final_filename": "Msm_4_14_data_validation_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "15",
+    "type": "Reference",
+    "class_name": "LabelReferenceManager",
+    "description": "-",
+    "file_extension": "label_reference_manager.py",
+    "final_filename": "Msm_4_15_label_reference_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "16",
+    "type": "Reference",
+    "class_name": "BackgroundReferenceManager",
+    "description": "-",
+    "file_extension": "background_reference_manager.py",
+    "final_filename": "Msm_4_16_background_reference_manager.py"
+  },
+  {
+    "parent_manager": "12",
+    "submanager_id": "1",
+    "type": "Labels",
+    "class_name": "CollisionManager",
+    "description": "-",
+    "file_extension": "collision_manager.py",
+    "final_filename": "Msm_12_1_collision_manager.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "17",
+    "type": "Reference",
+    "class_name": "FieldMappingManager",
+    "description": "Маппинг полей выписок ЕГРН (XML XPath → рабочие поля)",
+    "file_extension": "field_mapping_manager.py",
+    "final_filename": "Msm_4_17_field_mapping_manager.py"
+  },
+  {
+    "parent_manager": "12",
+    "submanager_id": "2",
+    "type": "Labels",
+    "class_name": "LabelSettingsBuilder",
+    "description": "Построитель настроек подписей QGIS из конфигурации БД",
+    "file_extension": "label_settings_builder.py",
+    "final_filename": "Msm_12_2_label_settings_builder.py"
+  },
+  {
+    "parent_manager": "5",
+    "submanager_id": "1",
+    "type": "Style",
+    "class_name": "AutoCADToQGISConverter",
+    "description": "Конвертер AutoCAD стилей в QGIS символы",
+    "file_extension": "autocad_to_qgis_converter.py",
+    "final_filename": "Msm_5_1_autocad_to_qgis_converter.py"
+  },
+  {
+    "parent_manager": "5",
+    "submanager_id": "2",
+    "type": "Style",
+    "class_name": "-",
+    "description": "Утилиты для работы с цветом AutoCAD",
+    "file_extension": "color_utils.py",
+    "final_filename": "Msm_5_2_color_utils.py"
+  },
+  {
+    "parent_manager": "13",
+    "submanager_id": "1",
+    "type": "Cleanup",
+    "class_name": "StringSanitizer",
+    "description": "Очистка и нормализация строковых данных",
+    "file_extension": "string_sanitizer.py",
+    "final_filename": "Msm_13_1_string_sanitizer.py"
+  },
+  {
+    "parent_manager": "13",
+    "submanager_id": "2",
+    "type": "Cleanup",
+    "class_name": "AttributeProcessor",
+    "description": "Обработка атрибутов таблиц и полей",
+    "file_extension": "attribute_processor.py",
+    "final_filename": "Msm_13_2_attribute_processor.py"
+  },
+  {
+    "parent_manager": "13",
+    "submanager_id": "3",
+    "type": "Cleanup",
+    "class_name": "FieldCleanup",
+    "description": "Удаление пустых полей из слоёв",
+    "file_extension": "field_cleanup.py",
+    "final_filename": "Msm_13_3_field_cleanup.py"
+  },
+  {
+    "parent_manager": "13",
+    "submanager_id": "4",
+    "type": "Cleanup",
+    "class_name": "DataValidator",
+    "description": "Валидация метаданных и данных проекта",
+    "file_extension": "data_validator.py",
+    "final_filename": "Msm_13_4_data_validator.py"
+  },
+  {
+    "parent_manager": "13",
+    "submanager_id": "5",
+    "type": "Cleanup",
+    "class_name": "AttributeMapper",
+    "description": "Маппинг атрибутов между WFS и рабочими слоями",
+    "file_extension": "attribute_mapper.py",
+    "final_filename": "Msm_13_5_attribute_mapper.py"
+  },
+  {
+    "parent_manager": "4",
+    "submanager_id": "18",
+    "type": "Reference",
+    "class_name": "ZOUITClassificationManager",
+    "description": "-",
+    "file_extension": "zouit_classification_manager.py",
+    "final_filename": "Msm_4_18_zouit_classification_manager.py"
+  },
+  {
+    "parent_manager": "18",
+    "submanager_id": "1",
+    "type": "Utility",
+    "class_name": "ExtentCalculator",
+    "description": "Вычисление экстента по геометриям слоя",
+    "file_extension": "extent_calculator.py",
+    "final_filename": "Msm_18_1_extent_calculator.py"
+  },
+  {
+    "parent_manager": "18",
+    "submanager_id": "2",
+    "type": "Utility",
+    "class_name": "AspectRatioFitter",
+    "description": "Подгонка экстента под aspect ratio карты",
+    "file_extension": "aspect_ratio_fitter.py",
+    "final_filename": "Msm_18_2_aspect_ratio_fitter.py"
+  },
+  {
+    "parent_manager": "18",
+    "submanager_id": "3",
+    "type": "Utility",
+    "class_name": "LayoutExtentApplier",
+    "description": "Применение экстента к макету печати",
+    "file_extension": "layout_applier.py",
+    "final_filename": "Msm_18_3_layout_applier.py"
+  }
+]

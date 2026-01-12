@@ -1,0 +1,62 @@
+[
+  {
+    "working_name": "КН",
+    "full_name": "Кадастровый номер объекта капитального строительства",
+    "wfs_oks_field": "cad_number;cad_num",
+    "mapinfo_format": "(Символьное, ограничение по символам 254)"
+  },
+  {
+    "working_name": "Тип_ОКСа",
+    "full_name": "Тип объекта капитального строительства",
+    "wfs_oks_field": "oks_type",
+    "mapinfo_format": "(Символьное, ограничение по символам 254)"
+  },
+  {
+    "working_name": "Адрес_Местоположения",
+    "full_name": "Адрес объекта капитального строительства",
+    "wfs_oks_field": "address_readable_address;readable_address",
+    "mapinfo_format": "(Символьное, ограничение по символам 254)"
+  },
+  {
+    "working_name": "Наименование",
+    "full_name": "Наименование объекта капитального строительства",
+    "wfs_oks_field": "params_name;building_name",
+    "mapinfo_format": "(Символьное, ограничение по символам 254)"
+  },
+  {
+    "working_name": "Назначение",
+    "full_name": "Назначение объекта капитального строительства",
+    "wfs_oks_field": "params_purpose;purpose",
+    "mapinfo_format": "(Символьное, ограничение по символам 254)"
+  },
+  {
+    "working_name": "Характеристика",
+    "full_name": "Основная характеристика, единицы измерения ",
+    "wfs_oks_field": "-",
+    "mapinfo_format": "(Символьное, ограничение по символам 254)"
+  },
+  {
+    "working_name": "Значение",
+    "full_name": "Значение основной характеристики",
+    "wfs_oks_field": "params_area; params_built_up_area; params_extension; build_record_area; built_up_area; extension",
+    "mapinfo_format": "(Символьное, ограничение по символам 254)"
+  },
+  {
+    "working_name": "Статус",
+    "full_name": "Статус объекта капитального строительства",
+    "wfs_oks_field": "status",
+    "mapinfo_format": "(Символьное, ограничение по символам 254)"
+  },
+  {
+    "working_name": "ОКС_на_ЗУ_выписка",
+    "full_name": "Кадастровые номера земельных участков, на которых расположен ОКС по выписке",
+    "wfs_oks_field": "-",
+    "mapinfo_format": "(Символьное, ограничение по символам 254)"
+  },
+  {
+    "working_name": "ОКС_на_ЗУ_факт",
+    "full_name": "Кадастровые номера земельных участков, на которых расположен ОКС по информации из открытых источников",
+    "wfs_oks_field": "-",
+    "mapinfo_format": "(Символьное, ограничение по символам 254)"
+  }
+]

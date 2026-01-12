@@ -1,0 +1,27 @@
+[
+  {
+    "style_name": "Other",
+    "title": "Ведомость {layer_name}",
+    "column_names": "Как в таблице атрибутов"
+  },
+  {
+    "style_name": "L_2_1_1_Выборка_ЗУ",
+    "title": "Ведомость земельных участков в границах {1_3_object_type}",
+    "column_names": "full_name из Base_selection_ZU"
+  },
+  {
+    "style_name": "Le_3_1_1_Раздел_ЗУ",
+    "title": "Ведомость образуемых земельных участков",
+    "column_names": "full_name из Base_cutting"
+  },
+  {
+    "style_name": "Le_3_1_2_Раздел_ЗУ",
+    "title": "Ведомость образуемых земельных участков",
+    "column_names": "full_name из Base_cutting"
+  },
+  {
+    "style_name": "Le_3_1_3_Раздел_ЗУ",
+    "title": "Ведомость образуемых земельных участков",
+    "column_names": "full_name из Base_cutting"
+  }
+]

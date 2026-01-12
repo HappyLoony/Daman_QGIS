@@ -1,0 +1,72 @@
+[
+  {
+    "style_name": "Other",
+    "font_name": "Перечень координат характерных точек границ {layer_name}",
+    "font_size": "Контур {№}",
+    "bold": "-",
+    "italic": "Как в таблице атрибутов"
+  },
+  {
+    "style_name": "L_2_1_1_Выборка_ЗУ",
+    "font_name": null,
+    "font_size": null,
+    "bold": "-",
+    "italic": "full_name из Base_selection_ZU"
+  },
+  {
+    "style_name": "L_3_1_1_Нарезка_ЗПР_ОКС",
+    "font_name": "-",
+    "font_size": "Контур {№}",
+    "bold": "-",
+    "italic": "full_name из Base_cutting"
+  },
+  {
+    "style_name": "L_3_1_2_Нарезка_ЗПР_ЛО",
+    "font_name": "-",
+    "font_size": "Контур {№}",
+    "bold": "-",
+    "italic": "full_name из Base_cutting"
+  },
+  {
+    "style_name": "L_3_1_3_Нарезка_ЗПР_ВО",
+    "font_name": "-",
+    "font_size": "Контур {№}",
+    "bold": "-",
+    "italic": "full_name из Base_cutting"
+  },
+  {
+    "style_name": "L_3_2_1_Нарезка_ЗПР_РЕК_АД",
+    "font_name": "-",
+    "font_size": "Контур {№}",
+    "bold": "-",
+    "italic": "full_name из Base_cutting"
+  },
+  {
+    "style_name": "L_3_2_2_Нарезка_ЗПР_СЕТИ_ПО",
+    "font_name": "-",
+    "font_size": "Контур {№}",
+    "bold": "-",
+    "italic": "full_name из Base_cutting"
+  },
+  {
+    "style_name": "L_3_2_3_Нарезка_ЗПР_СЕТИ_ВО",
+    "font_name": "-",
+    "font_size": "Контур {№}",
+    "bold": "-",
+    "italic": "full_name из Base_cutting"
+  },
+  {
+    "style_name": "L_3_2_4_Нарезка_ЗПР_НЭ",
+    "font_name": "-",
+    "font_size": "Контур {№}",
+    "bold": "-",
+    "italic": "full_name из Base_cutting"
+  },
+  {
+    "style_name": "L_2_5_1_ГПМТ",
+    "font_name": "Перечень координат характерных точек границ территории, применительно к которой осуществляется подготовка проекта межевания территории {object_type} объекта",
+    "font_size": "Перечень координат характерных точек границ контура территории, применительно к которой осуществляется подготовка проекта межевания территории линейного объекта, площадью {area} кв. м",
+    "bold": "-",
+    "italic": "Как в таблице атрибутов"
+  }
+]

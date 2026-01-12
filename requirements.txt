@@ -1,0 +1,40 @@
+# Daman_QGIS - Python dependencies
+# Установка: pip install -r requirements.txt --target <path>
+# Или через F_5_1 Проверка зависимостей в QGIS
+#
+# Формат: package>=version  # описание
+# Опциональные пакеты помечаются: # [optional] описание
+
+# === ОБЯЗАТЕЛЬНЫЕ ЗАВИСИМОСТИ ===
+
+# DXF экспорт (AutoCAD)
+ezdxf>=1.4.2
+
+# Excel экспорт (Приложения 2 и 3)
+xlsxwriter>=3.0.0
+
+# Excel чтение (конвертация справочников)
+openpyxl>=3.0.0
+
+# HTTP запросы (ЕГРН API, НСПД)
+requests
+
+# SSL сертификаты (HTTPS соединения)
+certifi
+
+# XML парсинг (выписки ЕГРН)
+lxml>=5.0.0
+
+# === ОПЦИОНАЛЬНЫЕ ЗАВИСИМОСТИ (для разработки) ===
+
+# [optional] Отладка в VS Code
+debugpy>=1.6.0
+
+# [optional] Тестирование
+pytest>=7.0.0
+pytest-qgis>=2.1.0
+pytest-cov>=4.0.0
+pytest-qt>=4.2.0
+
+# [optional] Статическая типизация (type hints для PyQGIS)
+qgis-stubs>=0.2.0

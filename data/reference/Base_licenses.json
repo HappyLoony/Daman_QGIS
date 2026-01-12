@@ -1,0 +1,20 @@
+[
+  {
+    "api_key": "DAMAN-B4E2-B0F9-4796",
+    "user_name": "Плахотнюк А.А.",
+    "user_email": "sashaplahot@gmail.com",
+    "subscription_type": "Бессрочно",
+    "starts_at": "2025-01-15 00:00:00",
+    "expires_at": null,
+    "notes": "Администратор"
+  },
+  {
+    "api_key": "DAMAN-AD61-DF63-C86C",
+    "user_name": "Тест Т.Т.",
+    "user_email": "sashaplahot@gmail.com",
+    "subscription_type": "Месяц",
+    "starts_at": "2025-01-15 00:00:00",
+    "expires_at": "2025-02-15 00:00:00",
+    "notes": "Тест"
+  }
+]

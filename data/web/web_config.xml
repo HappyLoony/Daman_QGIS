@@ -1,0 +1,795 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LayersDatabase version="1.0">
+<metadata>
+<created>2025-09-05</created>
+<api_version>v4</api_version>
+<description>База данных подключаемых слоев НСПД и внешних источников для плагина Daman_QGIS</description></metadata>
+<group name="Единицы кадастрового деления" id="cadastral_division">
+<layer>
+<name>Кадастровые округа</name>
+<id>36945</id>
+<priority>50</priority>
+<description>Границы кадастровых округов Российской Федерации</description>
+<tags>кадастр, округа, административное деление, границы</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36945&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36945/wms</url></layer>
+<layer>
+<name>Кадастровые районы</name>
+<id>36070</id>
+<priority>45</priority>
+<description>Границы кадастровых районов</description>
+<tags>кадастр, районы, административное деление, границы</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36070&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36070/wms</url></layer>
+<layer>
+<name>Кадастровые кварталы</name>
+<id>36071</id>
+<priority>40</priority>
+<description>Границы кадастровых кварталов</description>
+<tags>кадастр, кварталы, административное деление, границы</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36071&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36071/wms</url></layer></group>
+<group name="Административные границы" id="administrative_boundaries">
+<layer>
+<name>Государственная граница Российской Федерации</name>
+<id>37313</id>
+<priority>100</priority>
+<description>Государственная граница РФ</description>
+<tags>граница, государственная граница, РФ</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37313&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37313/wms</url></layer>
+<layer>
+<name>Субъекты Российской Федерации (полигоны)</name>
+<id>37315</id>
+<priority>95</priority>
+<description>Границы субъектов РФ - полигональные объекты</description>
+<tags>субъекты РФ, регионы, области, края, республики, границы</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37315&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37315/wms</url></layer>
+<layer>
+<name>Субъекты Российской Федерации (линии)</name>
+<id>37314</id>
+<priority>94</priority>
+<description>Границы субъектов РФ - линейные объекты</description>
+<tags>субъекты РФ, регионы, границы, линии</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37314&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37314/wms</url></layer>
+<layer>
+<name>Муниципальные образования (полигоны)</name>
+<id>36278</id>
+<priority>90</priority>
+<description>Границы муниципальных образований - полигоны</description>
+<tags>муниципальные образования, районы, городские округа, границы</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36278&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36278/wms</url></layer>
+<layer>
+<name>Муниципальные образования (линии)</name>
+<id>36279</id>
+<priority>89</priority>
+<description>Границы муниципальных образований - линии</description>
+<tags>муниципальные образования, районы, границы, линии</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36279&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36279/wms</url></layer>
+<layer>
+<name>Населённые пункты (полигоны)</name>
+<id>36281</id>
+<priority>85</priority>
+<description>Границы населённых пунктов - полигональные объекты</description>
+<tags>населенные пункты, города, поселки, села, границы</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36281&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36281/wms</url></layer>
+<layer>
+<name>Населённые пункты (линии)</name>
+<id>37316</id>
+<priority>84</priority>
+<description>Границы населённых пунктов - линейные объекты</description>
+<tags>населенные пункты, города, границы, линии</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37316&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37316/wms</url></layer></group>
+<group name="Земельные участки" id="land_plots">
+<layer>
+<name>Земельные участки из ЕГРН</name>
+<id>36048</id>
+<priority>30</priority>
+<description>Земельные участки по данным ЕГРН</description>
+<tags>земельные участки, ЕГРН, кадастр, недвижимость</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36048&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36048/wms</url></layer>
+<layer>
+<name>Земельные участки из ЕГРН (подписи)</name>
+<id>36327</id>
+<priority>5</priority>
+<description>Кадастровые номера земельных участков</description>
+<tags>земельные участки, подписи, кадастровые номера, ЕГРН</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=1&amp;dpi=300&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36327&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36327/wms</url></layer>
+<layer>
+<name>Земельные участки, образуемые по схеме расположения земельного участка</name>
+<id>37294</id>
+<priority>29</priority>
+<description>Земельные участки, образуемые по СРЗУ</description>
+<tags>земельные участки, СРЗУ, образуемые, схема расположения</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37294&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37294/wms</url></layer>
+<layer>
+<name>Земельные участки, выставленные на аукцион</name>
+<id>37299</id>
+<priority>28</priority>
+<description>Участки, выставленные на торги</description>
+<tags>земельные участки, аукцион, торги, продажа</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37299&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37299/wms</url></layer>
+<layer>
+<name>Земельные участки, свободные от прав третьих лиц</name>
+<id>37298</id>
+<priority>27</priority>
+<description>Свободные земельные участки</description>
+<tags>земельные участки, свободные, без обременений</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37298&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37298/wms</url></layer>
+<layer>
+<name>Земля для стройки ПКК</name>
+<id>849407</id>
+<priority>26</priority>
+<description>Земельные участки для жилищного строительства (публичная кадастровая карта)</description>
+<tags>земельные участки, строительство, ПКК, жилье</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=849407&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/849407/wms</url></layer>
+<layer>
+<name>Земля для туризма ПКК</name>
+<id>849453</id>
+<priority>25</priority>
+<description>Земельные участки для туристической инфраструктуры</description>
+<tags>земельные участки, туризм, ПКК, рекреация</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=849453&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/849453/wms</url></layer>
+<layer>
+<name>Земельные участки, образуемые по проекту межевания территории</name>
+<id>36473</id>
+<priority>24</priority>
+<description>Участки по проектам межевания</description>
+<tags>земельные участки, межевание, ПМТ, образуемые</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36473&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36473/wms</url></layer></group>
+<group name="Объекты капитального строительства" id="capital_construction">
+<layer>
+<name>Здания</name>
+<id>36049</id>
+<priority>20</priority>
+<description>Объекты капитального строительства - здания</description>
+<tags>здания, ОКС, строения, недвижимость</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36049&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36049/wms</url></layer>
+<layer>
+<name>Здания (подписи)</name>
+<id>36326</id>
+<priority>3</priority>
+<description>Кадастровые номера зданий</description>
+<tags>здания, подписи, кадастровые номера, ОКС</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=1&amp;dpi=300&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36326&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36326/wms</url></layer>
+<layer>
+<name>Сооружения</name>
+<id>36328</id>
+<priority>19</priority>
+<description>Объекты капитального строительства - сооружения</description>
+<tags>сооружения, ОКС, инженерные, недвижимость</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36328&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36328/wms</url></layer>
+<layer>
+<name>Объекты незавершенного строительства</name>
+<id>36329</id>
+<priority>18</priority>
+<description>Незавершенное строительство</description>
+<tags>незавершенное строительство, ОНС, стройка</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36329&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36329/wms</url></layer></group>
+<group name="Комплексы объектов" id="object_complexes">
+<layer>
+<name>Единые недвижимые комплексы</name>
+<id>37433</id>
+<priority>35</priority>
+<description>Единые недвижимые комплексы (ЕНК)</description>
+<tags>ЕНК, комплексы, недвижимость</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37433&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37433/wms</url></layer>
+<layer>
+<name>Предприятие как имущественный комплекс</name>
+<id>37434</id>
+<priority>34</priority>
+<description>Предприятия как имущественные комплексы</description>
+<tags>предприятия, имущественный комплекс, недвижимость</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37434&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37434/wms</url></layer></group>
+<group name="Зоны с особыми условиями использования территории" id="special_zones">
+<layer>
+<name>ЗОУИТ объектов культурного наследия</name>
+<id>37577</id>
+<priority>60</priority>
+<description>Зоны охраны объектов культурного наследия</description>
+<tags>ЗОУИТ, культурное наследие, охранные зоны</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37577&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37577/wms</url></layer>
+<layer>
+<name>ЗОУИТ объектов энергетики, связи, транспорта</name>
+<id>37578</id>
+<priority>59</priority>
+<description>Охранные зоны инженерных коммуникаций</description>
+<tags>ЗОУИТ, энергетика, связь, транспорт, охранные зоны</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37578&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37578/wms</url></layer>
+<layer>
+<name>ЗОУИТ природных территорий</name>
+<id>37580</id>
+<priority>58</priority>
+<description>Зоны с особыми условиями использования природных территорий</description>
+<tags>ЗОУИТ, природные территории, охранные зоны</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37580&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37580/wms</url></layer>
+<layer>
+<name>ЗОУИТ охраняемых объектов и безопасности</name>
+<id>37579</id>
+<priority>57</priority>
+<description>Зоны безопасности и охраняемых объектов</description>
+<tags>ЗОУИТ, безопасность, охранные зоны</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37579&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37579/wms</url></layer>
+<layer>
+<name>Иные ЗОУИТ</name>
+<id>37581</id>
+<priority>56</priority>
+<description>Прочие зоны с особыми условиями использования</description>
+<tags>ЗОУИТ, иные, прочие зоны</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37581&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37581/wms</url></layer></group>
+<group name="Зонирование и планирование территории" id="zoning_planning">
+<layer>
+<name>Территориальные зоны</name>
+<id>36315</id>
+<priority>55</priority>
+<description>Территориальные зоны по ПЗЗ</description>
+<tags>территориальные зоны, ПЗЗ, градостроительство, зонирование</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36315&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36315/wms</url></layer>
+<layer>
+<name>Красные линии</name>
+<id>37293</id>
+<priority>54</priority>
+<description>Красные линии градостроительного регулирования</description>
+<tags>красные линии, градостроительство, планировка</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37293&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37293/wms</url></layer></group>
+<group name="Природные территории" id="natural_territories">
+<layer>
+<name>Особо охраняемые природные территории</name>
+<id>36317</id>
+<priority>70</priority>
+<description>ООПТ федерального, регионального и местного значения</description>
+<tags>ООПТ, заповедники, заказники, природные парки</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36317&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36317/wms</url></layer>
+<layer>
+<name>Охотничьи угодья</name>
+<id>36311</id>
+<priority>69</priority>
+<description>Границы охотничьих угодий</description>
+<tags>охотничьи угодья, охота, природопользование</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36311&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36311/wms</url></layer>
+<layer>
+<name>Лесничества</name>
+<id>36314</id>
+<priority>68</priority>
+<description>Границы лесничеств и участковых лесничеств</description>
+<tags>лесничества, лесной фонд, лесное хозяйство</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36314&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36314/wms</url></layer>
+<layer>
+<name>Береговые линии (границы водных объектов)(полигональный)</name>
+<id>36469</id>
+<priority>67</priority>
+<description>Водные объекты - полигоны</description>
+<tags>водные объекты, реки, озера, водоемы, береговые линии</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36469&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36469/wms</url></layer>
+<layer>
+<name>Береговые линии (границы водных объектов)(линейный)</name>
+<id>36470</id>
+<priority>66</priority>
+<description>Береговые линии водных объектов</description>
+<tags>береговые линии, водные объекты, границы</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36470&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36470/wms</url></layer></group>
+<group name="Зоны социального, экономического развития" id="development_zones">
+<layer>
+<name>Особые экономические зоны</name>
+<id>36303</id>
+<priority>75</priority>
+<description>Особые экономические зоны РФ</description>
+<tags>ОЭЗ, экономические зоны, инвестиции, развитие</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36303&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36303/wms</url></layer>
+<layer>
+<name>Территории опережающего развития</name>
+<id>36312</id>
+<priority>74</priority>
+<description>Территории опережающего социально-экономического развития</description>
+<tags>ТОР, ТОСЭР, развитие, инвестиции</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36312&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36312/wms</url></layer>
+<layer>
+<name>Игорные зоны</name>
+<id>36471</id>
+<priority>73</priority>
+<description>Игорные зоны РФ</description>
+<tags>игорные зоны, казино, развлечения</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36471&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36471/wms</url></layer></group>
+<group name="Территории объектов культурного наследия народов РФ" id="cultural_heritage">
+<layer>
+<name>Территории объектов культурного наследия</name>
+<id>36316</id>
+<priority>65</priority>
+<description>Территории объектов культурного наследия народов РФ</description>
+<tags>культурное наследие, памятники, ОКН, история</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=36316&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/36316/wms</url></layer></group>
+<group name="Иные территории" id="other_territories">
+<layer>
+<name>Территории выполнения комплексных кадастровых работ</name>
+<id>37430</id>
+<priority>80</priority>
+<description>Территории проведения ККР</description>
+<tags>ККР, комплексные кадастровые работы, кадастр</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37430&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37430/wms</url></layer>
+<layer>
+<name>Территория проведения мероприятий по ликвидации накопленного вреда окружающей среде</name>
+<id>37295</id>
+<priority>79</priority>
+<description>Территории экологической реабилитации в г. Усолье-Сибирское</description>
+<tags>экология, ликвидация вреда, реабилитация, Усолье-Сибирское</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37295&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37295/wms</url></layer>
+<layer>
+<name>Негативные процессы</name>
+<id>37296</id>
+<priority>78</priority>
+<description>Территории негативных процессов и явлений</description>
+<tags>негативные процессы, опасные явления, риски</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37296&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37296/wms</url></layer>
+<layer>
+<name>Объекты туристского интереса</name>
+<id>849601</id>
+<priority>77</priority>
+<description>Достопримечательности и туристические объекты</description>
+<tags>туризм, достопримечательности, туристические объекты</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=849601&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/849601/wms</url></layer></group>
+<group name="Тепловые карты" id="heat_maps">
+<layer>
+<name>Кадастровая стоимость объекта</name>
+<id>37236</id>
+<priority>15</priority>
+<description>Кадастровая стоимость объектов недвижимости</description>
+<tags>кадастровая стоимость, оценка, недвижимость</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37236&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37236/wms</url></layer>
+<layer>
+<name>Удельный показатель кадастровой стоимости</name>
+<id>37758</id>
+<priority>14</priority>
+<description>УПКС земельных участков</description>
+<tags>УПКС, кадастровая стоимость, земельные участки, оценка</tags>
+<url>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;http-header:referer=https://nspd.gov.ru/map&amp;layers=37758&amp;styles&amp;url=https://nspd.gov.ru/api/aeggis/v4/37758/wms</url></layer></group>
+<group name="Картоосновы НСПД" id="nspd_basemaps">
+<layer>
+<name>Цифровая объектовая схема (справочный слой)</name>
+<id>235</id>
+<priority>200</priority>
+<description>Цифровая объектовая схема НСПД</description>
+<tags>картооснова, ЦОС, базовая карта, топооснова</tags>
+<url>http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D235&amp;referer=https://nspd.gov.ru/map?baseLayerId%3D235&amp;type=xyz&amp;url=https://nspd.gov.ru/api/aeggis/v2/235/wmts/%7Bz%7D/%7Bx%7D/%7By%7D.png&amp;zmax=18&amp;zmin=0</url></layer>
+<layer>
+<name>Единая электронная картографическая основа (основной слой)</name>
+<id>36347</id>
+<priority>201</priority>
+<description>ЕЭКО - основной слой</description>
+<tags>картооснова, ЕЭКО, базовая карта, топооснова</tags>
+<url>http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D36347&amp;referer=https://nspd.gov.ru/map?baseLayerId%3D36347&amp;type=xyz&amp;url=https://nspd.gov.ru/cgk/map/38/tms/%7Bz%7D/%7Bx%7D/%7By%7D.png&amp;zmax=18&amp;zmin=0</url></layer>
+<layer>
+<name>ЦОС</name>
+<id>849241</id>
+<priority>199</priority>
+<description>Цифровая общегеографическая схема</description>
+<tags>картооснова, ЦОС, базовая карта</tags>
+<url>http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D849241&amp;referer=https://nspd.gov.ru/map?%26baseLayerId%3D849241&amp;type=xyz&amp;url=https://nspd.gov.ru/api/aeggis/v2/849241/wmts/%7Bz%7D/%7Bx%7D/%7By%7D.png&amp;zmax=18&amp;zmin=0</url></layer>
+<layer>
+<name>ДЗЗ Российская федерация</name>
+<id>36067</id>
+<priority>202</priority>
+<description>Данные дистанционного зондирования Земли РФ</description>
+<tags>ДЗЗ, спутниковые снимки, космоснимки</tags>
+<url>http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D36067&amp;type=xyz&amp;url=https://nspd.gov.ru/ntsomz/RUS_GKMSS100_012021080120210831_11700/TOARO/acr/PSRGB/%7Bz%7D/%7Bx%7D/%7By%7D&amp;zmax=11&amp;zmin=0</url></layer>
+<layer>
+<name>Единая электронная картографическая основа (ортофото)</name>
+<id>36346</id>
+<priority>203</priority>
+<description>ЕЭКО - ортофотопланы</description>
+<tags>ортофото, аэрофотосъемка, ЕЭКО</tags>
+<url>http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D36346&amp;referer=https://nspd.gov.ru/map?%26baseLayerId%3D36346&amp;type=xyz&amp;url=https://nspd.gov.ru/cgk/map/39/tms/%7Bz%7D/%7Bx%7D/%7By%7D.png&amp;zmax=18&amp;zmin=0</url></layer>
+<layer>
+<name>Ортофотопланы 10000</name>
+<id>36345</id>
+<priority>204</priority>
+<description>Ортофотопланы масштаба 1:10000</description>
+<tags>ортофото, аэрофотосъемка, М10000</tags>
+<url>http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D36345&amp;referer=https://nspd.gov.ru/map?%26baseLayerId%3D36345&amp;type=xyz&amp;url=https://nspd.gov.ru/api/aeggis/v2/36345/wmts/%7Bz%7D/%7Bx%7D/%7By%7D.png&amp;zmax=18&amp;zmin=0</url></layer>
+<layer>
+<name>Ортофотопланы 2000</name>
+<id>36344</id>
+<priority>205</priority>
+<description>Ортофотопланы масштаба 1:2000</description>
+<tags>ортофото, аэрофотосъемка, М2000</tags>
+<url>http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D36344&amp;type=xyz&amp;url=https://nspd.gov.ru/api/aeggis/v2/36344/wmts/%7Bz%7D/%7Bx%7D/%7By%7D.png&amp;zmax=18&amp;zmin=0</url></layer></group>
+<group name="Внешние карты" id="external_maps">
+<layer>
+<name>Google Satellite</name>
+<id>google_sat</id>
+<priority>210</priority>
+<description>Спутниковые снимки Google</description>
+<tags>Google, спутник, космоснимки, подложка</tags>
+<url>type=xyz&amp;url=https://mt1.google.com/vt/lyrs%3Ds%26x%3D%7Bx%7D%26y%3D%7By%7D%26z%3D%7Bz%7D&amp;zmax=22&amp;zmin=0</url></layer>
+<layer>
+<name>Google Hybrid</name>
+<id>google_hybrid</id>
+<priority>211</priority>
+<description>Спутниковые снимки Google с подписями</description>
+<tags>Google, спутник, гибрид, подписи</tags>
+<url>type=xyz&amp;url=https://mt1.google.com/vt/lyrs%3Dy%26x%3D%7Bx%7D%26y%3D%7By%7D%26z%3D%7Bz%7D&amp;zmax=22&amp;zmin=0</url></layer>
+<layer>
+<name>Google Labels</name>
+<id>google_labels</id>
+<priority>2</priority>
+<description>Подписи Google Maps</description>
+<tags>Google, подписи, топонимы</tags>
+<url>type=xyz&amp;url=https://mt1.google.com/vt/lyrs%3Dh%26x%3D%7Bx%7D%26y%3D%7By%7D%26z%3D%7Bz%7D&amp;zmax=22&amp;zmin=0</url></layer>
+<layer>
+<name>Yandex</name>
+<id>yandex_map</id>
+<priority>212</priority>
+<description>Яндекс Карты</description>
+<tags>Яндекс, карта, подложка</tags>
+<url>http-header:referer=&amp;type=xyz&amp;url=https://core-renderer-tiles.maps.yandex.net/tiles?l%3Dmap%26v%3D21.07.05-0-b210701140430%26x%3D%7Bx%7D%26y%3D%7By%7D%26z%3D%7Bz%7D%26scale%3D1%26lang%3Dru_RU%26amp&amp;zmax=19&amp;zmin=0&amp;crs=EPSG:3395</url></layer>
+<layer>
+<name>Yandex Satellite</name>
+<id>yandex_sat</id>
+<priority>213</priority>
+<description>Спутниковые снимки Яндекс</description>
+<tags>Яндекс, спутник, космоснимки</tags>
+<url>type=xyz&amp;zmin=0&amp;zmax=18&amp;url=https://sat04.maps.yandex.net/tiles?l%3Dsat%26x%3D{x}%26y%3D{y}%26z%3D{z}&amp;crs=EPSG:3395</url></layer>
+<layer>
+<name>OpenStreetMap</name>
+<id>osm</id>
+<priority>214</priority>
+<description>Карта OpenStreetMap</description>
+<tags>OSM, OpenStreetMap, карта, подложка</tags>
+<url>type=xyz&amp;url=http://c.tile.openstreetmap.org/{z}/{x}/{y}.png</url></layer></group>
+<group name="Векторные слои ЕГРН (через модуль okno_egrn)" id="vector_egrn">
+<layer>
+<n>Кадастровые округа (векторный)</n>
+<id>38030</id>
+<priority>301</priority>
+<description>Векторные данные кадастровых округов РФ с полными атрибутами</description>
+<tags>кадастровые округа, векторный, ЕГРН, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>1</api_category></layer>
+<layer>
+<n>Территории объектов культурного наследия (векторный)</n>
+<id>36947</id>
+<priority>302</priority>
+<description>Векторные территории ОКН с атрибутами</description>
+<tags>культурное наследие, векторный, ОКН, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>2</api_category></layer>
+<layer>
+<n>Кадастровые районы (векторный)</n>
+<id>36382</id>
+<priority>303</priority>
+<description>Векторные границы кадастровых районов с атрибутами</description>
+<tags>кадастровые районы, векторный, ЕГРН, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>3</api_category></layer>
+<layer>
+<n>Кадастровые кварталы (векторный)</n>
+<id>36381</id>
+<priority>304</priority>
+<description>Векторные границы кадастровых кварталов с полными атрибутами</description>
+<tags>кадастровые кварталы, векторный, ЕГРН, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>4</api_category></layer>
+<layer>
+<n>Государственная граница РФ (векторный)</n>
+<id>38998</id>
+<priority>305</priority>
+<description>Векторная государственная граница РФ</description>
+<tags>государственная граница, векторный, границы, РФ</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>5</api_category></layer>
+<layer>
+<n>Субъекты РФ линии (векторный)</n>
+<id>38999</id>
+<priority>306</priority>
+<description>Векторные границы субъектов РФ (линейный)</description>
+<tags>субъекты РФ, векторный, линии, границы</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>6</api_category></layer>
+<layer>
+<n>Субъекты РФ полигоны (векторный)</n>
+<id>39000</id>
+<priority>307</priority>
+<description>Векторные границы субъектов РФ (полигональный)</description>
+<tags>субъекты РФ, векторный, полигоны, границы</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>7</api_category></layer>
+<layer>
+<n>Муниципальные образования полигональный (векторный)</n>
+<id>36829</id>
+<priority>308</priority>
+<description>Векторные границы муниципальных образований (полигоны) с атрибутами</description>
+<tags>муниципальные образования, векторный, полигоны, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>8</api_category></layer>
+<layer>
+<n>Муниципальные образования линейный (векторный)</n>
+<id>36830</id>
+<priority>309</priority>
+<description>Векторные границы муниципальных образований (линии)</description>
+<tags>муниципальные образования, векторный, линии</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>9</api_category></layer>
+<layer>
+<n>Населённые пункты полигоны (векторный)</n>
+<id>36832</id>
+<priority>310</priority>
+<description>Векторные границы населенных пунктов (полигоны) с полными атрибутами</description>
+<tags>населенные пункты, векторный, полигоны, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>10</api_category></layer>
+<layer>
+<n>Населённые пункты линии (векторный)</n>
+<id>38996</id>
+<priority>311</priority>
+<description>Векторные границы населенных пунктов (линии)</description>
+<tags>населенные пункты, векторный, линии</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>11</api_category></layer>
+<layer>
+<n>Земельные участки из ЕГРН (векторный)</n>
+<id>36368</id>
+<priority>312</priority>
+<description>Векторные земельные участки с полными атрибутами: кадастровый номер, площадь, адрес, разрешенное использование</description>
+<tags>земельные участки, векторный, ЕГРН, кадастровый номер, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>12</api_category></layer>
+<layer>
+<n>Земельные участки образуемые по СРЗУ (векторный)</n>
+<id>38943</id>
+<priority>313</priority>
+<description>Векторные земельные участки, образуемые по схеме расположения</description>
+<tags>земельные участки, векторный, СРЗУ, образуемые</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>13</api_category></layer>
+<layer>
+<n>Земельные участки выставленные на аукцион (векторный)</n>
+<id>38981</id>
+<priority>314</priority>
+<description>Векторные земельные участки на торгах с атрибутами</description>
+<tags>земельные участки, векторный, аукцион, торги</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>14</api_category></layer>
+<layer>
+<n>Земельные участки свободные от прав третьих лиц (векторный)</n>
+<id>38979</id>
+<priority>315</priority>
+<description>Векторные свободные земельные участки</description>
+<tags>земельные участки, векторный, свободные</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>15</api_category></layer>
+<layer>
+<n>Земля для стройки ПКК (векторный)</n>
+<id>445347</id>
+<priority>316</priority>
+<description>Векторные участки для жилищного строительства</description>
+<tags>земельные участки, векторный, строительство, ПКК</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>16</api_category></layer>
+<layer>
+<n>Земля для туризма ПКК (векторный)</n>
+<id>445397</id>
+<priority>317</priority>
+<description>Векторные участки для туристической инфраструктуры</description>
+<tags>земельные участки, векторный, туризм, ПКК</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>17</api_category></layer>
+<layer>
+<n>Земельные участки образуемые по ПМТ (векторный)</n>
+<id>37158</id>
+<priority>318</priority>
+<description>Векторные участки по проектам межевания территории</description>
+<tags>земельные участки, векторный, ПМТ, межевание</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>18</api_category></layer>
+<layer>
+<n>Здания (векторный)</n>
+<id>36369</id>
+<priority>319</priority>
+<description>Векторные здания с полными атрибутами: кадастровый номер, адрес, этажность, площадь</description>
+<tags>здания, векторный, ОКС, кадастровый номер, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>19</api_category></layer>
+<layer>
+<n>Сооружения (векторный)</n>
+<id>36383</id>
+<priority>320</priority>
+<description>Векторные сооружения с атрибутами</description>
+<tags>сооружения, векторный, ОКС, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>20</api_category></layer>
+<layer>
+<n>Объекты незавершенного строительства (векторный)</n>
+<id>36384</id>
+<priority>321</priority>
+<description>Векторные ОНС с атрибутами</description>
+<tags>ОНС, векторный, незавершенное строительство, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>21</api_category></layer>
+<layer>
+<n>Единые недвижимые комплексы (векторный)</n>
+<id>39663</id>
+<priority>322</priority>
+<description>Векторные ЕНК с атрибутами</description>
+<tags>ЕНК, векторный, комплексы, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>22</api_category></layer>
+<layer>
+<n>Предприятие как имущественный комплекс (векторный)</n>
+<id>39664</id>
+<priority>323</priority>
+<description>Векторные предприятия как имущественные комплексы</description>
+<tags>предприятия, векторный, имущественный комплекс</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>23</api_category></layer>
+<layer>
+<n>ЗОУИТ (векторный)</n>
+<id>36940</id>
+<priority>324</priority>
+<description>Векторные зоны с особыми условиями использования территории с атрибутами</description>
+<tags>ЗОУИТ, векторный, охранные зоны, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>24</api_category></layer>
+<layer>
+<n>Территориальные зоны (векторный)</n>
+<id>36946</id>
+<priority>325</priority>
+<description>Векторные территориальные зоны по ПЗЗ с атрибутами</description>
+<tags>территориальные зоны, векторный, ПЗЗ, градостроительство</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>25</api_category></layer>
+<layer>
+<n>Красные линии (векторный)</n>
+<id>38942</id>
+<priority>326</priority>
+<description>Векторные красные линии градостроительного регулирования</description>
+<tags>красные линии, векторный, градостроительство</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>26</api_category></layer>
+<layer>
+<n>Особо охраняемые природные территории (векторный)</n>
+<id>36948</id>
+<priority>327</priority>
+<description>Векторные ООПТ с полными атрибутами</description>
+<tags>ООПТ, векторный, заповедники, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>27</api_category></layer>
+<layer>
+<n>Охотничьи угодья (векторный)</n>
+<id>36942</id>
+<priority>328</priority>
+<description>Векторные границы охотничьих угодий с атрибутами</description>
+<tags>охотничьи угодья, векторный, охота, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>28</api_category></layer>
+<layer>
+<n>Лесничества (векторный)</n>
+<id>36945</id>
+<priority>329</priority>
+<description>Векторные границы лесничеств с атрибутами</description>
+<tags>лесничества, векторный, лесной фонд, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>29</api_category></layer>
+<layer>
+<n>Граница лесопарка (векторный)</n>
+<id>278838</id>
+<priority>330</priority>
+<description>Векторные границы лесопарков</description>
+<tags>лесопарки, векторный, границы</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>30</api_category></layer>
+<layer>
+<n>Береговые линии полигональный (векторный)</n>
+<id>36992</id>
+<priority>331</priority>
+<description>Векторные водные объекты (полигоны) с атрибутами</description>
+<tags>водные объекты, векторный, береговые линии, полигоны</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>31</api_category></layer>
+<layer>
+<n>Береговые линии линейный (векторный)</n>
+<id>37148</id>
+<priority>332</priority>
+<description>Векторные береговые линии водных объектов</description>
+<tags>береговые линии, векторный, водные объекты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>32</api_category></layer>
+<layer>
+<n>Особые экономические зоны (векторный)</n>
+<id>36941</id>
+<priority>333</priority>
+<description>Векторные ОЭЗ с атрибутами</description>
+<tags>ОЭЗ, векторный, экономические зоны, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>33</api_category></layer>
+<layer>
+<n>Территории опережающего развития (векторный)</n>
+<id>36943</id>
+<priority>334</priority>
+<description>Векторные ТОР/ТОСЭР с атрибутами</description>
+<tags>ТОР, ТОСЭР, векторный, развитие, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>34</api_category></layer>
+<layer>
+<n>Игорные зоны (векторный)</n>
+<id>36991</id>
+<priority>335</priority>
+<description>Векторные игорные зоны РФ</description>
+<tags>игорные зоны, векторный, казино</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>35</api_category></layer>
+<layer>
+<n>Территории выполнения ККР (векторный)</n>
+<id>39228</id>
+<priority>336</priority>
+<description>Векторные территории комплексных кадастровых работ</description>
+<tags>ККР, векторный, кадастровые работы</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>36</api_category></layer>
+<layer>
+<n>Территория Усолье-Сибирское (векторный)</n>
+<id>38944</id>
+<priority>337</priority>
+<description>Векторные территории экологической реабилитации Усолье-Сибирское</description>
+<tags>Усолье-Сибирское, векторный, экология</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>37</api_category></layer>
+<layer>
+<n>Негативные процессы (векторный)</n>
+<id>38967</id>
+<priority>338</priority>
+<description>Векторные территории негативных процессов</description>
+<tags>негативные процессы, векторный, риски</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>38</api_category></layer>
+<layer>
+<n>Объекты туристского интереса (векторный)</n>
+<id>445547</id>
+<priority>339</priority>
+<description>Векторные туристические объекты с атрибутами</description>
+<tags>туризм, векторный, достопримечательности, атрибуты</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>39</api_category></layer>
+<layer>
+<n>Кадастровая стоимость объекта (векторный)</n>
+<id>36368</id>
+<priority>340</priority>
+<description>Векторные данные кадастровой стоимости недвижимости</description>
+<tags>кадастровая стоимость, векторный, оценка</tags>
+<module>okno_egrn</module>
+<type>vector</type>
+<api_category>40</api_category></layer></group>
+</LayersDatabase>
