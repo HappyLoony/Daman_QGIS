@@ -1,0 +1,44 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Environments
+.env
+.venv/
+env/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# QGIS generated
+*.qgs~
+*.qgs.bak
+
+# Temporary files
+*.tmp
+*.bak
+~$*
+tmpclaude-*
+
+# Logs
+*.log
+Logs/
+
+# Windows reserved names
+nul
