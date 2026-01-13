@@ -94,7 +94,6 @@ class BaseReferenceLoader:
             response = requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT)
             if response.status_code == 200:
                 data = response.json()
-                log_info(f"BaseReferenceLoader: Загружен {filename} с API")
                 return data
             elif response.status_code == 403:
                 log_warning(f"BaseReferenceLoader: Доступ запрещён к {filename}")

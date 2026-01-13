@@ -217,7 +217,7 @@ class Fsm_1_2_1_EgrnLoader:
             # Ищем слой в проекте
             layers = QgsProject.instance().mapLayersByName(layer_name)
             if not layers:
-                log_error(f"Fsm_1_2_1: Слой {layer_name} не найден! Загрузка невозможна.")
+                log_warning(f"Fsm_1_2_1: Слой {layer_name} не найден. Загрузка невозможна.")
                 return None
 
             layer = layers[0]

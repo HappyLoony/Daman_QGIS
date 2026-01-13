@@ -54,6 +54,10 @@ class DependencyChecker:
             'description': 'Библиотека для быстрой обработки XML',
             'usage': 'Импорт выписок ЕГРН в формате XML (F_1_1)'
         },
+        'cryptography': {
+            'description': 'Криптографическая библиотека (AES-256-GCM)',
+            'usage': 'Шифрование локального хранилища лицензий (M_29)'
+        },
         'debugpy': {
             'description': 'Библиотека для удалённой отладки Python через VSCode',
             'usage': 'Отладка плагина в реальном времени с breakpoints (см. DEBUG_SETUP.md)'

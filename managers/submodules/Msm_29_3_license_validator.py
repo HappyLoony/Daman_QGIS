@@ -7,13 +7,24 @@ Msm_29_3_LicenseValidator - Валидатор лицензии через Yande
 - Проверку существующей лицензии (POST ?action=validate&mode=verify)
 - Деактивацию лицензии (POST ?action=deactivate)
 
+Безопасность:
+- HMAC-SHA256 подпись запросов (timestamp + hardware_id)
+- Защита от replay attacks (timestamp validation)
+
 API: https://functions.yandexcloud.net/d4e9nvs008lt7sd87s7m
 """
 
+import hashlib
+import hmac
+import time
 from typing import Dict, Any, List
 
 from ...constants import API_BASE_URL, API_TIMEOUT
 from ...utils import log_info, log_error, log_warning
+
+# HMAC secret (должен совпадать с сервером)
+# В production это должно быть в переменных окружения
+HMAC_SECRET = b"Daman_QGIS_HMAC_2025_Secret_Key"
 
 class LicenseValidator:
     """
@@ -44,6 +55,51 @@ class LicenseValidator:
                 log_warning("Msm_29_3: requests library not available")
         return self._session
 
+    def _generate_hmac_signature(self, api_key: str, hardware_id: str, timestamp: int) -> str:
+        """
+        Генерация HMAC-SHA256 подписи запроса.
+
+        Подписываем: api_key + hardware_id + timestamp
+        Это защищает от:
+        - Подделки запросов (нужен secret)
+        - Replay attacks (timestamp проверяется на сервере)
+
+        Args:
+            api_key: API ключ
+            hardware_id: Hardware ID
+            timestamp: Unix timestamp
+
+        Returns:
+            Hex-encoded HMAC signature
+        """
+        message = f"{api_key}|{hardware_id}|{timestamp}".encode('utf-8')
+        signature = hmac.new(HMAC_SECRET, message, hashlib.sha256).hexdigest()
+        return signature
+
+    def _build_signed_payload(self, api_key: str, hardware_id: str, **extra) -> Dict[str, Any]:
+        """
+        Построение подписанного payload для запроса.
+
+        Args:
+            api_key: API ключ
+            hardware_id: Hardware ID
+            **extra: Дополнительные поля (mode, etc.)
+
+        Returns:
+            Dict с подписью и timestamp
+        """
+        timestamp = int(time.time())
+        signature = self._generate_hmac_signature(api_key, hardware_id, timestamp)
+
+        payload = {
+            "api_key": api_key,
+            "hardware_id": hardware_id,
+            "timestamp": timestamp,
+            "signature": signature,
+            **extra
+        }
+        return payload
+
     def activate(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
         """
         Активация лицензии через Yandex Cloud API.
@@ -55,7 +111,7 @@ class LicenseValidator:
         Returns:
             Результат активации
         """
-        log_info(f"Msm_29_3: Активация лицензии через API")
+        log_info("Msm_29_3: Активация лицензии через API")
 
         try:
             session = self._get_session()
@@ -63,13 +119,11 @@ class LicenseValidator:
                 return {"status": "error", "message": "requests library not available"}
 
             url = f"{self.base_url}?action=validate"
+            payload = self._build_signed_payload(api_key, hardware_id, mode="activate")
+
             response = session.post(
                 url,
-                json={
-                    "api_key": api_key,
-                    "hardware_id": hardware_id,
-                    "mode": "activate"
-                },
+                json=payload,
                 timeout=API_TIMEOUT
             )
 
@@ -114,21 +168,17 @@ class LicenseValidator:
         Returns:
             Результат проверки
         """
-        log_info("Msm_29_3: Проверка лицензии через API")
-
         try:
             session = self._get_session()
             if not session:
                 return {"status": "error", "message": "requests library not available"}
 
             url = f"{self.base_url}?action=validate"
+            payload = self._build_signed_payload(api_key, hardware_id, mode="verify")
+
             response = session.post(
                 url,
-                json={
-                    "api_key": api_key,
-                    "hardware_id": hardware_id,
-                    "mode": "verify"
-                },
+                json=payload,
                 timeout=API_TIMEOUT
             )
 
@@ -136,7 +186,6 @@ class LicenseValidator:
 
             if response.status_code == 200 and data.get("status") == "success":
                 license_info = data.get("license_info", {})
-                log_info("Msm_29_3: Проверка успешна")
                 return {
                     "status": "active",
                     "expires_at": license_info.get("expires_at"),
@@ -154,6 +203,10 @@ class LicenseValidator:
                 return {"status": "expired", "expires_at": data.get("expired_at")}
             elif error_code == "HARDWARE_MISMATCH":
                 return {"status": "hardware_mismatch"}
+            elif error_code == "INVALID_SIGNATURE":
+                return {"status": "error", "message": "Ошибка подписи запроса"}
+            elif error_code == "EXPIRED_TIMESTAMP":
+                return {"status": "error", "message": "Запрос устарел, проверьте время на ПК"}
             else:
                 return {"status": "error", "message": message}
 
@@ -175,12 +228,11 @@ class LicenseValidator:
                 return {"status": "error", "message": "requests library not available"}
 
             url = f"{self.base_url}?action=deactivate"
+            payload = self._build_signed_payload(api_key, hardware_id)
+
             response = session.post(
                 url,
-                json={
-                    "api_key": api_key,
-                    "hardware_id": hardware_id
-                },
+                json=payload,
                 timeout=API_TIMEOUT
             )
 

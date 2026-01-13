@@ -220,7 +220,7 @@ class Fsm_1_2_4_FgislkLoader:
             # Ищем слой границ
             layers = QgsProject.instance().mapLayersByName('L_1_1_1_Границы_работ')
             if not layers:
-                log_error("Fsm_1_2_4: Слой L_1_1_1_Границы_работ не найден! Загрузка ФГИС ЛК невозможна.")
+                log_warning("Fsm_1_2_4: Слой L_1_1_1_Границы_работ не найден. Загрузка ФГИС ЛК невозможна.")
                 return None
 
             layer = layers[0]

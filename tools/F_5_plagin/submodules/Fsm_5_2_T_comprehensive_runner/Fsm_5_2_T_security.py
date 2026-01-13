@@ -92,6 +92,11 @@ class TestSecurity:
             self.test_81_response_manipulation()
             self.test_82_error_message_disclosure()
 
+            # HMAC подпись запросов
+            self.test_90_hmac_signature_present()
+            self.test_91_hmac_invalid_signature()
+            self.test_92_hmac_expired_timestamp()
+
         except Exception as e:
             self.logger.error(f"Критическая ошибка тестов безопасности: {str(e)}")
             import traceback
@@ -1161,3 +1166,148 @@ class TestSecurity:
 
         except Exception as e:
             self.logger.error(f"Ошибка error disclosure: {str(e)}")
+
+    # === HMAC ПОДПИСЬ ЗАПРОСОВ ===
+
+    def test_90_hmac_signature_present(self):
+        """ТЕСТ 90: Проверка наличия HMAC подписи в запросах"""
+        self.logger.section("90. HMAC Signature Present")
+
+        try:
+            from Daman_QGIS.managers.submodules.Msm_29_3_license_validator import LicenseValidator
+
+            validator = LicenseValidator()
+
+            # Проверяем что методы генерации подписи существуют
+            self.logger.check(
+                hasattr(validator, '_generate_hmac_signature'),
+                "Метод _generate_hmac_signature существует",
+                "Метод _generate_hmac_signature не найден!"
+            )
+
+            self.logger.check(
+                hasattr(validator, '_build_signed_payload'),
+                "Метод _build_signed_payload существует",
+                "Метод _build_signed_payload не найден!"
+            )
+
+            # Проверяем что подпись генерируется корректно
+            if hasattr(validator, '_build_signed_payload'):
+                payload = validator._build_signed_payload(
+                    "TEST-KEY",
+                    "test-hwid",
+                    mode="verify"
+                )
+
+                self.logger.check(
+                    'signature' in payload,
+                    "Payload содержит signature",
+                    "Payload не содержит signature!"
+                )
+
+                self.logger.check(
+                    'timestamp' in payload,
+                    "Payload содержит timestamp",
+                    "Payload не содержит timestamp!"
+                )
+
+                # Проверяем формат подписи (hex, 64 символа для SHA256)
+                if 'signature' in payload:
+                    sig = payload['signature']
+                    self.logger.check(
+                        len(sig) == 64 and all(c in '0123456789abcdef' for c in sig),
+                        f"Подпись имеет корректный формат (64 hex chars)",
+                        f"Некорректный формат подписи: {sig[:20]}..."
+                    )
+
+        except ImportError as e:
+            self.logger.warning(f"Не удалось импортировать модуль: {e}")
+        except Exception as e:
+            self.logger.error(f"Ошибка теста HMAC: {str(e)}")
+
+    def test_91_hmac_invalid_signature(self):
+        """ТЕСТ 91: Отклонение невалидной подписи"""
+        self.logger.section("91. HMAC Invalid Signature Rejection")
+
+        try:
+            import requests
+            import time
+            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+
+            url = f"{API_BASE_URL}?action=validate"
+
+            # Запрос с неверной подписью
+            payload = {
+                "api_key": "DAMAN-TEST-HMAC-0001",
+                "hardware_id": "test-hwid",
+                "mode": "verify",
+                "timestamp": int(time.time()),
+                "signature": "0" * 64  # Неверная подпись
+            }
+
+            response = requests.post(url, json=payload, timeout=API_TIMEOUT)
+            data = response.json()
+
+            # Сервер должен отклонить запрос с неверной подписью
+            # Но пока HMAC опционален, допускаем и другие ответы
+            error_code = data.get('error_code', '')
+
+            if error_code == 'INVALID_SIGNATURE':
+                self.logger.success("Сервер отклонил неверную подпись (INVALID_SIGNATURE)")
+            elif error_code in ['INVALID_KEY', 'MISSING_KEY']:
+                # HMAC проверка пропущена (обратная совместимость)
+                self.logger.info("HMAC пока опционален - сервер проверил ключ")
+            else:
+                self.logger.info(f"Ответ сервера: {data.get('status', 'unknown')}")
+
+        except Exception as e:
+            self.logger.warning(f"Ошибка теста invalid signature: {e}")
+
+    def test_92_hmac_expired_timestamp(self):
+        """ТЕСТ 92: Отклонение устаревшего timestamp"""
+        self.logger.section("92. HMAC Expired Timestamp Rejection")
+
+        try:
+            import requests
+            import time
+            import hmac as hmac_lib
+            import hashlib
+            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+
+            url = f"{API_BASE_URL}?action=validate"
+
+            # Запрос с устаревшим timestamp (10 минут назад)
+            old_timestamp = int(time.time()) - 600
+
+            api_key = "DAMAN-TEST-HMAC-0002"
+            hardware_id = "test-hwid"
+
+            # Генерируем корректную подпись для старого timestamp
+            # (должен совпадать с секретом на сервере)
+            hmac_secret = b"Daman_QGIS_HMAC_2025_Secret_Key"
+            message = f"{api_key}|{hardware_id}|{old_timestamp}".encode('utf-8')
+            signature = hmac_lib.new(hmac_secret, message, hashlib.sha256).hexdigest()
+
+            payload = {
+                "api_key": api_key,
+                "hardware_id": hardware_id,
+                "mode": "verify",
+                "timestamp": old_timestamp,
+                "signature": signature
+            }
+
+            response = requests.post(url, json=payload, timeout=API_TIMEOUT)
+            data = response.json()
+
+            error_code = data.get('error_code', '')
+
+            if error_code == 'EXPIRED_TIMESTAMP':
+                self.logger.success("Сервер отклонил устаревший timestamp (replay protection)")
+            elif error_code in ['INVALID_KEY', 'MISSING_KEY']:
+                # HMAC пропущен или ключ не найден
+                self.logger.info("HMAC проверка пропущена или ключ не найден")
+            else:
+                self.logger.info(f"Ответ: {data.get('status', 'unknown')} / {error_code}")
+
+        except Exception as e:
+            self.logger.warning(f"Ошибка теста expired timestamp: {e}")

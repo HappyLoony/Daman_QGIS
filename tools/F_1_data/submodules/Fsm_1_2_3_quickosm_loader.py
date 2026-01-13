@@ -116,7 +116,7 @@ class Fsm_1_2_3_QuickOSMLoader:
             layers = QgsProject.instance().mapLayersByName('L_1_1_3_Границы_работ_500_м')
 
             if not layers:
-                log_error("Fsm_1_2_3: Слой L_1_1_3_Границы_работ_500_м не найден! Загрузка невозможна.")
+                log_warning("Fsm_1_2_3: Слой L_1_1_3_Границы_работ_500_м не найден. Загрузка невозможна.")
                 return None
 
             layer = layers[0]

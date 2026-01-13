@@ -9,30 +9,44 @@ Msm_29_2_LicenseStorage - Хранение лицензионных данных
 - Hardware ID (fallback файл)
 - Компоненты оборудования
 
-Данные хранятся в профиле QGIS в обфусцированном виде.
+Шифрование: AES-256-GCM (если cryptography доступна) или XOR fallback.
 """
 
 import json
 import os
+import hashlib
+import secrets
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta, timezone
 
 from qgis.core import QgsApplication
 
-from ...utils import log_info, log_error
+from ...utils import log_info, log_error, log_warning
+
+# Попытка импорта cryptography для AES-256-GCM
+try:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    HAS_CRYPTOGRAPHY = True
+except ImportError:
+    HAS_CRYPTOGRAPHY = False
 
 
 class LicenseStorage:
     """
     Хранение лицензионных данных.
 
-    Данные хранятся в профиле QGIS в обфусцированном виде.
+    Шифрование: AES-256-GCM (предпочтительно) или XOR (fallback).
+    Ключ шифрования генерируется из machine-specific данных.
     """
+
+    # Версия формата хранения (для миграции)
+    STORAGE_VERSION = 2
 
     def __init__(self):
         self._storage_path: Optional[Path] = None
         self._data: Dict[str, Any] = {}
+        self._encryption_key: Optional[bytes] = None
 
     def initialize(self) -> bool:
         """Инициализация хранилища."""
@@ -42,25 +56,59 @@ class LicenseStorage:
             storage_dir.mkdir(parents=True, exist_ok=True)
 
             self._storage_path = storage_dir / "license.dat"
+
+            # Генерируем ключ шифрования из machine-specific данных
+            self._encryption_key = self._derive_encryption_key()
+
             self._load()
 
-            log_info("Msm_29_2: Storage initialized")
+            if HAS_CRYPTOGRAPHY:
+                log_info("Msm_29_2: Storage initialized (AES-256-GCM)")
+            else:
+                log_warning("Msm_29_2: Storage initialized (XOR fallback - install cryptography for better security)")
+
             return True
 
         except Exception as e:
             log_error(f"Msm_29_2: Failed to initialize storage: {e}")
             return False
 
+    def _derive_encryption_key(self) -> bytes:
+        """
+        Генерация ключа шифрования из machine-specific данных.
+
+        Использует комбинацию:
+        - Путь к профилю QGIS (уникален для пользователя)
+        - Имя компьютера
+        - Имя пользователя
+        """
+        import platform
+        import getpass
+
+        # Собираем machine-specific данные
+        components = [
+            str(self._storage_path.parent) if self._storage_path else "",
+            platform.node(),  # Имя компьютера
+            getpass.getuser(),  # Имя пользователя
+            "DamanQGIS_v2",  # Salt
+        ]
+
+        # Генерируем 256-bit ключ через SHA-256
+        combined = "|".join(components).encode('utf-8')
+        return hashlib.sha256(combined).digest()
+
     def _load(self):
         """Загрузка данных из файла."""
         if self._storage_path and self._storage_path.exists():
             try:
-                # Данные хранятся в обфусцированном виде
                 with open(self._storage_path, "rb") as f:
                     encrypted = f.read()
 
-                decrypted = self._deobfuscate(encrypted)
+                decrypted = self._decrypt(encrypted)
                 self._data = json.loads(decrypted)
+
+                # Проверяем нужна ли миграция на новый формат
+                self._migrate_if_needed(encrypted)
 
             except Exception as e:
                 log_error(f"Msm_29_2: Failed to load license data: {e}")
@@ -71,7 +119,7 @@ class LicenseStorage:
         if self._storage_path:
             try:
                 json_data = json.dumps(self._data, ensure_ascii=False)
-                encrypted = self._obfuscate(json_data)
+                encrypted = self._encrypt(json_data)
 
                 with open(self._storage_path, "wb") as f:
                     f.write(encrypted)
@@ -79,31 +127,94 @@ class LicenseStorage:
             except Exception as e:
                 log_error(f"Msm_29_2: Failed to save license data: {e}")
 
-    def _obfuscate(self, data: str) -> bytes:
+    def _migrate_if_needed(self, old_data: bytes):
         """
-        Обфускация данных.
+        Миграция на новый формат шифрования если нужно.
 
-        Простое XOR шифрование - не криптографически стойкое,
-        но достаточное для защиты от случайного просмотра.
+        Автоматически перешифровывает данные с XOR на AES-256-GCM.
         """
-        key = b"DamanQGIS2025Key"
+        if not old_data:
+            return
+
+        version = old_data[0]
+
+        # Если старый формат и AES доступен - мигрируем
+        if version < self.STORAGE_VERSION and HAS_CRYPTOGRAPHY:
+            log_info("Msm_29_2: Migrating to AES-256-GCM encryption")
+            self._save()  # Перезаписываем с новым шифрованием
+
+    def _encrypt(self, data: str) -> bytes:
+        """
+        Шифрование данных.
+
+        AES-256-GCM если доступна cryptography, иначе XOR fallback.
+        Формат: version(1) + nonce(12) + ciphertext
+        """
         data_bytes = data.encode('utf-8')
-        result = bytearray()
 
-        for i, byte in enumerate(data_bytes):
-            result.append(byte ^ key[i % len(key)])
+        if HAS_CRYPTOGRAPHY and self._encryption_key:
+            # AES-256-GCM
+            nonce = secrets.token_bytes(12)  # 96-bit nonce для GCM
+            aesgcm = AESGCM(self._encryption_key)
+            ciphertext = aesgcm.encrypt(nonce, data_bytes, None)
 
-        return bytes(result)
+            # version(1 byte) + nonce(12 bytes) + ciphertext
+            return bytes([self.STORAGE_VERSION]) + nonce + ciphertext
+        else:
+            # XOR fallback (legacy)
+            return bytes([1]) + self._xor_encrypt(data_bytes)
 
-    def _deobfuscate(self, data: bytes) -> str:
-        """Деобфускация данных."""
+    def _decrypt(self, data: bytes) -> str:
+        """
+        Расшифровка данных.
+
+        Автоматически определяет версию формата.
+        """
+        if not data:
+            return "{}"
+
+        version = data[0]
+
+        if version == self.STORAGE_VERSION and HAS_CRYPTOGRAPHY and self._encryption_key:
+            # AES-256-GCM (version 2)
+            nonce = data[1:13]
+            ciphertext = data[13:]
+            aesgcm = AESGCM(self._encryption_key)
+            plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+            return plaintext.decode('utf-8')
+
+        elif version == 1:
+            # XOR (version 1 - legacy)
+            return self._xor_decrypt(data[1:])
+
+        else:
+            # Старый формат без версии (до миграции)
+            return self._xor_decrypt(data)
+
+    def _xor_encrypt(self, data: bytes) -> bytes:
+        """XOR шифрование (fallback)."""
         key = b"DamanQGIS2025Key"
         result = bytearray()
-
         for i, byte in enumerate(data):
             result.append(byte ^ key[i % len(key)])
+        return bytes(result)
 
+    def _xor_decrypt(self, data: bytes) -> str:
+        """XOR расшифровка (fallback)."""
+        key = b"DamanQGIS2025Key"
+        result = bytearray()
+        for i, byte in enumerate(data):
+            result.append(byte ^ key[i % len(key)])
         return result.decode('utf-8')
+
+    # Legacy aliases for compatibility
+    def _obfuscate(self, data: str) -> bytes:
+        """Legacy alias."""
+        return self._encrypt(data)
+
+    def _deobfuscate(self, data: bytes) -> str:
+        """Legacy alias."""
+        return self._decrypt(data)
 
     # === API Key ===
 
