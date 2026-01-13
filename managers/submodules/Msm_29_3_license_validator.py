@@ -7,38 +7,18 @@ Msm_29_3_LicenseValidator - Валидатор лицензии через API �
 - Проверку существующей лицензии
 - Деактивацию лицензии
 
-MOCK MODE: Когда API сервер недоступен, используется mock режим для тестирования.
+SIMULATION MODE: Использует Base_licenses.json с GitHub Raw для симуляции работы сервера.
+Когда API сервер будет готов, переключить USE_REMOTE_LICENSES = False.
 """
 
-import hashlib
-import time
-from typing import Dict, Any, Optional
+from datetime import datetime
+from typing import Dict, Any, Optional, List
 
 from ...constants import API_BASE_URL, API_TIMEOUT
 from ...utils import log_info, log_error, log_warning
 
-# Флаг mock режима (True пока нет реального сервера)
-MOCK_MODE = True
-
-# Mock данные для тестирования
-MOCK_LICENSES = {
-    "DAMAN-B4E2-B0F9-4796": {
-        "status": "active",
-        "subscription_type": "Бессрочно",
-        "expires_at": None,
-        "user_name": "Плахотнюк А.А.",
-        "user_email": "sashaplahot@gmail.com",
-        "features": ["basic", "export_dxf", "export_tab"]
-    },
-    "DAMAN-TEST-TEST-TEST": {
-        "status": "active",
-        "subscription_type": "Месяц",
-        "expires_at": "2025-12-31T23:59:59Z",
-        "user_name": "Test User",
-        "user_email": "test@example.com",
-        "features": ["basic"]
-    }
-}
+# Флаг режима симуляции через Base_licenses.json (True пока нет реального сервера)
+USE_REMOTE_LICENSES = True
 
 # Mock public key (для тестирования, НЕ использовать в production)
 MOCK_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
@@ -52,13 +32,113 @@ class LicenseValidator:
     """
     Валидатор лицензии через API сервер.
 
-    В mock режиме эмулирует ответы сервера для тестирования.
+    В режиме симуляции (USE_REMOTE_LICENSES=True) загружает лицензии
+    из Base_licenses.json через BaseReferenceLoader.
     """
+
+    # Кэш лицензий (загружается один раз за сессию через BaseReferenceLoader)
+    _licenses_cache: Optional[Dict[str, Dict[str, Any]]] = None
 
     def __init__(self):
         self.base_url = API_BASE_URL
         self._session = None
-        self._mock_hardware_bindings: Dict[str, str] = {}  # api_key -> hardware_id
+        self._hardware_bindings: Dict[str, str] = {}  # api_key -> hardware_id
+
+    @classmethod
+    def _load_licenses(cls) -> Dict[str, Dict[str, Any]]:
+        """
+        Загрузка лицензий из Base_licenses.json через BaseReferenceLoader.
+
+        Returns:
+            Dict {api_key: license_data}
+        """
+        if cls._licenses_cache is not None:
+            return cls._licenses_cache
+
+        try:
+            from ...database.base_reference_loader import BaseReferenceLoader
+
+            loader = BaseReferenceLoader()
+            data = loader._load_json('Base_licenses.json')
+
+            if data is None:
+                log_warning("Msm_29_3: Base_licenses.json не найден, лицензирование недоступно")
+                cls._licenses_cache = {}
+                return cls._licenses_cache
+
+            # Преобразуем список в словарь по api_key
+            licenses = {}
+            for record in data:
+                api_key = record.get('api_key')
+                if api_key:
+                    licenses[api_key] = {
+                        "user_name": record.get('user_name'),
+                        "user_email": record.get('user_email'),
+                        "subscription_type": record.get('subscription_type'),
+                        "starts_at": record.get('starts_at'),
+                        "expires_at": record.get('expires_at'),
+                        "notes": record.get('notes'),
+                        "features": ["basic", "export_dxf", "export_tab"]  # Базовые функции
+                    }
+
+            cls._licenses_cache = licenses
+            log_info(f"Msm_29_3: Загружено {len(licenses)} лицензий из Base_licenses.json")
+            return cls._licenses_cache
+
+        except Exception as e:
+            log_error(f"Msm_29_3: Ошибка загрузки лицензий: {e}")
+            cls._licenses_cache = {}
+            return cls._licenses_cache
+
+    @classmethod
+    def clear_cache(cls):
+        """Очистить кэш лицензий."""
+        cls._licenses_cache = None
+
+    def _check_license_expiry(self, license_data: Dict[str, Any]) -> str:
+        """
+        Проверка срока действия лицензии.
+
+        Args:
+            license_data: Данные лицензии
+
+        Returns:
+            Статус: "active", "expired", "not_started"
+        """
+        subscription_type = license_data.get("subscription_type", "")
+        expires_at = license_data.get("expires_at")
+        starts_at = license_data.get("starts_at")
+
+        now = datetime.now()
+
+        # Проверка даты начала
+        if starts_at:
+            try:
+                start_date = datetime.strptime(starts_at.split()[0], "%Y-%m-%d")
+                if now < start_date:
+                    return "not_started"
+            except (ValueError, TypeError):
+                pass
+
+        # Бессрочная лицензия
+        if subscription_type == "Бессрочно" or expires_at is None:
+            return "active"
+
+        # Проверка срока истечения
+        if expires_at:
+            try:
+                # Поддержка формата "YYYY-MM-DD" и "YYYY-MM-DDTHH:MM:SSZ"
+                if "T" in str(expires_at):
+                    expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00").replace("+00:00", ""))
+                else:
+                    expiry = datetime.strptime(expires_at, "%Y-%m-%d")
+
+                if now > expiry:
+                    return "expired"
+            except (ValueError, TypeError) as e:
+                log_warning(f"Msm_29_3: Ошибка парсинга expires_at '{expires_at}': {e}")
+
+        return "active"
 
     def _get_session(self):
         """Ленивая инициализация requests session."""
@@ -81,13 +161,13 @@ class LicenseValidator:
         Returns:
             Результат активации
         """
-        if MOCK_MODE:
-            return self._mock_activate(api_key, hardware_id)
+        if USE_REMOTE_LICENSES:
+            return self._simulate_activate(api_key, hardware_id)
 
         try:
             session = self._get_session()
             if not session:
-                return self._mock_activate(api_key, hardware_id)
+                return self._simulate_activate(api_key, hardware_id)
 
             response = session.post(
                 f"{self.base_url}/api/v1/license/activate",
@@ -130,29 +210,50 @@ class LicenseValidator:
 
         except Exception as e:
             log_error(f"Msm_29_3: Activation request failed: {e}")
-            # Fallback to mock mode
-            return self._mock_activate(api_key, hardware_id)
+            # Fallback to simulation mode
+            return self._simulate_activate(api_key, hardware_id)
 
-    def _mock_activate(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
-        """Mock активация для тестирования."""
-        log_info("Msm_29_3: Using MOCK activation")
+    def _simulate_activate(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
+        """
+        Симуляция активации через Base_licenses.json.
+
+        Загружает лицензии с GitHub Raw и проверяет ключ.
+        """
+        log_info("Msm_29_3: Using SIMULATION activation (Base_licenses.json)")
+
+        # Загружаем лицензии
+        licenses = self._load_licenses()
 
         # Проверяем ключ
-        license_data = MOCK_LICENSES.get(api_key)
+        license_data = licenses.get(api_key)
         if not license_data:
             return {"status": "invalid_key"}
 
-        # Проверяем привязку
-        existing_hwid = self._mock_hardware_bindings.get(api_key)
+        # Проверяем срок действия
+        status = self._check_license_expiry(license_data)
+        if status == "expired":
+            return {"status": "expired", "expires_at": license_data.get("expires_at")}
+        if status == "not_started":
+            return {"status": "error", "message": "Лицензия ещё не активна"}
+
+        # Проверяем привязку (в памяти для симуляции)
+        existing_hwid = self._hardware_bindings.get(api_key)
         if existing_hwid and existing_hwid != hardware_id:
             return {"status": "already_bound"}
 
         # Привязываем
-        self._mock_hardware_bindings[api_key] = hardware_id
+        self._hardware_bindings[api_key] = hardware_id
 
         return {
             "status": "success",
-            "license_info": license_data,
+            "license_info": {
+                "status": "active",
+                "subscription_type": license_data.get("subscription_type"),
+                "expires_at": license_data.get("expires_at"),
+                "user_name": license_data.get("user_name"),
+                "user_email": license_data.get("user_email"),
+                "features": license_data.get("features", [])
+            },
             "public_key": MOCK_PUBLIC_KEY
         }
 
@@ -167,13 +268,13 @@ class LicenseValidator:
         Returns:
             Результат проверки
         """
-        if MOCK_MODE:
-            return self._mock_verify(api_key, hardware_id)
+        if USE_REMOTE_LICENSES:
+            return self._simulate_verify(api_key, hardware_id)
 
         try:
             session = self._get_session()
             if not session:
-                return self._mock_verify(api_key, hardware_id)
+                return self._simulate_verify(api_key, hardware_id)
 
             response = session.post(
                 f"{self.base_url}/api/v1/auth/verify",
@@ -221,30 +322,50 @@ class LicenseValidator:
 
         except Exception as e:
             log_error(f"Msm_29_3: Verification request failed: {e}")
-            return self._mock_verify(api_key, hardware_id)
+            return self._simulate_verify(api_key, hardware_id)
 
-    def _mock_verify(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
-        """Mock проверка для тестирования."""
-        log_info("Msm_29_3: Using MOCK verification")
+    def _simulate_verify(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
+        """
+        Симуляция проверки лицензии через Base_licenses.json.
+        """
+        log_info("Msm_29_3: Using SIMULATION verification (Base_licenses.json)")
 
-        license_data = MOCK_LICENSES.get(api_key)
+        # Загружаем лицензии
+        licenses = self._load_licenses()
+
+        license_data = licenses.get(api_key)
         if not license_data:
             return {"status": "invalid_key"}
 
-        # Проверяем привязку (если уже активирован)
-        existing_hwid = self._mock_hardware_bindings.get(api_key)
+        # Проверяем привязку (если уже активирован в этой сессии)
+        existing_hwid = self._hardware_bindings.get(api_key)
         if existing_hwid and existing_hwid != hardware_id:
             return {"status": "hardware_mismatch"}
 
         # Автоматически привязываем если ещё не привязан
         if not existing_hwid:
-            self._mock_hardware_bindings[api_key] = hardware_id
+            self._hardware_bindings[api_key] = hardware_id
+
+        # Проверяем срок действия
+        status = self._check_license_expiry(license_data)
+        if status == "expired":
+            return {
+                "status": "expired",
+                "expires_at": license_data.get("expires_at")
+            }
 
         return {
-            "status": license_data.get("status", "active"),
+            "status": "active",
             "expires_at": license_data.get("expires_at"),
             "subscription_type": license_data.get("subscription_type"),
-            "license_info": license_data,
+            "license_info": {
+                "status": "active",
+                "subscription_type": license_data.get("subscription_type"),
+                "expires_at": license_data.get("expires_at"),
+                "user_name": license_data.get("user_name"),
+                "user_email": license_data.get("user_email"),
+                "features": license_data.get("features", [])
+            },
             "public_key": MOCK_PUBLIC_KEY
         }
 
@@ -254,13 +375,13 @@ class LicenseValidator:
 
         Освобождает привязку к Hardware ID.
         """
-        if MOCK_MODE:
-            return self._mock_deactivate(api_key, hardware_id)
+        if USE_REMOTE_LICENSES:
+            return self._simulate_deactivate(api_key, hardware_id)
 
         try:
             session = self._get_session()
             if not session:
-                return self._mock_deactivate(api_key, hardware_id)
+                return self._simulate_deactivate(api_key, hardware_id)
 
             response = session.post(
                 f"{self.base_url}/api/v1/license/deactivate",
@@ -281,18 +402,20 @@ class LicenseValidator:
 
         except Exception as e:
             log_error(f"Msm_29_3: Deactivation request failed: {e}")
-            return self._mock_deactivate(api_key, hardware_id)
+            return self._simulate_deactivate(api_key, hardware_id)
 
-    def _mock_deactivate(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
-        """Mock деактивация для тестирования."""
-        log_info("Msm_29_3: Using MOCK deactivation")
+    def _simulate_deactivate(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
+        """
+        Симуляция деактивации лицензии.
+        """
+        log_info("Msm_29_3: Using SIMULATION deactivation (Base_licenses.json)")
 
-        existing_hwid = self._mock_hardware_bindings.get(api_key)
+        existing_hwid = self._hardware_bindings.get(api_key)
         if existing_hwid != hardware_id:
             return {"status": "error", "message": "Hardware ID mismatch"}
 
         # Удаляем привязку
-        self._mock_hardware_bindings.pop(api_key, None)
+        self._hardware_bindings.pop(api_key, None)
         return {"status": "success"}
 
     def report_hardware_change(
@@ -307,8 +430,8 @@ class LicenseValidator:
 
         Отправляется разработчику для рассмотрения.
         """
-        if MOCK_MODE:
-            log_info(f"Msm_29_3: MOCK hardware change report - components: {changed_components}")
+        if USE_REMOTE_LICENSES:
+            log_info(f"Msm_29_3: SIMULATION hardware change report - components: {changed_components}")
             return {"status": "reported"}
 
         try:
