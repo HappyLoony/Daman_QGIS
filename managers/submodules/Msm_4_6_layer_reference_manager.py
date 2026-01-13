@@ -15,25 +15,15 @@ class LayerReferenceManager(BaseReferenceLoader):
 
     def get_base_layers(self) -> List[Dict]:
         """
-        Получить иерархическую структуру слоев БЕЗ кэширования
+        Получить иерархическую структуру слоев
 
-        ВАЖНО: Данные всегда загружаются с диска для получения актуальных стилей.
-        Любые изменения в Base_layers.json применяются немедленно.
+        Использует BaseReferenceLoader._load_json() для remote/local загрузки.
+        Данные кэшируются в памяти после первой загрузки.
 
         Returns:
             Список слоев с их параметрами
         """
-        filepath = os.path.join(self.reference_dir, self.FILE_NAME)
-
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            log_warning(f"Msm_4_6: Файл Base_layers.json не найден: {filepath}")
-            return []
-        except json.JSONDecodeError as e:
-            log_error(f"Msm_4_6: Ошибка чтения Base_layers.json: {filepath} - {str(e)}")
-            return []
+        return self._load_json(self.FILE_NAME) or []
 
     def get_layer_params(self) -> Dict:
         """

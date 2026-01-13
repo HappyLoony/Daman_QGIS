@@ -15,25 +15,15 @@ class LabelReferenceManager(BaseReferenceLoader):
 
     def get_all_labels(self) -> List[Dict]:
         """
-        Получить все настройки подписей БЕЗ кэширования
+        Получить все настройки подписей
 
-        ВАЖНО: Данные всегда загружаются с диска для получения актуальных настроек.
-        Любые изменения в Base_labels.json применяются немедленно.
+        Использует BaseReferenceLoader._load_json() для remote/local загрузки.
+        Данные кэшируются в памяти после первой загрузки.
 
         Returns:
             Список настроек подписей для слоёв
         """
-        filepath = os.path.join(self.reference_dir, self.FILE_NAME)
-
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            log_warning(f"Msm_4_15: Файл Base_labels.json не найден: {filepath}")
-            return []
-        except json.JSONDecodeError as e:
-            log_error(f"Msm_4_15: Ошибка чтения Base_labels.json: {filepath} - {str(e)}")
-            return []
+        return self._load_json(self.FILE_NAME) or []
 
     def get_label_config(self, full_name: str) -> Optional[Dict]:
         """
