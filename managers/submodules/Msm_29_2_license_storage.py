@@ -16,7 +16,7 @@ import json
 import os
 from pathlib import Path
 from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from qgis.core import QgsApplication
 
@@ -212,7 +212,7 @@ class LicenseStorage:
 
     def save_last_verification(self):
         """Сохранение времени проверки."""
-        self._data["last_verification"] = datetime.utcnow().isoformat()
+        self._data["last_verification"] = datetime.now(timezone.utc).isoformat()
         self._save()
 
     def has_valid_cache(self) -> bool:
@@ -228,7 +228,10 @@ class LicenseStorage:
 
         try:
             last_check_time = datetime.fromisoformat(last_check)
-            cache_age = datetime.utcnow() - last_check_time
+            # Если нет timezone info, добавляем UTC
+            if last_check_time.tzinfo is None:
+                last_check_time = last_check_time.replace(tzinfo=timezone.utc)
+            cache_age = datetime.now(timezone.utc) - last_check_time
             return cache_age < timedelta(hours=24)
         except Exception:
             return False
