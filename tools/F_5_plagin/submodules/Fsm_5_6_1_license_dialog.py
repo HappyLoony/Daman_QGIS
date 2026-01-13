@@ -209,6 +209,10 @@ class LicenseDialog(QDialog):
             current_text.startswith("DAMAN-") and
             current_text.count("-") == 3
         )
+
+        # DEBUG
+        log_info(f"Fsm_5_6_1: key='{current_text}', len={len(current_text)}, starts={current_text.startswith('DAMAN-')}, dashes={current_text.count('-')}, valid={is_valid}")
+
         self.activate_btn.setEnabled(is_valid)
 
     def refresh_status(self):
