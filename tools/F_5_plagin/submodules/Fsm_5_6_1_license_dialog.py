@@ -140,7 +140,7 @@ class LicenseDialog(QDialog):
         key_layout = QHBoxLayout()
         self.key_input = QLineEdit()
         self.key_input.setPlaceholderText("DAMAN-XXXX-XXXX-XXXX")
-        self.key_input.setMaxLength(19)  # DAMAN-XXXX-XXXX-XXXX
+        # Не ограничиваем maxLength - форматирование само обрежет лишнее
         self.key_input.textChanged.connect(self._format_key_input)
         key_layout.addWidget(self.key_input)
 
@@ -190,37 +190,22 @@ class LicenseDialog(QDialog):
         return group
 
     def _format_key_input(self, text: str):
-        """Автоформатирование ввода ключа"""
-        # Убираем все кроме букв и цифр
-        clean = ''.join(c.upper() for c in text if c.isalnum())
-
-        # Форматируем с дефисами
-        parts = []
-        if len(clean) >= 5:
-            parts.append(clean[:5])  # DAMAN
-            clean = clean[5:]
-        else:
-            parts.append(clean)
-            clean = ''
-
-        while clean:
-            parts.append(clean[:4])
-            clean = clean[4:]
-
-        formatted = '-'.join(parts)
-
-        # Обновляем поле без триггера сигнала
-        if formatted != text:
+        """Валидация ввода ключа (без автоформатирования)"""
+        # Приводим к верхнему регистру
+        upper_text = text.upper()
+        if upper_text != text:
             self.key_input.blockSignals(True)
             cursor_pos = self.key_input.cursorPosition()
-            self.key_input.setText(formatted)
-            # Корректируем позицию курсора
-            new_pos = min(cursor_pos + (len(formatted) - len(text)), len(formatted))
-            self.key_input.setCursorPosition(new_pos)
+            self.key_input.setText(upper_text)
+            self.key_input.setCursorPosition(cursor_pos)
             self.key_input.blockSignals(False)
 
-        # Активируем кнопку если ключ полный
-        is_valid = len(formatted) == 19 and formatted.startswith("DAMAN-")
+        # Активируем кнопку если ключ в правильном формате: DAMAN-XXXX-XXXX-XXXX
+        is_valid = (
+            len(upper_text) == 19 and
+            upper_text.startswith("DAMAN-") and
+            upper_text.count("-") == 3
+        )
         self.activate_btn.setEnabled(is_valid)
 
     def refresh_status(self):
