@@ -86,13 +86,17 @@ class WorkTypeAssignmentManager:
         if self._loaded:
             return True
 
-        # Загрузка Work_types.json
+        # Загрузка Work_types.json через WorkTypeReferenceManager
+        from Daman_QGIS.managers.submodules.Msm_4_2_work_type_reference_manager import WorkTypeReferenceManager
         from Daman_QGIS.constants import DATA_REFERENCE_PATH
-        work_types_path = os.path.join(DATA_REFERENCE_PATH, 'Work_types.json')
 
         try:
-            with open(work_types_path, 'r', encoding='utf-8') as f:
-                self._work_types_data = json.load(f)
+            work_type_manager = WorkTypeReferenceManager(DATA_REFERENCE_PATH)
+            self._work_types_data = work_type_manager.get_work_types()
+
+            if not self._work_types_data:
+                log_error("M_22: Work_types.json пуст или не найден")
+                return False
 
             # Строим индекс по vedomost_value
             for wt in self._work_types_data:

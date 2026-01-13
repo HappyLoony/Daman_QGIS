@@ -60,12 +60,19 @@ class VRIAssignmentManager:
         if self._loaded:
             return True
 
-        from Daman_QGIS.constants import DATA_REFERENCE_PATH
-        json_path = os.path.join(DATA_REFERENCE_PATH, 'VRI.json')
-
         try:
-            with open(json_path, 'r', encoding='utf-8') as f:
-                self._vri_data = json.load(f)
+            # Используем BaseReferenceLoader для remote/local загрузки
+            from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
+            from Daman_QGIS.constants import DATA_REFERENCE_PATH
+
+            loader = BaseReferenceLoader(DATA_REFERENCE_PATH)
+            data = loader._load_json('VRI.json')
+
+            if data is None:
+                log_error("M_21: VRI.json не найден ни на remote ни локально")
+                return False
+
+            self._vri_data = data
 
             # Строим индексы для быстрого поиска
             for vri in self._vri_data:

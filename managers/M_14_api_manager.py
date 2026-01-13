@@ -73,14 +73,19 @@ class APIManager:
         self._load_database()
 
     def _load_database(self) -> None:
-        """Загрузка базы данных endpoints из JSON"""
+        """Загрузка базы данных endpoints из JSON (через BaseReferenceLoader для remote/local)"""
         try:
-            if not os.path.exists(self._db_path):
-                log_error(f"M_14_ApiManager: Base_api_endpoints.json не найден: {self._db_path}")
+            from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
+            from Daman_QGIS.constants import DATA_REFERENCE_PATH
+
+            loader = BaseReferenceLoader(DATA_REFERENCE_PATH)
+            data = loader._load_json('Base_api_endpoints.json')
+
+            if data is None:
+                log_error("M_14_ApiManager: Base_api_endpoints.json не найден ни на remote ни локально")
                 return
 
-            with open(self._db_path, 'r', encoding='utf-8') as f:
-                self._endpoints = json.load(f)
+            self._endpoints = data
 
             # Построение кэшей для быстрого доступа
             for endpoint in self._endpoints:

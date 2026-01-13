@@ -1,30 +1,31 @@
 # -*- coding: utf-8 -*-
 """
-Базовый класс для загрузки справочных данных из JSON файлов.
+Базовый класс для загрузки справочных данных из JSON файлов с GitHub Raw.
+
+Требует интернет-соединение. Кэширование только в памяти на время сессии.
 
 Предоставляет общую функциональность для всех менеджеров справочных данных:
-- Загрузка JSON с кэшированием
+- Загрузка JSON с GitHub Raw
+- Кэширование в памяти на время сессии
 - Построение индексов для быстрого поиска
-- Управление кэшем
 """
 
-import os
 import json
-from pathlib import Path
 from typing import Dict, List, Any, Optional
 from Daman_QGIS.utils import log_warning, log_error, log_info
 
 
 class BaseReferenceLoader:
-    """Базовый класс для загрузки и кэширования справочных данных из JSON"""
+    """Базовый класс для загрузки справочных данных с GitHub Raw"""
 
-    def __init__(self, reference_dir: str):
+    def __init__(self, reference_dir: str = None):
         """
         Инициализация базового загрузчика
 
         Args:
-            reference_dir: Путь к директории со справочными JSON файлами
+            reference_dir: Не используется (для совместимости с API)
         """
+        # reference_dir сохраняется для совместимости, но не используется
         self.reference_dir = reference_dir
 
         # Кэш для загруженных данных {filename: data}
@@ -35,12 +36,9 @@ class BaseReferenceLoader:
 
     def _load_json(self, filename: str) -> Any:
         """
-        Загружает JSON файл с кэшированием.
+        Загружает JSON файл с GitHub Raw с кэшированием в памяти.
 
-        Режимы (DATA_REFERENCE_MODE):
-        - local: только локальные файлы
-        - remote: только HTTP (GitHub Raw)
-        - auto: remote с fallback на local
+        Требует интернет-соединение. Кэш хранится только на время сессии.
 
         Args:
             filename: Имя JSON файла
@@ -53,21 +51,12 @@ class BaseReferenceLoader:
             log_warning(f"Попытка загрузить не-JSON файл: {filename}")
             return None
 
-        # Проверяем кэш
+        # Проверяем кэш (в памяти на время сессии)
         if filename in self._cache:
             return self._cache[filename]
 
-        from Daman_QGIS.constants import DATA_REFERENCE_MODE
-
-        data = None
-
-        # Remote загрузка (для режимов 'remote' и 'auto')
-        if DATA_REFERENCE_MODE in ('remote', 'auto'):
-            data = self._load_from_remote(filename)
-
-        # Local загрузка (для 'local' или fallback в 'auto')
-        if data is None and DATA_REFERENCE_MODE in ('local', 'auto'):
-            data = self._load_from_local(filename)
+        # Загрузка с GitHub Raw (требует интернет)
+        data = self._load_from_remote(filename)
 
         if data is not None:
             self._cache[filename] = data
@@ -107,38 +96,6 @@ class BaseReferenceLoader:
             log_warning(f"BaseReferenceLoader: Ошибка сети при загрузке {filename}: {e}")
         except json.JSONDecodeError as e:
             log_error(f"BaseReferenceLoader: Ошибка парсинга JSON {filename}: {e}")
-
-        return None
-
-    def _load_from_local(self, filename: str) -> Optional[Any]:
-        """
-        Загрузить JSON из локальной файловой системы.
-
-        Args:
-            filename: Имя JSON файла
-
-        Returns:
-            Данные из файла или None при ошибке
-        """
-        base_path = Path(self.reference_dir).resolve()
-        filepath = (base_path / filename).resolve()
-
-        # Защита от path traversal
-        try:
-            filepath.relative_to(base_path)
-        except ValueError:
-            log_error(f"BaseReferenceLoader: Попытка path traversal: {filename}")
-            return None
-
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                log_info(f"BaseReferenceLoader: Загружен {filename} локально")
-                return data
-        except FileNotFoundError:
-            log_warning(f"Файл базы данных не найден: {filepath}")
-        except json.JSONDecodeError as e:
-            log_error(f"Ошибка чтения JSON: {filepath} - {str(e)}")
 
         return None
 

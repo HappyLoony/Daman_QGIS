@@ -45,15 +45,15 @@ class AttributeMapper:
             return cls._field_mapping_zu_cache
 
         try:
-            # Путь к базе данных
+            # Используем BaseReferenceLoader для remote/local загрузки
+            from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
             from Daman_QGIS.constants import DATA_REFERENCE_PATH
-            json_path = os.path.join(DATA_REFERENCE_PATH, 'Base_selection_ZU.json')
 
-            if not os.path.exists(json_path):
-                raise FileNotFoundError(f"Файл Base_selection_ZU.json не найден: {json_path}")
+            loader = BaseReferenceLoader(DATA_REFERENCE_PATH)
+            data = loader._load_json('Base_selection_ZU.json')
 
-            with open(json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            if data is None:
+                raise FileNotFoundError("Base_selection_ZU.json не найден ни на remote ни локально")
 
             # Строим маппинг: working_name -> wfs_zu_field
             mapping = {}
@@ -88,15 +88,15 @@ class AttributeMapper:
             return cls._field_mapping_oks_cache
 
         try:
-            # Путь к базе данных
+            # Используем BaseReferenceLoader для remote/local загрузки
+            from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
             from Daman_QGIS.constants import DATA_REFERENCE_PATH
-            json_path = os.path.join(DATA_REFERENCE_PATH, 'Base_selection_OKS.json')
 
-            if not os.path.exists(json_path):
-                raise FileNotFoundError(f"Файл Base_selection_OKS.json не найден: {json_path}")
+            loader = BaseReferenceLoader(DATA_REFERENCE_PATH)
+            data = loader._load_json('Base_selection_OKS.json')
 
-            with open(json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            if data is None:
+                raise FileNotFoundError("Base_selection_OKS.json не найден ни на remote ни локально")
 
             # Строим маппинг: working_name -> wfs_oks_field
             mapping = {}

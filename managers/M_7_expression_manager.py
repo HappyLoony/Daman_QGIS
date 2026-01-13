@@ -50,14 +50,15 @@ class ExpressionManager:
 
     def __init__(self):
         """Инициализация менеджера выражений"""
-        # Путь к файлу с выражениями
+        # Путь к файлу с выражениями (для локального fallback)
         from Daman_QGIS.constants import DATA_REFERENCE_PATH
         self.expressions_file = os.path.join(DATA_REFERENCE_PATH, 'Base_expressions.json')
+        self._reference_path = DATA_REFERENCE_PATH
 
         # Загружаем выражения
         self.expressions: Dict[str, str] = self._load()
 
-        log_debug(f"ExpressionManager: Загружено {len(self.expressions)} выражений из {os.path.basename(self.expressions_file)}")
+        log_debug(f"ExpressionManager: Загружено {len(self.expressions)} выражений")
 
     def _load(self) -> Dict[str, str]:
         """Загрузка выражений из JSON файла
@@ -65,13 +66,16 @@ class ExpressionManager:
         Returns:
             Словарь {expression_id: expression_string}
         """
-        if not os.path.exists(self.expressions_file):
-            log_warning(f"ExpressionManager: Файл {self.expressions_file} не найден, создаём пустой словарь")
-            return {}
-
         try:
-            with open(self.expressions_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            # Используем BaseReferenceLoader для remote/local загрузки
+            from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
+
+            loader = BaseReferenceLoader(self._reference_path)
+            data = loader._load_json('Base_expressions.json')
+
+            if data is None:
+                log_warning("ExpressionManager: Base_expressions.json не найден, создаём пустой словарь")
+                return {}
 
             # Проверяем что это словарь
             if not isinstance(data, dict):
@@ -99,9 +103,6 @@ class ExpressionManager:
 
             return valid_expressions
 
-        except json.JSONDecodeError as e:
-            log_error(f"ExpressionManager: Ошибка парсинга JSON: {str(e)}")
-            return {}
         except Exception as e:
             log_error(f"ExpressionManager: Ошибка загрузки выражений: {str(e)}")
             return {}
@@ -263,10 +264,15 @@ class ExpressionManager:
 
         # Определяем источник данных
         if include_raw:
-            # Читаем файл заново для полной проверки
+            # Читаем файл заново для полной проверки (через BaseReferenceLoader)
             try:
-                with open(self.expressions_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
+                from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
+
+                loader = BaseReferenceLoader(self._reference_path)
+                data = loader._load_json('Base_expressions.json')
+
+                if data is None:
+                    return [], [("_file_", "Base_expressions.json не найден ни на remote ни локально")]
                 if not isinstance(data, dict):
                     return [], [("_file_", f"Файл должен содержать словарь, получен {type(data)}")]
             except Exception as e:

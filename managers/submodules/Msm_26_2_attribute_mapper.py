@@ -61,17 +61,20 @@ class Msm_26_2_AttributeMapper:
         if self._schema is not None:
             return self._schema
 
-        from Daman_QGIS.constants import DATA_REFERENCE_PATH
-        json_path = os.path.join(DATA_REFERENCE_PATH, 'Base_cutting.json')
-
         try:
-            with open(json_path, 'r', encoding='utf-8') as f:
-                self._schema = json.load(f)
-            if self._schema is not None:
+            # Используем BaseReferenceLoader для remote/local загрузки
+            from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
+            from Daman_QGIS.constants import DATA_REFERENCE_PATH
+
+            loader = BaseReferenceLoader(DATA_REFERENCE_PATH)
+            data = loader._load_json('Base_cutting.json')
+
+            if data is not None:
+                self._schema = data
                 log_info(f"Msm_26_2: Загружена схема из Base_cutting.json ({len(self._schema)} полей)")
                 return self._schema
             else:
-                log_error("Msm_26_2: Base_cutting.json пуст или некорректен")
+                log_error("Msm_26_2: Base_cutting.json не найден")
                 return []
         except Exception as e:
             log_error(f"Msm_26_2: Ошибка загрузки Base_cutting.json: {e}")

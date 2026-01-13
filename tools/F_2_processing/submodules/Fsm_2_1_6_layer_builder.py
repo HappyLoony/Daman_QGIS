@@ -54,12 +54,15 @@ class Fsm_2_1_6_LayerBuilder:
         else:
             json_filename = 'Base_selection_OKS.json'
 
-        # Загружаем структуру из JSON
-        json_path = os.path.join(self.reference_dir, json_filename)
-
+        # Загружаем структуру из JSON (через BaseReferenceLoader для remote/local)
         try:
-            with open(json_path, 'r', encoding='utf-8') as f:
-                field_definitions = json.load(f)
+            from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
+
+            loader = BaseReferenceLoader(self.reference_dir)
+            field_definitions = loader._load_json(json_filename)
+
+            if field_definitions is None:
+                raise FileNotFoundError(f"{json_filename} не найден ни на remote ни локально")
         except Exception as e:
             log_error(f"Fsm_2_1_6: Не удалось загрузить {json_filename}: {str(e)}")
             raise ValueError(f"Не удалось загрузить структуру полей из {json_filename}")

@@ -306,19 +306,16 @@ class TestPluginLifecycle:
         self.logger.section("5. Проверка Base_Functions.json")
 
         try:
-            import json
-            import os
-
-            # Находим путь к Base_Functions.json
+            # Используем FunctionReferenceManager для remote загрузки
+            from Daman_QGIS.managers.submodules.Msm_4_5_function_reference_manager import FunctionReferenceManager
             from Daman_QGIS.constants import DATA_REFERENCE_PATH
-            json_path = os.path.join(DATA_REFERENCE_PATH, 'Base_Functions.json')
 
-            if not os.path.exists(json_path):
-                self.logger.fail(f"Base_Functions.json не найден: {json_path}")
+            func_manager = FunctionReferenceManager(DATA_REFERENCE_PATH)
+            functions = func_manager.get_all_functions()
+
+            if not functions:
+                self.logger.fail("Base_Functions.json не найден или пуст")
                 return
-
-            with open(json_path, 'r', encoding='utf-8') as f:
-                functions = json.load(f)
 
             if functions:
                 self.logger.success(f"Base_Functions.json содержит {len(functions)} функций")

@@ -224,15 +224,15 @@ class DocumentFactory:
             if hasattr(self.ref_managers, 'documents') and self.ref_managers.documents:
                 return self.ref_managers.documents.get_all_documents()
 
-            # Fallback: загружаем напрямую
-            import json
-            import os
+            # Fallback: используем BaseReferenceLoader для remote/local загрузки
+            from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
             from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
-            json_path = os.path.join(DATA_REFERENCE_PATH, 'Base_documents.json')
-            if os.path.exists(json_path):
-                with open(json_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+            loader = BaseReferenceLoader(DATA_REFERENCE_PATH)
+            data = loader._load_json('Base_documents.json')
+
+            if data is not None:
+                return data
 
             log_warning("Fsm_6_3_3: Base_documents.json не найден")
             return []

@@ -488,14 +488,9 @@ def _get_data_reference_path():
 
 DATA_REFERENCE_PATH = _get_data_reference_path()
 
-# URL для загрузки данных через HTTP (временное решение - симуляция API)
+# URL для загрузки справочных данных с GitHub Raw
+# Требует интернет-соединение. Кэширование только в памяти на время сессии.
 DATA_REFERENCE_BASE_URL = "https://raw.githubusercontent.com/HappyLoony/Daman_QGIS_data_reference/main"
-
-# Режим чтения данных: "local" | "remote" | "auto"
-# local - только локальные файлы
-# remote - только HTTP (GitHub Raw)
-# auto - remote с fallback на local
-DATA_REFERENCE_MODE = "remote"  # только HTTP (GitHub Raw)
 
 # ============================================================================
 # КОНСТАНТЫ API И ЛИЦЕНЗИРОВАНИЯ (M_29, M_30)
