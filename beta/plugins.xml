@@ -14,7 +14,7 @@
         <uploaded_by>HappyLoony</uploaded_by>
         <create_date>2025-01-13</create_date>
         <update_date>2026-01-13</update_date>
-        <experimental>True</experimental>
+        <experimental>False</experimental>
         <deprecated>False</deprecated>
         <tracker>https://github.com/HappyLoony/Daman_QGIS/issues</tracker>
         <repository>https://github.com/HappyLoony/Daman_QGIS</repository>
