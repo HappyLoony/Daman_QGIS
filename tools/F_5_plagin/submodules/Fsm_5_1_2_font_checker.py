@@ -40,11 +40,15 @@ class FontChecker:
         fonts_dir = FontChecker.get_plugin_fonts_dir()
         required_fonts = []
 
+        log_info(f"Fsm_5_1_2: Путь к шрифтам: {fonts_dir}")
+
         if os.path.exists(fonts_dir):
             for file in os.listdir(fonts_dir):
                 if file.endswith(('.ttf', '.otf')):
                     required_fonts.append(file)
-            log_info(f"F_5_1: Найдено {len(required_fonts)} файлов шрифтов для проверки")
+            log_info(f"Fsm_5_1_2: Найдено {len(required_fonts)} файлов шрифтов для проверки")
+        else:
+            log_warning(f"Fsm_5_1_2: Папка шрифтов не существует: {fonts_dir}")
 
         return required_fonts
 
@@ -73,7 +77,7 @@ class FontChecker:
                     except Exception:
                         pass
 
-        log_info(f"F_5_1: Найдено {len(system_fonts)} установленных системных шрифтов")
+        log_info(f"Fsm_5_1_2: Найдено {len(system_fonts)} установленных системных шрифтов")
 
         return system_fonts
 
@@ -120,7 +124,7 @@ class FontChecker:
                 font_info['missing_fonts'].append(font_file)
                 font_info['all_fonts_installed'] = False
 
-        log_info(f"F_5_1: Установлено {len(font_info['installed_fonts'])}, "
+        log_info(f"Fsm_5_1_2: Установлено {len(font_info['installed_fonts'])}, "
                  f"отсутствует {len(font_info['missing_fonts'])} шрифтов")
 
         return font_info

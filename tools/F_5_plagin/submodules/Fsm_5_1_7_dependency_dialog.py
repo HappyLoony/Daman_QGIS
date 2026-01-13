@@ -130,29 +130,17 @@ class DependencyCheckDialog(QDialog):
         self.install_group.setVisible(False)
         layout.addWidget(self.install_group)
 
-        # Кнопки - первый ряд
+        # Кнопки
         button_layout = QHBoxLayout()
 
-        self.refresh_button = QPushButton("Проверить заново")
-        self.refresh_button.clicked.connect(self.check_dependencies)
-        button_layout.addWidget(self.refresh_button)
-
-        self.install_button = QPushButton("Установить зависимости")
-        self.install_button.clicked.connect(self.install_dependencies)
+        self.install_button = QPushButton("Установить стабильные")
+        self.install_button.setToolTip("Установить/переустановить библиотеки согласно requirements.txt")
+        self.install_button.clicked.connect(self.install_stable)
         self.install_button.setEnabled(False)
         self.install_button.setStyleSheet(
             "QPushButton:enabled { background-color: #4CAF50; color: white; font-weight: bold; }"
         )
         button_layout.addWidget(self.install_button)
-
-        self.close_button = QPushButton("Закрыть")
-        self.close_button.clicked.connect(self.close)
-        button_layout.addWidget(self.close_button)
-
-        layout.addLayout(button_layout)
-
-        # Кнопки - второй ряд (обновление/откат)
-        update_layout = QHBoxLayout()
 
         self.update_button = QPushButton("Обновить библиотеки")
         self.update_button.setToolTip("Обновить все библиотеки до последних версий из PyPI")
@@ -161,18 +149,9 @@ class DependencyCheckDialog(QDialog):
         self.update_button.setStyleSheet(
             "QPushButton:enabled { background-color: #2196F3; color: white; }"
         )
-        update_layout.addWidget(self.update_button)
+        button_layout.addWidget(self.update_button)
 
-        self.reset_button = QPushButton("Сбросить версии")
-        self.reset_button.setToolTip("Переустановить библиотеки согласно requirements.txt (минимальные версии)")
-        self.reset_button.clicked.connect(self.reset_packages)
-        self.reset_button.setEnabled(False)
-        self.reset_button.setStyleSheet(
-            "QPushButton:enabled { background-color: #FF9800; color: white; }"
-        )
-        update_layout.addWidget(self.reset_button)
-
-        layout.addLayout(update_layout)
+        layout.addLayout(button_layout)
 
     def check_dependencies(self):
         """Выполнение проверки зависимостей через M_17"""
@@ -189,10 +168,8 @@ class DependencyCheckDialog(QDialog):
         self.results_text.setHtml("<p style='color: gray'>Проверка зависимостей...</p>")
 
         # Отключаем кнопки на время проверки
-        self.refresh_button.setEnabled(False)
         self.install_button.setEnabled(False)
         self.update_button.setEnabled(False)
-        self.reset_button.setEnabled(False)
 
         # Получаем пути установки
         self.install_paths = DependencyChecker.get_install_paths()
@@ -218,7 +195,7 @@ class DependencyCheckDialog(QDialog):
         """Ошибка при проверке"""
         self.check_progress.setVisible(False)
         self.status_label.setText("")
-        self.refresh_button.setEnabled(True)
+        self.install_button.setEnabled(True)
         self.results_text.setHtml(f"<p style='color: red'>Ошибка проверки: {error}</p>")
 
     def _on_check_finished(self, results: dict):
@@ -226,7 +203,6 @@ class DependencyCheckDialog(QDialog):
         # Скрываем прогресс
         self.check_progress.setVisible(False)
         self.status_label.setText("")
-        self.refresh_button.setEnabled(True)
 
         # Сохраняем результаты
         self.results = results
@@ -250,10 +226,10 @@ class DependencyCheckDialog(QDialog):
         # Сохраняем флаг наличия обновлений
         self.results['has_updates'] = has_updates
 
-        # Активируем кнопки обновления/сброса если есть установленные библиотеки
-        has_installed = any(info['installed'] for info in self.results['external'].values())
+        # Кнопка "Установить стабильные" всегда активна
+        self.install_button.setEnabled(True)
+        # Кнопка "Обновить" активна если есть обновления
         self.update_button.setEnabled(has_updates)
-        self.reset_button.setEnabled(has_installed)
 
         # Формируем отчет
         report = self.build_report()
@@ -328,7 +304,7 @@ class DependencyCheckDialog(QDialog):
                 if opensans_missing > 0:
                     report.append(f"<p>• {opensans_missing} шрифтов OpenSans (для оформления)</p>")
 
-            report.append("<p>Нажмите <b>'Установить зависимости'</b> для автоматической установки.</p>")
+            report.append("<p>Нажмите <b>'Установить стабильные'</b> для автоматической установки.</p>")
 
         # 4. Сертификаты Минцифры
         report.append("<h3>Корневые сертификаты Минцифры РФ</h3>")
@@ -348,11 +324,10 @@ class DependencyCheckDialog(QDialog):
             report.append("<li>Государственные геосервисы</li>")
             report.append("<li>Электронная подпись на госпорталах</li>")
             report.append("</ul>")
-            report.append("<p>Нажмите <b>'Установить зависимости'</b> для автоматической установки.</p>")
+            report.append("<p>Нажмите <b>'Установить стабильные'</b> для автоматической установки.</p>")
 
         # Итоговый статус
-        need_install = self._check_need_install(font_info, cert_info, report)
-        self.install_button.setEnabled(need_install)
+        self._check_need_install(font_info, cert_info, report)
 
         return report
 
@@ -374,7 +349,7 @@ class DependencyCheckDialog(QDialog):
             missing_count = len(self.results['missing'])
             report.append(f"<h3 style='color: orange'>⚠ Требуется установка {missing_count} библиотек</h3>")
             report.append(f"<p>Отсутствуют: <b>{', '.join(self.results['missing'])}</b></p>")
-            report.append("<p>Нажмите <b>'Установить зависимости'</b> для автоматической установки.</p>")
+            report.append("<p>Нажмите <b>'Установить стабильные'</b> для автоматической установки.</p>")
             need_install = True
         elif packages_with_updates:
             update_count = len(packages_with_updates)
@@ -385,38 +360,52 @@ class DependencyCheckDialog(QDialog):
         elif not font_info.get('all_fonts_installed', False):
             report.append("<h3 style='color: orange'>⚠ Требуется установка шрифтов</h3>")
             report.append("<p>Шрифты необходимы для корректного экспорта в DXF/AutoCAD</p>")
-            report.append("<p>Нажмите <b>'Установить зависимости'</b> для автоматической установки шрифтов.</p>")
+            report.append("<p>Нажмите <b>'Установить стабильные'</b> для автоматической установки шрифтов.</p>")
             need_install = True
         elif not cert_info.get('certificates_installed', False) and cert_info.get('os_supported', True):
             report.append("<h3 style='color: orange'>⚠ Требуется установка сертификатов</h3>")
             report.append("<p>Сертификаты необходимы для работы с госсервисами</p>")
-            report.append("<p>Нажмите <b>'Установить зависимости'</b> для автоматической установки.</p>")
+            report.append("<p>Нажмите <b>'Установить стабильные'</b> для автоматической установки.</p>")
             need_install = True
         else:
             report.append("<h3 style='color: green'>✓ Все зависимости установлены!</h3>")
 
         return need_install
 
-    def install_dependencies(self):
-        """Запуск установки зависимостей, шрифтов и сертификатов"""
+    def install_stable(self):
+        """Установка/переустановка библиотек согласно requirements.txt + шрифты + сертификаты"""
         if not self.results:
             return
 
         # Показываем прогресс
         self.install_group.setVisible(True)
+        self.install_log.clear()
         self.install_button.setEnabled(False)
-        self.refresh_button.setEnabled(False)
+        self.update_button.setEnabled(False)
         self.progress_bar.setRange(0, 0)  # Неопределенный прогресс
 
-        # Собираем пакеты для установки (только отсутствующие)
-        # Обновления обрабатываются через отдельную кнопку "Обновить библиотеки"
+        # Собираем ВСЕ пакеты для установки стабильных версий
         packages_to_install = {}
         external_deps = DependencyChecker.get_external_dependencies()
 
-        # Отсутствующие пакеты
-        for module_name in self.results.get('missing', []):
-            if module_name in external_deps:
-                packages_to_install[module_name] = external_deps[module_name]
+        for module_name, dep_info in external_deps.items():
+            min_version = dep_info.get('min_version', '')
+            if min_version:
+                # Устанавливаем точную минимальную версию
+                version_num = min_version.lstrip('>=<~!')
+                packages_to_install[module_name] = {
+                    'install_cmd': f'python -m pip install {module_name}=={version_num}',
+                    'description': dep_info.get('description', ''),
+                    'usage': dep_info.get('usage', '')
+                }
+            else:
+                # Без версии - просто устанавливаем
+                packages_to_install[module_name] = dep_info
+
+        self.update_install_log("<b>Установка стабильных версий библиотек:</b>")
+        for name in packages_to_install:
+            self.update_install_log(f"  {name}")
+        self.update_install_log("")
 
         # Собираем шрифты для установки
         fonts_to_install = []
@@ -433,7 +422,6 @@ class DependencyCheckDialog(QDialog):
 
         if cert_info.get('os_supported', True) and not cert_info.get('certificates_installed', False):
             install_certificates = True
-            # Для Windows можем предложить выбор режима установки
             if sys.platform == 'win32':
                 reply = QMessageBox.question(
                     self,
@@ -469,7 +457,7 @@ class DependencyCheckDialog(QDialog):
         )
         self.installer_thread.progress.connect(self.update_install_log)
         self.installer_thread.progress_percent.connect(self.update_install_progress)
-        self.installer_thread.finished.connect(self.installation_finished)
+        self.installer_thread.finished.connect(self._on_installation_finished)
         self.installer_thread.start()
 
     def update_install_log(self, message):
@@ -486,16 +474,17 @@ class DependencyCheckDialog(QDialog):
             self.progress_bar.setRange(0, total)
             self.progress_bar.setValue(current)
 
-    def installation_finished(self, success, message):
-        """Завершение установки"""
+    def _on_installation_finished(self, success, message):
+        """Завершение установки с автоматической перепроверкой"""
         self.progress_bar.setRange(0, 1)
         self.progress_bar.setValue(1 if success else 0)
-        self.refresh_button.setEnabled(True)
-        self.install_button.setEnabled(True)
 
         if success:
             self.update_install_log(f"\n<b style='color: green'>{message}</b>")
-            self.update_install_log("\nНажмите 'Проверить заново' для подтверждения результатов.")
+            self.update_install_log("\nПерепроверка зависимостей...")
+            # Автоматическая перепроверка
+            from qgis.PyQt.QtCore import QTimer
+            QTimer.singleShot(1000, self.check_dependencies)
         else:
             self.update_install_log(f"\n<b style='color: red'>{message}</b>")
             self.update_install_log(
@@ -503,8 +492,10 @@ class DependencyCheckDialog(QDialog):
                 "1. Запустите QGIS от имени администратора\n"
                 "2. Или установите шрифты вручную из папки: resources/styles/fonts\n\n"
                 "<b>Библиотеки Python через OSGeo4W Shell:</b>\n"
-                "python -m pip install --user ezdxf>=1.4.2 xlsxwriter>=3.0.0 requests"
+                "python -m pip install --user ezdxf>=1.4.2 xlsxwriter>=3.0.0 requests cryptography"
             )
+            self.install_button.setEnabled(True)
+            self.update_button.setEnabled(True)
 
     def update_packages(self):
         """Обновление всех библиотек до последних версий из PyPI"""
@@ -516,7 +507,6 @@ class DependencyCheckDialog(QDialog):
         update_info = []
         for module_name, info in self.results['external'].items():
             if info.get('has_update', False) and info.get('latest_version'):
-                # Устанавливаем последнюю версию (без ограничения >=)
                 packages_to_update[module_name] = {
                     'install_cmd': f'python -m pip install {module_name}=={info["latest_version"]}',
                     'description': info.get('description', ''),
@@ -528,7 +518,7 @@ class DependencyCheckDialog(QDialog):
             QMessageBox.information(self, "Обновление", "Нет доступных обновлений.")
             return
 
-        # Показываем прогресс и логируем что будет обновлено
+        # Показываем прогресс
         self.install_group.setVisible(True)
         self.install_log.clear()
         self.update_install_log("<b>Обновление библиотек:</b>")
@@ -536,9 +526,8 @@ class DependencyCheckDialog(QDialog):
             self.update_install_log(info_line)
         self.update_install_log("")
 
+        self.install_button.setEnabled(False)
         self.update_button.setEnabled(False)
-        self.reset_button.setEnabled(False)
-        self.refresh_button.setEnabled(False)
         self.progress_bar.setRange(0, 0)
 
         # Запускаем установку (без шрифтов и сертификатов)
@@ -552,71 +541,6 @@ class DependencyCheckDialog(QDialog):
         )
         self.installer_thread.progress.connect(self.update_install_log)
         self.installer_thread.progress_percent.connect(self.update_install_progress)
-        self.installer_thread.finished.connect(self.installation_finished)
+        self.installer_thread.finished.connect(self._on_installation_finished)
         self.installer_thread.start()
 
-    def reset_packages(self):
-        """Сброс библиотек до версий из requirements.txt"""
-        if not self.results:
-            return
-
-        # Собираем все установленные внешние пакеты
-        packages_to_reset = {}
-        reset_info = []
-        external_deps = DependencyChecker.get_external_dependencies(include_optional=True)
-
-        for module_name, info in self.results['external'].items():
-            if info.get('installed', False) and module_name in external_deps:
-                dep_info = external_deps[module_name]
-                min_version = dep_info.get('min_version', '')
-                current_version = info.get('version', '')
-
-                # Формируем спецификацию для установки минимальной версии
-                if min_version:
-                    # Извлекаем версию без оператора
-                    version_num = min_version.lstrip('>=<~!')
-                    packages_to_reset[module_name] = {
-                        'install_cmd': f'python -m pip install {module_name}=={version_num}',
-                        'description': dep_info.get('description', ''),
-                        'usage': dep_info.get('usage', '')
-                    }
-                    reset_info.append(f"  {module_name}: {current_version} -> {version_num}")
-
-        if not packages_to_reset:
-            QMessageBox.information(self, "Сброс версий", "Нет библиотек для сброса.")
-            return
-
-        # Подтверждение
-        reply = QMessageBox.question(
-            self,
-            "Сброс версий библиотек",
-            f"Библиотеки будут переустановлены до минимальных версий из requirements.txt:\n\n" +
-            "\n".join(reset_info) +
-            "\n\nЭто полезно если новая версия вызывает проблемы.\nПродолжить?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-
-        if reply != QMessageBox.Yes:
-            return
-
-        # Показываем прогресс
-        self.install_group.setVisible(True)
-        self.update_button.setEnabled(False)
-        self.reset_button.setEnabled(False)
-        self.refresh_button.setEnabled(False)
-        self.progress_bar.setRange(0, 0)
-
-        # Запускаем установку (без шрифтов и сертификатов)
-        self.installer_thread = DependencyInstallerThread(
-            packages_to_reset,
-            self.install_paths,
-            [],  # Без шрифтов
-            None,
-            False,  # Без сертификатов
-            'user'
-        )
-        self.installer_thread.progress.connect(self.update_install_log)
-        self.installer_thread.progress_percent.connect(self.update_install_progress)
-        self.installer_thread.finished.connect(self.installation_finished)
-        self.installer_thread.start()
