@@ -12,7 +12,7 @@ import os
 import json
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from Daman_QGIS.utils import log_warning, log_error
+from Daman_QGIS.utils import log_warning, log_error, log_info
 
 
 class BaseReferenceLoader:
@@ -35,7 +35,12 @@ class BaseReferenceLoader:
 
     def _load_json(self, filename: str) -> Any:
         """
-        Загружает JSON файл с кэшированием
+        Загружает JSON файл с кэшированием.
+
+        Режимы (DATA_REFERENCE_MODE):
+        - local: только локальные файлы
+        - remote: только HTTP (GitHub Raw)
+        - auto: remote с fallback на local
 
         Args:
             filename: Имя JSON файла
@@ -52,30 +57,90 @@ class BaseReferenceLoader:
         if filename in self._cache:
             return self._cache[filename]
 
-        # Защита от path traversal: проверяем что результирующий путь
-        # находится внутри reference_dir
+        from Daman_QGIS.constants import DATA_REFERENCE_MODE
+
+        data = None
+
+        # Remote загрузка (для режимов 'remote' и 'auto')
+        if DATA_REFERENCE_MODE in ('remote', 'auto'):
+            data = self._load_from_remote(filename)
+
+        # Local загрузка (для 'local' или fallback в 'auto')
+        if data is None and DATA_REFERENCE_MODE in ('local', 'auto'):
+            data = self._load_from_local(filename)
+
+        if data is not None:
+            self._cache[filename] = data
+
+        return data
+
+    def _load_from_remote(self, filename: str) -> Optional[Any]:
+        """
+        Загрузить JSON с GitHub Raw.
+
+        Args:
+            filename: Имя JSON файла
+
+        Returns:
+            Данные из файла или None при ошибке
+        """
+        from Daman_QGIS.constants import DATA_REFERENCE_BASE_URL, DEFAULT_REQUEST_TIMEOUT
+
+        try:
+            import requests
+        except ImportError:
+            log_warning("BaseReferenceLoader: requests не установлен, remote загрузка недоступна")
+            return None
+
+        url = f"{DATA_REFERENCE_BASE_URL}/{filename}"
+        try:
+            response = requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT)
+            if response.status_code == 200:
+                data = response.json()
+                log_info(f"BaseReferenceLoader: Загружен {filename} с remote")
+                return data
+            else:
+                log_warning(f"BaseReferenceLoader: HTTP {response.status_code} для {filename}")
+        except requests.exceptions.Timeout:
+            log_warning(f"BaseReferenceLoader: Таймаут при загрузке {filename}")
+        except requests.exceptions.RequestException as e:
+            log_warning(f"BaseReferenceLoader: Ошибка сети при загрузке {filename}: {e}")
+        except json.JSONDecodeError as e:
+            log_error(f"BaseReferenceLoader: Ошибка парсинга JSON {filename}: {e}")
+
+        return None
+
+    def _load_from_local(self, filename: str) -> Optional[Any]:
+        """
+        Загрузить JSON из локальной файловой системы.
+
+        Args:
+            filename: Имя JSON файла
+
+        Returns:
+            Данные из файла или None при ошибке
+        """
         base_path = Path(self.reference_dir).resolve()
         filepath = (base_path / filename).resolve()
 
-        # Проверяем что filepath находится внутри base_path
+        # Защита от path traversal
         try:
             filepath.relative_to(base_path)
         except ValueError:
             log_error(f"BaseReferenceLoader: Попытка path traversal: {filename}")
             return None
 
-        # Загружаем файл
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                self._cache[filename] = data
+                log_info(f"BaseReferenceLoader: Загружен {filename} локально")
                 return data
         except FileNotFoundError:
             log_warning(f"Файл базы данных не найден: {filepath}")
-            return None
         except json.JSONDecodeError as e:
             log_error(f"Ошибка чтения JSON: {filepath} - {str(e)}")
-            return None
+
+        return None
 
     def _build_index(self, data: List[Dict], key_field: str) -> Dict:
         """

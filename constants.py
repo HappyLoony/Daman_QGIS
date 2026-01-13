@@ -495,7 +495,7 @@ DATA_REFERENCE_BASE_URL = "https://raw.githubusercontent.com/HappyLoony/Daman_QG
 # local - только локальные файлы
 # remote - только HTTP (GitHub Raw)
 # auto - remote с fallback на local
-DATA_REFERENCE_MODE = "local"  # Пока используем локальный режим
+DATA_REFERENCE_MODE = "remote"  # только HTTP (GitHub Raw)
 
 # ============================================================================
 # КОНСТАНТЫ API И ЛИЦЕНЗИРОВАНИЯ (M_29, M_30)
