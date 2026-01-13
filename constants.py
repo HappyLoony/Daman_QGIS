@@ -488,17 +488,17 @@ def _get_data_reference_path():
 
 DATA_REFERENCE_PATH = _get_data_reference_path()
 
-# URL для загрузки справочных данных с GitHub Raw
-# Требует интернет-соединение. Кэширование только в памяти на время сессии.
-DATA_REFERENCE_BASE_URL = "https://raw.githubusercontent.com/HappyLoony/Daman_QGIS_data_reference/main"
-
 # ============================================================================
 # КОНСТАНТЫ API И ЛИЦЕНЗИРОВАНИЯ (M_29, M_30)
 # ============================================================================
 
-# URL API сервера (заменить на реальный при деплое)
-# Используется: M_29_LicenseManager, M_30_NetworkManager
-API_BASE_URL = "https://api.daman-qgis.ru"  # TODO: Заменить на реальный
+# URL API сервера (Yandex Cloud Function)
+# Используется: BaseReferenceLoader, M_29_LicenseManager
+API_BASE_URL = "https://functions.yandexcloud.net/d4e9nvs008lt7sd87s7m"
+
+# URL для загрузки справочных данных (через API)
+# Формат запроса: {API_BASE_URL}?action=data&file={filename}
+DATA_REFERENCE_BASE_URL = API_BASE_URL
 API_TIMEOUT = DEFAULT_REQUEST_TIMEOUT  # Использует общий таймаут
 
 # Настройки кэша

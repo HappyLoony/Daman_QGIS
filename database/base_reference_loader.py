@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-Базовый класс для загрузки справочных данных из JSON файлов с GitHub Raw.
+Базовый класс для загрузки справочных данных из JSON через Yandex Cloud API.
 
 Требует интернет-соединение. Кэширование только в памяти на время сессии.
 
 Предоставляет общую функциональность для всех менеджеров справочных данных:
-- Загрузка JSON с GitHub Raw
+- Загрузка JSON через API (Yandex Cloud Function)
 - Кэширование в памяти на время сессии
 - Построение индексов для быстрого поиска
+
+API URL: https://functions.yandexcloud.net/d4e9nvs008lt7sd87s7m
+Формат запроса: ?action=data&file={filename}
 """
 
 import json
@@ -67,15 +70,15 @@ class BaseReferenceLoader:
 
     def _load_from_remote(self, filename: str) -> Optional[Any]:
         """
-        Загрузить JSON с GitHub Raw.
+        Загрузить JSON через Yandex Cloud API.
 
         Args:
-            filename: Имя JSON файла
+            filename: Имя JSON файла (с или без .json расширения)
 
         Returns:
             Данные из файла или None при ошибке
         """
-        from Daman_QGIS.constants import DATA_REFERENCE_BASE_URL, DEFAULT_REQUEST_TIMEOUT
+        from Daman_QGIS.constants import API_BASE_URL, DEFAULT_REQUEST_TIMEOUT
 
         try:
             import requests
@@ -83,13 +86,20 @@ class BaseReferenceLoader:
             log_warning("BaseReferenceLoader: requests не установлен, remote загрузка недоступна")
             return None
 
-        url = f"{DATA_REFERENCE_BASE_URL}/{filename}"
+        # Убираем .json для API запроса (API добавит сам)
+        file_param = filename.replace('.json', '')
+
+        url = f"{API_BASE_URL}?action=data&file={file_param}"
         try:
             response = requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT)
             if response.status_code == 200:
                 data = response.json()
-                log_info(f"BaseReferenceLoader: Загружен {filename} с remote")
+                log_info(f"BaseReferenceLoader: Загружен {filename} с API")
                 return data
+            elif response.status_code == 403:
+                log_warning(f"BaseReferenceLoader: Доступ запрещён к {filename}")
+            elif response.status_code == 404:
+                log_warning(f"BaseReferenceLoader: Файл {filename} не найден на сервере")
             else:
                 log_warning(f"BaseReferenceLoader: HTTP {response.status_code} для {filename}")
         except requests.exceptions.Timeout:
