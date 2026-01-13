@@ -16,7 +16,15 @@ from Daman_QGIS.utils import log_warning, log_error, log_info
 
 
 class BaseReferenceLoader:
-    """Базовый класс для загрузки справочных данных с GitHub Raw"""
+    """Базовый класс для загрузки справочных данных с GitHub Raw
+
+    Кэш общий для всех экземпляров (на уровне класса).
+    Данные загружаются один раз за сессию.
+    """
+
+    # Общий кэш для всех экземпляров (загрузка один раз за сессию)
+    _shared_cache: Dict[str, Any] = {}
+    _shared_index_cache: Dict[str, Dict] = {}
 
     def __init__(self, reference_dir: str = None):
         """
@@ -27,12 +35,6 @@ class BaseReferenceLoader:
         """
         # reference_dir сохраняется для совместимости, но не используется
         self.reference_dir = reference_dir
-
-        # Кэш для загруженных данных {filename: data}
-        self._cache: Dict[str, Any] = {}
-
-        # Кэш для индексов {index_key: {key_value: item}}
-        self._index_cache: Dict[str, Dict] = {}
 
     def _load_json(self, filename: str) -> Any:
         """
@@ -51,15 +53,15 @@ class BaseReferenceLoader:
             log_warning(f"Попытка загрузить не-JSON файл: {filename}")
             return None
 
-        # Проверяем кэш (в памяти на время сессии)
-        if filename in self._cache:
-            return self._cache[filename]
+        # Проверяем общий кэш (один раз за сессию)
+        if filename in BaseReferenceLoader._shared_cache:
+            return BaseReferenceLoader._shared_cache[filename]
 
         # Загрузка с GitHub Raw (требует интернет)
         data = self._load_from_remote(filename)
 
         if data is not None:
-            self._cache[filename] = data
+            BaseReferenceLoader._shared_cache[filename] = data
 
         return data
 
@@ -129,19 +131,21 @@ class BaseReferenceLoader:
         Returns:
             Найденный элемент или None
         """
-        # Проверяем индекс
-        if index_key not in self._index_cache:
+        # Проверяем общий индексный кэш
+        if index_key not in BaseReferenceLoader._shared_index_cache:
             data = data_getter()
-            self._index_cache[index_key] = self._build_index(data, field_name)
+            BaseReferenceLoader._shared_index_cache[index_key] = self._build_index(data, field_name)
 
-        return self._index_cache[index_key].get(value)
+        return BaseReferenceLoader._shared_index_cache[index_key].get(value)
 
-    def clear_cache(self):
-        """Очистить весь кэш (данные и индексы)"""
-        self._cache.clear()
-        self._index_cache.clear()
+    @classmethod
+    def clear_cache(cls):
+        """Очистить весь общий кэш (данные и индексы)"""
+        cls._shared_cache.clear()
+        cls._shared_index_cache.clear()
 
-    def reload(self, filename: Optional[str] = None):
+    @classmethod
+    def reload(cls, filename: Optional[str] = None):
         """
         Перезагрузить данные из файла
 
@@ -150,12 +154,11 @@ class BaseReferenceLoader:
         """
         if filename:
             # Удаляем конкретный файл из кэша
-            if filename in self._cache:
-                del self._cache[filename]
+            if filename in cls._shared_cache:
+                del cls._shared_cache[filename]
 
             # Очищаем связанные индексы (они будут пересозданы при следующем обращении)
-            # Примечание: индексы не привязаны напрямую к filename, поэтому очищаем все
-            self._index_cache.clear()
+            cls._shared_index_cache.clear()
         else:
             # Очищаем весь кэш
-            self.clear_cache()
+            cls.clear_cache()
