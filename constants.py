@@ -515,19 +515,3 @@ ACCESS_TOKEN_LIFETIME_MINUTES = 15
 # Формат API ключа (для отображения пользователю)
 API_KEY_FORMAT = "DAMAN-XXXX-XXXX-XXXX"
 
-# ============================================================================
-# КОНСТАНТЫ ОБНОВЛЕНИЙ (M_31)
-# ============================================================================
-
-# URL для проверки обновлений (raw GitHub)
-UPDATE_BETA_URL = "https://raw.githubusercontent.com/HappyLoony/Daman_QGIS/main/beta/plugins.xml"
-UPDATE_STABLE_URL = "https://raw.githubusercontent.com/HappyLoony/Daman_QGIS/main/stable/plugins.xml"
-
-# Страница релизов для скачивания
-UPDATE_GITHUB_RELEASES_URL = "https://github.com/HappyLoony/Daman_QGIS/releases"
-
-# Таймаут проверки обновлений (секунды)
-UPDATE_CHECK_TIMEOUT = 10
-
-# Интервал между автоматическими проверками (дни)
-UPDATE_CHECK_INTERVAL_DAYS = 1

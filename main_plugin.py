@@ -40,7 +40,6 @@ PipInstaller.ensure_dependencies_in_path()
 
 # Import managers
 from Daman_QGIS.managers import ProjectManager, LayerManager, VersionManager, get_reference_managers
-from Daman_QGIS.managers.M_31_update_manager import get_update_manager
 
 # Import dependency checker
 from Daman_QGIS.tools.F_5_plagin.F_5_1_check_dependencies import F_5_1_CheckDependencies
@@ -308,18 +307,6 @@ class DamanQGIS:
         
         # Подключаем обработчики событий закрытия проекта
         self._connect_project_signals()
-
-        # Проверка обновлений (отложенная, не блокирует запуск)
-        self._check_for_updates()
-
-    def _check_for_updates(self) -> None:
-        """Проверка обновлений плагина при запуске."""
-        try:
-            update_manager = get_update_manager()
-            update_manager.set_iface(self.iface)
-            update_manager.check_on_startup(delay_ms=5000)
-        except Exception as e:
-            log_warning(f"Не удалось запустить проверку обновлений: {e}")
 
     def _check_native_project(self) -> None:
         """Проверка и инициализация нативно открытого проекта плагина"""
