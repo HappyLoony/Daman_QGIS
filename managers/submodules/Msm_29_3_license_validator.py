@@ -28,6 +28,12 @@ class LicenseValidator:
         self.base_url = API_BASE_URL
         self._session = None
 
+    @classmethod
+    def clear_cache(cls):
+        """Очистить кэш (для совместимости с предыдущей версией)."""
+        # В новой версии кэш не используется - данные всегда с API
+        pass
+
     def _get_session(self):
         """Ленивая инициализация requests session."""
         if self._session is None:
