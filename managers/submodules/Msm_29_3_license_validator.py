@@ -136,11 +136,17 @@ class LicenseValidator:
         # Проверка срока истечения
         if expires_at:
             try:
-                # Поддержка формата "YYYY-MM-DD" и "YYYY-MM-DDTHH:MM:SSZ"
-                if "T" in str(expires_at):
-                    expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00").replace("+00:00", ""))
+                expires_str = str(expires_at)
+                # Поддержка форматов:
+                # - "YYYY-MM-DD"
+                # - "YYYY-MM-DD HH:MM:SS"
+                # - "YYYY-MM-DDTHH:MM:SSZ"
+                if "T" in expires_str:
+                    expiry = datetime.fromisoformat(expires_str.replace("Z", "+00:00").replace("+00:00", ""))
+                elif " " in expires_str:
+                    expiry = datetime.strptime(expires_str, "%Y-%m-%d %H:%M:%S")
                 else:
-                    expiry = datetime.strptime(expires_at, "%Y-%m-%d")
+                    expiry = datetime.strptime(expires_str, "%Y-%m-%d")
 
                 if now > expiry:
                     return "expired"
