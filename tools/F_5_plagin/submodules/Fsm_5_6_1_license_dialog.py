@@ -191,27 +191,24 @@ class LicenseDialog(QDialog):
 
     def _format_key_input(self, text: str):
         """Валидация ввода ключа (без автоформатирования)"""
-        # Приводим к верхнему регистру
-        upper_text = text.upper()
-        if upper_text != text:
-            self.key_input.blockSignals(True)
-            cursor_pos = self.key_input.cursorPosition()
-            self.key_input.setText(upper_text)
-            self.key_input.setCursorPosition(cursor_pos)
-            self.key_input.blockSignals(False)
+        # Убираем пробелы и приводим к верхнему регистру
+        clean_text = text.strip().upper()
 
-        # Всегда проверяем актуальный текст из поля
-        current_text = self.key_input.text()
+        if clean_text != text:
+            self.key_input.blockSignals(True)
+            self.key_input.setText(clean_text)
+            self.key_input.setCursorPosition(len(clean_text))
+            self.key_input.blockSignals(False)
 
         # Активируем кнопку если ключ в правильном формате: DAMAN-XXXX-XXXX-XXXX
         is_valid = (
-            len(current_text) == 19 and
-            current_text.startswith("DAMAN-") and
-            current_text.count("-") == 3
+            len(clean_text) == 19 and
+            clean_text.startswith("DAMAN-") and
+            clean_text.count("-") == 3
         )
 
         # DEBUG
-        log_info(f"Fsm_5_6_1: key='{current_text}', len={len(current_text)}, starts={current_text.startswith('DAMAN-')}, dashes={current_text.count('-')}, valid={is_valid}")
+        log_info(f"Fsm_5_6_1: key='{clean_text}', len={len(clean_text)}, valid={is_valid}")
 
         self.activate_btn.setEnabled(is_valid)
 
