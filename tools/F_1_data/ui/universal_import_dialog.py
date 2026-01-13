@@ -131,17 +131,15 @@ class UniversalImportDialog(QDialog):
         return True
 
     def _load_base_layers(self) -> List[Dict[str, Any]]:
-        """Загрузка Base_layers.json"""
+        """Загрузка Base_layers.json через LayerReferenceManager"""
+        from Daman_QGIS.managers.submodules.Msm_4_6_layer_reference_manager import LayerReferenceManager
         from Daman_QGIS.constants import DATA_REFERENCE_PATH
-        json_path = os.path.join(DATA_REFERENCE_PATH, 'Base_layers.json')
-        if not os.path.exists(json_path):
-            raise RuntimeError(f"Файл Base_layers.json не найден: {json_path}")
 
-        with open(json_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            if not isinstance(data, list):
-                raise RuntimeError("Base_layers.json должен содержать список слоев")
-            return data
+        layer_manager = LayerReferenceManager(DATA_REFERENCE_PATH)
+        data = layer_manager.get_base_layers()
+        if not data:
+            raise RuntimeError("Base_layers.json не найден или пуст")
+        return data
     
     def _parse_base_layers(self):
         """Парсинг структуры слоев для формирования иерархии"""

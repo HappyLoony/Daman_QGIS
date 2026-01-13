@@ -3,8 +3,6 @@
 Централизованный менеджер очистки слоев перед запуском функций
 """
 
-import json
-import os
 from typing import List, Optional
 from qgis.core import QgsProject, QgsVectorLayer
 from Daman_QGIS.utils import log_info, log_warning
@@ -16,7 +14,7 @@ class LayerCleanupManager:
     # Singleton: общий экземпляр для всех инструментов плагина
     _instance = None
     _layers_db = None
-    _base_layers_path = None
+    _layer_ref_manager = None
 
     def __new__(cls) -> 'LayerCleanupManager':
         """Singleton pattern для использования одного экземпляра"""
@@ -27,19 +25,8 @@ class LayerCleanupManager:
     def __init__(self) -> None:
         """Инициализация менеджера"""
         # Загружаем БД только один раз при первой инициализации
-        if LayerCleanupManager._base_layers_path is None:
-            LayerCleanupManager._base_layers_path = self._get_base_layers_path()
+        if LayerCleanupManager._layers_db is None:
             LayerCleanupManager._layers_db = self._load_layers_database()
-
-    @property
-    def base_layers_path(self) -> Optional[str]:
-        """
-        Путь к файлу Base_layers.json.
-
-        Returns:
-            Абсолютный путь к файлу базы слоев или None
-        """
-        return LayerCleanupManager._base_layers_path
 
     @property
     def layers_db(self) -> Optional[List[dict]]:
@@ -51,25 +38,29 @@ class LayerCleanupManager:
         """
         return LayerCleanupManager._layers_db
 
-    def _get_base_layers_path(self) -> Optional[str]:
-        """Получение пути к Base_layers.json"""
-        from Daman_QGIS.constants import DATA_REFERENCE_PATH
-        return os.path.join(DATA_REFERENCE_PATH, 'Base_layers.json')
-
     def _load_layers_database(self) -> List[dict]:
-        """Загрузка базы данных слоев из Base_layers.json
+        """Загрузка базы данных слоев через LayerReferenceManager
+
+        Использует remote загрузку через BaseReferenceLoader.
 
         Returns:
             List[dict]: Список словарей с информацией о слоях
         """
-        if self.base_layers_path is None:
-            raise ValueError("Путь к Base_layers.json не определён")
+        from Daman_QGIS.managers.submodules.Msm_4_6_layer_reference_manager import LayerReferenceManager
+        from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
-        if not os.path.exists(self.base_layers_path):
-            raise ValueError(f"Base_layers.json не найден: {self.base_layers_path}")
-
-        with open(self.base_layers_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        try:
+            layer_manager = LayerReferenceManager(DATA_REFERENCE_PATH)
+            layers = layer_manager.get_base_layers()
+            if layers:
+                log_info("M_10: Base_layers.json загружен")
+                return layers
+            else:
+                log_warning("M_10: Base_layers.json пуст или не найден")
+                return []
+        except Exception as e:
+            log_warning(f"M_10: Ошибка загрузки Base_layers.json: {e}")
+            return []
 
     def _remove_layer(self, layer: QgsVectorLayer, log_detail: bool = False) -> None:
         """Удаление слоя из проекта

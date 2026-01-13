@@ -37,33 +37,28 @@ class LayerProcessor:
         self.data_cleanup_manager = DataCleanupManager()
     def _load_layer_params(self):
         """
-        Загрузка параметров слоев из Base_layers.json
+        Загрузка параметров слоев из Base_layers.json через LayerReferenceManager
         """
-        # Получаем путь к Base_layers.json
+        from Daman_QGIS.managers.submodules.Msm_4_6_layer_reference_manager import LayerReferenceManager
         from Daman_QGIS.constants import DATA_REFERENCE_PATH
-        json_path = os.path.join(DATA_REFERENCE_PATH, 'Base_layers.json')
 
-        if os.path.exists(json_path):
-            with open(json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+        layer_manager = LayerReferenceManager(DATA_REFERENCE_PATH)
+        data = layer_manager.get_base_layers()
 
-                # Base_layers.json содержит массив объектов, преобразуем в словарь
-                # где ключ - full_name слоя
-                self._layer_params_cache = {}
-                if isinstance(data, list):
-                    for layer_data in data:
-                        full_name = layer_data.get('full_name', '')
-                        if full_name:
-                            self._layer_params_cache[full_name] = layer_data
+        # Base_layers.json содержит массив объектов, преобразуем в словарь
+        # где ключ - full_name слоя
+        self._layer_params_cache = {}
+        if data and isinstance(data, list):
+            for layer_data in data:
+                full_name = layer_data.get('full_name', '')
+                if full_name:
+                    self._layer_params_cache[full_name] = layer_data
 
             log_info(
                 f"Загружено {len(self._layer_params_cache)} параметров слоев из Base_layers.json"
             )
         else:
-            log_warning(
-                f"Файл параметров слоев не найден: {json_path}"
-            )
-            self._layer_params_cache = {}
+            log_warning("Параметры слоев не найдены")
     
     def get_layer_params(self, layer_id: str) -> Dict[str, Any]:
         """
