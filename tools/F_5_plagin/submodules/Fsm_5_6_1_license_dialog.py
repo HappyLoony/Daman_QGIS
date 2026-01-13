@@ -207,9 +207,6 @@ class LicenseDialog(QDialog):
             clean_text.count("-") == 3
         )
 
-        # DEBUG
-        log_info(f"Fsm_5_6_1: key='{clean_text}', len={len(clean_text)}, valid={is_valid}, bytes={[ord(c) for c in clean_text]}")
-
         self.activate_btn.setEnabled(is_valid)
 
     def refresh_status(self):

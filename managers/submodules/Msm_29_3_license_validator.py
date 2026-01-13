@@ -436,15 +436,29 @@ class LicenseValidator:
     def _simulate_deactivate(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
         """
         Симуляция деактивации лицензии.
+
+        В режиме симуляции просто возвращаем успех - реальная деактивация
+        будет на сервере, который обнулит hardware_id в базе.
         """
         log_info("Msm_29_3: Using SIMULATION deactivation (Base_licenses.json)")
 
-        existing_hwid = self._hardware_bindings.get(api_key)
-        if existing_hwid != hardware_id:
-            return {"status": "error", "message": "Hardware ID mismatch"}
+        # Загружаем лицензии для проверки
+        licenses = self._load_licenses()
+        license_data = licenses.get(api_key)
 
-        # Удаляем привязку
+        if not license_data:
+            log_warning(f"Msm_29_3: Ключ '{api_key}' не найден при деактивации")
+            return {"status": "error", "message": "Ключ не найден"}
+
+        # Проверяем что деактивируем с правильного ПК
+        stored_hwid = license_data.get("hardware_id")
+        if stored_hwid and stored_hwid != hardware_id:
+            log_warning(f"Msm_29_3: Деактивация с неверного ПК: stored={stored_hwid}, current={hardware_id}")
+            return {"status": "error", "message": "Деактивация возможна только с привязанного ПК"}
+
+        # В симуляции просто удаляем из памяти (реальный сервер обнулит hardware_id)
         self._hardware_bindings.pop(api_key, None)
+        log_info(f"Msm_29_3: Лицензия {api_key} деактивирована (симуляция)")
         return {"status": "success"}
 
     def report_hardware_change(
