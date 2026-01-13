@@ -264,8 +264,8 @@ class TestAPI:
             if data and isinstance(data, list) and len(data) > 0:
                 first_item = data[0]
 
-                # Проверяем ожидаемые поля
-                expected_fields = ["id", "name", "layer_type"]
+                # Проверяем ожидаемые поля (реальная структура)
+                expected_fields = ["full_name", "section", "geometry_type"]
                 for field in expected_fields:
                     self.logger.check(
                         field in first_item,
@@ -279,7 +279,8 @@ class TestAPI:
             if funcs and isinstance(funcs, list) and len(funcs) > 0:
                 first_func = funcs[0]
 
-                expected_func_fields = ["id", "name"]
+                # Реальная структура Base_Functions
+                expected_func_fields = ["tool_id", "function_name", "class_name"]
                 for field in expected_func_fields:
                     self.logger.check(
                         field in first_func,
