@@ -5,7 +5,7 @@
 name=Daman_QGIS
 qgisMinimumVersion=3.40
 description=Плагин для градостроительного проектирования: ДПТ (ППТ, ПМТ) с поддержкой МСК, точностью 0,01м и экспортом в форматы DXF, TAB или иные форматы согласно требованиям к проектированию ДПТ.
-version=0.9.63
+version=0.9.64
 author=Alexander Plahotnyuk
 email=sashaplahot@gmail.com
 

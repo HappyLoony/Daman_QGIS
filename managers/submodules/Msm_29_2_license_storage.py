@@ -9,7 +9,7 @@ Msm_29_2_LicenseStorage - Хранение лицензионных данных
 - Hardware ID (fallback файл)
 - Компоненты оборудования
 
-Шифрование: AES-256-GCM (cryptography обязательна).
+Шифрование: AES-256-GCM (cryptography обязательна, устанавливается через F_5_1).
 """
 
 import json
@@ -17,13 +17,22 @@ import os
 import hashlib
 import secrets
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
 from datetime import datetime, timedelta, timezone
 
 from qgis.core import QgsApplication
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from ...utils import log_info, log_error
+
+# Ленивый импорт cryptography - библиотека устанавливается через F_5_1
+if TYPE_CHECKING:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+
+def _get_aesgcm():
+    """Ленивый импорт AESGCM."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    return AESGCM
 
 
 class LicenseStorage:
@@ -134,6 +143,7 @@ class LicenseStorage:
 
         Формат: version(1) + nonce(12) + ciphertext
         """
+        AESGCM = _get_aesgcm()
         data_bytes = data.encode('utf-8')
         nonce = secrets.token_bytes(12)  # 96-bit nonce для GCM
         aesgcm = AESGCM(self._encryption_key)
@@ -150,6 +160,7 @@ class LicenseStorage:
         version = data[0]
 
         if version == self.STORAGE_VERSION:
+            AESGCM = _get_aesgcm()
             nonce = data[1:13]
             ciphertext = data[13:]
             aesgcm = AESGCM(self._encryption_key)
