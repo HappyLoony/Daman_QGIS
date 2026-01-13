@@ -5,7 +5,7 @@
 name=Daman_QGIS
 qgisMinimumVersion=3.40
 description=Плагин для градостроительного проектирования: ДПТ (ППТ, ПМТ) с поддержкой МСК, точностью 0,01м и экспортом в форматы DXF, TAB или иные форматы согласно требованиям к проектированию ДПТ.
-version=0.9.17
+version=0.9.23
 author=Alexander Plahotnyuk
 email=sashaplahot@gmail.com
 
@@ -16,6 +16,6 @@ tags=planning,cadastre,dxf,tab,topology,russia,msk,egrn,geopackage,vector,export
 hasProcessingProvider=no
 category=Vector
 icon=data/icons/icon.svg
-experimental=True
+experimental=False
 deprecated=False
 server=False
