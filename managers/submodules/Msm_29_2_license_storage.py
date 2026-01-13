@@ -9,7 +9,7 @@ Msm_29_2_LicenseStorage - Хранение лицензионных данных
 - Hardware ID (fallback файл)
 - Компоненты оборудования
 
-Шифрование: AES-256-GCM (если cryptography доступна) или XOR fallback.
+Шифрование: AES-256-GCM (cryptography обязательна).
 """
 
 import json
@@ -17,30 +17,24 @@ import os
 import hashlib
 import secrets
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
 
 from qgis.core import QgsApplication
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from ...utils import log_info, log_error, log_warning
-
-# Попытка импорта cryptography для AES-256-GCM
-try:
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    HAS_CRYPTOGRAPHY = True
-except ImportError:
-    HAS_CRYPTOGRAPHY = False
+from ...utils import log_info, log_error
 
 
 class LicenseStorage:
     """
     Хранение лицензионных данных.
 
-    Шифрование: AES-256-GCM (предпочтительно) или XOR (fallback).
+    Шифрование: AES-256-GCM.
     Ключ шифрования генерируется из machine-specific данных.
     """
 
-    # Версия формата хранения (для миграции)
+    # Версия формата хранения
     STORAGE_VERSION = 2
 
     def __init__(self):
@@ -62,11 +56,7 @@ class LicenseStorage:
 
             self._load()
 
-            if HAS_CRYPTOGRAPHY:
-                log_info("Msm_29_2: Storage initialized (AES-256-GCM)")
-            else:
-                log_warning("Msm_29_2: Storage initialized (XOR fallback - install cryptography for better security)")
-
+            log_info("Msm_29_2: Storage initialized (AES-256-GCM)")
             return True
 
         except Exception as e:
@@ -128,93 +118,47 @@ class LicenseStorage:
                 log_error(f"Msm_29_2: Failed to save license data: {e}")
 
     def _migrate_if_needed(self, old_data: bytes):
-        """
-        Миграция на новый формат шифрования если нужно.
-
-        Автоматически перешифровывает данные с XOR на AES-256-GCM.
-        """
+        """Миграция на новый формат шифрования если нужно."""
         if not old_data:
             return
 
         version = old_data[0]
 
-        # Если старый формат и AES доступен - мигрируем
-        if version < self.STORAGE_VERSION and HAS_CRYPTOGRAPHY:
+        if version < self.STORAGE_VERSION:
             log_info("Msm_29_2: Migrating to AES-256-GCM encryption")
-            self._save()  # Перезаписываем с новым шифрованием
+            self._save()
 
     def _encrypt(self, data: str) -> bytes:
         """
-        Шифрование данных.
+        Шифрование данных AES-256-GCM.
 
-        AES-256-GCM если доступна cryptography, иначе XOR fallback.
         Формат: version(1) + nonce(12) + ciphertext
         """
         data_bytes = data.encode('utf-8')
+        nonce = secrets.token_bytes(12)  # 96-bit nonce для GCM
+        aesgcm = AESGCM(self._encryption_key)
+        ciphertext = aesgcm.encrypt(nonce, data_bytes, None)
 
-        if HAS_CRYPTOGRAPHY and self._encryption_key:
-            # AES-256-GCM
-            nonce = secrets.token_bytes(12)  # 96-bit nonce для GCM
-            aesgcm = AESGCM(self._encryption_key)
-            ciphertext = aesgcm.encrypt(nonce, data_bytes, None)
-
-            # version(1 byte) + nonce(12 bytes) + ciphertext
-            return bytes([self.STORAGE_VERSION]) + nonce + ciphertext
-        else:
-            # XOR fallback (legacy)
-            return bytes([1]) + self._xor_encrypt(data_bytes)
+        # version(1 byte) + nonce(12 bytes) + ciphertext
+        return bytes([self.STORAGE_VERSION]) + nonce + ciphertext
 
     def _decrypt(self, data: bytes) -> str:
-        """
-        Расшифровка данных.
-
-        Автоматически определяет версию формата.
-        """
+        """Расшифровка данных AES-256-GCM."""
         if not data:
             return "{}"
 
         version = data[0]
 
-        if version == self.STORAGE_VERSION and HAS_CRYPTOGRAPHY and self._encryption_key:
-            # AES-256-GCM (version 2)
+        if version == self.STORAGE_VERSION:
             nonce = data[1:13]
             ciphertext = data[13:]
             aesgcm = AESGCM(self._encryption_key)
             plaintext = aesgcm.decrypt(nonce, ciphertext, None)
             return plaintext.decode('utf-8')
 
-        elif version == 1:
-            # XOR (version 1 - legacy)
-            return self._xor_decrypt(data[1:])
-
-        else:
-            # Старый формат без версии (до миграции)
-            return self._xor_decrypt(data)
-
-    def _xor_encrypt(self, data: bytes) -> bytes:
-        """XOR шифрование (fallback)."""
-        key = b"DamanQGIS2025Key"
-        result = bytearray()
-        for i, byte in enumerate(data):
-            result.append(byte ^ key[i % len(key)])
-        return bytes(result)
-
-    def _xor_decrypt(self, data: bytes) -> str:
-        """XOR расшифровка (fallback)."""
-        key = b"DamanQGIS2025Key"
-        result = bytearray()
-        for i, byte in enumerate(data):
-            result.append(byte ^ key[i % len(key)])
-        return result.decode('utf-8')
-
-    # Legacy aliases for compatibility
-    def _obfuscate(self, data: str) -> bytes:
-        """Legacy alias."""
-        return self._encrypt(data)
-
-    def _deobfuscate(self, data: bytes) -> str:
-        """Legacy alias."""
-        return self._decrypt(data)
+        # Неизвестная версия - возвращаем пустой JSON
+        log_error(f"Msm_29_2: Unknown storage version: {version}")
+        return "{}"
 
     # === API Key ===
 
