@@ -81,7 +81,10 @@ class ComprehensiveTestRunner:
     NETWORK_DEPENDENT_MODULES = {
         'Fsm_5_2_T_1_2.py',              # QuickOSM/Overpass API (может зависать на timeouts)
         'Fsm_5_2_T_1_2_2.py',            # QuickOSMLoader direct test
-        'Fsm_5_2_T_1_2_method_osm.py',  # OSM method test
+        'Fsm_5_2_T_1_2_method_osm.py',   # OSM method test
+        'Fsm_5_2_T_api.py',              # API тесты (Yandex Cloud)
+        'Fsm_5_2_T_network.py',          # Сетевые тесты
+        'Fsm_5_2_T_security.py',         # Тесты безопасности API
     }
 
     def __init__(self, iface, log_level: int = TestLogger.LOG_LEVEL_ERROR, skip_network_tests: bool = False):
