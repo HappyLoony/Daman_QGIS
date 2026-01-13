@@ -53,18 +53,22 @@ class LicenseValidator:
             Dict {api_key: license_data}
         """
         if cls._licenses_cache is not None:
+            log_info(f"Msm_29_3: Используем кэш лицензий ({len(cls._licenses_cache)} записей)")
             return cls._licenses_cache
 
         try:
             from ...database.base_reference_loader import BaseReferenceLoader
 
             loader = BaseReferenceLoader()
+            log_info("Msm_29_3: Загружаем Base_licenses.json...")
             data = loader._load_json('Base_licenses.json')
 
             if data is None:
                 log_warning("Msm_29_3: Base_licenses.json не найден, лицензирование недоступно")
                 cls._licenses_cache = {}
                 return cls._licenses_cache
+
+            log_info(f"Msm_29_3: Получено {len(data)} записей из JSON")
 
             # Преобразуем список в словарь по api_key
             licenses = {}
@@ -77,16 +81,21 @@ class LicenseValidator:
                         "subscription_type": record.get('subscription_type'),
                         "starts_at": record.get('starts_at'),
                         "expires_at": record.get('expires_at'),
+                        "hardware_id": record.get('hardware_id'),  # Привязка к ПК из Excel
                         "notes": record.get('notes'),
                         "features": ["basic", "export_dxf", "export_tab"]  # Базовые функции
                     }
+                    log_info(f"Msm_29_3: Добавлен ключ {api_key} (hardware_id: {record.get('hardware_id', 'не задан')})")
 
             cls._licenses_cache = licenses
             log_info(f"Msm_29_3: Загружено {len(licenses)} лицензий из Base_licenses.json")
+            log_info(f"Msm_29_3: Доступные ключи: {list(licenses.keys())}")
             return cls._licenses_cache
 
         except Exception as e:
             log_error(f"Msm_29_3: Ошибка загрузки лицензий: {e}")
+            import traceback
+            log_error(f"Msm_29_3: Traceback: {traceback.format_exc()}")
             cls._licenses_cache = {}
             return cls._licenses_cache
 
@@ -220,13 +229,18 @@ class LicenseValidator:
         Загружает лицензии с GitHub Raw и проверяет ключ.
         """
         log_info("Msm_29_3: Using SIMULATION activation (Base_licenses.json)")
+        log_info(f"Msm_29_3: Проверяем ключ: '{api_key}'")
 
         # Загружаем лицензии
         licenses = self._load_licenses()
 
+        log_info(f"Msm_29_3: Поиск ключа в {len(licenses)} лицензиях")
+
         # Проверяем ключ
         license_data = licenses.get(api_key)
         if not license_data:
+            log_warning(f"Msm_29_3: Ключ '{api_key}' не найден в базе")
+            log_info(f"Msm_29_3: Доступные ключи: {list(licenses.keys())}")
             return {"status": "invalid_key"}
 
         # Проверяем срок действия
@@ -236,13 +250,20 @@ class LicenseValidator:
         if status == "not_started":
             return {"status": "error", "message": "Лицензия ещё не активна"}
 
-        # Проверяем привязку (в памяти для симуляции)
-        existing_hwid = self._hardware_bindings.get(api_key)
-        if existing_hwid and existing_hwid != hardware_id:
-            return {"status": "already_bound"}
+        # Проверяем привязку к hardware_id
+        stored_hwid = license_data.get("hardware_id")
+        log_info(f"Msm_29_3: Проверка привязки: stored={stored_hwid}, current={hardware_id}")
 
-        # Привязываем
-        self._hardware_bindings[api_key] = hardware_id
+        if stored_hwid:
+            # Если в базе есть hardware_id - проверяем совпадение
+            if stored_hwid != hardware_id:
+                log_warning(f"Msm_29_3: Ключ уже привязан к другому ПК: {stored_hwid}")
+                return {"status": "already_bound"}
+        else:
+            # Если hardware_id не задан - первая активация, запоминаем в памяти
+            # (в реальной системе здесь будет запись на сервер)
+            log_info(f"Msm_29_3: Первая активация, привязываем к {hardware_id}")
+            self._hardware_bindings[api_key] = hardware_id
 
         return {
             "status": "success",
@@ -337,14 +358,22 @@ class LicenseValidator:
         if not license_data:
             return {"status": "invalid_key"}
 
-        # Проверяем привязку (если уже активирован в этой сессии)
-        existing_hwid = self._hardware_bindings.get(api_key)
-        if existing_hwid and existing_hwid != hardware_id:
-            return {"status": "hardware_mismatch"}
+        # Проверяем привязку к hardware_id из JSON
+        stored_hwid = license_data.get("hardware_id")
 
-        # Автоматически привязываем если ещё не привязан
-        if not existing_hwid:
-            self._hardware_bindings[api_key] = hardware_id
+        if stored_hwid:
+            # Если в базе есть hardware_id - проверяем совпадение
+            if stored_hwid != hardware_id:
+                log_warning(f"Msm_29_3: Hardware mismatch: stored={stored_hwid}, current={hardware_id}")
+                return {"status": "hardware_mismatch"}
+        else:
+            # Проверяем привязку в памяти (для первой активации в сессии)
+            existing_hwid = self._hardware_bindings.get(api_key)
+            if existing_hwid and existing_hwid != hardware_id:
+                return {"status": "hardware_mismatch"}
+            # Автоматически привязываем если ещё не привязан
+            if not existing_hwid:
+                self._hardware_bindings[api_key] = hardware_id
 
         # Проверяем срок действия
         status = self._check_license_expiry(license_data)

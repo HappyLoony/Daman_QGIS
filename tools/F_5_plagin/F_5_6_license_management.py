@@ -32,6 +32,12 @@ class F_5_6_LicenseManagement(BaseTool):
     def run(self) -> None:
         """Запуск инструмента управления лицензией"""
         log_info("F_5_6: Запущен инструмент управления лицензией")
+
+        # Очищаем кэш лицензий при каждом открытии диалога (для отладки)
+        from Daman_QGIS.managers.submodules.Msm_29_3_license_validator import LicenseValidator
+        LicenseValidator.clear_cache()
+        log_info("F_5_6: Кэш лицензий очищен")
+
         super().run()
 
     def create_dialog(self):
