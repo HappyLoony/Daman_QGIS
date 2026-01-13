@@ -200,11 +200,14 @@ class LicenseDialog(QDialog):
             self.key_input.setCursorPosition(cursor_pos)
             self.key_input.blockSignals(False)
 
+        # Всегда проверяем актуальный текст из поля
+        current_text = self.key_input.text()
+
         # Активируем кнопку если ключ в правильном формате: DAMAN-XXXX-XXXX-XXXX
         is_valid = (
-            len(upper_text) == 19 and
-            upper_text.startswith("DAMAN-") and
-            upper_text.count("-") == 3
+            len(current_text) == 19 and
+            current_text.startswith("DAMAN-") and
+            current_text.count("-") == 3
         )
         self.activate_btn.setEnabled(is_valid)
 
