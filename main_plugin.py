@@ -67,45 +67,22 @@ def _load_tools_config() -> Dict[str, Tuple[str, str]]:
     Загрузка конфигурации инструментов из Base_Functions.json
 
     Единственный источник истины для регистрации функций на панели.
-    Если функция не найдена в JSON или enabled=False - она не регистрируется.
+    Использует FunctionReferenceManager с поддержкой remote загрузки.
 
     Returns:
         Dict[tool_id, (module_path, class_name)]
     """
-    import json
-    import os
+    from Daman_QGIS.managers.submodules.Msm_4_5_function_reference_manager import FunctionReferenceManager
     from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
-    json_path = os.path.join(DATA_REFERENCE_PATH, 'Base_Functions.json')
+    functions_manager = FunctionReferenceManager(DATA_REFERENCE_PATH)
+    tools_config = functions_manager.get_tools_config()
 
-    try:
-        with open(json_path, 'r', encoding='utf-8') as f:
-            functions = json.load(f)
-    except FileNotFoundError:
-        log_warning(f"Base_Functions.json не найден: {json_path}")
-        return {}
-    except json.JSONDecodeError as e:
-        log_error(f"Ошибка парсинга Base_Functions.json: {e}")
+    if not tools_config:
+        log_warning("_load_tools_config: Не удалось загрузить функции из Base_Functions.json")
         return {}
 
-    tools_config = {}
-    disabled_count = 0
-
-    for func in functions:
-        # Пропускаем отключенные функции
-        if not func.get('enabled', False):
-            disabled_count += 1
-            continue
-
-        tool_id = func.get('tool_id')
-        module_path = func.get('module_path')
-        class_name = func.get('class_name')
-
-        # Пропускаем если нет обязательных полей
-        if not all([tool_id, module_path, class_name]):
-            continue
-
-        tools_config[tool_id] = (module_path, class_name)
+    disabled_count = len(functions_manager.get_disabled_functions())
 
     log_info(f"TOOLS_CONFIG: загружено {len(tools_config)} функций из Base_Functions.json "
              f"(отключено: {disabled_count})")
