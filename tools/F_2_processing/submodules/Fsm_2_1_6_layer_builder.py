@@ -54,11 +54,11 @@ class Fsm_2_1_6_LayerBuilder:
         else:
             json_filename = 'Base_selection_OKS.json'
 
-        # Загружаем структуру из JSON (через BaseReferenceLoader для remote/local)
+        # Загружаем структуру из JSON (через BaseReferenceLoader для remote)
         try:
             from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
 
-            loader = BaseReferenceLoader(self.reference_dir)
+            loader = BaseReferenceLoader()
             field_definitions = loader._load_json(json_filename)
 
             if field_definitions is None:

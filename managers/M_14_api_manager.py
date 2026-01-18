@@ -76,9 +76,8 @@ class APIManager:
         """Загрузка базы данных endpoints из JSON (через BaseReferenceLoader для remote/local)"""
         try:
             from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
-            from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
-            loader = BaseReferenceLoader(DATA_REFERENCE_PATH)
+            loader = BaseReferenceLoader()
             data = loader._load_json('Base_api_endpoints.json')
 
             if data is None:

@@ -45,11 +45,10 @@ class AttributeMapper:
             return cls._field_mapping_zu_cache
 
         try:
-            # Используем BaseReferenceLoader для remote/local загрузки
+            # Используем BaseReferenceLoader для remote загрузки
             from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
-            from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
-            loader = BaseReferenceLoader(DATA_REFERENCE_PATH)
+            loader = BaseReferenceLoader()
             data = loader._load_json('Base_selection_ZU.json')
 
             if data is None:
@@ -88,11 +87,10 @@ class AttributeMapper:
             return cls._field_mapping_oks_cache
 
         try:
-            # Используем BaseReferenceLoader для remote/local загрузки
+            # Используем BaseReferenceLoader для remote загрузки
             from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
-            from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
-            loader = BaseReferenceLoader(DATA_REFERENCE_PATH)
+            loader = BaseReferenceLoader()
             data = loader._load_json('Base_selection_OKS.json')
 
             if data is None:

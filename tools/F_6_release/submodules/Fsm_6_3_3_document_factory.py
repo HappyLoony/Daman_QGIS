@@ -224,11 +224,10 @@ class DocumentFactory:
             if hasattr(self.ref_managers, 'documents') and self.ref_managers.documents:
                 return self.ref_managers.documents.get_all_documents()
 
-            # Fallback: используем BaseReferenceLoader для remote/local загрузки
+            # Fallback: используем BaseReferenceLoader для remote загрузки
             from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
-            from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
-            loader = BaseReferenceLoader(DATA_REFERENCE_PATH)
+            loader = BaseReferenceLoader()
             data = loader._load_json('Base_documents.json')
 
             if data is not None:

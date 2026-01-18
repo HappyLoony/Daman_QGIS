@@ -45,8 +45,7 @@ class Fsm_1_1_4_VypiskaImporter(BaseImporter):
 
         # Инициализация FieldMappingManager для ZERO HARDCODE
         from Daman_QGIS.managers.submodules.Msm_4_17_field_mapping_manager import FieldMappingManager
-        from Daman_QGIS.constants import DATA_REFERENCE_PATH
-        self.field_mapper = FieldMappingManager(DATA_REFERENCE_PATH)
+        self.field_mapper = FieldMappingManager()
 
         # Список пропущенных файлов (для автофильтрации дубликатов)
         self.skipped_info = []

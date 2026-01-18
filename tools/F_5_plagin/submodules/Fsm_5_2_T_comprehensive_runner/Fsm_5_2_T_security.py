@@ -852,8 +852,9 @@ class TestSecurity:
             # 200 - обработал первый/последний action
             # 400 - отклонил как невалидный
             # 404 - action не найден
+            # 405 - Method Not Allowed (если action=validate требует POST)
             self.logger.check(
-                response.status_code in [200, 400, 404],
+                response.status_code in [200, 400, 404, 405],
                 f"Parameter pollution обработан: {response.status_code}",
                 f"Сервер вернул неожиданный код: {response.status_code}"
             )

@@ -61,11 +61,10 @@ class VRIAssignmentManager:
             return True
 
         try:
-            # Используем BaseReferenceLoader для remote/local загрузки
+            # Используем BaseReferenceLoader для remote загрузки
             from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
-            from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
-            loader = BaseReferenceLoader(DATA_REFERENCE_PATH)
+            loader = BaseReferenceLoader()
             data = loader._load_json('VRI.json')
 
             if data is None:

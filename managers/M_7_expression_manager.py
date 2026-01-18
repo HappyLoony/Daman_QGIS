@@ -67,10 +67,10 @@ class ExpressionManager:
             Словарь {expression_id: expression_string}
         """
         try:
-            # Используем BaseReferenceLoader для remote/local загрузки
+            # Используем BaseReferenceLoader для remote загрузки
             from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
 
-            loader = BaseReferenceLoader(self._reference_path)
+            loader = BaseReferenceLoader()
             data = loader._load_json('Base_expressions.json')
 
             if data is None:
@@ -268,7 +268,7 @@ class ExpressionManager:
             try:
                 from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
 
-                loader = BaseReferenceLoader(self._reference_path)
+                loader = BaseReferenceLoader()
                 data = loader._load_json('Base_expressions.json')
 
                 if data is None:
