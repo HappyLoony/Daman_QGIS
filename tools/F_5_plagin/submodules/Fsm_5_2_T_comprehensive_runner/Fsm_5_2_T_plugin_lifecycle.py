@@ -308,9 +308,8 @@ class TestPluginLifecycle:
         try:
             # Используем FunctionReferenceManager для remote загрузки
             from Daman_QGIS.managers.submodules.Msm_4_5_function_reference_manager import FunctionReferenceManager
-            from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
-            func_manager = FunctionReferenceManager(DATA_REFERENCE_PATH)
+            func_manager = FunctionReferenceManager()
             functions = func_manager.get_all_functions()
 
             if not functions:

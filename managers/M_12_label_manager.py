@@ -44,8 +44,7 @@ class LabelManager:
         self.expr_manager = ExpressionManager()
 
         # Инициализируем reference managers
-        from Daman_QGIS.constants import DATA_REFERENCE_PATH
-        self.ref_manager = LabelReferenceManager(DATA_REFERENCE_PATH)
+        self.ref_manager = LabelReferenceManager()
 
         # Получаем доступ к layer reference manager для метаданных слоёв
         from Daman_QGIS.managers.M_4_reference_manager import get_reference_managers

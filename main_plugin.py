@@ -73,9 +73,8 @@ def _load_tools_config() -> Dict[str, Tuple[str, str]]:
         Dict[tool_id, (module_path, class_name)]
     """
     from Daman_QGIS.managers.submodules.Msm_4_5_function_reference_manager import FunctionReferenceManager
-    from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
-    functions_manager = FunctionReferenceManager(DATA_REFERENCE_PATH)
+    functions_manager = FunctionReferenceManager()
     tools_config = functions_manager.get_tools_config()
 
     if not tools_config:

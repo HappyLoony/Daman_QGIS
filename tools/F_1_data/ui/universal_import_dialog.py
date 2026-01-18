@@ -133,9 +133,8 @@ class UniversalImportDialog(QDialog):
     def _load_base_layers(self) -> List[Dict[str, Any]]:
         """Загрузка Base_layers.json через LayerReferenceManager"""
         from Daman_QGIS.managers.submodules.Msm_4_6_layer_reference_manager import LayerReferenceManager
-        from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
-        layer_manager = LayerReferenceManager(DATA_REFERENCE_PATH)
+        layer_manager = LayerReferenceManager()
         data = layer_manager.get_base_layers()
         if not data:
             raise RuntimeError("Base_layers.json не найден или пуст")

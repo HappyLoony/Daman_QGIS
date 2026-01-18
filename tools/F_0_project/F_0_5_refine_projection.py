@@ -580,13 +580,9 @@ class F_0_5_RefineProjection(BaseTool):
             Set[str]: Множество имён слоёв для исключения
         """
         try:
-            import os
             from Daman_QGIS.managers.submodules.Msm_4_6_layer_reference_manager import LayerReferenceManager
 
-            # Получаем путь к папке reference
-            from Daman_QGIS.constants import DATA_REFERENCE_PATH
-
-            layer_ref_manager = LayerReferenceManager(DATA_REFERENCE_PATH)
+            layer_ref_manager = LayerReferenceManager()
             excluded_names = layer_ref_manager.get_layer_names_by_creating_function(
                 "F_1_2_Загрузка Web карт"
             )

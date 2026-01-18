@@ -47,10 +47,9 @@ class LayerCleanupManager:
             List[dict]: Список словарей с информацией о слоях
         """
         from Daman_QGIS.managers.submodules.Msm_4_6_layer_reference_manager import LayerReferenceManager
-        from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
         try:
-            layer_manager = LayerReferenceManager(DATA_REFERENCE_PATH)
+            layer_manager = LayerReferenceManager()
             layers = layer_manager.get_base_layers()
             if layers:
                 log_info("M_10: Base_layers.json загружен")

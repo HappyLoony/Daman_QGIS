@@ -40,9 +40,8 @@ class LayerProcessor:
         Загрузка параметров слоев из Base_layers.json через LayerReferenceManager
         """
         from Daman_QGIS.managers.submodules.Msm_4_6_layer_reference_manager import LayerReferenceManager
-        from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
-        layer_manager = LayerReferenceManager(DATA_REFERENCE_PATH)
+        layer_manager = LayerReferenceManager()
         data = layer_manager.get_base_layers()
 
         # Base_layers.json содержит массив объектов, преобразуем в словарь
