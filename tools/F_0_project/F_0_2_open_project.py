@@ -7,14 +7,9 @@ import os
 from typing import Dict, Any
 
 from qgis.PyQt.QtWidgets import QMessageBox, QFileDialog
-from qgis.core import (
-    QgsProject,
-    QgsCoordinateReferenceSystem,
-    Qgis
-)
+from qgis.core import QgsProject, QgsCoordinateReferenceSystem
 
 from Daman_QGIS.core.base_tool import BaseTool
-from Daman_QGIS.constants import MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION, PLUGIN_NAME
 from Daman_QGIS.utils import log_info, log_error, log_success, log_warning, create_crs_from_string
 from Daman_QGIS.managers import get_project_structure_manager
 
@@ -242,17 +237,10 @@ class F_0_2_OpenProject(BaseTool):
             object_name = metadata['1_1_full_name']['value']
         else:
             object_name = os.path.basename(project_path)
-        
-        # Показываем только краткое сообщение об успешном открытии
-        self.iface.messageBar().pushMessage(
-            "Успех",
-            f"Проект '{object_name}' открыт",
-            level=Qgis.Success,
-            duration=MESSAGE_SUCCESS_DURATION
-        )
-        
+
+        # Сообщение об успехе уже показано в M_1.open_project()
         # Логируем для отладки
-        log_success(f"F_0_2: Проект открыт: {project_path}")
+        log_success(f"F_0_2: Проект '{object_name}' открыт: {project_path}")
 
         # Регистрируем все выражения из Base_expressions.json как переменные проекта
         try:

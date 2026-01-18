@@ -189,7 +189,9 @@ class ProjectManager:
         qgs_files = [f for f in os.listdir(project_path) if f.endswith('.qgs')]
         if qgs_files:
             qgs_path = os.path.join(project_path, qgs_files[0])
-            QgsProject.instance().read(qgs_path)
+            read_success = QgsProject.instance().read(qgs_path)
+            if not read_success:
+                log_warning(f"M_1_ProjectManager: Не удалось загрузить файл проекта {qgs_path}")
             # Файл проекта уже содержит все слои, дополнительная загрузка не нужна
             log_info(f"M_1_ProjectManager: Проект загружен из {qgs_path}. Слоев в проекте: {len(QgsProject.instance().mapLayers())}")
         else:
@@ -208,14 +210,25 @@ class ProjectManager:
 
         self.current_project = project_path
 
+        # Подсчитываем слои
+        layer_count = len(QgsProject.instance().mapLayers())
         log_info(f"M_1_ProjectManager: Проект открыт: {project_path}")
 
-        self.iface.messageBar().pushMessage(
-            "Успех",
-            f"Проект '{self.settings.name}' успешно открыт",
-            level=Qgis.Success,
-            duration=MESSAGE_SUCCESS_DURATION
-        )
+        # Показываем сообщение с количеством слоёв
+        if layer_count == 0:
+            self.iface.messageBar().pushMessage(
+                "Успех",
+                f"Проект '{self.settings.name}' открыт (пустой проект, слои не добавлены)",
+                level=Qgis.Success,
+                duration=MESSAGE_SUCCESS_DURATION
+            )
+        else:
+            self.iface.messageBar().pushMessage(
+                "Успех",
+                f"Проект '{self.settings.name}' успешно открыт ({layer_count} слоев)",
+                level=Qgis.Success,
+                duration=MESSAGE_SUCCESS_DURATION
+            )
 
         return True
     
