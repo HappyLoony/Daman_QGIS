@@ -8,8 +8,9 @@ Msm_29_3_LicenseValidator - Валидатор лицензии через Yande
 - Деактивацию лицензии (POST ?action=deactivate)
 
 Безопасность:
-- HMAC-SHA256 подпись запросов (timestamp + hardware_id)
-- Защита от replay attacks (timestamp validation)
+- HMAC-SHA256 подпись запросов с API ключом пользователя как secret
+- Каждый пользователь имеет уникальный ключ подписи
+- Защита от replay attacks (timestamp validation на сервере)
 
 API: https://functions.yandexcloud.net/d4e9nvs008lt7sd87s7m
 """
@@ -21,10 +22,6 @@ from typing import Dict, Any, List
 
 from ...constants import API_BASE_URL, API_TIMEOUT
 from ...utils import log_info, log_error, log_warning
-
-# HMAC secret (должен совпадать с сервером)
-# В production это должно быть в переменных окружения
-HMAC_SECRET = b"Daman_QGIS_HMAC_2025_Secret_Key"
 
 class LicenseValidator:
     """
@@ -59,21 +56,29 @@ class LicenseValidator:
         """
         Генерация HMAC-SHA256 подписи запроса.
 
-        Подписываем: api_key + hardware_id + timestamp
+        Используем API ключ пользователя как HMAC secret.
+        Каждый пользователь имеет уникальный ключ подписи.
+
+        Подписываем: hardware_id + timestamp
+        Secret: api_key (уникален для каждого пользователя)
+
         Это защищает от:
-        - Подделки запросов (нужен secret)
+        - Подделки запросов (нужен api_key конкретного пользователя)
         - Replay attacks (timestamp проверяется на сервере)
+        - Компрометация одного ключа не влияет на других
 
         Args:
-            api_key: API ключ
+            api_key: API ключ (используется как HMAC secret)
             hardware_id: Hardware ID
             timestamp: Unix timestamp
 
         Returns:
             Hex-encoded HMAC signature
         """
-        message = f"{api_key}|{hardware_id}|{timestamp}".encode('utf-8')
-        signature = hmac.new(HMAC_SECRET, message, hashlib.sha256).hexdigest()
+        # API ключ как secret - уникален для каждого пользователя
+        secret = api_key.encode('utf-8')
+        message = f"{hardware_id}|{timestamp}".encode('utf-8')
+        signature = hmac.new(secret, message, hashlib.sha256).hexdigest()
         return signature
 
     def _build_signed_payload(self, api_key: str, hardware_id: str, **extra) -> Dict[str, Any]:

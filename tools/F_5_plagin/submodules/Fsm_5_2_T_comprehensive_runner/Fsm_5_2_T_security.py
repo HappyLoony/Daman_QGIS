@@ -1283,10 +1283,10 @@ class TestSecurity:
             hardware_id = "test-hwid"
 
             # Генерируем корректную подпись для старого timestamp
-            # (должен совпадать с секретом на сервере)
-            hmac_secret = b"Daman_QGIS_HMAC_2025_Secret_Key"
-            message = f"{api_key}|{hardware_id}|{old_timestamp}".encode('utf-8')
-            signature = hmac_lib.new(hmac_secret, message, hashlib.sha256).hexdigest()
+            # API ключ используется как HMAC secret (уникален для каждого пользователя)
+            secret = api_key.encode('utf-8')
+            message = f"{hardware_id}|{old_timestamp}".encode('utf-8')
+            signature = hmac_lib.new(secret, message, hashlib.sha256).hexdigest()
 
             payload = {
                 "api_key": api_key,

@@ -4,7 +4,7 @@ Manager Submodules - Субменеджеры справочных данных 
 
 Группа M_4 (Справочные менеджеры):
 - Msm_4_1: [УДАЛЁН] VRI теперь в M_21_VRIAssignmentManager
-- Msm_4_2: WorkTypeReferenceManager - Типы работ
+- Msm_4_2: SimpleReferenceManager - Типы работ + Чертежи (объединён с Msm_4_13)
 - Msm_4_3: ProjectMetadataManager - Метаданные проекта
 - Msm_4_4: ZOUITReferenceManager - ЗОУИТ
 - Msm_4_5: FunctionReferenceManager - Функции плагина
@@ -15,7 +15,7 @@ Manager Submodules - Субменеджеры справочных данных 
 - Msm_4_10: ExcelExportStyleManager - Стили экспорта Excel
 - Msm_4_11: ExcelListStyleManager - Стили списков Excel
 - Msm_4_12: LayerFieldStructureManager - Структура полей
-- Msm_4_13: DrawingsReferenceManager - Чертежи
+- Msm_4_13: [ОБЪЕДИНЁН в Msm_4_2] SimpleReferenceManager
 - Msm_4_14: DataValidationManager - Валидация данных
 - Msm_4_15: LabelReferenceManager - Подписи
 - Msm_4_16: BackgroundReferenceManager - Подложки
@@ -42,7 +42,8 @@ Manager Submodules - Субменеджеры справочных данных 
 
 # Группа M_4: Справочные менеджеры
 # Msm_4_1 (VRI) удалён - используйте M_21_VRIAssignmentManager
-from .Msm_4_2_work_type_reference_manager import WorkTypeReferenceManager
+# Msm_4_13 (Drawings) объединён с Msm_4_2 (SimpleReferenceManager)
+from .Msm_4_2_simple_reference_manager import SimpleReferenceManager, WorkTypeReferenceManager, DrawingsReferenceManager
 from .Msm_4_3_project_metadata_manager import ProjectMetadataManager
 from .Msm_4_4_zouit_reference_manager import ZOUITReferenceManager
 from .Msm_4_5_function_reference_manager import FunctionReferenceManager
@@ -53,7 +54,6 @@ from .Msm_4_9_layer_style_manager import LayerStyleManager
 from .Msm_4_10_excel_export_style_manager import ExcelExportStyleManager
 from .Msm_4_11_excel_list_style_manager import ExcelListStyleManager
 from .Msm_4_12_layer_field_structure_manager import LayerFieldStructureManager
-from .Msm_4_13_drawings_reference_manager import DrawingsReferenceManager
 from .Msm_4_14_data_validation_manager import DataValidationManager
 from .Msm_4_15_label_reference_manager import LabelReferenceManager
 from .Msm_4_16_background_reference_manager import BackgroundReferenceManager
@@ -80,7 +80,10 @@ from .Msm_17_2_progress_reporter import MessageBarReporter, SilentReporter
 __all__ = [
     # Msm_4: Справочные менеджеры
     # VRIReferenceManager (Msm_4_1) удалён - используйте M_21_VRIAssignmentManager
-    'WorkTypeReferenceManager',         # Msm_4_2
+    # DrawingsReferenceManager (Msm_4_13) объединён в SimpleReferenceManager (Msm_4_2)
+    'SimpleReferenceManager',           # Msm_4_2 (WorkType + Drawings)
+    'WorkTypeReferenceManager',         # Msm_4_2 (алиас для совместимости)
+    'DrawingsReferenceManager',         # Msm_4_2 (алиас для совместимости)
     'ProjectMetadataManager',           # Msm_4_3
     'ZOUITReferenceManager',            # Msm_4_4
     'FunctionReferenceManager',         # Msm_4_5
@@ -91,7 +94,6 @@ __all__ = [
     'ExcelExportStyleManager',          # Msm_4_10
     'ExcelListStyleManager',            # Msm_4_11
     'LayerFieldStructureManager',       # Msm_4_12
-    'DrawingsReferenceManager',         # Msm_4_13
     'DataValidationManager',            # Msm_4_14
     'LabelReferenceManager',            # Msm_4_15
     'BackgroundReferenceManager',       # Msm_4_16

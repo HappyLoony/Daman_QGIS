@@ -8,14 +8,11 @@
 который предоставляет расширенный API для работы с ВРИ.
 """
 
-import os
 import threading
 from typing import NamedTuple
 
-from Daman_QGIS.constants import DATA_REFERENCE_PATH
-
 # Импортируем все менеджеры
-from Daman_QGIS.managers.submodules.Msm_4_2_work_type_reference_manager import WorkTypeReferenceManager
+from Daman_QGIS.managers.submodules.Msm_4_2_simple_reference_manager import SimpleReferenceManager
 from Daman_QGIS.managers.submodules.Msm_4_3_project_metadata_manager import ProjectMetadataManager
 from Daman_QGIS.managers.submodules.Msm_4_4_zouit_reference_manager import ZOUITReferenceManager
 from Daman_QGIS.managers.submodules.Msm_4_5_function_reference_manager import FunctionReferenceManager
@@ -25,7 +22,6 @@ from Daman_QGIS.managers.submodules.Msm_4_8_urban_planning_reference_manager imp
 from Daman_QGIS.managers.submodules.Msm_4_9_layer_style_manager import LayerStyleManager
 from Daman_QGIS.managers.submodules.Msm_4_10_excel_export_style_manager import ExcelExportStyleManager
 from Daman_QGIS.managers.submodules.Msm_4_12_layer_field_structure_manager import LayerFieldStructureManager
-from Daman_QGIS.managers.submodules.Msm_4_13_drawings_reference_manager import DrawingsReferenceManager
 from Daman_QGIS.managers.submodules.Msm_4_14_data_validation_manager import DataValidationManager
 from Daman_QGIS.managers.submodules.Msm_4_15_label_reference_manager import LabelReferenceManager
 from Daman_QGIS.managers.submodules.Msm_4_16_background_reference_manager import BackgroundReferenceManager
@@ -43,8 +39,10 @@ class ReferenceManagers(NamedTuple):
         from Daman_QGIS.managers import VRIAssignmentManager
         vri_manager = VRIAssignmentManager()
         vri_list = vri_manager.get_all_vri()
+
+    ПРИМЕЧАНИЕ: work_type и drawings указывают на один SimpleReferenceManager
     """
-    work_type: WorkTypeReferenceManager
+    work_type: SimpleReferenceManager
     project_metadata: ProjectMetadataManager
     zouit: ZOUITReferenceManager
     function: FunctionReferenceManager
@@ -55,7 +53,7 @@ class ReferenceManagers(NamedTuple):
     excel_export_style: ExcelExportStyleManager
     excel_list_style: ExcelListStyleManager
     layer_field_structure: LayerFieldStructureManager
-    drawings: DrawingsReferenceManager
+    drawings: SimpleReferenceManager
     data_validation: DataValidationManager
     label: LabelReferenceManager
     background: BackgroundReferenceManager
@@ -69,6 +67,8 @@ def create_reference_managers() -> ReferenceManagers:
     """
     Создать и инициализировать все менеджеры справочных данных
 
+    Данные загружаются через Yandex Cloud API (BaseReferenceLoader).
+
     Returns:
         ReferenceManagers: NamedTuple со всеми менеджерами
 
@@ -77,33 +77,28 @@ def create_reference_managers() -> ReferenceManagers:
         >>> layer_style = managers.layer_style.get_layer_style("3_1_1_ЗУ")
         >>> # Для VRI используйте M_21_VRIAssignmentManager
     """
-    # Путь к справочным данным из constants.py
-    # ВАЖНО: Данные хранятся в отдельном репозитории Daman_QGIS_data_reference
-    reference_dir = DATA_REFERENCE_PATH
-
     # Создаем менеджеры без зависимостей
-    work_type_manager = WorkTypeReferenceManager(reference_dir)
-    project_metadata_manager = ProjectMetadataManager(reference_dir)
-    zouit_manager = ZOUITReferenceManager(reference_dir)
-    function_manager = FunctionReferenceManager(reference_dir)
-    layer_manager = LayerReferenceManager(reference_dir)
-    employee_manager = EmployeeReferenceManager(reference_dir)
-    urban_planning_manager = UrbanPlanningReferenceManager(reference_dir)
-    excel_export_style_manager = ExcelExportStyleManager(reference_dir)
-    excel_list_style_manager = ExcelListStyleManager(reference_dir)
-    layer_field_structure_manager = LayerFieldStructureManager(reference_dir)
-    drawings_manager = DrawingsReferenceManager(reference_dir)
-    label_manager = LabelReferenceManager(reference_dir)
-    background_manager = BackgroundReferenceManager(reference_dir)
-    field_mapping_manager = FieldMappingManager(reference_dir)
-    zouit_classification_manager = ZOUITClassificationManager(reference_dir)
-    crs_manager = CRSReferenceManager(reference_dir)
-    legal_abbreviations_manager = LegalAbbreviationsManager(reference_dir)
+    # SimpleReferenceManager объединяет work_type и drawings
+    simple_manager = SimpleReferenceManager()
+    project_metadata_manager = ProjectMetadataManager()
+    zouit_manager = ZOUITReferenceManager()
+    function_manager = FunctionReferenceManager()
+    layer_manager = LayerReferenceManager()
+    employee_manager = EmployeeReferenceManager()
+    urban_planning_manager = UrbanPlanningReferenceManager()
+    excel_export_style_manager = ExcelExportStyleManager()
+    excel_list_style_manager = ExcelListStyleManager()
+    layer_field_structure_manager = LayerFieldStructureManager()
+    label_manager = LabelReferenceManager()
+    background_manager = BackgroundReferenceManager()
+    field_mapping_manager = FieldMappingManager()
+    zouit_classification_manager = ZOUITClassificationManager()
+    crs_manager = CRSReferenceManager()
+    legal_abbreviations_manager = LegalAbbreviationsManager()
 
     # Создаем менеджеры с зависимостями (композиция)
-    layer_style_manager = LayerStyleManager(reference_dir, layer_manager)
+    layer_style_manager = LayerStyleManager(layer_manager)
     data_validation_manager = DataValidationManager(
-        reference_dir=reference_dir,
         function_manager=function_manager,
         layer_manager=layer_manager,
         employee_manager=employee_manager,
@@ -111,7 +106,7 @@ def create_reference_managers() -> ReferenceManagers:
     )
 
     return ReferenceManagers(
-        work_type=work_type_manager,
+        work_type=simple_manager,
         project_metadata=project_metadata_manager,
         zouit=zouit_manager,
         function=function_manager,
@@ -122,7 +117,7 @@ def create_reference_managers() -> ReferenceManagers:
         excel_export_style=excel_export_style_manager,
         excel_list_style=excel_list_style_manager,
         layer_field_structure=layer_field_structure_manager,
-        drawings=drawings_manager,
+        drawings=simple_manager,  # Тот же экземпляр что и work_type
         data_validation=data_validation_manager,
         label=label_manager,
         background=background_manager,

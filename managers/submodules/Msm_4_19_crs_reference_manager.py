@@ -20,14 +20,9 @@ class CRSReferenceManager(BaseReferenceLoader):
 
     CRS_FILE = 'Base_CRS.json'
 
-    def __init__(self, reference_dir: str):
-        """
-        Инициализация менеджера CRS
-
-        Args:
-            reference_dir: Путь к директории со справочными JSON файлами
-        """
-        super().__init__(reference_dir)
+    def __init__(self):
+        """Инициализация менеджера CRS."""
+        super().__init__()
 
     # =========================================================================
     # Основные методы доступа к данным

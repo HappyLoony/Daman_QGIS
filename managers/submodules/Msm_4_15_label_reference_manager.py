@@ -39,7 +39,7 @@ class LabelReferenceManager(BaseReferenceLoader):
             Словарь с настройками подписей или None если подписи не настроены
 
         Example:
-            >>> manager = LabelReferenceManager(reference_dir)
+            >>> manager = LabelReferenceManager()
             >>> config = manager.get_label_config("L_1_2_1_WFS_ЗУ")
             >>> if config:
             >>>     print(f"Поле подписи: {config['label_field']}")

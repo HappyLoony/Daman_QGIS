@@ -24,14 +24,9 @@ class LegalAbbreviationsManager(BaseReferenceLoader):
 
     FILE_NAME = 'Base_legal_abbreviations.json'
 
-    def __init__(self, reference_dir: str):
-        """
-        Инициализация менеджера
-
-        Args:
-            reference_dir: Путь к директории со справочными JSON файлами
-        """
-        super().__init__(reference_dir)
+    def __init__(self):
+        """Инициализация менеджера."""
+        super().__init__()
         self._sorted_abbreviations: Optional[List[Tuple[str, str, bool]]] = None
 
     def get_abbreviations(self) -> List[Dict]:

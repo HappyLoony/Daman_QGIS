@@ -18,15 +18,13 @@ from Daman_QGIS.managers.submodules.Msm_4_6_layer_reference_manager import Layer
 class LayerStyleManager:
     """Менеджер для работы со стилями слоев MapInfo и AutoCAD"""
 
-    def __init__(self, reference_dir: str, layer_manager: LayerReferenceManager):
+    def __init__(self, layer_manager: LayerReferenceManager):
         """
         Инициализация менеджера стилей
 
         Args:
-            reference_dir: Путь к директории со справочными данными (не используется напрямую)
             layer_manager: Экземпляр LayerReferenceManager для получения данных слоев
         """
-        self.reference_dir = reference_dir
         self.layer_manager = layer_manager
 
     def parse_mapinfo_style(self, style_string: str) -> Optional[Dict]:

@@ -12,6 +12,7 @@
 import os
 from typing import Dict, List
 from Daman_QGIS.utils import log_info, log_warning
+from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
 # Импорт всех необходимых менеджеров
 from Daman_QGIS.managers.submodules.Msm_4_5_function_reference_manager import FunctionReferenceManager
@@ -30,7 +31,6 @@ class DataValidationManager:
 
     def __init__(
         self,
-        reference_dir: str,
         function_manager: FunctionReferenceManager,
         layer_manager: LayerReferenceManager,
         employee_manager: EmployeeReferenceManager,
@@ -40,13 +40,11 @@ class DataValidationManager:
         Инициализация менеджера валидации
 
         Args:
-            reference_dir: Путь к директории со справочными данными
             function_manager: Менеджер функций плагина
             layer_manager: Менеджер слоев
             employee_manager: Менеджер сотрудников
             excel_export_manager: Менеджер стилей экспорта в Excel
         """
-        self.reference_dir = reference_dir
         self.function_manager = function_manager
         self.layer_manager = layer_manager
         self.employee_manager = employee_manager
@@ -100,9 +98,10 @@ class DataValidationManager:
             'invalid_references': []
         }
 
-        # 1. Проверка существования файлов
+        # 1. Проверка существования файлов (локально, для отладки)
+        # Примечание: данные загружаются через API, эта проверка опциональна
         for db_name, filename in self.db_files.items():
-            filepath = os.path.join(self.reference_dir, filename)
+            filepath = os.path.join(DATA_REFERENCE_PATH, filename)
             if not os.path.exists(filepath):
                 issues['missing_files'].append(f"{db_name}: {filename}")
 

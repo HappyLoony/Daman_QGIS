@@ -10,7 +10,7 @@ import os
 from typing import Dict, Any, Set, List
 
 from qgis.core import Qgis
-from Daman_QGIS.constants import PLUGIN_NAME
+from Daman_QGIS.constants import PLUGIN_NAME, PLUGIN_DIR
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
@@ -25,9 +25,8 @@ class FontChecker:
         Returns:
             str: Путь к папке fonts
         """
-        plugin_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        fonts_dir = os.path.join(plugin_dir, 'data', 'fonts')
-        return fonts_dir
+        # Используем PLUGIN_DIR из constants.py - надёжный способ определения корня
+        return os.path.join(PLUGIN_DIR, 'data', 'fonts')
 
     @staticmethod
     def get_required_fonts() -> List[str]:

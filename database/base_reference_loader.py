@@ -19,7 +19,7 @@ from Daman_QGIS.utils import log_warning, log_error, log_info
 
 
 class BaseReferenceLoader:
-    """Базовый класс для загрузки справочных данных с GitHub Raw
+    """Базовый класс для загрузки справочных данных через Yandex Cloud API.
 
     Кэш общий для всех экземпляров (на уровне класса).
     Данные загружаются один раз за сессию.
@@ -29,19 +29,16 @@ class BaseReferenceLoader:
     _shared_cache: Dict[str, Any] = {}
     _shared_index_cache: Dict[str, Dict] = {}
 
-    def __init__(self, reference_dir: str = None):
-        """
-        Инициализация базового загрузчика
+    def __init__(self):
+        """Инициализация базового загрузчика.
 
-        Args:
-            reference_dir: Не используется (для совместимости с API)
+        Данные загружаются через Yandex Cloud API, локальные пути не используются.
         """
-        # reference_dir сохраняется для совместимости, но не используется
-        self.reference_dir = reference_dir
+        pass
 
     def _load_json(self, filename: str) -> Any:
         """
-        Загружает JSON файл с GitHub Raw с кэшированием в памяти.
+        Загружает JSON файл через Yandex Cloud API с кэшированием в памяти.
 
         Требует интернет-соединение. Кэш хранится только на время сессии.
 
@@ -60,7 +57,7 @@ class BaseReferenceLoader:
         if filename in BaseReferenceLoader._shared_cache:
             return BaseReferenceLoader._shared_cache[filename]
 
-        # Загрузка с GitHub Raw (требует интернет)
+        # Загрузка через Yandex Cloud API (требует интернет)
         data = self._load_from_remote(filename)
 
         if data is not None:

@@ -86,12 +86,11 @@ class WorkTypeAssignmentManager:
         if self._loaded:
             return True
 
-        # Загрузка Work_types.json через WorkTypeReferenceManager
-        from Daman_QGIS.managers.submodules.Msm_4_2_work_type_reference_manager import WorkTypeReferenceManager
-        from Daman_QGIS.constants import DATA_REFERENCE_PATH
+        # Загрузка Work_types.json через SimpleReferenceManager
+        from Daman_QGIS.managers.submodules.Msm_4_2_simple_reference_manager import SimpleReferenceManager
 
         try:
-            work_type_manager = WorkTypeReferenceManager(DATA_REFERENCE_PATH)
+            work_type_manager = SimpleReferenceManager()
             self._work_types_data = work_type_manager.get_work_types()
 
             if not self._work_types_data:

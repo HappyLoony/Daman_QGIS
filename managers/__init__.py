@@ -31,6 +31,7 @@ Managers - Централизованная система менеджеров 
 - M_28: LayerSchemaValidator - валидация структуры слоёв (обязательные поля)
 - M_29: LicenseManager - управление лицензиями и Hardware ID
 - M_30: NetworkManager - HTTP клиент с JWT авторизацией
+- M_31: MaskManager - маскирование карты по границам работ
 """
 
 # Основные менеджеры
@@ -88,6 +89,12 @@ from .M_30_network_manager import (
     NetworkStatus,
     get_network_manager,
     reset_network_manager
+)
+from .M_31_mask_manager import (
+    MaskManager,
+    MaskSource,
+    get_mask_manager,
+    reset_mask_manager
 )
 
 __all__ = [
@@ -197,4 +204,10 @@ __all__ = [
     'NetworkStatus',
     'get_network_manager',
     'reset_network_manager',
+
+    # M_31: Маскирование карты
+    'MaskManager',
+    'MaskSource',
+    'get_mask_manager',
+    'reset_mask_manager',
 ]

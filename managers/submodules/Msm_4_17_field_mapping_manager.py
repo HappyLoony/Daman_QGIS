@@ -23,14 +23,9 @@ class FieldMappingManager(BaseReferenceLoader):
 
     FIELD_MAPPING_FILE = 'Base_field_mapping_EGRN.json'
 
-    def __init__(self, plugin_dir: str):
-        """
-        Инициализация менеджера
-
-        Args:
-            plugin_dir: Путь к директории плагина
-        """
-        super().__init__(plugin_dir)
+    def __init__(self):
+        """Инициализация менеджера."""
+        super().__init__()
         self._mappings = None
         self._by_record_type = {}
         self._by_working_name = {}
