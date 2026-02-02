@@ -1,16 +1,16 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <plugins>
-    <pyqgis_plugin name="Daman QGIS" version="0.9.272">
+    <pyqgis_plugin name="Daman QGIS" version="0.9.273">
         <description>Плагин для градостроительного проектирования: ДПТ (ППТ, ПМТ) с поддержкой МСК, точностью 0,01м и экспортом в форматы DXF, TAB.</description>
         <about>Daman_QGIS - профессиональный инструмент для подготовки документации по планировке территории (ДПТ). Возможности: импорт данных ЕГРН (XML выписки), проверка топологии, работа с МСК (местные системы координат), экспорт в CAD форматы (DXF с HATCH, TAB) и подготовка материалов для кадастрового учета.</about>
-        <version>0.9.272</version>
+        <version>0.9.273</version>
         <qgis_minimum_version>3.40</qgis_minimum_version>
         <qgis_maximum_version>3.99</qgis_maximum_version>
         <homepage>https://github.com/HappyLoony/Daman_QGIS_dev</homepage>
         <file_name>Daman_QGIS.zip</file_name>
         <icon>data/icons/icon.svg</icon>
         <author_name>Alexander Plahotnyuk</author_name>
-        <download_url>https://github.com/HappyLoony/Daman_QGIS/releases/download/0.9.272/Daman_QGIS.zip</download_url>
+        <download_url>https://github.com/HappyLoony/Daman_QGIS/releases/download/0.9.273/Daman_QGIS.zip</download_url>
         <uploaded_by>HappyLoony</uploaded_by>
         <create_date>2026-01-19</create_date>
         <update_date>2026-02-02</update_date>
@@ -81,7 +81,9 @@
     
     
     
+    
     </pyqgis_plugin>
+
 
 
 
