@@ -41,10 +41,6 @@ Use this URL instead:
 https://raw.githubusercontent.com/HappyLoony/Daman_QGIS/main/beta/plugins.xml
 ```
 
-## Documentation
-
-See `documentation/` folder for detailed guides (in Russian).
-
 ## Author
 
 Alexander Plahotnyuk
