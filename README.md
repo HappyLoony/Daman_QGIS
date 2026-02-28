@@ -1,5 +1,10 @@
 # Daman QGIS
 
+![Version](https://img.shields.io/github/v/release/HappyLoony/Daman_QGIS)
+![License](https://img.shields.io/badge/License-GPL--3.0-blue)
+![QGIS](https://img.shields.io/badge/QGIS-3.40+-green)
+![Python](https://img.shields.io/badge/Python-3.9+-yellow)
+
 QGIS plugin for urban planning documentation (DPT - Documentation for Territory Planning) with support for Russian coordinate systems (MSK) and cadastral data formats.
 
 ## Features
