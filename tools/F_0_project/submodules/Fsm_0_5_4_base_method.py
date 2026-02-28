@@ -31,7 +31,7 @@ from qgis.core import (
 from Daman_QGIS.constants import (
     ELLPS_KRASS, TOWGS84_SK42_PROJ, RMSE_THRESHOLD_OK
 )
-from Daman_QGIS.utils import log_warning
+from Daman_QGIS.utils import log_warning, log_error
 
 # Ограничение dS (масштабный коэффициент) в ppm
 # ГОСТ 32453-2017: типичный диапазон для СК-42 около -4.3..+0.55 ppm
@@ -53,6 +53,12 @@ class CalculationResult:
     - "towgs84_only": Метод 10 (Helmert 7P LSQ). Возвращает новые параметры towgs84.
                       x_0/y_0 остаются без изменений (0.0).
                       Параметры в diagnostics['towgs84'].
+
+    Типы подходов (approach_type):
+    - "calibration": Калибровка исходной СК. Трансформация wrong через исходную СК.
+                     x_0/y_0 - коррекция к исходным параметрам (небольшие значения).
+    - "ldp": Low Distortion Projection. Создание новой проекции под RAW координаты.
+             x_0/y_0 - полные значения false easting/northing (большие значения).
     """
 
     # Идентификация метода
@@ -79,6 +85,9 @@ class CalculationResult:
     # Тип результата (определяет как F_0_5 должен интерпретировать параметры)
     result_type: str = "crs_params"  # "crs_params" | "coordinate_transform" | "towgs84_only"
 
+    # Тип подхода расчёта (для пересчёта СК)
+    approach_type: str = "calibration"  # "calibration" | "ldp"
+
     # Диагностика (опционально)
     diagnostics: Dict = field(default_factory=dict)
 
@@ -88,6 +97,11 @@ class CalculationResult:
         valid_types = ("crs_params", "coordinate_transform", "towgs84_only")
         if self.result_type not in valid_types:
             raise ValueError(f"result_type должен быть одним из {valid_types}, получено: {self.result_type}")
+
+        # Проверка допустимых значений approach_type
+        valid_approaches = ("calibration", "ldp")
+        if self.approach_type not in valid_approaches:
+            raise ValueError(f"approach_type должен быть одним из {valid_approaches}, получено: {self.approach_type}")
 
 
 class BaseCalculationMethod(ABC):
@@ -188,6 +202,77 @@ class BaseCalculationMethod(ABC):
         bool : True если метод доступен
         """
         return True
+
+    def supports_ldp(self) -> bool:
+        """
+        Поддерживает ли метод LDP-подход (Low Distortion Projection).
+
+        LDP использует RAW координаты объектов без трансформации через исходную СК.
+        Позволяет создать проекцию под существующие координаты.
+
+        По умолчанию False. Переопределяется в методах, поддерживающих LDP.
+
+        Returns:
+        --------
+        bool : True если метод поддерживает LDP
+        """
+        return False
+
+    def calculate_ldp(
+        self,
+        raw_wrong_coords: List[Tuple[float, float]],
+        control_points_wgs84: List[Tuple[QgsPointXY, QgsPointXY]],
+        base_params: Dict,
+        initial_lon_0: float
+    ) -> Optional[CalculationResult]:
+        """
+        Расчёт параметров проекции методом LDP (Low Distortion Projection).
+
+        LDP-подход НЕ трансформирует RAW координаты объектов через исходную СК.
+        Вместо этого:
+        1. lon_0 ФИКСИРУЕТСЯ на центре объекта (object_center_lon)
+        2. reference_wgs84 трансформируется в тестовую МСК (x_0=0, y_0=0)
+        3. x_0 = mean(raw_wrong.x - ref_msk.x)
+        4. y_0 = mean(raw_wrong.y - ref_msk.y)
+
+        Результат: проекция, которая интерпретирует RAW координаты как правильные.
+
+        КРИТИЧЕСКИ ВАЖНО - lon_0 в LDP:
+        ================================
+        В LDP подходе lon_0 НЕ ОПТИМИЗИРУЕТСЯ, а ФИКСИРУЕТСЯ на центре объекта.
+
+        Почему: Если оптимизировать lon_0 методом минимизации RMSE, он всегда
+        сходится к lon_0 из исходной CRS (initial_lon_0), потому что RAW координаты
+        были созданы с этим lon_0. Это даёт минимальный RMSE, но создаёт проекцию
+        с центральным меридианом далеко от объекта, что приводит к высоким
+        искажениям (проверяется distortion filter в Fsm_0_5_3).
+
+        LDP создаёт "проекцию под данные" - lon_0 должен быть в центре объекта
+        по определению, чтобы минимизировать искажения в рабочей области.
+
+        Отличие от Calibration:
+        =======================
+        - Calibration: оптимизирует lon_0 для минимизации RMSE (исправляет неизвестную СК)
+        - LDP: фиксирует lon_0 на центре объекта (создаёт новую проекцию под данные)
+
+        Parameters:
+        -----------
+        raw_wrong_coords : List[Tuple[float, float]]
+            RAW координаты объектов (x, y) без трансформации
+        control_points_wgs84 : List[Tuple[QgsPointXY, QgsPointXY]]
+            Пары (object_wgs84, reference_wgs84) - object_wgs84 не используется в LDP
+        base_params : dict
+            Базовые параметры проекции. ДОЛЖЕН содержать:
+            - object_center_lon: центр объекта (долгота для фиксации lon_0)
+        initial_lon_0 : float
+            Начальное значение центрального меридиана (из исходной CRS).
+            ИГНОРИРУЕТСЯ в LDP - используется object_center_lon из base_params.
+
+        Returns:
+        --------
+        Optional[CalculationResult] : Результат с approach_type="ldp" или None
+        """
+        return None  # По умолчанию LDP не поддерживается
 
     def _calculate_rmse(self, errors: List[float]) -> float:
         """
@@ -303,6 +388,11 @@ class BaseCalculationMethod(ABC):
                 dy_list.append(dy)
                 transformed.append((obj_msk, ref_msk))
 
+            # Defensive check: prevent division by zero if all transforms failed
+            if not dx_list or not dy_list:
+                log_error("BaseCalculationMethod._calc_offset: All point transformations failed - empty result list")
+                return (0.0, 0.0, float('inf'), [])
+
             x_0 = sum(dx_list) / len(dx_list)
             y_0 = sum(dy_list) / len(dy_list)
 
@@ -315,6 +405,223 @@ class BaseCalculationMethod(ABC):
                 error = math.sqrt(
                     (adjusted_x - ref_msk.x())**2 +
                     (adjusted_y - ref_msk.y())**2
+                )
+                errors.append(error)
+
+            rmse = self._calculate_rmse(errors)
+
+            return (x_0, y_0, rmse, errors)
+
+        except Exception:
+            return (0.0, 0.0, float('inf'), [])
+
+    def _calc_offset_ldp(
+        self,
+        raw_wrong_coords: List[Tuple[float, float]],
+        reference_wgs84: List[QgsPointXY],
+        lon_0: float,
+        lat_0: float,
+        k_0: float,
+        ellps_param: str,
+        towgs84_param: str
+    ) -> Tuple[float, float, float, List[float]]:
+        """
+        LDP-расчёт смещения x_0, y_0 для заданного lon_0.
+
+        В отличие от _calc_offset, НЕ трансформирует RAW координаты объектов.
+        Только reference трансформируется из WGS84 в тестовую МСК.
+        x_0 = mean(raw_wrong.x - ref_msk.x)
+        y_0 = mean(raw_wrong.y - ref_msk.y)
+
+        Результат: проекция интерпретирует RAW координаты как правильные.
+
+        Parameters:
+        -----------
+        raw_wrong_coords : List[Tuple[float, float]]
+            RAW координаты объектов (x, y) в исходной СК без трансформации
+        reference_wgs84 : List[QgsPointXY]
+            Эталонные координаты в WGS84 (lon, lat)
+        lon_0, lat_0, k_0 : float
+            Параметры проекции
+        ellps_param : str
+            Параметр эллипсоида
+        towgs84_param : str
+            Параметры трансформации
+
+        Returns:
+        --------
+        Tuple[float, float, float, List[float]]: (x_0, y_0, rmse, errors)
+        """
+        try:
+            if len(raw_wrong_coords) != len(reference_wgs84):
+                return (0.0, 0.0, float('inf'), [])
+
+            wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+
+            # Тестовая проекция с x_0=0, y_0=0
+            proj_string = (
+                f"+proj=tmerc "
+                f"+lat_0={lat_0} "
+                f"+lon_0={lon_0} "
+                f"+k_0={k_0} "
+                f"+x_0=0 +y_0=0 "
+                f"{ellps_param} "
+                f"{towgs84_param} "
+                f"+units=m +no_defs"
+            )
+
+            test_crs = QgsCoordinateReferenceSystem()
+            test_crs.createFromProj(proj_string)
+
+            if not test_crs.isValid():
+                return (0.0, 0.0, float('inf'), [])
+
+            transform_to_msk = QgsCoordinateTransform(
+                wgs84, test_crs, QgsProject.instance()
+            )
+
+            dx_list = []
+            dy_list = []
+            ref_msk_list = []
+
+            # Трансформируем ТОЛЬКО reference в тестовую МСК
+            for raw_wrong, ref_wgs in zip(raw_wrong_coords, reference_wgs84):
+                ref_msk = transform_to_msk.transform(ref_wgs)
+
+                # LDP: x_0 = raw_wrong.x - ref_msk.x
+                # Логика: в новой CRS с x_0, координата будет интерпретироваться как
+                # E = f(lon) + x_0, поэтому raw_wrong.x = ref_msk.x + x_0
+                dx = raw_wrong[0] - ref_msk.x()
+                dy = raw_wrong[1] - ref_msk.y()
+
+                dx_list.append(dx)
+                dy_list.append(dy)
+                ref_msk_list.append(ref_msk)
+
+            # Defensive check: prevent division by zero
+            if not dx_list or not dy_list:
+                log_error("BaseCalculationMethod._calc_offset_ldp: All reference transformations failed")
+                return (0.0, 0.0, float('inf'), [])
+
+            x_0 = sum(dx_list) / len(dx_list)
+            y_0 = sum(dy_list) / len(dy_list)
+
+            # Вычисляем ошибки: raw_wrong должен совпасть с ref_msk + (x_0, y_0)
+            errors = []
+            for raw_wrong, ref_msk in zip(raw_wrong_coords, ref_msk_list):
+                expected_x = ref_msk.x() + x_0
+                expected_y = ref_msk.y() + y_0
+                error = math.sqrt(
+                    (raw_wrong[0] - expected_x)**2 +
+                    (raw_wrong[1] - expected_y)**2
+                )
+                errors.append(error)
+
+            rmse = self._calculate_rmse(errors)
+
+            return (x_0, y_0, rmse, errors)
+
+        except Exception:
+            return (0.0, 0.0, float('inf'), [])
+
+    def _calc_offset_ldp_3857(
+        self,
+        raw_wrong_coords: List[Tuple[float, float]],
+        reference_3857: List[QgsPointXY],
+        lon_0: float,
+        lat_0: float,
+        k_0: float,
+        ellps_param: str,
+        towgs84_param: str
+    ) -> Tuple[float, float, float, List[float]]:
+        """
+        LDP-расчёт с ПРЯМОЙ трансформацией EPSG:3857 -> test_proj.
+
+        Критически важно для визуального совпадения:
+        QGIS OTF делает прямую трансформацию 3857 -> Project CRS.
+        Если использовать 3857 -> WGS84 -> test_proj (два шага),
+        получим расхождение из-за разных путей трансформации.
+
+        Этот метод использует ОДИН шаг трансформации, идентичный OTF.
+
+        Parameters:
+        -----------
+        raw_wrong_coords : List[Tuple[float, float]]
+            RAW координаты объектов (x, y) в исходной СК
+        reference_3857 : List[QgsPointXY]
+            Эталонные координаты в EPSG:3857 (напрямую из WFS)
+        lon_0, lat_0, k_0 : float
+            Параметры проекции
+        ellps_param : str
+            Параметр эллипсоида
+        towgs84_param : str
+            Параметры трансформации
+
+        Returns:
+        --------
+        Tuple[float, float, float, List[float]]: (x_0, y_0, rmse, errors)
+        """
+        try:
+            if len(raw_wrong_coords) != len(reference_3857):
+                return (0.0, 0.0, float('inf'), [])
+
+            epsg_3857 = QgsCoordinateReferenceSystem("EPSG:3857")
+
+            # Тестовая проекция с x_0=0, y_0=0
+            proj_string = (
+                f"+proj=tmerc "
+                f"+lat_0={lat_0} "
+                f"+lon_0={lon_0} "
+                f"+k_0={k_0} "
+                f"+x_0=0 +y_0=0 "
+                f"{ellps_param} "
+                f"{towgs84_param} "
+                f"+units=m +no_defs"
+            )
+
+            test_crs = QgsCoordinateReferenceSystem()
+            test_crs.createFromProj(proj_string)
+
+            if not test_crs.isValid():
+                return (0.0, 0.0, float('inf'), [])
+
+            # ПРЯМАЯ трансформация 3857 -> test_proj (как делает QGIS OTF)
+            transform_3857_to_msk = QgsCoordinateTransform(
+                epsg_3857, test_crs, QgsProject.instance()
+            )
+
+            dx_list = []
+            dy_list = []
+            ref_msk_list = []
+
+            # Трансформируем reference напрямую из 3857 в test_proj
+            for raw_wrong, ref_3857 in zip(raw_wrong_coords, reference_3857):
+                ref_msk = transform_3857_to_msk.transform(ref_3857)
+
+                # LDP: x_0 = raw_wrong.x - ref_msk.x
+                dx = raw_wrong[0] - ref_msk.x()
+                dy = raw_wrong[1] - ref_msk.y()
+
+                dx_list.append(dx)
+                dy_list.append(dy)
+                ref_msk_list.append(ref_msk)
+
+            # Defensive check: prevent division by zero
+            if not dx_list or not dy_list:
+                log_error("BaseCalculationMethod._calc_offset_ldp_3857: All 3857->proj transformations failed")
+                return (0.0, 0.0, float('inf'), [])
+
+            x_0 = sum(dx_list) / len(dx_list)
+            y_0 = sum(dy_list) / len(dy_list)
+
+            # Вычисляем ошибки
+            errors = []
+            for raw_wrong, ref_msk in zip(raw_wrong_coords, ref_msk_list):
+                expected_x = ref_msk.x() + x_0
+                expected_y = ref_msk.y() + y_0
+                error = math.sqrt(
+                    (raw_wrong[0] - expected_x)**2 +
+                    (raw_wrong[1] - expected_y)**2
                 )
                 errors.append(error)
 

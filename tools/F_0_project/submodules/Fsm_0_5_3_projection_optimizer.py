@@ -19,6 +19,7 @@ Fsm_0_5_3 - Оптимизатор параметров проекции
 8. FullScan - полный перебор всех методов × всех СК (до 28 комбинаций)
 9. Helmert2D - 2D Helmert (4P): dx, dy, scale, rotation (2+ точки)
 10. Helmert7PLSQ - Helmert 7P LSQ: расчёт всех 7 параметров towgs84 (3+ точки)
+11. FullCRSDetection - полное определение CRS: сканирование lon_0 по России (3+ точки)
 """
 
 import math
@@ -47,6 +48,7 @@ from .Fsm_0_5_4_7_projestions_api import Fsm_0_5_4_7_ProjectionsApi
 from .Fsm_0_5_4_8_datum_detector import Fsm_0_5_4_8_DatumDetector
 from .Fsm_0_5_4_9_helmert_2d import Fsm_0_5_4_9_Helmert2D
 from .Fsm_0_5_4_10_helmert_7p_lsq import Fsm_0_5_4_10_Helmert7PLSQ
+from .Fsm_0_5_4_11_full_crs_detection import Fsm_0_5_4_11_FullCRSDetection
 
 
 class ProjectionOptimizer:
@@ -75,6 +77,7 @@ class ProjectionOptimizer:
             Fsm_0_5_4_8_DatumDetector(),
             Fsm_0_5_4_9_Helmert2D(),
             Fsm_0_5_4_10_Helmert7PLSQ(),
+            Fsm_0_5_4_11_FullCRSDetection(),
         ]
 
     def get_available_methods(self) -> List[BaseCalculationMethod]:
@@ -116,7 +119,8 @@ class ProjectionOptimizer:
         Запуск всех доступных методов расчёта параметров проекции.
 
         Выполняет все методы, для которых достаточно контрольных точек.
-        Результаты сортируются по RMSE (лучший первый).
+        Для методов, поддерживающих LDP, запускает оба подхода (Calibration + LDP).
+        Результаты сортируются по RMSE, при равном RMSE предпочтение Calibration.
 
         Parameters:
         -----------
@@ -130,6 +134,7 @@ class ProjectionOptimizer:
             - k_0: float - масштабный коэффициент
             - ellps_param: str - параметр эллипсоида ("+ellps=krass")
             - towgs84_param: str - параметры трансформации
+            - raw_wrong_coords: List[Tuple[float, float]] - RAW координаты для LDP (опционально)
         initial_lon_0 : float
             Начальное значение центрального меридиана (градусы)
         include_optional : bool
@@ -148,19 +153,32 @@ class ProjectionOptimizer:
 
         results: List[CalculationResult] = []
 
+        # Извлекаем raw_wrong_coords для LDP (если есть)
+        raw_wrong_coords = base_params.get('raw_wrong_coords', None)
+        ldp_available = raw_wrong_coords is not None and len(raw_wrong_coords) == num_points
+
+        if ldp_available:
+            log_info("Fsm_0_5_3: LDP-подход доступен (raw_wrong_coords переданы)")
+        else:
+            log_info("Fsm_0_5_3: LDP-подход недоступен (нет raw_wrong_coords)")
+
         # Определяем какие методы запускать
         if include_optional:
             methods_to_run = self.get_runnable_methods(num_points)
         else:
-            # Только базовые методы (первые 4)
+            # Только базовые методы (по method_id)
+            # simple, meridian, affine, helmert - калибровка известной CRS
+            # full_crs - определение CRS с нуля (сканирование России)
+            basic_method_ids = {'simple', 'meridian', 'affine', 'helmert', 'full_crs'}
             methods_to_run = [
-                m for m in self._methods[:4]
-                if m.can_run(num_points)
+                m for m in self._methods
+                if m.method_id in basic_method_ids and m.can_run(num_points)
             ]
 
         log_info(f"Fsm_0_5_3: Методов к запуску: {len(methods_to_run)}")
 
         for method in methods_to_run:
+            # Запуск Calibration подхода (основной)
             try:
                 result = method.calculate(
                     control_points_wgs84,
@@ -169,8 +187,7 @@ class ProjectionOptimizer:
                 )
                 results.append(result)
             except Exception as e:
-                log_error(f"Fsm_0_5_3: Ошибка в методе {method.name}: {e}")
-                # Добавляем результат с ошибкой
+                log_error(f"Fsm_0_5_3: Ошибка в методе {method.name} [Calibration]: {e}")
                 results.append(CalculationResult(
                     method_name=method.name,
                     method_id=method.method_id,
@@ -183,19 +200,56 @@ class ProjectionOptimizer:
                     diagnostics={'error': str(e)}
                 ))
 
+            # Запуск LDP подхода (если доступен и метод поддерживает)
+            if ldp_available and method.supports_ldp():
+                try:
+                    ldp_result = method.calculate_ldp(
+                        raw_wrong_coords,
+                        control_points_wgs84,
+                        base_params,
+                        initial_lon_0
+                    )
+                    if ldp_result is not None:
+                        results.append(ldp_result)
+                except Exception as e:
+                    log_error(f"Fsm_0_5_3: Ошибка в методе {method.name} [LDP]: {e}")
+
         # Сортируем по RMSE (лучший первый)
-        results.sort(key=lambda r: r.rmse)
+        # При равном RMSE предпочтение Calibration (approach_type="calibration" < "ldp")
+        results.sort(key=lambda r: (r.rmse, r.approach_type))
 
         # Выводим сводку
-        log_info("Fsm_0_5_3: Результаты всех методов:")
-        for i, r in enumerate(results):
-            status = "OK" if r.success else "WARN"
-            log_info(
-                f"  {i+1}. {r.method_name} ({r.method_id}): "
-                f"RMSE={r.rmse:.4f}m [{status}]"
-            )
+        self._log_results_summary(results)
 
         return results
+
+    def _log_results_summary(self, results: List[CalculationResult]) -> None:
+        """Выводим сводку результатов с информацией об альтернативе."""
+        log_info("Fsm_0_5_3: Результаты всех методов:")
+
+        for i, r in enumerate(results):
+            status = "OK" if r.success else "WARN"
+            approach_tag = f"[{r.approach_type.upper()}]" if r.approach_type != "calibration" else ""
+            log_info(
+                f"  {i+1}. {r.method_name} ({r.method_id}) {approach_tag}: "
+                f"x_0={r.x_0:.2f} y_0={r.y_0:.2f} RMSE={r.rmse:.4f}m [{status}]"
+            )
+
+        # Логируем лучший результат и альтернативу (если есть)
+        if len(results) >= 2:
+            best = results[0]
+            # Ищем альтернативу (другой approach_type для того же method_id или другой метод)
+            alternative = None
+            for r in results[1:]:
+                if r.method_id == best.method_id and r.approach_type != best.approach_type:
+                    alternative = r
+                    break
+            if alternative is None and len(results) > 1:
+                alternative = results[1]
+
+            log_info(f"Fsm_0_5_3: Выбран: {best.method_name} ({best.approach_type}) RMSE={best.rmse:.4f}m")
+            if alternative:
+                log_info(f"Fsm_0_5_3: Альтернатива: {alternative.method_name} ({alternative.approach_type}) RMSE={alternative.rmse:.4f}m")
 
     def get_best_result(
         self,

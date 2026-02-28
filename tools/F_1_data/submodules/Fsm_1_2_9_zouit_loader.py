@@ -106,6 +106,54 @@ class Fsm_1_2_9_ZouitLoader:
             except Exception as e:
                 log_warning(f"Fsm_1_2_9: Ошибка загрузки ООПТ: {str(e)}")
 
+            # ДОПОЛНИТЕЛЬНО: Загружаем ООПТ Минприроды (category_id=36507, endpoint 31)
+            try:
+                from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_15_oopt_loader import Fsm_1_2_15_OoptLoader
+
+                oopt_minprirody_loader = Fsm_1_2_15_OoptLoader(
+                    self.iface, self.egrn_loader, self.api_manager
+                )
+
+                oopt_mp_layer, oopt_mp_count = oopt_minprirody_loader.load_oopt_minprirody(
+                    geometry_provider=geometry_provider
+                )
+
+                if oopt_mp_layer and oopt_mp_count > 0:
+                    oopt_layer_name = "Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ"
+                    log_info(f"Fsm_1_2_9: ООПТ Минприроды загружено: {oopt_mp_count} объектов")
+
+                    if oopt_layer_name in zouit_layers:
+                        # Объединяем с существующим слоем Le_1_2_5_21
+                        target_layer = zouit_layers[oopt_layer_name]
+                        target_layer.startEditing()
+                        for feature in oopt_mp_layer.getFeatures():
+                            target_layer.addFeature(feature)
+                        target_layer.commitChanges()
+
+                        log_info(
+                            f"Fsm_1_2_9: Слой {oopt_layer_name} после объединения: "
+                            f"{target_layer.featureCount()} объектов"
+                        )
+                    else:
+                        # Слоя Le_1_2_5_21 нет - создаём из ООПТ Минприроды
+                        oopt_mp_layer.setName(oopt_layer_name)
+                        zouit_layers[oopt_layer_name] = oopt_mp_layer
+                        zouit_total += oopt_mp_count
+                else:
+                    log_info("Fsm_1_2_9: ООПТ Минприроды: 0 объектов в данной области")
+
+                # Дедупликация Le_1_2_5_21 по геометрии (между всеми 3 источниками)
+                oopt_layer_name = "Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ"
+                if oopt_layer_name in zouit_layers:
+                    dedup_count = oopt_minprirody_loader.deduplicate_by_geometry(
+                        zouit_layers[oopt_layer_name]
+                    )
+                    if dedup_count > 0:
+                        zouit_total -= dedup_count
+
+            except Exception as e:
+                log_warning(f"Fsm_1_2_9: Ошибка загрузки ООПТ Минприроды: {str(e)}")
+
             # Сохраняем каждый слой в GeoPackage и добавляем через layer_manager
             for layer_name, layer in zouit_layers.items():
                 try:
@@ -129,10 +177,9 @@ class Fsm_1_2_9_ZouitLoader:
                 except Exception as e:
                     log_error(f"Fsm_1_2_9: Ошибка обработки ЗОУИТ слоя {layer_name}: {str(e)}")
 
-            # ОТКЛЮЧЕНО: Python Stack Trace - Windows fatal exception: access violation
-            # Проблема: refresh() может вызывать краш при большом количестве слоёв
-            # Карта обновится автоматически после завершения функции
-            # self.iface.mapCanvas().refresh()
+            # Безопасный отложенный refresh через QTimer (предотвращает краши)
+            from Daman_QGIS.utils import safe_refresh_canvas, REFRESH_HEAVY
+            safe_refresh_canvas(REFRESH_HEAVY, delay_ms=200)
 
             return zouit_total
 

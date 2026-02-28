@@ -57,7 +57,7 @@ class KMZExportSubmodule:
             dialog.add_option("export_labels", "Экспортировать подписи", export_params['export_labels'])
             dialog.add_option("export_description", "Экспортировать описания", export_params['export_description'])
 
-            if not dialog.exec_():
+            if not dialog.exec():
                 return {}
 
             layers = dialog.selected_layers
@@ -97,7 +97,7 @@ class KMZExportSubmodule:
                 100,
                 self.iface.mainWindow()
             )
-            progress.setWindowModality(Qt.WindowModal)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
             progress.setAutoClose(True)
             progress.show()
 

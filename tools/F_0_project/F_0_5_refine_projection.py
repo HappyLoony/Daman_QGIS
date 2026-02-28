@@ -8,6 +8,7 @@ from typing import Optional, Tuple, Set
 
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtWidgets import QApplication
 import os
 from datetime import datetime
 
@@ -183,12 +184,25 @@ class F_0_5_RefineProjection(BaseTool):
             # Генерируем имя для новой CRS
             crs_name = self.generate_crs_name(current_crs)
 
-            # Сохраняем как USER CRS через Registry API (QGIS 3.18+, WKT формат)
-            registry = QgsApplication.coordinateReferenceSystemRegistry()
-            srsid = registry.addUserCrs(new_crs, crs_name, Qgis.CrsDefinitionFormat.Wkt)
+            # Проверяем существующую USER CRS по имени (не по PROJ4!)
+            # Поиск по имени гарантирует что кастомная CRS (с '_' префиксом)
+            # не будет привязана к reference CRS, которая удалится при sync профиля
+            from Daman_QGIS.core.crs_utils import find_existing_user_crs_by_name
+            existing_id = find_existing_user_crs_by_name(crs_name)
 
-            if srsid == -1:
-                raise RuntimeError("Не удалось сохранить пользовательскую CRS")
+            if existing_id is not None:
+                srsid = existing_id
+                # Обновляем параметры существующей CRS (перекалибровка)
+                registry = QgsApplication.coordinateReferenceSystemRegistry()
+                registry.updateUserCrs(srsid, new_crs, crs_name, Qgis.CrsDefinitionFormat.Wkt)
+                log_info(f"F_0_5: Обновлена существующая USER:{srsid}")
+            else:
+                # Сохраняем как USER CRS через Registry API (QGIS 3.18+, WKT формат)
+                registry = QgsApplication.coordinateReferenceSystemRegistry()
+                srsid = registry.addUserCrs(new_crs, crs_name, Qgis.CrsDefinitionFormat.Wkt)
+
+                if srsid == -1:
+                    raise RuntimeError("Не удалось сохранить пользовательскую CRS")
 
             # Очищаем кэш CRS
             QgsCoordinateReferenceSystem.invalidateCache()
@@ -296,14 +310,26 @@ class F_0_5_RefineProjection(BaseTool):
                 new_crs = temp_crs
 
             # Генерируем имя для кастомной CRS
-            crs_name = self.generate_custom_crs_name()
+            # object_layer_crs -- CRS до пересчёта (предыдущая)
+            base_for_name = object_layer_crs if object_layer_crs else QgsProject.instance().crs()
+            crs_name = self.generate_crs_name(base_for_name)
 
-            # Сохраняем как USER CRS через Registry API (QGIS 3.18+, WKT формат)
-            registry = QgsApplication.coordinateReferenceSystemRegistry()
-            srsid = registry.addUserCrs(new_crs, crs_name, Qgis.CrsDefinitionFormat.Wkt)
+            # Проверяем существующую USER CRS по имени (не по PROJ4!)
+            from Daman_QGIS.core.crs_utils import find_existing_user_crs_by_name
+            existing_id = find_existing_user_crs_by_name(crs_name)
 
-            if srsid == -1:
-                raise RuntimeError("Не удалось сохранить пользовательскую CRS")
+            if existing_id is not None:
+                srsid = existing_id
+                registry = QgsApplication.coordinateReferenceSystemRegistry()
+                registry.updateUserCrs(srsid, new_crs, crs_name, Qgis.CrsDefinitionFormat.Wkt)
+                log_info(f"F_0_5: Обновлена существующая USER:{srsid}")
+            else:
+                # Сохраняем как USER CRS через Registry API (QGIS 3.18+, WKT формат)
+                registry = QgsApplication.coordinateReferenceSystemRegistry()
+                srsid = registry.addUserCrs(new_crs, crs_name, Qgis.CrsDefinitionFormat.Wkt)
+
+                if srsid == -1:
+                    raise RuntimeError("Не удалось сохранить пользовательскую CRS")
 
             # Очищаем кэш CRS
             QgsCoordinateReferenceSystem.invalidateCache()
@@ -341,18 +367,6 @@ class F_0_5_RefineProjection(BaseTool):
             )
             return False
 
-    def generate_custom_crs_name(self) -> str:
-        """
-        Генерация имени для кастомной CRS
-        Формат: Кастом_{РабочееНазвание}_{ИсходнаяПроекция}
-        """
-        # Получаем базовое имя как в обычном режиме
-        current_crs = QgsProject.instance().crs()
-        base_name = self.generate_crs_name(current_crs)
-        
-        # Добавляем префикс "Кастом_"
-        return f"Кастом_{base_name}"
-            
     def update_proj4_params(self, proj4_string: str, delta_x: float, delta_y: float) -> str:
         """Обновление параметров x_0 и y_0 в строке Proj4"""
         params = proj4_string.split()
@@ -405,14 +419,15 @@ class F_0_5_RefineProjection(BaseTool):
     ) -> str:
         """Обновление параметров False easting/northing в WKT2 строке.
 
-        WKT2 (ISO 19162:2019) использует формат:
-        PARAMETER["False easting", 500000, LENGTHUNIT["metre", 1]]
-        PARAMETER["False northing", 0, LENGTHUNIT["metre", 1]]
+        Поддерживает разные типы проекций (ISO 19162:2019):
+        - Transverse Mercator: "False easting" / "False northing"
+        - Lambert Conformal Conic: "Easting at false origin" / "Northing at false origin"
+        - Oblique Mercator: "Easting at projection centre" / "Northing at projection centre"
 
         Args:
             wkt2_string: WKT2 строка CRS
-            delta_x: Смещение по X (False easting)
-            delta_y: Смещение по Y (False northing)
+            delta_x: Смещение по X (easting параметр)
+            delta_y: Смещение по Y (northing параметр)
 
         Returns:
             Обновлённая WKT2 строка
@@ -421,32 +436,64 @@ class F_0_5_RefineProjection(BaseTool):
 
         result = wkt2_string
 
-        # Паттерн для False easting с учётом разных вариантов форматирования
-        # Ищем: PARAMETER["False easting", <число>, ...]
-        fe_pattern = r'(PARAMETER\s*\[\s*"False easting"\s*,\s*)(-?[\d.]+)(\s*,)'
+        # Альтернативные имена параметров для разных типов проекций (ISO 19162)
+        easting_names = [
+            "False easting",
+            "Easting at false origin",
+            "Easting at projection centre",
+        ]
+        northing_names = [
+            "False northing",
+            "Northing at false origin",
+            "Northing at projection centre",
+        ]
 
-        def replace_fe(match):
-            prefix = match.group(1)
-            current_value = float(match.group(2))
-            suffix = match.group(3)
-            new_value = current_value + delta_x
-            log_info(f"F_0_5 [WKT2]: False easting: {current_value:.4f} + ({delta_x:+.4f}) = {new_value:.4f}")
-            return f"{prefix}{new_value:.4f}{suffix}"
+        fe_matched = False
+        for param_name in easting_names:
+            fe_pattern = rf'(PARAMETER\s*\[\s*"{param_name}"\s*,\s*)(-?[\d.]+)(\s*,)'
 
-        result = re.sub(fe_pattern, replace_fe, result, flags=re.IGNORECASE)
+            def replace_fe(match, _name=param_name):
+                prefix = match.group(1)
+                current_value = float(match.group(2))
+                suffix = match.group(3)
+                new_value = current_value + delta_x
+                log_info(f"F_0_5 [WKT2]: {_name}: {current_value:.4f} + ({delta_x:+.4f}) = {new_value:.4f}")
+                return f"{prefix}{new_value:.4f}{suffix}"
 
-        # Паттерн для False northing
-        fn_pattern = r'(PARAMETER\s*\[\s*"False northing"\s*,\s*)(-?[\d.]+)(\s*,)'
+            new_result = re.sub(fe_pattern, replace_fe, result, flags=re.IGNORECASE)
+            if new_result != result:
+                result = new_result
+                fe_matched = True
+                break
 
-        def replace_fn(match):
-            prefix = match.group(1)
-            current_value = float(match.group(2))
-            suffix = match.group(3)
-            new_value = current_value + delta_y
-            log_info(f"F_0_5 [WKT2]: False northing: {current_value:.4f} + ({delta_y:+.4f}) = {new_value:.4f}")
-            return f"{prefix}{new_value:.4f}{suffix}"
+        fn_matched = False
+        for param_name in northing_names:
+            fn_pattern = rf'(PARAMETER\s*\[\s*"{param_name}"\s*,\s*)(-?[\d.]+)(\s*,)'
 
-        result = re.sub(fn_pattern, replace_fn, result, flags=re.IGNORECASE)
+            def replace_fn(match, _name=param_name):
+                prefix = match.group(1)
+                current_value = float(match.group(2))
+                suffix = match.group(3)
+                new_value = current_value + delta_y
+                log_info(f"F_0_5 [WKT2]: {_name}: {current_value:.4f} + ({delta_y:+.4f}) = {new_value:.4f}")
+                return f"{prefix}{new_value:.4f}{suffix}"
+
+            new_result = re.sub(fn_pattern, replace_fn, result, flags=re.IGNORECASE)
+            if new_result != result:
+                result = new_result
+                fn_matched = True
+                break
+
+        if not fe_matched or not fn_matched:
+            missing = []
+            if not fe_matched:
+                missing.append("easting")
+            if not fn_matched:
+                missing.append("northing")
+            log_warning(
+                f"F_0_5 [WKT2]: Не найден(ы) параметр(ы) {', '.join(missing)} в WKT2. "
+                f"Смещение может быть не применено. Будет использован PROJ4 fallback."
+            )
 
         return result
 
@@ -511,9 +558,11 @@ class F_0_5_RefineProjection(BaseTool):
 
     def generate_crs_name(self, base_crs: QgsCoordinateReferenceSystem) -> str:
         """
-        Генерация имени для новой CRS в формате: {рабочее_имя}_{исходная_проекция}
-        Пример: Эльбрус_МСК-07 Кабардино-Балкарская Республика
-        При дубликатах: Эльбрус_(1)_МСК-07 Кабардино-Балкарская Республика
+        Генерация имени для новой CRS (простое смещение)
+        Формат: _{рабочее_имя}_{исходная_проекция}
+        Пример: _Эльбрус_МСК-07 Кабардино-Балкарская Республика
+        При дубликатах: _Эльбрус_(1)_МСК-07 Кабардино-Балкарская Республика
+        Префикс "_" обеспечивает сортировку кастомных CRS в начале списка.
         """
         # Получаем метаданные проекта
         project = QgsProject.instance()
@@ -523,8 +572,8 @@ class F_0_5_RefineProjection(BaseTool):
 
         project_path = project.absolutePath()
         if project_path:
-            from Daman_QGIS.managers.M_19_project_structure_manager import get_project_structure_manager
-            structure_manager = get_project_structure_manager()
+            from Daman_QGIS.managers import registry
+            structure_manager = registry.get('M_19')
             structure_manager.project_root = project_path
             gpkg_path = structure_manager.get_gpkg_path(create=False)
 
@@ -543,8 +592,8 @@ class F_0_5_RefineProjection(BaseTool):
         if not base_projection_name:
             base_projection_name = base_crs.authid()
 
-        # Формируем базовое имя: {рабочее_имя}_{исходная_проекция}
-        base_name = f"{working_name}_{base_projection_name}"
+        # Формируем базовое имя: _{рабочее_имя}_{исходная_проекция}
+        base_name = f"_{working_name}_{base_projection_name}"
 
         # Проверяем дубликаты и добавляем нумерацию при необходимости
         final_name = base_name
@@ -554,17 +603,29 @@ class F_0_5_RefineProjection(BaseTool):
         db_path = QgsApplication.qgisUserDatabaseFilePath()
         if os.path.exists(db_path):
             import sqlite3
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
+            existing_names = []
+            conn = None
+            try:
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
 
-            # Ищем все CRS с похожим названием
-            cursor.execute("SELECT description FROM tbl_srs WHERE description LIKE ?", (f"{working_name}_%{base_projection_name}%",))
-            existing_names = [row[0] for row in cursor.fetchall()]
-            conn.close()
+                # Ищем все CRS с похожим названием
+                # ESCAPE '\\' -- литеральный _ вместо SQL wildcard
+                like_pattern = f"\\_{working_name}\\_%{base_projection_name}%"
+                cursor.execute(
+                    "SELECT description FROM tbl_srs WHERE description LIKE ? ESCAPE '\\'",
+                    (like_pattern,)
+                )
+                existing_names = [row[0] for row in cursor.fetchall()]
+            except Exception as e:
+                log_warning(f"F_0_5: Ошибка чтения USER CRS из БД: {e}")
+            finally:
+                if conn:
+                    conn.close()
 
-            # Проверяем дубликаты и добавляем нумерацию в формате: Эльбрус_(1)_...
+            # Проверяем дубликаты и добавляем нумерацию в формате: _Эльбрус_(1)_...
             while final_name in existing_names:
-                final_name = f"{working_name}_({counter})_{base_projection_name}"
+                final_name = f"_{working_name}_({counter})_{base_projection_name}"
                 counter += 1
 
         return final_name
@@ -580,7 +641,7 @@ class F_0_5_RefineProjection(BaseTool):
             Set[str]: Множество имён слоёв для исключения
         """
         try:
-            from Daman_QGIS.managers.submodules.Msm_4_6_layer_reference_manager import LayerReferenceManager
+            from Daman_QGIS.managers import LayerReferenceManager
 
             layer_ref_manager = LayerReferenceManager()
             excluded_names = layer_ref_manager.get_layer_names_by_creating_function(
@@ -630,6 +691,11 @@ class F_0_5_RefineProjection(BaseTool):
             old_crs: Старая CRS слоёв которые нужно переопределить (опционально)
         """
         try:
+            # КРИТИЧЕСКИ ВАЖНО: processEvents() перед setCrs()
+            # Решает проблему когда QGIS не обновляет дисплей после setCrs()
+            # См: https://issues.qgis.org/issues/19311
+            QApplication.instance().processEvents()
+
             # Устанавливаем CRS для проекта
             QgsProject.instance().setCrs(new_crs)
             log_info(f"F_0_5: Project CRS установлена: {new_crs.authid()}")
@@ -666,8 +732,34 @@ class F_0_5_RefineProjection(BaseTool):
                         if layer.name() in updated_names:
                             layer.triggerRepaint()
 
-            # Обновляем canvas
-            self.iface.mapCanvas().refresh()
+            # КРИТИЧЕСКИ ВАЖНО: Инвалидировать ОБА кэша!
+            # 1. Кэш CRS (для пользовательских CRS)
+            QgsCoordinateReferenceSystem.invalidateCache()
+            # 2. Кэш трансформаций (для OTF репроекции)
+            # Без этого QGIS продолжает использовать старые QgsCoordinateTransform объекты,
+            # и OTF репроекция WFS слоёв (EPSG:3857) не обновляется визуально.
+            QgsCoordinateTransform.invalidateCache()
+            log_info("F_0_5: Кэш CRS и трансформаций очищен")
+
+            # processEvents() после инвалидации кэша - даёт Qt обработать изменения
+            QApplication.instance().processEvents()
+
+            # КРИТИЧЕСКИ ВАЖНО: Явно установить destination CRS для canvas!
+            # QgsProject.instance().setCrs() НЕ синхронизирует canvas автоматически
+            # См: https://github.com/qgis/QGIS/issues/51833
+            canvas = self.iface.mapCanvas()
+            canvas.setDestinationCrs(new_crs)
+            log_info(f"F_0_5: Canvas destination CRS установлена: {new_crs.authid()}")
+
+            # processEvents() после setDestinationCrs
+            QApplication.instance().processEvents()
+
+            # Полное обновление canvas с перезагрузкой свойств слоёв
+            # refresh() недостаточно - нужен refreshAllLayers() для пересоздания трансформаций
+            canvas.refreshAllLayers()
+
+            # Финальный processEvents() для гарантии обновления дисплея
+            QApplication.instance().processEvents()
 
             # Обновляем метаданные проекта
             self.update_project_metadata(new_crs)
@@ -680,7 +772,7 @@ class F_0_5_RefineProjection(BaseTool):
             
     def update_project_metadata(self, new_crs: QgsCoordinateReferenceSystem) -> None:
         """Обновление метаданных проекта с новой CRS в GeoPackage"""
-        from Daman_QGIS.managers.M_19_project_structure_manager import get_project_structure_manager
+        from Daman_QGIS.managers import registry
 
         project = QgsProject.instance()
         project_path = project.absolutePath()
@@ -690,7 +782,7 @@ class F_0_5_RefineProjection(BaseTool):
             return
 
         # Используем ProjectStructureManager для получения пути к GeoPackage
-        structure_manager = get_project_structure_manager()
+        structure_manager = registry.get('M_19')
         structure_manager.project_root = project_path
         gpkg_path = structure_manager.get_gpkg_path(create=False)
 
@@ -700,7 +792,6 @@ class F_0_5_RefineProjection(BaseTool):
 
         try:
             from Daman_QGIS.database.project_db import ProjectDB
-            from Daman_QGIS.core.crs_utils import extract_crs_short_name
 
             db = ProjectDB(gpkg_path)
 
@@ -715,12 +806,10 @@ class F_0_5_RefineProjection(BaseTool):
             # Обновляем описание
             db.set_metadata('1_4_crs_description', new_crs.description(), 'Описание системы координат')
 
-            # Обновляем короткое имя если возможно
-            short_name = extract_crs_short_name(new_crs.description())
-            if short_name:
-                db.set_metadata('1_4_crs_short_name', short_name, 'Короткое название СК')
+            # Короткое название СК (crs_short_name) теперь генерируется динамически
+            # в BaseExporter._build_crs_display_name() из code_region и code_zone
 
-            log_info(f"F_0_5: Метаданные CRS обновлены в GeoPackage (WKT2): {short_name or new_crs.description()}")
+            log_info(f"F_0_5: Метаданные CRS обновлены в GeoPackage (WKT2): {new_crs.description()}")
 
         except Exception as e:
             log_warning(f"F_0_5: Ошибка обновления метаданных CRS: {e}")
@@ -741,7 +830,7 @@ class ProjectionRefineTool(QgsMapToolEmitPoint):
         self.snap_indicator = QgsSnapIndicator(canvas)
 
         # Устанавливаем курсор
-        self.setCursor(Qt.CrossCursor)
+        self.setCursor(Qt.CursorShape.CrossCursor)
 
     def activate(self):
         """Активация инструмента"""
@@ -775,25 +864,57 @@ class ProjectionRefineTool(QgsMapToolEmitPoint):
         self.snap_indicator.setMatch(match)
 
     def canvasReleaseEvent(self, event):
-        """Обработка клика на карте - передаем точку в диалог"""
-        # Проверяем snapping
+        """Обработка клика на карте - передаем точку в диалог.
+
+        ВАЖНО: Для wrong точек (клик на объекте) нужны NATIVE координаты
+        вершины из геометрии слоя, а не координаты после OTF репроекции.
+
+        Проблема: Если CRS слоя неправильная, OTF репроекция даёт смещённое
+        визуальное положение. Клик на смещённом положении и обратная
+        трансформация дают "круговую ошибку".
+
+        Решение: Извлекаем координаты вершины напрямую из геометрии слоя.
+        """
         match = self.canvas.snappingUtils().snapToMap(event.pos())
 
+        # Координаты в Project CRS (3857) - всегда нужны для correct точек
         if match.isValid():
-            point = QgsPointXY(match.point())
+            point_project_crs = QgsPointXY(match.point())
         else:
-            # Если привязка не сработала, используем обычные координаты
-            point = self.toMapCoordinates(event.pos())
+            point_project_crs = self.toMapCoordinates(event.pos())
+
+        # Пробуем получить NATIVE координаты вершины из геометрии слоя
+        # Это критично для wrong точек - избегаем круговой трансформации
+        native_coords = None
+        native_layer_crs = None
+
+        if match.isValid():
+            try:
+                layer = match.layer()
+                if layer and isinstance(layer, QgsVectorLayer):
+                    feature = layer.getFeature(match.featureId())
+                    if feature.isValid() and feature.hasGeometry():
+                        geom = feature.geometry()
+                        vertex_idx = match.vertexIndex()
+                        if vertex_idx >= 0:
+                            vertex = geom.vertexAt(vertex_idx)
+                            native_coords = QgsPointXY(vertex.x(), vertex.y())
+                            native_layer_crs = layer.crs()
+            except Exception:
+                pass  # Fallback на старый метод
 
         # Передаем точку в диалог
         if self.parent_tool.dialog:
-            # Проверяем тип диалога и вызываем соответствующий метод
             if hasattr(self.parent_tool.dialog, 'set_point_from_map'):
                 # Режим 1: RefineProjectionDialog
-                self.parent_tool.dialog.set_point_from_map(point)
+                self.parent_tool.dialog.set_point_from_map(
+                    point_project_crs,
+                    native_coords=native_coords,
+                    native_layer_crs=native_layer_crs
+                )
             elif hasattr(self.parent_tool.dialog, 'add_point_from_map'):
                 # Режим 2: CustomProjectionBuilderDialog (расширенный режим)
-                self.parent_tool.dialog.add_point_from_map(point)
+                self.parent_tool.dialog.add_point_from_map(point_project_crs)
 
     def deactivate(self):
         """Деактивация инструмента"""

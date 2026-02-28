@@ -10,7 +10,7 @@ from qgis.core import (
     QgsProject, QgsMessageLog, Qgis,
     QgsCoordinateReferenceSystem,
     QgsVectorLayer, QgsField,
-    QgsFeature, QgsGeometry, QgsWkbTypes
+    QgsFeature, QgsGeometry, QgsWkbTypes, Qgis
 )
 from qgis.PyQt.QtCore import QMetaType
 from ..core.tab_exporter import TabExporter as BaseTabExporter
@@ -80,7 +80,7 @@ class TabExporter:
         try:
             # Определяем тип геометрии исходного слоя
             geom_type = source_layer.wkbType()
-            is_polygon = QgsWkbTypes.geometryType(geom_type) == QgsWkbTypes.PolygonGeometry
+            is_polygon = QgsWkbTypes.geometryType(geom_type) == Qgis.GeometryType.Polygon
 
             # Создаем временный слой в памяти (всегда LineString для границ)
             temp_layer = QgsVectorLayer(

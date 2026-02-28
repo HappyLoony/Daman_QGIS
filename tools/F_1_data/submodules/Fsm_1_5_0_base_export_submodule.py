@@ -128,7 +128,7 @@ class BaseExportSubmodule:
             for option in self._get_dialog_options(export_params):
                 dialog.add_option(option[0], option[1], option[2])
 
-            if not dialog.exec_():
+            if not dialog.exec():
                 return {}
 
             layers = dialog.selected_layers
@@ -169,7 +169,7 @@ class BaseExportSubmodule:
                 0, 100,
                 self.iface.mainWindow()
             )
-            progress.setWindowModality(Qt.WindowModal)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
             progress.setAutoClose(True)
             progress.show()
 

@@ -12,11 +12,15 @@ from qgis.PyQt.QtWidgets import QApplication
 from qgis.core import QgsProject, Qgis
 
 from Daman_QGIS.core.base_tool import BaseTool
-from Daman_QGIS.constants import PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION, MESSAGE_WARNING_DURATION
+from Daman_QGIS.constants import (
+    PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION,
+    MESSAGE_WARNING_DURATION, EXPORT_DPI_ROSREESTR
+)
 from Daman_QGIS.utils import log_info, log_warning, log_error
-from Daman_QGIS.managers import get_reference_managers, get_project_structure_manager, FolderType
+from Daman_QGIS.managers import get_reference_managers, registry, FolderType
 from .submodules.Fsm_1_4_8_graphics_request_dialog import GraphicsRequestDialog
 from .submodules.Fsm_1_4_9_graphics_progress_dialog import GraphicsProgressDialog
+from .submodules.Fsm_1_4_10_overview_preview_dialog import OverviewPreviewDialog
 
 # Импортируем все подмодули
 from .submodules.Fsm_1_4_2_excel_export import ExcelExporter
@@ -58,32 +62,21 @@ class F_1_4_GraphicsRequest(BaseTool):
             )
             return
 
-        # Проверяем наличие необходимых WMS слоев (только логирование, без GUI)
-        missing_layers = self._check_required_wms_layers()
-        if missing_layers:
-            # Логируем отсутствующие слои без показа пользователю
-            # Если F_1_2 не загрузила слои - значит их просто нет в области
-            log_info(f"F_1_4: Отсутствует {len(missing_layers)} слоёв (возможно нет данных в области)")
-            log_info(f"F_1_4: Отсутствующие слои: {', '.join(missing_layers[:5])}...")  # Первые 5 для краткости
+        # Проверка WMS слоёв убрана - она только вводила в заблуждение
+        # F_1_2 загружает только слои с данными в области, остальные пропускает - это нормально
 
         # Показываем диалог выбора слоев
         dialog = GraphicsRequestDialog(self.iface.mainWindow())
-        if dialog.exec_() != 1:
+        if dialog.exec() != 1:
             return
 
         selected_layers = dialog.selected_layers  # Будет пустой список, но это нормально
         nspd_layers = dialog.nspd_layers  # Получаем выбранные слои НСПД
         use_satellite = dialog.use_satellite  # Получаем настройку спутниковой подложки
 
-        # Для совместимости проверяем выбранные векторные слои
+        # Информируем если дополнительные слои не выбраны
         if not nspd_layers or not any(nspd_layers.values()):
-            self.iface.messageBar().pushMessage(
-                "Предупреждение",
-                "Не выбрано ни одного векторного слоя",
-                level=Qgis.Warning,
-                duration=MESSAGE_SUCCESS_DURATION
-            )
-            # Но все равно продолжаем - будет только слой границ работ
+            log_info("F_1_4: Дополнительные векторные слои не выбраны, схема формируется с границами работ и подложкой")
 
         # Создаем схему с передачей слоев НСПД и настройки спутника
         self.create_graphics(selected_layers, nspd_layers, use_satellite)
@@ -170,101 +163,37 @@ class F_1_4_GraphicsRequest(BaseTool):
         else:
             return False, default_error
 
-    def _check_required_wms_layers(self) -> List[str]:
-        """Проверка наличия необходимых Web слоев в проекте из Base_layers.json
-
-        ВАЖНО: Учитывает родительские слои созданные через F_1_2
-        Например, если есть L_1_2_4_WFS_ОКС, то подслои Le_1_2_4_X считаются загруженными
-
-        Returns:
-            list: Список отсутствующих слоев (пустой если все на месте)
-        """
-        # Получаем список required слоёв из Base_layers.json
-        ref_managers = get_reference_managers()
-        layer_manager = ref_managers.layer
-
-        required_wms_layers = []
-        parent_mapping = {}  # Маппинг подслоёв на родительские
-
-        if layer_manager:
-            all_layers = layer_manager.get_base_layers()
-
-            # Собираем слои из групп L_1_2, Le_1_2, L_1_3 (Web слои)
-            for layer in all_layers:
-                full_name = layer.get('full_name', '')
-                # Проверяем что слой принадлежит группам L_1_2, Le_1_2 или L_1_3
-                if (full_name.startswith('L_1_2_') or
-                    full_name.startswith('Le_1_2_') or
-                    full_name.startswith('L_1_3_')):
-                    required_wms_layers.append(full_name)
-
-                    # Создаём маппинг подслоёв на родительские слои
-                    # Например: Le_1_2_4_1_WFS_Здание → L_1_2_4_WFS_ОКС
-                    if full_name.startswith('Le_1_2_4_'):
-                        parent_mapping[full_name] = 'L_1_2_4_WFS_ОКС'
-                    # Остальные слои могут использовать себя как родительские
-                    elif full_name.startswith('L_1_2_'):
-                        parent_mapping[full_name] = full_name
-
-        project = QgsProject.instance()
-        existing_layers = set(layer.name() for layer in project.mapLayers().values())
-
-        missing_layers = []
-        for layer_name in required_wms_layers:
-            # Проверяем наличие самого слоя
-            if layer_name in existing_layers:
-                continue
-
-            # Проверяем наличие родительского слоя
-            parent_layer = parent_mapping.get(layer_name)
-            if parent_layer and parent_layer in existing_layers:
-                continue
-
-            # Если ни слой, ни родительский слой не найдены
-            missing_layers.append(layer_name)
-
-        return missing_layers
-
     def _get_graphics_folder(self) -> Optional[str]:
         """
         Определить папку для сохранения графики к запросам
 
-        Использует M_19_ProjectStructureManager для получения пути к папке "Графика".
-        Fallback: создает папку "Графика к запросам" в корне проекта.
+        Использует M_19_ProjectStructureManager (FolderType.GRAPHICS).
+        Путь: 00_Предварительно/Графика к запросам/
+        Папка перезаписывается при каждом запуске функции.
 
         Returns:
-            Путь к папке "Графика" или None если не удалось определить
+            Путь к папке или None если не удалось определить
         """
         try:
-            # Используем ProjectStructureManager
-            structure_manager = get_project_structure_manager()
+            structure_manager = registry.get('M_19')
 
-            # Если менеджер не инициализирован, пробуем установить project_root
             if not structure_manager.is_active():
                 project = QgsProject.instance()
                 project_path = project.homePath()
                 if project_path:
                     structure_manager.project_root = project_path
 
-            # Получаем папку через менеджер
-            if structure_manager.is_active():
-                output_folder = structure_manager.get_folder(FolderType.GRAPHICS)
-                if output_folder:
-                    log_info(f"F_1_4: Папка графики через M_19: {output_folder}")
-                    return os.path.normpath(output_folder)
-
-            # Fallback для старых проектов
-            log_warning("F_1_4: M_19 не активен, используем fallback")
-            project = QgsProject.instance()
-            project_path = project.homePath()
-
-            if not project_path:
-                log_warning("F_1_4: Проект QGIS не сохранён, не удалось определить папку")
+            if not structure_manager.is_active():
+                log_error("F_1_4: M_19 не активен, невозможно определить папку графики")
                 return None
 
-            # Создаём путь к папке "Графика к запросам" (старое название)
-            output_folder = os.path.join(project_path, "Графика к запросам")
-            return os.path.normpath(output_folder)
+            output_folder = structure_manager.get_folder(FolderType.GRAPHICS)
+            if output_folder:
+                log_info(f"F_1_4: Папка графики через M_19: {output_folder}")
+                return os.path.normpath(output_folder)
+
+            log_error("F_1_4: M_19 не вернул путь к папке графики")
+            return None
 
         except Exception as e:
             log_error(f"F_1_4: Ошибка определения папки для сохранения: {str(e)}")
@@ -298,7 +227,7 @@ class F_1_4_GraphicsRequest(BaseTool):
         results = {}
 
         # Счетчик шагов для прогресса
-        total_steps = 8
+        total_steps = 9
         current_step = 0
 
         # 1. Настраиваем правила подписей для избегания перекрытий (ВСЕГДА применяем)
@@ -346,7 +275,7 @@ class F_1_4_GraphicsRequest(BaseTool):
         log_info("F_1_4: Запуск модуля Fsm_1_4_5_layout_manager")
         
         try:
-            result = self.layout_manager.create_layout_from_template(selected_layer_ids, nspd_layers, use_satellite)
+            result = self.layout_manager.create_layout(selected_layer_ids, nspd_layers, use_satellite)
             success, error = self._normalize_result(result, "Ошибка создания макета")
         except Exception as e:
             success, error = False, str(e)
@@ -392,20 +321,65 @@ class F_1_4_GraphicsRequest(BaseTool):
         else:
             current_step += 1
 
-        # 5. Экспортируем в PDF если создан макет
+        # 5. Показываем диалог выбора отображения обзорной карты
+        # 300 DPI - требование Приказа Росреестра от 19.04.2022 N П/0148
+        export_dpi = EXPORT_DPI_ROSREESTR
+        if layout_created:
+            current_step += 1
+            progress_dialog.update_progress(int(current_step * 100 / total_steps), "Выбор отображения обзорной карты...")
+            QApplication.processEvents()
+
+            # Получаем текущий масштаб обзорной карты
+            current_scale = self.layout_manager.get_overview_map_scale()
+            layout = self.layout_manager.get_layout()
+
+            if current_scale and layout:
+                # Скрываем диалог прогресса на время показа превью
+                progress_dialog.hide()
+
+                # Показываем диалог выбора варианта
+                preview_dialog = OverviewPreviewDialog(
+                    layout,
+                    current_scale,
+                    self.iface.mainWindow()
+                )
+
+                if preview_dialog.exec() == 1:  # OK
+                    # Получаем выбранные параметры
+                    export_dpi, scale_factor = preview_dialog.get_selected_variant()
+
+                    # Применяем новый масштаб если изменился
+                    if scale_factor != 1.0:
+                        new_scale = current_scale * scale_factor
+                        self.layout_manager.set_overview_map_scale(new_scale)
+                        log_info(f"F_1_4: Применён новый масштаб обзорной карты: 1:{int(new_scale)}")
+
+                    log_info(f"F_1_4: Выбраны параметры экспорта: DPI={export_dpi}")
+                else:
+                    # Пользователь отменил - используем значения по умолчанию
+                    log_info("F_1_4: Диалог отменён, используются параметры по умолчанию")
+
+                # Возвращаем диалог прогресса
+                progress_dialog.show()
+            else:
+                log_warning("F_1_4: Не удалось получить масштаб обзорной карты, пропускаем диалог превью")
+        else:
+            current_step += 1
+
+        # 6. Экспортируем в PDF если создан макет
         if layout_created:
             current_step += 1
             progress_dialog.update_progress(int(current_step * 100 / total_steps), "Экспорт в PDF...")
             QApplication.processEvents()
             pdf_path = os.path.join(graphics_folder, "Приложение_1_Схема.pdf")
-            log_info("F_1_4: Экспорт в PDF")
-            
+            log_info(f"F_1_4: Экспорт в PDF с DPI={export_dpi}")
+
             try:
-                result = self.layout_manager.export_to_pdf(pdf_path)
+                result = self.layout_manager.export_to_pdf(pdf_path, dpi=export_dpi)
                 success, error = self._normalize_result(result, "Ошибка экспорта PDF")
             except Exception as e:
                 success, error = False, str(e)
-                
+
             results['pdf'] = (success, error)
             if success:
                 log_info("F_1_4: Fsm_1_4_5_layout_manager.export_pdf: успех")
@@ -416,7 +390,7 @@ class F_1_4_GraphicsRequest(BaseTool):
             log_error("F_1_4: PDF не создан - макет не был создан")
             results['pdf'] = (False, "Макет не создан")
         
-        # 6. Проверяем наличие слоя границ работ и экспортируем координаты
+        # 7. Проверяем наличие слоя границ работ и экспортируем координаты
         boundaries_layer = None
         for layer in QgsProject.instance().mapLayers().values():
             if layer.name() == "L_1_1_1_Границы_работ":
@@ -424,7 +398,7 @@ class F_1_4_GraphicsRequest(BaseTool):
                 break
 
         if boundaries_layer:
-            # 7. Экспортируем координаты в Excel
+            # 8. Экспортируем координаты в Excel
             current_step += 1
             progress_dialog.update_progress(int(current_step * 100 / total_steps), "Экспорт координат в Excel...")
             QApplication.processEvents()
@@ -442,7 +416,7 @@ class F_1_4_GraphicsRequest(BaseTool):
             else:
                 log_error(f"F_1_4: Fsm_1_4_2_excel_export: ошибка - {error}")
 
-            # 8. Экспортируем в DXF
+            # 9. Экспортируем в DXF
             current_step += 1
             progress_dialog.update_progress(int(current_step * 100 / total_steps), "Экспорт в DXF...")
             QApplication.processEvents()
@@ -460,7 +434,7 @@ class F_1_4_GraphicsRequest(BaseTool):
             else:
                 log_error(f"F_1_4: Fsm_1_4_3_dxf_export: ошибка - {error}")
 
-            # 9. Экспортируем в TAB
+            # 10. Экспортируем в TAB
             current_step += 1
             progress_dialog.update_progress(int(current_step * 100 / total_steps), "Экспорт в MapInfo TAB...")
             QApplication.processEvents()
@@ -508,4 +482,4 @@ class F_1_4_GraphicsRequest(BaseTool):
         log_info(f"F_1_4: Завершение. Успешно: {len(results) - errors_count}, Ошибок: {errors_count}")
         
         # Отображаем диалог для пользователя
-        progress_dialog.exec_()
+        progress_dialog.exec()

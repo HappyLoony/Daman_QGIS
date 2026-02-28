@@ -25,6 +25,7 @@ def log_info(message: str) -> None:
         message: Текст сообщения
     """
     QgsMessageLog.logMessage(message, PLUGIN_NAME, Qgis.Info)
+    _write_to_session_log(message, "INFO")
 
 
 def log_warning(message: str) -> None:
@@ -35,16 +36,87 @@ def log_warning(message: str) -> None:
         message: Текст предупреждения
     """
     QgsMessageLog.logMessage(message, PLUGIN_NAME, Qgis.Warning)
+    _write_to_session_log(message, "WARNING")
 
 
-def log_error(message: str) -> None:
+def log_error(message: str, send_telemetry: bool = True) -> None:
     """
     Логирование ошибки.
+
+    Автоматически отправляет ошибку в телеметрию (если включена).
+    MODULE_ID извлекается из префикса сообщения (F_X_Y:, Fsm_X_Y_Z:, M_X: и т.д.)
+
+    Args:
+        message: Текст ошибки
+        send_telemetry: Отправлять ли в телеметрию (по умолчанию True)
+    """
+    QgsMessageLog.logMessage(message, PLUGIN_NAME, Qgis.Critical)
+    _write_to_session_log(message, "CRITICAL")
+
+    # Отправка в телеметрию
+    if send_telemetry:
+        _send_error_to_telemetry(message)
+
+
+def _send_error_to_telemetry(message: str) -> None:
+    """
+    Отправка ошибки в телеметрию.
+
+    Извлекает MODULE_ID из префикса сообщения и отправляет через TelemetryManager.
+    Выполняется в try/except чтобы не ломать основной код при ошибках телеметрии.
 
     Args:
         message: Текст ошибки
     """
-    QgsMessageLog.logMessage(message, PLUGIN_NAME, Qgis.Critical)
+    try:
+        # Ленивый импорт для избежания циклических зависимостей
+        from Daman_QGIS.managers import registry
+        telemetry = registry.get('M_32')
+
+        if telemetry is None:
+            return
+
+        # Извлекаем MODULE_ID из префикса сообщения
+        # Форматы: "F_1_2: ...", "Fsm_3_1_7: ...", "M_26: ...", "Msm_21_1: ..."
+        module_id = "unknown"
+        if ': ' in message:
+            prefix = message.split(': ', 1)[0]
+            # Проверяем что это похоже на MODULE_ID
+            if re.match(r'^(F_\d+_\d+|Fsm_\d+_\d+_\d+|M_\d+|Msm_\d+_\d+)', prefix):
+                module_id = prefix
+
+        # Извлекаем текст ошибки (после MODULE_ID)
+        error_msg = message.split(': ', 1)[1] if ': ' in message else message
+
+        # Отправляем в телеметрию
+        telemetry.track_error(
+            func_id=module_id,
+            error_type="LogError",
+            error_msg=error_msg,
+            stack=None  # Стек не доступен из log_error
+        )
+    except Exception:
+        # Игнорируем ошибки телеметрии - не должны ломать основной код
+        pass
+
+
+def _write_to_session_log(message: str, level: str) -> None:
+    """
+    Дублирование лога в файл сессии через M_38_SessionLogManager.
+
+    Обёрнут в try/except — не ломает основное логирование если M_38 не инициализирован.
+
+    Args:
+        message: Текст сообщения
+        level: Уровень логирования (INFO, WARNING, CRITICAL, SUCCESS, DEBUG)
+    """
+    try:
+        from Daman_QGIS.managers._registry import registry
+        session_log = registry.get('M_38')
+        if session_log and session_log._initialized:
+            session_log.write(message, tag=PLUGIN_NAME, level=level)
+    except Exception:
+        pass  # Не ломаем основное логирование
 
 
 def log_success(message: str) -> None:
@@ -55,18 +127,20 @@ def log_success(message: str) -> None:
         message: Текст сообщения об успехе
     """
     QgsMessageLog.logMessage(message, PLUGIN_NAME, Qgis.Success)
+    _write_to_session_log(message, "SUCCESS")
 
 
 def log_debug(message: str) -> None:
     """
     Логирование отладочного сообщения.
 
-    Debug сообщения не отображаются в основном логе (NoLevel).
+    Debug сообщения НЕ выводятся в QGIS Log Messages панель,
+    только в session log файл (для анализа при отладке).
 
     Args:
         message: Текст отладочного сообщения
     """
-    QgsMessageLog.logMessage(message, PLUGIN_NAME, Qgis.NoLevel)
+    _write_to_session_log(message, "DEBUG")
 
 
 # ============================================================================
@@ -105,12 +179,33 @@ def log_exception(
     """
     Логирование исключения с контекстом.
 
+    Автоматически отправляет в телеметрию со стеком вызовов.
+
     Args:
         class_name: Имя класса
         method_name: Имя метода
         exception: Исключение
     """
-    log_error(f"{class_name}.{method_name}: Исключение - {str(exception)}")
+    import traceback
+
+    message = f"{class_name}.{method_name}: Исключение - {str(exception)}"
+    QgsMessageLog.logMessage(message, PLUGIN_NAME, Qgis.Critical)
+
+    # Отправка в телеметрию с полным стеком
+    try:
+        from Daman_QGIS.managers import registry
+        telemetry = registry.get('M_32')
+
+        if telemetry is not None:
+            stack = traceback.format_exc().split('\n')
+            telemetry.track_error(
+                func_id=f"{class_name}.{method_name}",
+                error_type=type(exception).__name__,
+                error_msg=str(exception),
+                stack=stack
+            )
+    except Exception:
+        pass  # Игнорируем ошибки телеметрии
 
 
 # ============================================================================
@@ -246,6 +341,131 @@ class PathValidator:
         path = Path(project_path).resolve()
         log_debug(f"Project path validated: {path}")
         return path
+
+# ============================================================================
+# ФУНКЦИИ ОБНОВЛЕНИЯ ОТРИСОВКИ (RENDERING REFRESH)
+# ============================================================================
+
+# Уровни обновления отрисовки (по возрастанию "тяжести")
+REFRESH_LIGHT = 1    # triggerRepaint для конкретного слоя
+REFRESH_MEDIUM = 2   # canvas.refresh()
+REFRESH_HEAVY = 3    # canvas.redrawAllLayers() - очистка кэша изображений
+REFRESH_FULL = 4     # clearCache + refreshAllLayers - полная перезагрузка
+
+
+def safe_refresh_layer(layer, delay_ms: int = 50) -> None:
+    """
+    Безопасный отложенный triggerRepaint для слоя.
+
+    Использует QTimer.singleShot для предотвращения крашей при вызове
+    refresh во время активных операций Qt.
+
+    Args:
+        layer: QgsMapLayer для обновления
+        delay_ms: Задержка в миллисекундах (по умолчанию 50)
+
+    Example:
+        >>> safe_refresh_layer(my_layer)
+    """
+    if layer is None:
+        return
+
+    from qgis.PyQt.QtCore import QTimer
+
+    def do_repaint():
+        try:
+            if layer is not None and layer.isValid():
+                layer.triggerRepaint()
+        except Exception:
+            pass  # Игнорируем ошибки - слой мог быть удалён
+
+    QTimer.singleShot(delay_ms, do_repaint)
+
+
+def safe_refresh_canvas(level: int = REFRESH_MEDIUM, delay_ms: int = 100) -> None:
+    """
+    Безопасное обновление canvas с разными уровнями "тяжести".
+
+    Уровни:
+    - REFRESH_LIGHT (1): только для конкретных слоёв (используйте safe_refresh_layer)
+    - REFRESH_MEDIUM (2): canvas.refresh() - базовое обновление
+    - REFRESH_HEAVY (3): canvas.redrawAllLayers() - очистка кэша, перерисовка
+    - REFRESH_FULL (4): clearCache + refreshAllLayers - полная перезагрузка данных
+
+    Args:
+        level: Уровень обновления (REFRESH_MEDIUM по умолчанию)
+        delay_ms: Задержка в миллисекундах (по умолчанию 100)
+
+    Example:
+        >>> safe_refresh_canvas(REFRESH_HEAVY)  # После изменения стилей
+        >>> safe_refresh_canvas(REFRESH_FULL)   # После серьёзных изменений
+    """
+    from qgis.PyQt.QtCore import QTimer
+    from qgis.utils import iface
+
+    def do_refresh():
+        try:
+            if iface is None or iface.mapCanvas() is None:
+                return
+
+            canvas = iface.mapCanvas()
+
+            if level == REFRESH_MEDIUM:
+                canvas.refresh()
+            elif level == REFRESH_HEAVY:
+                # redrawAllLayers() доступен с QGIS 3.10
+                if hasattr(canvas, 'redrawAllLayers'):
+                    canvas.redrawAllLayers()
+                else:
+                    canvas.refresh()
+            elif level == REFRESH_FULL:
+                # Полный сброс: очистка кэша + перезагрузка слоёв
+                if hasattr(canvas, 'clearCache'):
+                    canvas.clearCache()
+                canvas.refreshAllLayers()
+            else:
+                canvas.refresh()
+
+        except Exception as e:
+            log_warning(f"safe_refresh_canvas: Ошибка при обновлении canvas: {e}")
+
+    QTimer.singleShot(delay_ms, do_refresh)
+
+
+def safe_refresh_layer_symbology(layer, delay_ms: int = 50) -> None:
+    """
+    Безопасное обновление символики слоя в Layer Tree.
+
+    Обновляет отображение символики слоя в панели слоёв (легенде).
+    Вызывать после изменения renderer/стиля слоя.
+
+    Args:
+        layer: QgsMapLayer для обновления
+        delay_ms: Задержка в миллисекундах (по умолчанию 50)
+
+    Example:
+        >>> layer.setRenderer(new_renderer)
+        >>> safe_refresh_layer_symbology(layer)
+    """
+    if layer is None:
+        return
+
+    from qgis.PyQt.QtCore import QTimer
+    from qgis.utils import iface
+
+    def do_refresh():
+        try:
+            if layer is None or not layer.isValid():
+                return
+            if iface is None or iface.layerTreeView() is None:
+                return
+
+            iface.layerTreeView().refreshLayerSymbology(layer.id())
+        except Exception:
+            pass  # Игнорируем ошибки
+
+    QTimer.singleShot(delay_ms, do_refresh)
+
 
 # ============================================================================
 # ФУНКЦИИ РАБОТЫ С CRS

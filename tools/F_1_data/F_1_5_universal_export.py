@@ -5,6 +5,7 @@
 """
 
 import os
+import sys
 from typing import Dict, Any, List, Optional
 
 from qgis.core import Qgis, QgsProject, QgsVectorLayer
@@ -18,7 +19,7 @@ from Daman_QGIS.utils import log_info, log_warning, log_error
 from .ui.export_dialog import ExportDialog
 
 # Импортируем все сабмодули с новыми именами
-# Примечание: ExcelExportSubmodule и ExcelListExportSubmodule перенесены в F_6_3
+# Примечание: ExcelExportSubmodule и ExcelListExportSubmodule перенесены в F_5_3
 from .submodules import (
     DxfExportSubmodule,
     GeoJSONExportSubmodule,
@@ -34,7 +35,7 @@ class F_1_5_UniversalExport(BaseTool):
     """Инструмент универсального экспорта во все форматы"""
     
     # Маппинг форматов на сабмодули
-    # Примечание: excel и excel_list перенесены в F_6_3 (экспорт по шаблону)
+    # Примечание: excel и excel_list перенесены в F_5_3 (экспорт по шаблону)
     FORMAT_MODULES = {
         'dxf': DxfExportSubmodule,
         'geojson': GeoJSONExportSubmodule,
@@ -110,7 +111,7 @@ class F_1_5_UniversalExport(BaseTool):
         # Добавляем чекбоксы для выбора форматов
         self._add_format_checkboxes(dialog)
 
-        if dialog.exec_():
+        if dialog.exec():
             # Получаем выбранные слои и папку
             layers = dialog.selected_layers
             output_folder = dialog.output_folder
@@ -157,7 +158,7 @@ class F_1_5_UniversalExport(BaseTool):
                 total_operations,
                 self.iface.mainWindow()
             )
-            progress.setWindowModality(Qt.WindowModal)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
             progress.setAutoClose(True)
             progress.show()
 
@@ -252,7 +253,7 @@ class F_1_5_UniversalExport(BaseTool):
         formats_layout = QVBoxLayout()
         
         # Добавляем чекбоксы для форматов
-        # Примечание: excel и excel_list перенесены в F_6_3 (экспорт по шаблону)
+        # Примечание: excel и excel_list перенесены в F_5_3 (экспорт по шаблону)
         dialog.dxf_check = QCheckBox(self.FORMAT_NAMES['dxf'])
         dialog.dxf_check.setChecked(False)
         formats_layout.addWidget(dialog.dxf_check)
@@ -298,7 +299,7 @@ class F_1_5_UniversalExport(BaseTool):
         message = "Универсальный экспорт завершен!\n\n"
 
         # Показываем результаты в порядке сабмодулей
-        # Примечание: Excel (координаты) и Excel (ведомости) перенесены в F_6_3
+        # Примечание: Excel (координаты) и Excel (ведомости) перенесены в F_5_3
         format_order = ['DXF', 'GeoJSON', 'KML', 'KMZ', 'Shapefile', 'TAB', 'Excel']
 
         for format_name in format_order:
@@ -324,13 +325,13 @@ class F_1_5_UniversalExport(BaseTool):
         msg_box = QMessageBox(self.iface.mainWindow())
         msg_box.setWindowTitle("Универсальный экспорт")
         msg_box.setText(message)
-        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setIcon(QMessageBox.Icon.Information)
 
         # Добавляем кнопки
-        open_btn = msg_box.addButton("Открыть расположение", QMessageBox.ActionRole)
-        msg_box.addButton("Закрыть", QMessageBox.RejectRole)
+        open_btn = msg_box.addButton("Открыть расположение", QMessageBox.ButtonRole.ActionRole)
+        msg_box.addButton("Закрыть", QMessageBox.ButtonRole.RejectRole)
 
-        msg_box.exec_()
+        msg_box.exec()
 
         # Обработка нажатия кнопки
         if msg_box.clickedButton() == open_btn:
@@ -352,7 +353,7 @@ class F_1_5_UniversalExport(BaseTool):
             if os.name == 'nt':
                 os.startfile(folder_path)
             # macOS
-            elif os.sys.platform == 'darwin':
+            elif sys.platform == 'darwin':
                 subprocess.run(['open', folder_path])
             # Linux
             else:

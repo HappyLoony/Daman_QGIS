@@ -25,7 +25,7 @@ from qgis.core import (
 from qgis.PyQt.QtCore import QMetaType
 
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
-from Daman_QGIS.constants import DEFAULT_REQUEST_TIMEOUT, DEFAULT_MAX_WORKERS, DEFAULT_MAX_RETRIES
+from Daman_QGIS.constants import DEFAULT_REQUEST_TIMEOUT, DEFAULT_MAX_WORKERS, DEFAULT_MAX_RETRIES, DEFAULT_RATE_LIMIT
 from collections import deque
 import threading
 
@@ -79,9 +79,9 @@ def requests_post_with_timeout(url, session=None, **kwargs):
 
     if thread.is_alive():
         # Поток всё ещё работает = ЗАВИСАНИЕ!
-        log_error(f"Fsm_1_2_1: TIMEOUT: ПРИНУДИТЕЛЬНЫЙ TIMEOUT requests.post() после {max_timeout} сек!")
-        log_error(f"Fsm_1_2_1:    URL: {url[:100]}...")
-        log_error(f"Fsm_1_2_1:    Поток будет убит принудительно (daemon=True)")
+        log_warning(f"Fsm_1_2_1: TIMEOUT: ПРИНУДИТЕЛЬНЫЙ TIMEOUT requests.post() после {max_timeout} сек!")
+        log_warning(f"Fsm_1_2_1:    URL: {url[:100]}...")
+        log_warning(f"Fsm_1_2_1:    Поток будет убит принудительно (daemon=True)")
         return None
 
     if result['exception']:
@@ -144,6 +144,8 @@ class Fsm_1_2_1_EgrnLoader:
         self.api_manager = api_manager
         # Кэш ответов API: {hash(payload): response}
         self._api_cache = {}
+        # Кэш границ: {(use_500m, use_no_buffer): result}
+        self._boundary_cache = {}
         # Счетчики HTTP ошибок для мониторинга
         self._http_error_counts = {
             '403': 0,  # Forbidden - блокировка IP
@@ -153,8 +155,8 @@ class Fsm_1_2_1_EgrnLoader:
         }
 
         # ОПТИМИЗАЦИЯ: Rate Limiting для защиты от перегрузки API
-        # Гарантирует не более 10 запросов в секунду, предотвращает 429 ошибки
-        self.rate_limiter = RateLimiter(max_per_second=10)
+        # Гарантирует не более DEFAULT_RATE_LIMIT запросов в секунду, предотвращает 429 ошибки
+        self.rate_limiter = RateLimiter(max_per_second=DEFAULT_RATE_LIMIT)
 
         # ОПТИМИЗАЦИЯ: Connection Pooling через requests.Session + HTTPAdapter
         # Keep-alive соединения - меньше SSL handshakes, быстрее повторные запросы
@@ -171,9 +173,32 @@ class Fsm_1_2_1_EgrnLoader:
         self.session.mount('https://', adapter)
         self.session.mount('http://', adapter)
 
+        # Инъекция cookies авторизации НСПД (если пользователь авторизован)
+        self._inject_nspd_auth()
+
+    def _inject_nspd_auth(self) -> None:
+        """Инъекция cookies НСПД авторизации в session.
+
+        Запрашивает cookies у M_40_NspdAuthManager и добавляет их в session.
+        Если не авторизован -- ничего не происходит.
+        """
+        try:
+            from Daman_QGIS.managers import registry
+            nspd_auth = registry.get('M_40')
+            if nspd_auth and nspd_auth.is_authenticated():
+                nspd_auth.inject_cookies(self.session)
+                log_info("Fsm_1_2_1: НСПД auth cookies инъецированы в session")
+        except Exception as e:
+            log_warning(f"Fsm_1_2_1: Не удалось инъецировать НСПД cookies: {e}")
+
+    def update_auth_cookies(self) -> None:
+        """Обновить cookies авторизации в session (вызывать после повторного входа)."""
+        self._inject_nspd_auth()
+
     def clear_cache(self):
         """Очистить кэш API (вызывать при повторной загрузке)"""
         self._api_cache = {}
+        self._boundary_cache = {}
 
     def log_http_error_stats(self):
         """Вывести статистику HTTP ошибок для мониторинга"""
@@ -199,12 +224,16 @@ class Fsm_1_2_1_EgrnLoader:
         Получить геометрию границ в формате GeoJSON (WGS84)
 
         Args:
-            use_500m_buffer: Использовать слой L_1_1_3 (500м буфер) - для ЗОУИТ, ОКС
-            use_no_buffer: Использовать слой L_1_1_1 (без буфера) - для ЗУ, КК, НП (чтобы бюджет считал правильно)
+            use_500m_buffer: Использовать слой L_1_1_3 (500м буфер) - для ЗОУИТ, АТД
+            use_no_buffer: Использовать слой L_1_1_1 (без буфера) - для бюджета (F_1_3)
 
         Returns:
             dict: Геометрия полигона в формате GeoJSON или None
         """
+        cache_key = (use_500m_buffer, use_no_buffer)
+        if cache_key in self._boundary_cache:
+            return self._boundary_cache[cache_key]
+
         try:
             # Выбираем слой в зависимости от параметров
             if use_no_buffer:
@@ -218,6 +247,7 @@ class Fsm_1_2_1_EgrnLoader:
             layers = QgsProject.instance().mapLayersByName(layer_name)
             if not layers:
                 log_warning(f"Fsm_1_2_1: Слой {layer_name} не найден. Загрузка невозможна.")
+                self._boundary_cache[cache_key] = None
                 return None
 
             layer = layers[0]
@@ -269,10 +299,12 @@ class Fsm_1_2_1_EgrnLoader:
             geojson_str = combined_geom.asJson()
             geometry_dict = json.loads(geojson_str)
 
+            self._boundary_cache[cache_key] = geometry_dict
             return geometry_dict
 
         except Exception as e:
             log_error(f"Fsm_1_2_1: Ошибка получения границ из {layer_name}: {str(e)}")
+            self._boundary_cache[cache_key] = None
             return None
 
     def create_geojson(self, geometry_dict: Dict[str, Any], category_id: int) -> Dict[str, Any]:
@@ -422,12 +454,12 @@ class Fsm_1_2_1_EgrnLoader:
 
                     # Проверяем, что wrapper не вернул None (принудительный timeout)
                     if response is None:
-                        log_error(f"Fsm_1_2_1: TIMEOUT: ПРИНУДИТЕЛЬНЫЙ TIMEOUT: requests.post() был убит после зависания")
+                        log_warning(f"Fsm_1_2_1: TIMEOUT: ПРИНУДИТЕЛЬНЫЙ TIMEOUT: requests.post() был убит после зависания")
                         return None
 
                 except requests.exceptions.Timeout as e:
                     request_elapsed = time.time() - request_start
-                    log_error(f"Fsm_1_2_1: TIMEOUT: TIMEOUT requests.post() после {request_elapsed:.1f} сек: {str(e)}")
+                    log_warning(f"Fsm_1_2_1: TIMEOUT: TIMEOUT requests.post() после {request_elapsed:.1f} сек: {str(e)}")
                     return None
                 except requests.exceptions.SSLError as e:
                     # SSL ошибки (UNEXPECTED_EOF_WHILE_READING, handshake failure) - retry
@@ -470,6 +502,12 @@ class Fsm_1_2_1_EgrnLoader:
                     log_warning(f"Fsm_1_2_1: Повторная попытка через {next_delay:.1f} сек (попытка {attempt + 2}/{max_retries})")
                     continue
 
+                elif http_status == 429:
+                    # 429 на последней попытке (retry исчерпан)
+                    self._http_error_counts['429'] += 1
+                    log_warning(f"Fsm_1_2_1: МОНИТОРИНГ API: Ошибка 429 (Too Many Requests) после {max_retries} попыток")
+                    return None
+
                 elif http_status == 403:
                     self._http_error_counts['403'] += 1
                     log_error(f"Fsm_1_2_1: FORBIDDEN: МОНИТОРИНГ API: Ошибка 403 (Forbidden) - возможна блокировка IP")
@@ -478,7 +516,7 @@ class Fsm_1_2_1_EgrnLoader:
 
                 elif http_status != 200:
                     self._http_error_counts['other'] += 1
-                    log_error(f"Fsm_1_2_1: HTTP ERROR: МОНИТОРИНГ API: Ошибка HTTP {http_status}")
+                    log_warning(f"Fsm_1_2_1: HTTP ERROR: МОНИТОРИНГ API: Ошибка HTTP {http_status}")
                     return None
 
                 # Успешный ответ
@@ -625,7 +663,7 @@ class Fsm_1_2_1_EgrnLoader:
         return grid_geometries
 
     def _load_cell_with_subdivision(self, cell_geometry: QgsGeometry, category_id: int,
-                                    cell_label: str, layer_name: str, max_depth: int = 2, current_depth: int = 0) -> list:
+                                    cell_label: str, layer_name: str, max_depth: int = 4, current_depth: int = 0) -> list:
         """
         Загрузить данные для ячейки с автоматическим дроблением при timeout
 
@@ -658,26 +696,13 @@ class Fsm_1_2_1_EgrnLoader:
         if response is None:
             # Timeout - пробуем дробление
             if current_depth < max_depth:
-                log_info(f"Fsm_1_2_1: Ячейка {cell_label}: timeout - дробление на 2x2 подъячейки (глубина {current_depth + 1}/{max_depth})")
-
-                # Разбиваем ячейку на 2x2
-                sub_cells = self._force_split_geometry(cell_geometry, QgsCoordinateReferenceSystem('EPSG:4326'), 2)
-
-                all_sub_features = []
-                for sub_idx, sub_cell in enumerate(sub_cells, start=1):
-                    sub_label = f"{cell_label}.{sub_idx}"
-                    # КРИТИЧНО: НЕ вызываем QApplication.processEvents() в worker потоке!
-                    # Метод _load_cell_with_subdivision вызывается из ThreadPoolExecutor
-                    # QApplication.processEvents()
-
-                    # Рекурсивно загружаем подъячейку
-                    sub_features = self._load_cell_with_subdivision(
-                        sub_cell, category_id, sub_label, layer_name, max_depth, current_depth + 1
-                    )
-                    all_sub_features.extend(sub_features)
-
-                log_info(f"Fsm_1_2_1: Ячейка {cell_label}: собрано {len(all_sub_features)} объектов из {len(sub_cells)} подъячеек")
-                return all_sub_features
+                log_info(
+                    f"Fsm_1_2_1: Ячейка {cell_label}: timeout - дробление на 2x2 подъячейки "
+                    f"(глубина {current_depth + 1}/{max_depth})"
+                )
+                return self._subdivide_and_load(
+                    cell_geometry, category_id, cell_label, layer_name, max_depth, current_depth
+                )
             else:
                 # Достигнута максимальная глубина
                 log_warning(f"Fsm_1_2_1: Ячейка {cell_label}: достигнута максимальная глубина дробления ({max_depth}), данные пропущены")
@@ -685,6 +710,50 @@ class Fsm_1_2_1_EgrnLoader:
         else:
             # Пустой ответ (нет данных в этой ячейке)
             return []
+
+    def _subdivide_and_load(self, cell_geometry: QgsGeometry, category_id: int,
+                            cell_label: str, layer_name: str, max_depth: int, current_depth: int) -> list:
+        """
+        Разбить ячейку на 2x2 подъячейки и загрузить данные рекурсивно с дедупликацией
+
+        На стыках подъячеек объекты могут дублироваться (API возвращает объект,
+        если его геометрия пересекает ячейку запроса). Дедупликация по interactionId.
+
+        Args:
+            cell_geometry: Геометрия ячейки для дробления
+            category_id: ID категории ЕГРН
+            cell_label: Метка ячейки для логирования
+            layer_name: Имя слоя
+            max_depth: Максимальная глубина рекурсии
+            current_depth: Текущая глубина рекурсии
+
+        Returns:
+            list: Дедуплицированный список features
+        """
+        sub_cells = self._force_split_geometry(cell_geometry, QgsCoordinateReferenceSystem('EPSG:4326'), 2)
+
+        all_sub_features = []
+        seen_ids = set()
+
+        for sub_idx, sub_cell in enumerate(sub_cells, start=1):
+            sub_label = f"{cell_label}.{sub_idx}"
+
+            sub_features = self._load_cell_with_subdivision(
+                sub_cell, category_id, sub_label, layer_name, max_depth, current_depth + 1
+            )
+
+            # Дедупликация по interactionId
+            for feature in sub_features:
+                interaction_id = feature.get("properties", {}).get("interactionId")
+                if interaction_id and interaction_id in seen_ids:
+                    continue
+                if interaction_id:
+                    seen_ids.add(interaction_id)
+                all_sub_features.append(feature)
+
+        deduplicated_count = len(all_sub_features)
+        log_info(f"Fsm_1_2_1: Ячейка {cell_label}: собрано {deduplicated_count} объектов из {len(sub_cells)} подъячеек (дедупликация по interactionId)")
+        return all_sub_features
 
     def _parallel_load_cells(self, grid_geometries: list, category_id: int, category_name: str,
                             layer_name: str, max_workers: int = 3, progress_task = None) -> list:
@@ -815,19 +884,15 @@ class Fsm_1_2_1_EgrnLoader:
         area_m2 = geom_copy.area()
         area_km2 = area_m2 / 1_000_000
 
-        log_info(f"Fsm_1_2_1: Площадь территории: {area_km2:.2f} км²")
-
         # Получаем порог из api_manager по имени слоя
         max_area = self.api_manager.get_split_threshold(layer_name)
 
         # Если порог None (null в JSON) - БЕЗ дробления (для ЗОУИТ и других)
         if max_area is None:
-            log_info(f"Fsm_1_2_1: Слой {layer_name}: split_threshold=null - разбиение отключено")
             return [geometry]
 
         # Если площадь меньше максимальной - не разбиваем
         if area_km2 <= max_area:
-            log_info(f"Fsm_1_2_1: Площадь не превышает {max_area} км² (split_threshold для {layer_name}) - разбиение не требуется")
             return [geometry]
 
         # Разбиваем на сетку
@@ -1039,9 +1104,123 @@ class Fsm_1_2_1_EgrnLoader:
         combined_response = {"features": all_features}
         return self._create_layer_from_response(combined_response, category_name)
 
+    def load_layer_by_endpoint(
+        self,
+        endpoint: Dict[str, Any],
+        geometry_provider,
+        progress_task=None
+    ) -> Tuple[Optional[QgsVectorLayer], int]:
+        """
+        Загрузить слой из API NSPD по готовому endpoint (без поиска по layer_name)
+
+        Аналог load_layer(), но принимает endpoint напрямую.
+        Используется когда несколько endpoints указывают на один слой
+        (например, красные линии ЕГРН + МИНСТРОЙ -> Le_1_2_7_1_WFS_КЛ_Сущ).
+
+        Args:
+            endpoint: Dict с данными endpoint из Base_api_endpoints.json
+            geometry_provider: Функция для получения геометрии запроса
+            progress_task: ProgressTask для обновления прогресса
+
+        Returns:
+            tuple: (слой, количество объектов) или (None, 0)
+        """
+        category_id = endpoint.get('category_id')
+        category_name = endpoint.get('category_name', 'unknown')
+        layer_name = endpoint.get('layer_name', category_name)
+
+        if category_id is None:
+            log_error(f"Fsm_1_2_1: category_id отсутствует в endpoint '{category_name}'")
+            return None, 0
+
+        # Получаем геометрию для запроса
+        geometry = geometry_provider()
+        if not geometry:
+            log_warning(f"Fsm_1_2_1: Не удалось получить геометрию для {category_name}")
+            return None, 0
+
+        # Конвертируем геометрию
+        import json
+
+        if isinstance(geometry, dict):
+            geometry_type = geometry.get('type', '')
+            coordinates = geometry.get('coordinates', [])
+            qgs_geometry = self.create_geometry(geometry_type, coordinates)
+            if not qgs_geometry or qgs_geometry.isEmpty():
+                log_warning(f"Fsm_1_2_1: Не удалось создать геометрию для {category_name}")
+                return None, 0
+            source_crs = QgsCoordinateReferenceSystem('EPSG:4326')
+        else:
+            qgs_geometry = geometry
+            source_crs = QgsCoordinateReferenceSystem('EPSG:4326')
+
+        # Проверяем, нужно ли разбивать геометрию на части
+        grid_geometries = self._split_geometry_to_grid(qgs_geometry, source_crs, layer_name)
+
+        # Один запрос (без батчинга)
+        if len(grid_geometries) == 1:
+            geometry_geojson = json.loads(qgs_geometry.asJson()) if not isinstance(geometry, dict) else geometry
+            payload = self.create_geojson(geometry_geojson, category_id)
+            response = self.send_request(payload, layer_name=layer_name)
+
+            if response is None:
+                log_warning(f"Fsm_1_2_1: Timeout API для {category_name}")
+                return None, 0
+            elif "features" not in response or not response["features"]:
+                return None, 0
+            else:
+                return self._create_layer_from_response(response, category_name)
+
+        # Батчинг: загружаем каждую ячейку сетки
+        log_info(f"Fsm_1_2_1: Батчинговая загрузка {category_name} ({len(grid_geometries)} ячеек)")
+
+        max_workers_value = endpoint.get('max_workers', 5)
+        all_features = self._parallel_load_cells(
+            grid_geometries=grid_geometries,
+            category_id=category_id,
+            category_name=category_name,
+            layer_name=layer_name,
+            max_workers=max_workers_value,
+            progress_task=progress_task
+        )
+
+        if not all_features:
+            return None, 0
+
+        combined_response = {"features": all_features}
+        return self._create_layer_from_response(combined_response, category_name)
+
+    # Служебные ключи properties, которые НЕ являются атрибутами объекта
+    _SYSTEM_PROPERTY_KEYS = {'interactionId', 'options', 'category', 'categoryId', 'geometry'}
+
+    @staticmethod
+    def _extract_feature_props(properties: dict) -> dict:
+        """Извлечь атрибутивные данные из properties (options-wrapped или flat).
+
+        NSPD API возвращает атрибуты в двух форматах:
+        - ЕГРН: properties.options.{field} (options-wrapped)
+        - МИНСТРОЙ: properties.{field} (flat, без options wrapper)
+
+        Args:
+            properties: dict из feature["properties"]
+
+        Returns:
+            dict с атрибутивными данными (без служебных ключей)
+        """
+        options = properties.get('options')
+        if options and isinstance(options, dict):
+            return options
+
+        # Flat properties (МИНСТРОЙ): все ключи кроме служебных
+        return {
+            k: v for k, v in properties.items()
+            if k not in Fsm_1_2_1_EgrnLoader._SYSTEM_PROPERTY_KEYS
+            and not k.startswith('_')
+        }
+
     def _create_layer_from_response(
-        self, 
-        response: Dict[str, Any], 
+        self,
+        response: Dict[str, Any],
         layer_name: str
     ) -> Tuple[Optional[QgsVectorLayer], int]:
         """
@@ -1076,10 +1255,11 @@ class Fsm_1_2_1_EgrnLoader:
             layer = QgsVectorLayer(f"{layer_type}?crs=EPSG:3857", layer_name, "memory")
             provider = layer.dataProvider()
 
-            # Создаём поля на основе первого объекта
+            # Создаём поля на основе первого объекта (options-wrapped или flat)
             attributes = [QgsField("interactionId", QMetaType.Type.QString)]
-            if first_feature["properties"].get("options"):
-                for key, value in first_feature["properties"]["options"].items():
+            first_props = self._extract_feature_props(first_feature["properties"])
+            if first_props:
+                for key, value in first_props.items():
                     field_type = QMetaType.Type.QString
                     if isinstance(value, int):
                         field_type = QMetaType.Type.LongLong
@@ -1114,7 +1294,7 @@ class Fsm_1_2_1_EgrnLoader:
                 new_feature.setGeometry(geometry)
                 new_feature.setAttribute("interactionId", interaction_id)
 
-                props = feature_data["properties"].get("options", {})
+                props = self._extract_feature_props(feature_data["properties"])
                 for key, value in props.items():
                     if key in field_names:
                         if value is None:
@@ -1213,7 +1393,8 @@ class Fsm_1_2_1_EgrnLoader:
             'type_zone': props.get("type_zone", "").lower(),
             'name_by_doc': props.get("name_by_doc", "").lower(),
             'doc_name': props.get("doc_name", "").lower(),
-            'type_boundary_value': props.get("type_boundary_value", "").lower()
+            'type_boundary_value': props.get("type_boundary_value", "").lower(),
+            'legal_act_document_name': props.get("legal_act_document_name", "").lower()
         }
 
         # Проверяем каждое правило по порядку rule_id (приоритет)
@@ -1405,7 +1586,7 @@ class Fsm_1_2_1_EgrnLoader:
                         total_count=len(unknown_features)
                     )
 
-                    if dialog.exec_():
+                    if dialog.exec():
                         selected_layer, skip_all_flag = dialog.get_result()
 
                         if selected_layer:

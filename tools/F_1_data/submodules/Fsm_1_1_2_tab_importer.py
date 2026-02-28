@@ -106,12 +106,22 @@ class TabImporter(BaseImporter):
 
         Args:
             file_path: Путь к TAB файлу
-            **custom_params: Дополнительные параметры (может содержать 'settings')
+            **custom_params: Дополнительные параметры (может содержать 'settings', 'layer_name')
 
         Returns:
             Словарь с результатами импорта
         """
+        # Создаем или обновляем settings с именем целевого слоя
         settings = custom_params.get('settings')
+        if not settings:
+            settings = ImportSettings(
+                source_format='TAB',
+                target_layer_name=custom_params.get('layer_name', os.path.basename(file_path))
+            )
+        elif custom_params.get('layer_name'):
+            # Обновляем имя слоя если передано через custom_params
+            settings.target_layer_name = custom_params.get('layer_name')
+
         layer = self._import_file_internal(file_path, settings)
 
         if layer:
@@ -180,6 +190,13 @@ class TabImporter(BaseImporter):
         if self.settings and self.settings.attributes_mapping:
             self._apply_attributes_mapping(layer)
 
+        # TAB файлы часто без СК (Nonearth) - устанавливаем СК проекта
+        if not layer.crs().isValid() or layer.crs().authid() == '':
+            project_crs = self.get_project_crs()
+            if project_crs and project_crs.isValid():
+                layer.setCrs(project_crs)
+                self.log_message(f"Fsm_1_1_2: Установлена СК из проекта: {project_crs.authid()}")
+
         # Логируем информацию о слое
         self.log_message(
             f"Импортирован слой '{layer_name}': "
@@ -191,9 +208,21 @@ class TabImporter(BaseImporter):
         )
 
         self.result_layer = layer
-        # Завершено успешно
+
+        # Сохраняем в GPKG через LayerProcessor
+        from ..core import LayerProcessor
+        processor = LayerProcessor(self.project_manager, self.layer_manager)
+        saved_layer = processor.save_to_gpkg(layer, layer_name)
+        if saved_layer:
+            layer = saved_layer
+            self.result_layer = layer
+            self.log_message(f"Слой '{layer_name}' сохранён в GPKG")
 
         # Добавляем слой в проект через LayerManager (автоматическое применение стилей)
+        # Если слой уже добавлен в GPKG, удаляем временный перед добавлением
+        if layer.id() in QgsProject.instance().mapLayers():
+            QgsProject.instance().removeMapLayer(layer.id())
+
         if self.layer_manager:
             self.layer_manager.add_layer(layer, make_readonly=False, auto_number=False, check_precision=False)
             self.log_message(f"Слой '{layer.name()}' добавлен в проект через LayerManager")

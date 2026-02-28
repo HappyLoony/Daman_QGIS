@@ -67,7 +67,10 @@ class BaseReferenceLoader:
 
     def _load_from_remote(self, filename: str) -> Optional[Any]:
         """
-        Загрузить JSON через Yandex Cloud API.
+        Загрузить JSON через Yandex Cloud API с JWT авторизацией.
+
+        Добавляет JWT Authorization header если токены доступны.
+        При 401 ответе пытается обновить токен и повторить запрос.
 
         Args:
             filename: Имя JSON файла (с или без .json расширения)
@@ -87,11 +90,24 @@ class BaseReferenceLoader:
         file_param = filename.replace('.json', '')
 
         url = f"{API_BASE_URL}?action=data&file={file_param}"
+
+        # Получаем JWT заголовки если доступны
+        auth_headers = self._get_jwt_auth_headers()
+
         try:
-            response = requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT)
+            response = requests.get(url, headers=auth_headers, timeout=DEFAULT_REQUEST_TIMEOUT)
+
+            # JWT: при 401 пытаемся обновить токен и повторить запрос
+            if response.status_code == 401 and auth_headers:
+                if self._handle_jwt_401():
+                    auth_headers = self._get_jwt_auth_headers()
+                    response = requests.get(url, headers=auth_headers, timeout=DEFAULT_REQUEST_TIMEOUT)
+
             if response.status_code == 200:
                 data = response.json()
                 return data
+            elif response.status_code == 401:
+                log_warning(f"BaseReferenceLoader: Авторизация отклонена для {filename}")
             elif response.status_code == 403:
                 log_warning(f"BaseReferenceLoader: Доступ запрещён к {filename}")
             elif response.status_code == 404:
@@ -106,6 +122,36 @@ class BaseReferenceLoader:
             log_error(f"BaseReferenceLoader: Ошибка парсинга JSON {filename}: {e}")
 
         return None
+
+    @staticmethod
+    def _get_jwt_auth_headers() -> Dict[str, str]:
+        """
+        Получить JWT заголовки авторизации из TokenManager.
+
+        Returns:
+            Dict с Authorization и X-Hardware-Id headers, или пустой dict
+        """
+        try:
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_4_token_manager import TokenManager
+            token_mgr = TokenManager.get_instance()
+            return token_mgr.get_auth_headers()
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _handle_jwt_401() -> bool:
+        """
+        Обработка 401 ответа: попытка обновить JWT токен.
+
+        Returns:
+            True если токен обновлён (повторить запрос), False если нет
+        """
+        try:
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_4_token_manager import TokenManager
+            token_mgr = TokenManager.get_instance()
+            return token_mgr.handle_401_response()
+        except Exception:
+            return False
 
     def _build_index(self, data: List[Dict], key_field: str) -> Dict:
         """

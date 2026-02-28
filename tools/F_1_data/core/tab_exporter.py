@@ -289,11 +289,11 @@ class TabExporter(BaseExporter):
             geom_type = QgsWkbTypes.to25D(geom_type)
 
         # Конвертируем тип геометрии QGIS в OGR
-        if geom_type in [QgsWkbTypes.LineString, QgsWkbTypes.MultiLineString]:
+        if geom_type in [Qgis.WkbType.LineString, Qgis.WkbType.MultiLineString]:
             ogr_geom_type = ogr.wkbLineString
-        elif geom_type in [QgsWkbTypes.Polygon, QgsWkbTypes.MultiPolygon]:
+        elif geom_type in [Qgis.WkbType.Polygon, Qgis.WkbType.MultiPolygon]:
             ogr_geom_type = ogr.wkbPolygon
-        elif geom_type in [QgsWkbTypes.Point, QgsWkbTypes.MultiPoint]:
+        elif geom_type in [Qgis.WkbType.Point, Qgis.WkbType.MultiPoint]:
             ogr_geom_type = ogr.wkbPoint
         else:
             ogr_geom_type = ogr.wkbUnknown

@@ -19,7 +19,7 @@ Sliver (щепка) - тонкий вытянутый полигон, обычн
 import math
 from typing import List, Dict, Any, Tuple, Optional
 from qgis.core import (
-    QgsVectorLayer, QgsGeometry, QgsPointXY, QgsWkbTypes
+    Qgis, QgsVectorLayer, QgsGeometry, QgsPointXY
 )
 from Daman_QGIS.utils import log_info, log_warning
 
@@ -74,7 +74,7 @@ class Fsm_0_4_12_SliverChecker:
         errors = []
 
         # Проверяем что слой полигональный
-        if layer.geometryType() != QgsWkbTypes.PolygonGeometry:
+        if layer.geometryType() != Qgis.GeometryType.Polygon:
             log_info(f"Fsm_0_4_12: Слой '{layer.name()}' не полигональный, пропуск")
             return errors
 
@@ -125,9 +125,10 @@ class Fsm_0_4_12_SliverChecker:
                     'geometry': centroid if centroid and not centroid.isEmpty() else geom,
                     'feature_id': fid,
                     'description': (
-                        f'Sliver-полигон (Polsby-Popper): thinness={thinness:.4f} '
+                        f'Тонкий полигон (Polsby-Popper): '
+                        f'коэфф. компактности={thinness:.4f} '
                         f'(порог {self.thinness_threshold}), '
-                        f'площадь={area:.2f} м², периметр={perimeter:.2f} м'
+                        f'площадь={area:.2f} м2, периметр={perimeter:.2f} м'
                     ),
                     'thinness_ratio': thinness,
                     'area': area,

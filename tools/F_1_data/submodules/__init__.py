@@ -3,7 +3,7 @@
 """
 
 # Субмодули для F_1_5 - Универсальный экспорт
-# Примечание: Fsm_1_5_2 (excel) и Fsm_1_5_8 (excel_list) перенесены в F_6_3
+# Примечание: Fsm_1_5_2 (excel) и Fsm_1_5_8 (excel_list) перенесены в F_5_3
 from .Fsm_1_5_1_dxf_export import DxfExportSubmodule
 from .Fsm_1_5_3_geojson_export import GeoJSONExportSubmodule
 from .Fsm_1_5_4_kml_export import KMLExportSubmodule

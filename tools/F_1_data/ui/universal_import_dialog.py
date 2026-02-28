@@ -12,7 +12,7 @@ from qgis.PyQt.QtWidgets import (
     QComboBox, QFileDialog, QGroupBox, QMessageBox,
     QLineEdit, QSizePolicy, QFrame
 )
-from qgis.PyQt.QtCore import Qt, pyqtSignal
+from qgis.PyQt.QtCore import Qt, pyqtSignal, QSettings, QStandardPaths
 from qgis.PyQt.QtGui import QFont
 from qgis.core import QgsMessageLog, Qgis, QgsProject
 from Daman_QGIS.managers import get_reference_managers
@@ -132,7 +132,7 @@ class UniversalImportDialog(QDialog):
 
     def _load_base_layers(self) -> List[Dict[str, Any]]:
         """Загрузка Base_layers.json через LayerReferenceManager"""
-        from Daman_QGIS.managers.submodules.Msm_4_6_layer_reference_manager import LayerReferenceManager
+        from Daman_QGIS.managers import LayerReferenceManager
 
         layer_manager = LayerReferenceManager()
         data = layer_manager.get_base_layers()
@@ -142,8 +142,9 @@ class UniversalImportDialog(QDialog):
     
     def _parse_base_layers(self):
         """Парсинг структуры слоев для формирования иерархии"""
-        # Разрешенные разделы (рабочие слои L_1, L_2, L_3, L_4)
-        # Исключаем веб-слои (WFS, WMS) и служебные слои
+        # Фильтрация по полю import_enabled из Base_layers.json
+        # import_enabled=1 (или отсутствует) -> слой доступен для импорта
+        # import_enabled=0 -> слой скрыт из диалога импорта
 
         for layer_data in self.base_layers:
             section_num = layer_data.get('section_num')
@@ -155,25 +156,11 @@ class UniversalImportDialog(QDialog):
             if not section_num:
                 continue
 
-            # section_num теперь без префикса (просто "1", "2" и т.д.)
-            # full_name содержит префикс L_ или Le_
-
-            # Пропускаем L_1_1_2, L_1_1_3 и L_1_1_4 (автоматически создаются при импорте L_1_1_1)
-            if full_name in ['L_1_1_2_Границы_работ_10_м', 'L_1_1_3_Границы_работ_500_м', 'L_1_1_4_Границы_работ_-2_см']:
+            # Проверяем флаг import_enabled (по умолчанию = 1 для обратной совместимости)
+            import_enabled = layer_data.get('import_enabled', 1)
+            if import_enabled == 0 or import_enabled == '0':
                 continue
 
-            # Пропускаем группу 1_2 (WFS) - загружается через веб
-            if section_num == '1' and group_num == '2':
-                continue
-
-            # Пропускаем WMS слои из группы 1_3 - загружаются через F_1_2
-            if section_num == '1' and group_num == '3' and group_name == 'WMS':
-                continue
-
-            # Пропускаем группу 1_4 (OSM) - загружается через F_1_2
-            if section_num == '1' and group_num == '4':
-                continue
-            
             # Добавляем раздел
             section_name = layer_data.get('section', '')
             if section_num not in self.sections:
@@ -268,7 +255,7 @@ class UniversalImportDialog(QDialog):
         for section_num in sorted(self.sections.keys()):
             self.section_combo.addItem(self.sections[section_num], section_num)
         self.section_combo.currentIndexChanged.connect(self.on_section_changed)
-        self.section_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.section_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         section_layout.addWidget(self.section_combo)
         selection_layout.addLayout(section_layout)
@@ -283,7 +270,7 @@ class UniversalImportDialog(QDialog):
         self.group_combo.addItem("-- Сначала выберите раздел --", None)
         self.group_combo.setEnabled(False)
         self.group_combo.currentIndexChanged.connect(self.on_group_changed)
-        self.group_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.group_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         group_layout.addWidget(self.group_combo)
         selection_layout.addLayout(group_layout)
@@ -298,7 +285,7 @@ class UniversalImportDialog(QDialog):
         self.layer_combo.addItem("-- Сначала выберите группу --", None)
         self.layer_combo.setEnabled(False)
         self.layer_combo.currentIndexChanged.connect(self.on_layer_changed)
-        self.layer_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.layer_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         layer_layout.addWidget(self.layer_combo)
         selection_layout.addLayout(layer_layout)
@@ -313,7 +300,7 @@ class UniversalImportDialog(QDialog):
         self.sublayer_combo.addItem("-", None)  # По умолчанию нет подслоя
         self.sublayer_combo.setEnabled(False)
         self.sublayer_combo.currentIndexChanged.connect(self.on_sublayer_changed)
-        self.sublayer_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.sublayer_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         sublayer_layout.addWidget(self.sublayer_combo)
         selection_layout.addLayout(sublayer_layout)
@@ -511,16 +498,34 @@ class UniversalImportDialog(QDialog):
         
         self.update_import_button_state()
     
+    def _get_default_dir(self) -> str:
+        """Получение начальной директории для диалога выбора файлов"""
+        settings = QSettings()
+        saved = settings.value("Daman_QGIS/last_import_folder", "")
+        if saved and os.path.isdir(saved):
+            return saved
+        return QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DesktopLocation
+        )
+
+    def _save_last_dir(self, file_path: str) -> None:
+        """Сохранение директории последнего выбранного файла"""
+        folder = os.path.dirname(file_path)
+        if folder and os.path.isdir(folder):
+            QSettings().setValue("Daman_QGIS/last_import_folder", folder)
+
     def browse_file(self):
         """Выбор файла для импорта"""
         # Фильтр только для разрешенных форматов
-        filter_str = "Поддерживаемые форматы (*.xml *.tab *.dxf);;XML файлы (*.xml);;TAB файлы (*.tab);;DXF файлы (*.dxf);;Все файлы (*.*)"
+        filter_str = "Поддерживаемые форматы (*.xml *.tab *.dxf *.shp);;XML файлы (*.xml);;TAB файлы (*.tab);;DXF файлы (*.dxf);;Shapefile (*.shp);;Все файлы (*.*)"
+
+        default_dir = self._get_default_dir()
 
         # Для XML разрешаем множественный выбор, для других - одиночный
         file_paths, selected_filter = QFileDialog.getOpenFileNames(
             self,
             "Выберите файл(ы) для импорта",
-            "",
+            default_dir,
             filter_str
         )
 
@@ -548,6 +553,7 @@ class UniversalImportDialog(QDialog):
                 return
 
         self.selected_file = file_paths if len(file_paths) > 1 else file_paths[0]
+        self._save_last_dir(file_paths[0])
 
         # Отображение выбранных файлов
         if isinstance(self.selected_file, list):
@@ -576,6 +582,13 @@ class UniversalImportDialog(QDialog):
         elif ext == '.dxf':
             self.selected_format = 'DXF'
             self.format_info_label.setText("✓ Формат: DXF (AutoCAD)\nℹ Выберите целевой слой ниже")
+            # РАЗБЛОКИРУЕМ выбор слоя
+            self.selection_group.setEnabled(True)
+            self.selected_full_name = None
+
+        elif ext == '.shp':
+            self.selected_format = 'SHP'
+            self.format_info_label.setText("✓ Формат: SHP (Shapefile)\nℹ Выберите целевой слой ниже")
             # РАЗБЛОКИРУЕМ выбор слоя
             self.selection_group.setEnabled(True)
             self.selected_full_name = None
@@ -638,11 +651,11 @@ class UniversalImportDialog(QDialog):
                     self,
                     "Подтверждение",
                     f"Слой '{self.selected_full_name}' уже существует в проекте.\nЗаменить?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
                 )
 
-                if reply == QMessageBox.No:
+                if reply == QMessageBox.StandardButton.No:
                     return
 
                 # Удаляем существующий слой
@@ -665,7 +678,7 @@ class UniversalImportDialog(QDialog):
         Returns:
             Словарь с параметрами импорта или None
         """
-        if self.result() != QDialog.Accepted:
+        if self.result() != QDialog.DialogCode.Accepted:
             return None
 
         # Ищем информацию о слое по его полному имени

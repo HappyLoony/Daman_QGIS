@@ -10,7 +10,7 @@ from qgis.PyQt.QtWidgets import (
     QPushButton, QComboBox, QFileDialog,
     QGroupBox, QLineEdit, QMessageBox
 )
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, QSettings, QStandardPaths
 from qgis.PyQt.QtGui import QFont
 from qgis.core import QgsMessageLog, Qgis
 
@@ -262,22 +262,40 @@ class Tool_1_2_ImportDialog(QDialog):
         self.info_label.setText(info_texts.get(self.file_format, ""))
         self.info_label.setStyleSheet("color: #333; font-size: 9pt; padding: 5px;")
     
+    def _get_default_dir(self) -> str:
+        """Получение начальной директории для диалога выбора файлов"""
+        settings = QSettings()
+        saved = settings.value("Daman_QGIS/last_import_folder", "")
+        if saved and os.path.isdir(saved):
+            return saved
+        return QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DesktopLocation
+        )
+
+    def _save_last_dir(self, file_path: str) -> None:
+        """Сохранение директории последнего выбранного файла"""
+        folder = os.path.dirname(file_path)
+        if folder and os.path.isdir(folder):
+            QSettings().setValue("Daman_QGIS/last_import_folder", folder)
+
     def browse_files(self):
         """Выбор файлов для импорта"""
+        default_dir = self._get_default_dir()
+
         # Определяем фильтр файлов
         if self.file_format == "XML":
             filter_str = "XML файлы (*.xml);;Все файлы (*.*)"
             caption = "Выберите XML файлы КПТ"
             # Для XML можно выбрать несколько файлов
             files, _ = QFileDialog.getOpenFileNames(
-                self, caption, "", filter_str
+                self, caption, default_dir, filter_str
             )
         elif self.file_format == "DXF":
             filter_str = "DXF файлы (*.dxf);;Все файлы (*.*)"
             caption = "Выберите DXF файл"
             # Для DXF только один файл
             file_path, _ = QFileDialog.getOpenFileName(
-                self, caption, "", filter_str
+                self, caption, default_dir, filter_str
             )
             files = [file_path] if file_path else []
         elif self.file_format == "TAB":
@@ -285,20 +303,21 @@ class Tool_1_2_ImportDialog(QDialog):
             caption = "Выберите TAB файл"
             # Для TAB только один файл
             file_path, _ = QFileDialog.getOpenFileName(
-                self, caption, "", filter_str
+                self, caption, default_dir, filter_str
             )
             files = [file_path] if file_path else []
         else:
             files = []
-        
+
         if files:
             self.selected_files = files
+            self._save_last_dir(files[0])
             # Отображаем имена файлов
             if len(files) == 1:
                 self.file_edit.setText(os.path.basename(files[0]))
             else:
                 self.file_edit.setText(f"Выбрано файлов: {len(files)}")
-            
+
             self.ok_button.setEnabled(True)
         else:
             self.selected_files = []

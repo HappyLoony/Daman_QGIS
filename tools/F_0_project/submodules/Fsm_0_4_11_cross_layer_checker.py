@@ -9,7 +9,7 @@
 
 from typing import List, Dict, Any, Tuple
 from qgis.core import (
-    QgsVectorLayer, QgsFeature, QgsGeometry,
+    Qgis, QgsVectorLayer, QgsFeature, QgsGeometry,
     QgsWkbTypes, QgsSpatialIndex
 )
 from Daman_QGIS.utils import log_info, log_warning
@@ -47,7 +47,7 @@ class Fsm_0_4_11_CrossLayerChecker:
         # Фильтруем только полигональные слои
         polygon_layers = [
             layer for layer in layers
-            if layer.geometryType() == QgsWkbTypes.PolygonGeometry
+            if layer.geometryType() == Qgis.GeometryType.Polygon
         ]
 
         if len(polygon_layers) < 2:
@@ -124,7 +124,7 @@ class Fsm_0_4_11_CrossLayerChecker:
 
                         if intersection and not intersection.isEmpty():
                             # Проверяем что пересечение полигональное
-                            if intersection.type() != QgsWkbTypes.PolygonGeometry:
+                            if intersection.type() != Qgis.GeometryType.Polygon:
                                 continue
 
                             area = intersection.area()

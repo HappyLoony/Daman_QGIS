@@ -13,13 +13,37 @@ import os
 from typing import List, Dict, Any, Optional
 from qgis.core import (
     QgsVectorLayer, QgsFeature, QgsGeometry, QgsProject,
-    QgsVectorFileWriter, QgsFields, QgsField, QgsCoordinateReferenceSystem,
-    QgsCoordinateTransformContext, QgsWkbTypes, Qgis
+    QgsVectorFileWriter, QgsFields, QgsCoordinateReferenceSystem,
+    QgsCoordinateTransformContext, Qgis
 )
-from qgis.PyQt.QtCore import QVariant, QMetaType
-
 from Daman_QGIS.utils import log_info, log_error, log_warning
-from Daman_QGIS.constants import USE_FIELD_ALIASES, MAX_FIELD_LEN
+from Daman_QGIS.constants import USE_FIELD_ALIASES
+
+
+def _apply_layer_visibility(layer: QgsVectorLayer, layer_name: str) -> None:
+    """
+    Применяет видимость слоя на основе поля 'hidden' из Base_layers.json
+
+    Args:
+        layer: Слой QGIS
+        layer_name: Имя слоя для поиска в базе
+    """
+    from Daman_QGIS.managers import get_reference_managers
+
+    ref_managers = get_reference_managers()
+    layer_info = ref_managers.layer.get_layer_by_full_name(layer_name)
+
+    if not layer_info:
+        return
+
+    hidden = layer_info.get('hidden', 0)
+
+    # hidden == 1 означает скрытый слой, 0 означает видимый
+    if hidden == 1 or hidden == "1":
+        root = QgsProject.instance().layerTreeRoot()
+        layer_node = root.findLayer(layer.id())
+        if layer_node:
+            layer_node.setItemVisibilityChecked(False)
 
 
 def create_and_save_layer(features_data: List[Dict[str, Any]],
@@ -83,25 +107,20 @@ def create_and_save_layer(features_data: List[Dict[str, Any]],
     # Определяем WKB тип геометрии для QgsVectorFileWriter
     # FIX: Используем *M типы для хранения M-координат (delta_geopoint)
     if layer_geom_type == 'MultiPolygon':
-        wkb_type = QgsWkbTypes.MultiPolygonM
+        wkb_type = Qgis.WkbType.MultiPolygonM
     elif layer_geom_type == 'MultiLineString':
-        wkb_type = QgsWkbTypes.MultiLineStringM
+        wkb_type = Qgis.WkbType.MultiLineStringM
     elif layer_geom_type == 'MultiPoint':
-        wkb_type = QgsWkbTypes.MultiPointM
+        wkb_type = Qgis.WkbType.MultiPointM
     else:
-        wkb_type = QgsWkbTypes.NoGeometry
+        wkb_type = Qgis.WkbType.NoGeometry
 
     # Создаем структуру полей ДИНАМИЧЕСКИ из FieldMappingManager
-    if field_mapper and record_type:
-        # ZERO HARDCODE - все поля из базы данных
-        fields = field_mapper.create_fields_for_record_type(record_type)
-        log_info(f"Fsm_1_1_4_4: Создано {len(fields)} полей для record_type='{record_type}'")
-    else:
-        # Fallback - минимальный набор полей (для обратной совместимости)
-        log_warning("Fsm_1_1_4_4: FieldMappingManager не предоставлен, используется минимальный набор полей")
-        fields = QgsFields()
-        fields.append(QgsField("cad_number", QMetaType.Type.QString, len=50))
-        fields.append(QgsField("included_objects", QMetaType.Type.QString, len=MAX_FIELD_LEN))
+    if not field_mapper or not record_type:
+        log_error("Fsm_1_1_4_4: field_mapper и record_type обязательны")
+        return False
+    fields = field_mapper.create_fields_for_record_type(record_type)
+    log_info(f"Fsm_1_1_4_4: Создано {len(fields)} полей для record_type='{record_type}'")
 
     # Сохраняем в GPKG через прямую запись (минуя memory layer)
     saved_layer = save_to_gpkg_direct(
@@ -123,8 +142,11 @@ def create_and_save_layer(features_data: List[Dict[str, Any]],
 
     # Добавляем слой в проект
     QgsProject.instance().addMapLayer(saved_layer)
-    feature_count = saved_layer.featureCount()
 
+    # Применяем видимость из Base_layers.json (hidden)
+    _apply_layer_visibility(saved_layer, layer_name)
+
+    feature_count = saved_layer.featureCount()
     log_info(f"Fsm_1_1_4_4: Слой '{layer_name}' добавлен: {feature_count} объектов")
 
     return True

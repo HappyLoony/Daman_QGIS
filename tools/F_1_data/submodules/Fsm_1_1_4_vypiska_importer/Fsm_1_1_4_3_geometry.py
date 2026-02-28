@@ -1,39 +1,26 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_1_1_4_3 - Извлечение геометрии из XML выписок
+Fsm_1_1_4_3 - Извлечение геометрии из XML выписок ЕГРН
 
-ВАЖНО: Координаты НЕ округляются (импортируем "как есть")!
+ПРИНЦИП: Данные импортируются ТОЧНО как в XML, БЕЗ ИЗМЕНЕНИЙ.
 
-АРХИТЕКТУРА:
-- Проверка замыкания контуров: M_6_coordinate_precision.is_ring_closed()
-- Стандартная проверка (без оптимизации) для выписок ОН
+ГАРАНТИИ НЕИЗМЕННОСТИ:
+- Координаты НЕ округляются
+- Порядок точек НЕ меняется
+- Ориентация колец НЕ корректируется (нет forceCounterClockwise)
+- Топология НЕ исправляется (нет makeValid, unaryUnion, buffer)
 
-КРИТИЧЕСКИЕ ФИКСЫ:
-- FIX (2025-11-18): Правильная обработка дыр (inner rings) в полигонах
-  * Группировка spatial_elements по контурам
-  * КРИТИЧНО: Автоматическое определение внешнего контура и дыр:
-    1. Самый большой ring (по площади) = кандидат на внешний контур
-    2. Проверка: все остальные rings полностью ВНУТРИ самого большого?
-    3. Если ДА → создаём ОДИН полигон с дырами (outer + holes)
-    4. Если НЕТ → создаём ОТДЕЛЬНЫЕ полигоны
-  * Примеры:
-    - 23:47:0000000:3436 (контур 3): большой ring + маленький ring внутри → полигон с дырой
-    - 23:47:0000000:6588 (контур 1): большой ring + маленький ring внутри → полигон с дырой
-  * НЕ зависит от порядка spatial_elements в XML (автоопределение по площади)
-  * Использование QgsGeometry.contains() для проверки вложенности
-  * Использование QgsPolygon.addInteriorRing() для топологии
-  * forceCounterClockwise() для коррекции ориентации (OGC стандарт)
-  * Паттерн из kd_kpt/kd_kpt_cleaned.py:827-833
+ОБРАБОТКА ДЫР (inner rings):
+- Группировка spatial_elements по контурам
+- Определение внешнего контура и дыр по площади:
+  1. Самый большой ring = кандидат на внешний контур
+  2. Проверка вложенности через QgsGeometry.contains()
+  3. Если вложены → один полигон с дырами (addInteriorRing)
+  4. Иначе → отдельные полигоны
 
-- FIX: Для ЕЗ с большим количеством spatial_element используется unaryUnion
-  * Обход лимита OGR на количество полигонов в MultiPolygon (>100 частей)
-
-- FIX (2024-12): Поддержка M-координат (delta_geopoint)
-  * delta_geopoint = погрешность геодезического измерения точки (метры)
-  * Хранится в M-координате QgsPoint: QgsPoint(x, y, m=delta)
-  * Типы геометрий: MultiPolygonM, MultiLineStringM, MultiPointM
-  * 98% выписок содержат delta_geopoint
-  * Позволяет анализировать точность межевания
+M-КООРДИНАТЫ:
+- delta_geopoint сохраняется в M-координате каждой точки
+- Позволяет анализировать точность межевания
 """
 
 from typing import Dict
@@ -42,7 +29,7 @@ from qgis.core import (
     QgsMultiPolygon, QgsMultiLineString, QgsMultiPoint
 )
 
-from Daman_QGIS.managers.M_6_coordinate_precision import CoordinatePrecisionManager
+from Daman_QGIS.managers import CoordinatePrecisionManager
 from Daman_QGIS.utils import log_info, log_error, log_warning
 
 
@@ -133,8 +120,7 @@ def extract_geometry(geometry_root_element) -> Dict[str, QgsGeometry]:
                 # Один ring → простой полигон
                 exterior_ring = QgsLineString(rings[0])
                 polygon = QgsPolygon(exterior_ring)
-                # ВАЖНО: forceCounterClockwise() устанавливает exterior CCW, interior CW
-                polygon.forceCounterClockwise()
+                # БЕЗ forceCounterClockwise() - сохраняем ориентацию как в XML
                 all_polygons.append(polygon)
 
             else:
@@ -172,20 +158,7 @@ def extract_geometry(geometry_root_element) -> Dict[str, QgsGeometry]:
                         interior_ring = QgsLineString(hole_points)
                         polygon.addInteriorRing(interior_ring)
 
-                    # КРИТИЧНО: forceCounterClockwise() на QgsPolygon устанавливает:
-                    # - exterior ring: counter-clockwise (OGC стандарт)
-                    # - interior rings: clockwise (дыры)
-                    polygon.forceCounterClockwise()
-
-                    # DEBUG: Проверяем валидность полигона с дырами
-                    test_geom = QgsGeometry(polygon.clone())
-                    if hasattr(test_geom, 'isGeosValid') and not test_geom.isGeosValid():
-                        log_warning(f"Fsm_1_1_4_3: Невалидный полигон после forceCounterClockwise(): exterior ring + {len(potential_holes)} holes")
-                        if hasattr(test_geom, 'validateGeometry'):
-                            errors = test_geom.validateGeometry()
-                            for error in errors[:3]:  # Первые 3 ошибки
-                                log_warning(f"  Ошибка валидации: {error.what()}")
-
+                    # БЕЗ forceCounterClockwise() - сохраняем ориентацию как в XML
                     all_polygons.append(polygon)
 
                 else:
@@ -193,7 +166,7 @@ def extract_geometry(geometry_root_element) -> Dict[str, QgsGeometry]:
                     for ring_points in rings:
                         ring = QgsLineString(ring_points)
                         polygon = QgsPolygon(ring)
-                        polygon.forceCounterClockwise()
+                        # БЕЗ forceCounterClockwise() - сохраняем ориентацию как в XML
                         all_polygons.append(polygon)
 
         # Добавляем линии из контура
@@ -218,43 +191,8 @@ def extract_geometry(geometry_root_element) -> Dict[str, QgsGeometry]:
 
             geom = QgsGeometry(multi_polygon)
 
-            # DEBUG: Проверяем валидность ДО unaryUnion
-            if hasattr(geom, 'isGeosValid'):
-                initial_valid = geom.isGeosValid()
-                if not initial_valid:
-                    log_warning(f"Fsm_1_1_4_3: MultiPolygon невалиден ДО unaryUnion ({len(all_polygons)} полигонов)")
-
-            # FIX #1: Проверка количества частей (для обхода лимита OGR)
-            if geom.isMultipart():
-                num_parts = geom.constGet().numGeometries()
-
-                # КРИТИЧНО: Если >100 частей → применяем unaryUnion() (обход лимита OGR)
-                MAX_MULTIPOLYGON_PARTS = 100
-                if num_parts > MAX_MULTIPOLYGON_PARTS:
-                    log_info(f"Fsm_1_1_4_3: Применяем unaryUnion() для {num_parts} частей")
-
-                    # Извлекаем все части MultiPolygon как отдельные геометрии
-                    parts = []
-                    for i in range(num_parts):
-                        part_geom = QgsGeometry(geom.constGet().geometryN(i).clone())
-                        parts.append(part_geom)
-
-                    # Применяем unaryUnion к списку геометрий
-                    geom = QgsGeometry.unaryUnion(parts)
-
-                    if not geom or geom.isEmpty():
-                        log_error(f"Fsm_1_1_4_3: unaryUnion вернул пустую геометрию ({num_parts} исходных частей)")
-
-            # DEBUG: Финальная проверка валидности (логируем только проблемы)
-            if hasattr(geom, 'isGeosValid'):
-                final_valid = geom.isGeosValid()
-                if not final_valid:
-                    log_warning(f"Fsm_1_1_4_3: MultiPolygon НЕВАЛИДЕН (финальная проверка)")
-                    if hasattr(geom, 'validateGeometry'):
-                        errors = geom.validateGeometry()
-                        log_warning(f"Fsm_1_1_4_3: Ошибок валидации: {len(errors)}")
-                        for error in errors[:5]:  # Первые 5 ошибок
-                            log_warning(f"  {error.what()}")
+            # БЕЗ unaryUnion() - координаты ЕГРН неприкосновенны
+            # БЕЗ проверки валидности - импортируем "как есть"
 
             # ВАЖНО: Импортируем "как есть" (координаты НЕ меняются)
             # FIX: Используем MultiPolygonM для хранения M-координат (delta_geopoint)

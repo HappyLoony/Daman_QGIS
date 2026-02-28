@@ -12,9 +12,9 @@
 import random
 import string
 from typing import Dict, Any, Optional
-from qgis.core import QgsFeature, QgsVectorLayer, QgsCoordinateTransform, QgsWkbTypes
+from qgis.core import Qgis, QgsFeature, QgsVectorLayer, QgsCoordinateTransform, QgsGeometry
 
-from Daman_QGIS.utils import log_debug, log_warning
+from Daman_QGIS.utils import log_debug, log_info, log_warning
 from Daman_QGIS.managers import CoordinatePrecisionManager as CPM
 from Daman_QGIS.constants import DXF_BLOCK_ATTR_TEXT_HEIGHT
 
@@ -74,9 +74,10 @@ class DxfBlockExporter:
             geometry.transform(crs_transform)
 
         # === 1. СОЗДАЁМ БЛОК С ГЕОМЕТРИЕЙ И ATTDEF ===
-        # Передаём УЖЕ трансформированную геометрию (crs_transform=None)
+        # Передаём УЖЕ трансформированную геометрию напрямую
         block_name = self._create_block_for_feature(
-            doc, feature, layer, layer_name, None, style or {}, coordinate_precision  # None - геометрия уже трансформирована!
+            doc, feature, layer, layer_name, style or {}, coordinate_precision,
+            transformed_geometry=geometry
         )
 
         if not block_name:
@@ -179,8 +180,9 @@ class DxfBlockExporter:
                 )
 
     def _create_block_for_feature(self, doc, feature: QgsFeature, layer: QgsVectorLayer,
-                                  layer_name: str, crs_transform: Optional[QgsCoordinateTransform],
-                                  style: Dict[str, Any], coordinate_precision: int = 2) -> Optional[str]:
+                                  layer_name: str,
+                                  style: Dict[str, Any], coordinate_precision: int = 2,
+                                  transformed_geometry: Optional[QgsGeometry] = None) -> Optional[str]:
         """
         Создать блок для объекта с геометрией и атрибутами
 
@@ -195,22 +197,22 @@ class DxfBlockExporter:
             feature: Объект QGIS
             layer: Слой QGIS
             layer_name: Имя слоя DXF
-            crs_transform: Трансформация координат
             style: Стиль из Base_layers.json
             coordinate_precision: Точность округления координат (2 для МСК, 6 для WGS84)
+            transformed_geometry: Уже трансформированная геометрия (если None, берётся из feature)
 
         Returns:
             Имя созданного блока или None если ошибка
         """
         try:
-            # Получаем геометрию
-            geometry = feature.geometry()
+            # Используем переданную трансформированную геометрию или берём из feature
+            if transformed_geometry is not None:
+                geometry = transformed_geometry
+            else:
+                geometry = feature.geometry()
+
             if not geometry:
                 return None
-
-            # Трансформируем СК если нужно
-            if crs_transform:
-                geometry.transform(crs_transform)
 
             # ВАЖНО: Вычисляем центроид для смещения координат
             # Геометрия в блоке должна быть относительно (0,0)
@@ -242,7 +244,7 @@ class DxfBlockExporter:
                 if 'lineweight' in style:
                     geom_attribs['lineweight'] = style['lineweight']
 
-            if geom_type == QgsWkbTypes.PointGeometry:
+            if geom_type == Qgis.GeometryType.Point:
                 # Точки экспортируются как CIRCLE (окружность)
                 # Параметры из style:
                 # - line_scale: диаметр круга (мм), по умолчанию 1.5
@@ -273,7 +275,7 @@ class DxfBlockExporter:
                     if need_solid_fill:
                         self._add_circle_solid_fill_to_block(block, x, y, circle_radius, geom_attribs.get('layer', '0'))
 
-            elif geom_type == QgsWkbTypes.LineGeometry:
+            elif geom_type == Qgis.GeometryType.Line:
                 # Линии (смещаем относительно центроида)
                 # МИГРАЦИЯ LINESTRING → MULTILINESTRING: упрощённый паттерн
                 lines = geometry.asMultiPolyline() if geometry.isMultipart() else [geometry.asPolyline()]
@@ -287,7 +289,7 @@ class DxfBlockExporter:
                         if 'lineweight' in geom_attribs:
                             polyline.dxf.lineweight = geom_attribs['lineweight']
 
-            elif geom_type == QgsWkbTypes.PolygonGeometry:
+            elif geom_type == Qgis.GeometryType.Polygon:
                 # Полигоны (смещаем относительно центроида)
                 # МИГРАЦИЯ POLYGON → MULTIPOLYGON: упрощённый паттерн
                 polygons = geometry.asMultiPolygon() if geometry.isMultipart() else [geometry.asPolygon()]
@@ -311,7 +313,17 @@ class DxfBlockExporter:
                             # Это гарантирует что штриховка будет перемещаться вместе с блоком
                             hatch_value = style.get('hatch') if style else None
                             if hatch_value and hatch_value != '-' and hatch_value.strip():
-                                self._add_hatch_to_block(block, coords, style)
+                                # Подготавливаем координаты дырок (смещённые относительно центроида)
+                                block_holes = []
+                                for hole in polygon[1:]:
+                                    h_coords = [CPM.round_coordinates(pt.x() - offset_x, pt.y() - offset_y, coordinate_precision) for pt in hole]
+                                    h_coords = self._remove_closing_point(h_coords)
+                                    if len(h_coords) > 2:
+                                        block_holes.append(h_coords)
+                                self._add_hatch_to_block(
+                                    block, coords, style,
+                                    holes=block_holes if block_holes else None
+                                )
 
                         # Дыры (holes) - тоже смещаем
                         for hole in polygon[1:]:
@@ -380,28 +392,29 @@ class DxfBlockExporter:
 
     def _get_attribute_text_height(self) -> float:
         """
-        Определение высоты текста атрибутов на основе масштаба проекта
+        Определение высоты текста атрибутов на основе масштаба проекта.
+
+        Приоритет:
+        1. Метаданные 2_10_1_DXF_SCALE_TO_TEXT_HEIGHT (из GeoPackage)
+        2. DXF_BLOCK_ATTR_TEXT_HEIGHT из constants.py (по масштабу)
+        3. Формула scale * 3 / 1000 (fallback для нестандартных масштабов)
 
         Масштаб -> Высота текста (м):
-        - 1:500   -> 1.0м
-        - 1:1000  -> 2.0м
-        - 1:2000  -> 4.0м
-        - 1:5000  -> 10.0м
-        - 1:10000 -> 20.0м
+        - 1:500   -> 1.5м
+        - 1:1000  -> 3.0м
+        - 1:2000  -> 6.0м
 
         Returns:
             Высота текста в метрах
         """
         try:
-            # Получаем масштаб из метаданных проекта
             from Daman_QGIS.database.project_db import ProjectDB
             from qgis.core import QgsProject
             import os
 
-            # Находим GeoPackage
-            from Daman_QGIS.managers.M_19_project_structure_manager import get_project_structure_manager
+            from Daman_QGIS.managers import registry
             project_home = QgsProject.instance().homePath()
-            structure_manager = get_project_structure_manager()
+            structure_manager = registry.get('M_19')
             structure_manager.project_root = project_home
             gpkg_path = structure_manager.get_gpkg_path(create=False)
 
@@ -409,29 +422,35 @@ class DxfBlockExporter:
                 raise Exception("GeoPackage не найден")
 
             project_db = ProjectDB(gpkg_path)
+
+            # Приоритет 1: прямое значение высоты текста из метаданных
+            text_height_data = project_db.get_metadata('2_10_1_DXF_SCALE_TO_TEXT_HEIGHT')
+            if text_height_data and text_height_data.get('value'):
+                height_value = float(text_height_data['value'])
+                log_info(f"Fsm_dxf_1: Высота текста из метаданных: {height_value}м")
+                return height_value
+
+            # Приоритет 2: вычисляем по масштабу
             scale_data = project_db.get_metadata('2_10_main_scale')
 
-            if scale_data:
+            if scale_data and scale_data.get('value'):
                 scale_value = scale_data['value']
-                # Преобразуем строку "1:500" в число 500
                 if isinstance(scale_value, str) and ':' in scale_value:
                     scale_number = int(scale_value.split(':')[1])
                 else:
                     scale_number = int(scale_value)
 
-                # Высота текста атрибутов из constants.py
                 if scale_number in DXF_BLOCK_ATTR_TEXT_HEIGHT:
                     return DXF_BLOCK_ATTR_TEXT_HEIGHT[scale_number]
                 else:
-                    # Для других масштабов - вычисляем пропорционально
-                    # Формула: высота = масштаб / 500 (м)
-                    return scale_number / 500
+                    # Формула: высота = масштаб * 3 / 1000
+                    return scale_number * 3 / 1000
 
         except Exception as e:
-            log_warning(f"Fsm_dxf_1: Не удалось определить масштаб для атрибутов: {str(e)}")
+            log_warning(f"Fsm_dxf_1: Не удалось определить высоту текста: {str(e)}")
 
-        # Значение по умолчанию
-        return 2.5
+        # Значение по умолчанию (для 1:1000)
+        return 3.0
 
     def _remove_closing_point(self, coords: list) -> list:
         """
@@ -449,19 +468,23 @@ class DxfBlockExporter:
                 return coords[:-1]  # Удаляем последнюю точку
         return coords
 
-    def _add_hatch_to_block(self, block, coords: list, style: Dict[str, Any]) -> None:
+    def _add_hatch_to_block(self, block, coords: list, style: Dict[str, Any],
+                            holes: Optional[list] = None) -> None:
         """
-        Добавление штриховки внутрь блока
+        Добавление штриховки внутрь блока с поддержкой дырок
 
         ВАЖНО: Штриховка добавляется в блок (не в msp!), чтобы она
         перемещалась вместе с геометрией при вставке блока.
 
         Args:
             block: Объект блока DXF (doc.blocks.new())
-            coords: Координаты контура (уже смещённые относительно 0,0)
+            coords: Координаты внешнего контура (уже смещённые относительно 0,0)
             style: Стиль из Base_layers.json с параметрами штриховки
+            holes: Список координат дырок (уже смещённые относительно 0,0) или None
         """
         try:
+            import ezdxf
+
             hatch_type = style.get('hatch', 'SOLID')
             hatch_scale = style.get('hatch_scale', 1.0)
 
@@ -490,10 +513,23 @@ class DxfBlockExporter:
             else:
                 hatch.set_pattern_fill(hatch_type, scale=hatch_scale)
 
-            # Добавляем контур как границу штриховки
-            hatch.paths.add_polyline_path(coords, is_closed=True)
+            # Добавляем внешний контур как границу штриховки
+            hatch.paths.add_polyline_path(
+                coords, is_closed=True,
+                flags=ezdxf.const.BOUNDARY_PATH_EXTERNAL
+            )
 
-            log_debug(f"Fsm_dxf_1: Штриховка {hatch_type} добавлена в блок")
+            # Добавляем дырки как внутренние границы
+            if holes:
+                for hole_coords in holes:
+                    if len(hole_coords) > 2:
+                        hatch.paths.add_polyline_path(
+                            hole_coords, is_closed=True,
+                            flags=ezdxf.const.BOUNDARY_PATH_OUTERMOST
+                        )
+
+            log_debug(f"Fsm_dxf_1: Штриховка {hatch_type} добавлена в блок"
+                      f"{f' с {len(holes)} дырками' if holes else ''}")
 
         except Exception as e:
             log_warning(f"Fsm_dxf_1: Ошибка добавления штриховки в блок: {str(e)}")

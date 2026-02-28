@@ -505,15 +505,6 @@
 <type>vector</type>
 <api_category>8</api_category></layer>
 <layer>
-<n>Муниципальные образования линейный (векторный)</n>
-<id>36830</id>
-<priority>309</priority>
-<description>Векторные границы муниципальных образований (линии)</description>
-<tags>муниципальные образования, векторный, линии</tags>
-<module>okno_egrn</module>
-<type>vector</type>
-<api_category>9</api_category></layer>
-<layer>
 <n>Населённые пункты полигоны (векторный)</n>
 <id>36832</id>
 <priority>310</priority>
@@ -522,15 +513,6 @@
 <module>okno_egrn</module>
 <type>vector</type>
 <api_category>10</api_category></layer>
-<layer>
-<n>Населённые пункты линии (векторный)</n>
-<id>38996</id>
-<priority>311</priority>
-<description>Векторные границы населенных пунктов (линии)</description>
-<tags>населенные пункты, векторный, линии</tags>
-<module>okno_egrn</module>
-<type>vector</type>
-<api_category>11</api_category></layer>
 <layer>
 <n>Земельные участки из ЕГРН (векторный)</n>
 <id>36368</id>

@@ -8,7 +8,8 @@
 - Настройки параметров штриховки (масштаб, цвет)
 """
 
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
+import ezdxf
 
 from Daman_QGIS.utils import log_warning, log_debug
 from Daman_QGIS.constants import DXF_COLOR_BYLAYER
@@ -22,19 +23,21 @@ class DxfHatchManager:
         pass
 
     def apply_hatch(self, msp, coords: List[Tuple[float, float]],
-                   style: Dict[str, Any], dxf_attribs: dict):
+                   style: Dict[str, Any], dxf_attribs: dict,
+                   holes: Optional[List[List[Tuple[float, float]]]] = None):
         """
-        Применение штриховки к полигону
+        Применение штриховки к полигону с поддержкой дырок
 
         Args:
             msp: Пространство модели DXF
-            coords: Координаты полигона [(x1, y1), (x2, y2), ...]
+            coords: Координаты внешнего контура полигона [(x1, y1), (x2, y2), ...]
             style: Стиль со значениями:
                 - hatch: тип штриховки ('SOLID', 'ANSI31', и т.д.)
                 - hatch_scale: масштаб штриховки (по умолчанию 1.0)
             dxf_attribs: Атрибуты DXF со значениями:
                 - color: цвет штриховки (256 = BYLAYER, 7 = белый/чёрный)
                 - layer: имя слоя DXF
+            holes: Список координат внутренних контуров (дырок) или None
         """
         try:
             # Создаём объект штриховки с заданным цветом
@@ -56,8 +59,21 @@ class DxfHatchManager:
                 hatch.set_pattern_fill(hatch_type, scale=hatch_scale)
                 log_debug(f"Fsm_dxf_4: Применена штриховка {hatch_type} с масштабом {hatch_scale}")
 
-            # Добавляем контур полигона как границу штриховки
-            hatch.paths.add_polyline_path(coords, is_closed=True)
+            # Добавляем внешний контур как границу штриховки
+            hatch.paths.add_polyline_path(
+                coords, is_closed=True,
+                flags=ezdxf.const.BOUNDARY_PATH_EXTERNAL
+            )
+
+            # Добавляем дырки как внутренние границы штриховки
+            if holes:
+                for hole_coords in holes:
+                    if len(hole_coords) > 2:
+                        hatch.paths.add_polyline_path(
+                            hole_coords, is_closed=True,
+                            flags=ezdxf.const.BOUNDARY_PATH_OUTERMOST
+                        )
+                log_debug(f"Fsm_dxf_4: Добавлено {len(holes)} дырок в штриховку")
 
             # Настраиваем слой
             hatch.dxf.layer = dxf_attribs['layer']

@@ -133,10 +133,16 @@ class CadnumListExporter:
             log_warning(f"Fsm_1_3_8: Слой '{layer_name}' не является векторным")
             return cadnums
 
-        # Проверяем наличие поля cad_num
+        # Проверяем наличие поля с кадастровым номером (КН в слоях выборки, cad_num в WFS)
         field_names = [field.name() for field in layer.fields()]
-        if 'cad_num' not in field_names:
-            log_warning(f"Fsm_1_3_8: Слой '{layer_name}' не содержит поле 'cad_num'")
+        cad_field = None
+        for candidate in ['КН', 'cad_num', 'cadastral_number']:
+            if candidate in field_names:
+                cad_field = candidate
+                break
+
+        if not cad_field:
+            log_warning(f"Fsm_1_3_8: Слой '{layer_name}' не содержит поле с кадастровым номером")
             return cadnums
 
         # Получаем геометрию границ L_1_1_1
@@ -145,7 +151,7 @@ class CadnumListExporter:
             log_warning("Fsm_1_3_8: Не удалось получить геометрию границ L_1_1_1, экспорт всех объектов слоя")
             # Резервный вариант - экспортируем все
             for feature in layer.getFeatures():
-                cad_num = feature['cad_num']
+                cad_num = feature[cad_field]
                 if cad_num and cad_num not in [None, '', 'NULL']:
                     cadnums.append(str(cad_num))
             return cadnums
@@ -188,7 +194,7 @@ class CadnumListExporter:
 
                     # Проверяем пересечение с границами
                     if geom.intersects(boundaries_geom):
-                        cad_num = feature['cad_num']
+                        cad_num = feature[cad_field]
                         if cad_num and cad_num not in [None, '', 'NULL']:
                             cadnums.append(str(cad_num))
 
@@ -236,13 +242,13 @@ class CadnumListExporter:
 
     def _collect_capital_objects_cadnums(self) -> List[str]:
         """
-        Собрать кадастровые номера ОКС из родительского слоя L_1_2_4_WFS_ОКС
+        Собрать кадастровые номера ОКС из слоя выборки L_2_1_2_Выборка_ОКС
 
         Returns:
             list: Список кадастровых номеров всех ОКС (может содержать дубликаты, дедупликация происходит позже)
         """
-        # Используем родительский слой ОКС, который объединяет все подслои (ОНС, Здания, Сооружения)
-        return self._collect_cadnums_from_layer('L_1_2_4_WFS_ОКС')
+        # Используем слой выборки ОКС (согласован с Fsm_1_3_4 для единообразия подсчёта)
+        return self._collect_cadnums_from_layer('L_2_1_2_Выборка_ОКС')
 
     def _sort_cadastral_numbers(self, cadnums: List[str]) -> List[str]:
         """

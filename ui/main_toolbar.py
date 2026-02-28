@@ -26,7 +26,7 @@ def _build_menu_from_database() -> dict:
     from Daman_QGIS.managers import get_reference_managers
 
     managers = get_reference_managers()
-    functions = managers.function.get_base_functions()
+    functions = managers.function.get_all_functions()
 
     # Сортировка функций по section_num и function_num
     def sort_key(func):
@@ -70,8 +70,8 @@ def _build_menu_from_database() -> dict:
     return menu
 
 
-# Структура меню загружается динамически из Base_Functions.json
-MENU_STRUCTURE = _build_menu_from_database()
+# Структура меню -- заполняется лениво в create_menu() после получения JWT токенов
+MENU_STRUCTURE: dict = {}
 
 
 class MainToolbar:
@@ -89,11 +89,15 @@ class MainToolbar:
         
     def create_menu(self):
         """Создает нумерованное меню на панели"""
+        global MENU_STRUCTURE
+        if not MENU_STRUCTURE:
+            MENU_STRUCTURE = _build_menu_from_database()  # pyright: ignore[reportConstantRedefinition]
+
         for section_name, items in MENU_STRUCTURE.items():
             # Создаем кнопку-раздел с выпадающим меню
             tool_button = QToolButton()
             tool_button.setText(section_name)
-            tool_button.setPopupMode(QToolButton.InstantPopup)
+            tool_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
             
             # Создаем меню для раздела
             menu = QMenu()
@@ -127,12 +131,6 @@ class MainToolbar:
         """
         if tool_id in self.tools:
             self.tools[tool_id].run()
-            self.iface.messageBar().pushMessage(
-                "Success",
-                f"Tool {tool_id} executed",
-                level=Qgis.Success,
-                duration=MESSAGE_SHORT_DURATION
-            )
         else:
             self.iface.messageBar().pushMessage(
                 "Not implemented",

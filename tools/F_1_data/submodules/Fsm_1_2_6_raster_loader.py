@@ -53,6 +53,13 @@ class Fsm_1_2_6_RasterLoader:
             # Добавляем в группу функции через layer_manager
             if self.layer_manager:
                 self.layer_manager.add_layer(layer, make_readonly=False, auto_number=False, check_precision=False)
+                # Отключаем видимость по умолчанию - Google загружается только при явном выборе в F_1_4
+                # Это предотвращает rate limiting от Google при открытии проекта
+                root = QgsProject.instance().layerTreeRoot()
+                layer_node = root.findLayer(layer.id())
+                if layer_node:
+                    layer_node.setItemVisibilityChecked(False)
+                    log_info(f"Fsm_1_2_6: Слой {layer_name} добавлен (видимость отключена)")
         else:
             log_warning(f"Fsm_1_2_6: Не удалось добавить {layer_name}")
 

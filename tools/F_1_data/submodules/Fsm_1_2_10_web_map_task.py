@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from qgis.core import QgsProject, QgsVectorLayer, QgsRasterLayer
 
-from Daman_QGIS.managers.submodules.Msm_17_1_base_task import BaseAsyncTask
+from Daman_QGIS.managers import BaseAsyncTask
 from Daman_QGIS.managers import APIManager, DataCleanupManager
 from Daman_QGIS.utils import log_info, log_error, log_warning, log_success
 
@@ -43,14 +43,14 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
     Выполняет в background thread:
     - Загрузка ЕГРН слоёв через API NSPD
     - Загрузка ФГИС ЛК слоёв
-    - Загрузка OSM слоёв через QuickOSM
+    - Загрузка OSM слоёв через Overpass API + OGR
     - Загрузка ЗОУИТ слоёв
     - Подготовка WMS слоёв
 
     Результат передаётся в on_completed callback для добавления слоёв в main thread.
 
     Usage:
-        from Daman_QGIS.managers import get_async_manager
+        from Daman_QGIS.managers import registry
 
         task = Fsm_1_2_10_WebMapLoadTask(
             boundary_layer_id=boundary_layer.id(),
@@ -59,7 +59,7 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
             project_manager=project_manager,
             layer_manager=layer_manager
         )
-        manager = get_async_manager(iface)
+        manager = registry.get('M_17')
         manager.run(task, on_completed=handle_layers_addition)
     """
 
@@ -96,7 +96,7 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
         # Loaders (lazy init в execute, типизированы для Pylance)
         self.config_builder: Optional['Fsm_1_2_0_LayerConfigBuilder'] = None
         self.egrn_loader: Optional['Fsm_1_2_1_EgrnLoader'] = None
-        self.quickosm_loader = None  # Не используется в background thread
+        self.quickosm_loader = None  # Lazy init в _load_osm_data()
         self.geometry_processor: Optional['Fsm_1_2_8_GeometryProcessor'] = None
         self.atd_loader: Optional['Fsm_1_2_5_AtdLoader'] = None
         self.raster_loader = None  # Не используется в background thread
@@ -319,6 +319,14 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
                     elif config['category_id'] == 'zouit_layers':
                         continue
 
+                    # Красные линии - пропускаем (загружаются в main thread через Fsm_1_2_11)
+                    elif config['category_id'] == 'redline_layers':
+                        continue
+
+                    # Публичные сервитуты - пропускаем (загружаются в main thread через Fsm_1_2_14)
+                    elif config['category_id'] == 'servitude_layers':
+                        continue
+
                     # Остальные слои
                     else:
                         boundary_selector = self.api_manager.get_boundary_layer_name(layer_name)
@@ -409,17 +417,24 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
 
     def _load_osm_data(self, boundary_layer) -> Tuple[int, List[str]]:
         """
-        Загрузка данных OSM через QuickOSM.
+        Загрузка данных OSM через Overpass API + OGR в background thread.
 
-        NOTE: OSM загружается в main thread через _load_main_thread_layers()
-        Этот метод только возвращает 0 для статистики в background thread.
+        HTTP download, OGR loading, clip, GPKG write -- все thread-safe.
+        Слои добавляются в проект через _add_layers_from_gpkg в main thread callback.
 
         Returns:
-            Tuple[int, List[str]]: (0, []) - реальная загрузка в main thread
+            Tuple[int, List[str]]: (количество загруженных, список имён слоёв)
         """
-        # OSM требует main thread (QuickOSM использует QgsProject напрямую)
-        # Загрузка выполняется в F_1_2._load_main_thread_layers()
-        return 0, []
+        assert self.api_manager is not None
+
+        from .Fsm_1_2_3_quickosm_loader import Fsm_1_2_3_QuickOSMLoader
+
+        osm_loader = Fsm_1_2_3_QuickOSMLoader(
+            self.iface, self.layer_manager, self.project_manager, self.api_manager
+        )
+
+        count, layer_names = osm_loader.load_all_osm_layers_bg(self.gpkg_path)
+        return count, layer_names
 
     def _load_zouit_data(self, boundary_layer) -> Tuple[int, List[str]]:
         """

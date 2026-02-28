@@ -9,7 +9,7 @@ from typing import Optional
 import processing
 
 from qgis.core import (
-    QgsVectorLayer, QgsProject, QgsWkbTypes,
+    QgsVectorLayer, QgsProject, Qgis,
     QgsFeature, QgsVectorFileWriter
 )
 
@@ -46,7 +46,7 @@ class Fsm_1_2_8_GeometryProcessor:
             log_info(f"Fsm_1_2_8: Преобразование полигонов в линии для {target_layer_name}...")
 
             # Проверяем что это действительно полигональный слой
-            if polygon_layer.geometryType() not in [QgsWkbTypes.PolygonGeometry]:
+            if polygon_layer.geometryType() not in [Qgis.GeometryType.Polygon]:
                 log_error(f"Fsm_1_2_8: Слой {polygon_layer.name()} не является полигональным")
                 return None
 

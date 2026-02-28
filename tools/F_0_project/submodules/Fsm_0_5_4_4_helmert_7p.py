@@ -5,18 +5,27 @@ Fsm_0_5_4_4 - Метод Helmert 7-параметрический (Helmert7PMeth
 Минимум: 3 точки (даёт 9 уравнений для 7 неизвестных)
 Оптимизирует: lon_0 + x_0, y_0 (towgs84 фиксирован из МСК)
 
+Поддерживает два подхода:
+- Calibration: оптимизация lon_0 с анализом остатков
+- LDP: создание проекции под RAW координаты + оптимизация lon_0
+
 ВАЖНО: Полная оптимизация всех 7 параметров towgs84 требует точных
 3D координат (с высотами). Для 2D задачи подбора проекции используется
 итеративная оптимизация lon_0 с анализом остатков.
 
-Алгоритм v2:
+Алгоритм v2 (Calibration):
 1. Анализ распределения ошибок по направлениям
 2. Оптимизация lon_0 для минимизации систематической ошибки по X
 3. Вычисление x_0, y_0 для компенсации остаточного смещения
+
+Алгоритм (LDP):
+1. Оптимизация lon_0 методом золотого сечения с LDP-смещениями
+2. x_0 = mean(raw_wrong.x - ref_msk.x)
+3. y_0 = mean(raw_wrong.y - ref_msk.y)
 """
 
 import math
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 
 from qgis.core import (
     QgsPointXY,
@@ -59,6 +68,10 @@ class Fsm_0_5_4_4_Helmert7P(BaseCalculationMethod):
     @property
     def description(self) -> str:
         return "Оптимизация lon_0 с анализом остатков + x_0, y_0"
+
+    def supports_ldp(self) -> bool:
+        """Метод поддерживает LDP-подход."""
+        return True
 
     def calculate(
         self,
@@ -270,4 +283,124 @@ class Fsm_0_5_4_4_Helmert7P(BaseCalculationMethod):
         variance = sum((x - mean) ** 2 for x in values) / (len(values) - 1)
         return math.sqrt(variance)
 
-    # _golden_section_search и _calc_offset наследуются из BaseCalculationMethod
+    def calculate_ldp(
+        self,
+        raw_wrong_coords: List[Tuple[float, float]],
+        control_points_wgs84: List[Tuple[QgsPointXY, QgsPointXY]],
+        base_params: Dict,
+        initial_lon_0: float
+    ) -> Optional[CalculationResult]:
+        """
+        LDP-расчёт с ФИКСИРОВАННЫМ lon_0 на центре объекта.
+
+        ВАЖНО: Использует ПРЯМУЮ трансформацию EPSG:3857 -> test_proj.
+        Это критически важно для визуального совпадения с WFS слоями.
+
+        lon_0 фиксируется на центре объекта (НЕ оптимизируется).
+        LDP создаёт "проекцию под данные" - lon_0 должен быть в центре объекта по определению.
+        """
+        if len(raw_wrong_coords) < self.min_points:
+            log_warning(f"Fsm_0_5_4_4 [LDP]: Нужно минимум {self.min_points} точек")
+            return None
+
+        # Проверяем наличие reference_3857 для прямой трансформации
+        reference_3857 = base_params.get('reference_3857')
+        use_direct_3857 = reference_3857 is not None
+
+        if use_direct_3857 and len(raw_wrong_coords) != len(reference_3857):
+            log_error("Fsm_0_5_4_4 [LDP]: Несоответствие количества точек (raw vs 3857)")
+            return None
+        elif not use_direct_3857 and len(raw_wrong_coords) != len(control_points_wgs84):
+            log_error("Fsm_0_5_4_4 [LDP]: Несоответствие количества точек")
+            return None
+
+        try:
+            # Извлекаем параметры
+            lat_0 = base_params.get('lat_0', 0.0)
+            k_0 = base_params.get('k_0', 1.0)
+            ellps_param = base_params.get('ellps_param', ELLPS_KRASS)
+            towgs84_param = base_params.get('towgs84_param', TOWGS84_SK42_PROJ)
+
+            # LDP: ФИКСИРУЕМ lon_0 на центре объекта (НЕ оптимизируем!)
+            object_center_lon = base_params.get('object_center_lon', None)
+            if object_center_lon is None:
+                log_error("Fsm_0_5_4_4 [LDP]: object_center_lon не задан, используем initial_lon_0")
+                object_center_lon = initial_lon_0
+
+            fixed_lon_0 = object_center_lon
+
+            # Вычисляем x_0, y_0 для фиксированного lon_0
+            if use_direct_3857:
+                # ПРЯМАЯ трансформация 3857 -> test_proj
+                final_x0, final_y0, final_rmse, errors = self._calc_offset_ldp_3857(
+                    raw_wrong_coords, reference_3857,
+                    fixed_lon_0, lat_0, k_0, ellps_param, towgs84_param
+                )
+            else:
+                # Fallback: через WGS84
+                reference_wgs84 = [ref for _, ref in control_points_wgs84]
+                final_x0, final_y0, final_rmse, errors = self._calc_offset_ldp(
+                    raw_wrong_coords, reference_wgs84,
+                    fixed_lon_0, lat_0, k_0, ellps_param, towgs84_param
+                )
+
+            # Проверка на ошибку
+            if final_rmse == float('inf'):
+                log_error(f"Fsm_0_5_4_4 [LDP]: Невалидная CRS для lon_0={fixed_lon_0}")
+                return None
+
+            # Анализ остатков для диагностики в LDP режиме
+            dx_residuals = []
+            dy_residuals = []
+            mean_dx = sum(raw_wrong_coords[i][0] for i in range(len(raw_wrong_coords))) / len(raw_wrong_coords)
+            mean_dy = sum(raw_wrong_coords[i][1] for i in range(len(raw_wrong_coords))) / len(raw_wrong_coords)
+            for raw in raw_wrong_coords:
+                dx_residuals.append(raw[0] - mean_dx)
+                dy_residuals.append(raw[1] - mean_dy)
+            dx_std = self._std_dev(dx_residuals)
+            dy_std = self._std_dev(dy_residuals)
+
+            rmse, min_err, max_err = self._get_error_stats(errors)
+            success = rmse < RMSE_THRESHOLD_OK
+
+            # Компактный лог
+            status = "OK" if success else "WARN"
+            log_info(
+                f"Fsm_0_5_4_4 [{self.method_id}] [LDP]: "
+                f"lon_0={fixed_lon_0:.4f} (fixed at object center) "
+                f"x_0={final_x0:.2f} y_0={final_y0:.2f} "
+                f"RMSE={rmse:.4f}m [{status}]"
+            )
+            log_info(
+                f"Fsm_0_5_4_4 [LDP]: residuals std: dX={dx_std:.3f}m dY={dy_std:.3f}m"
+            )
+
+            return CalculationResult(
+                method_name=self.name,
+                method_id=self.method_id,
+                lon_0=fixed_lon_0,
+                x_0=final_x0,
+                y_0=final_y0,
+                rmse=rmse,
+                min_error=min_err,
+                max_error=max_err,
+                success=success,
+                min_points_required=self.min_points,
+                approach_type="ldp",
+                diagnostics={
+                    'errors': errors,
+                    'residuals': {
+                        'dx_std': dx_std,
+                        'dy_std': dy_std
+                    },
+                    'initial_lon_0': initial_lon_0,
+                    'object_center_lon': object_center_lon,
+                    'lon_0_fixed': True
+                }
+            )
+
+        except Exception as e:
+            log_error(f"Fsm_0_5_4_4 [LDP]: Ошибка расчёта: {e}")
+            return None
+
+    # _golden_section_search, _calc_offset, _calc_offset_ldp наследуются из BaseCalculationMethod

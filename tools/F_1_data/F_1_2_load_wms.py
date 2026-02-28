@@ -17,12 +17,12 @@ from qgis.core import (
 )
 
 from Daman_QGIS.core.base_tool import BaseTool
-from Daman_QGIS.managers import LayerManager, APIManager, DataCleanupManager, get_async_manager
+from Daman_QGIS.managers import LayerManager, APIManager, DataCleanupManager, registry
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
 from Daman_QGIS.constants import (
     DEFAULT_LAYER_ORDER, WMS_GOOGLE_SATELLITE, NSPD_TILE_URL,
     LAYER_GOOGLE_SATELLITE, LAYER_NSPD_BASE, PROVIDER_OGR, DRIVER_GPKG,
-    PROVIDER_WMS
+    PROVIDER_WMS, PLUGIN_NAME
 )
 
 # Async Task для M_17 (новая реализация)
@@ -72,6 +72,8 @@ class F_1_2_LoadWMS(BaseTool):
         self.raster_loader: Optional['Fsm_1_2_6_RasterLoader'] = None
         self.parent_layer_manager: Optional['Fsm_1_2_7_ParentLayerManager'] = None
         self.zouit_loader: Optional['Fsm_1_2_9_ZouitLoader'] = None
+        self.redline_loader = None  # Fsm_1_2_11_RedlineLoader (lazy init)
+        self.servitude_loader = None  # Fsm_1_2_14_ServitudeLoader (lazy init)
 
     def set_project_manager(self, project_manager) -> None:
         """Установка менеджера проектов"""
@@ -116,12 +118,24 @@ class F_1_2_LoadWMS(BaseTool):
             )
             return
 
+        # Проверяем что CRS boundary слоя даёт адекватные координаты в WGS-84
+        if not self._validate_boundary_crs(boundary_layer):
+            return
+
+        # Пре-диалог авторизации НСПД
+        from .submodules.Fsm_1_2_12_auth_pre_dialog import Fsm_1_2_12_AuthPreDialog
+        from qgis.PyQt.QtWidgets import QDialog
+
+        pre_dialog = Fsm_1_2_12_AuthPreDialog(self.iface.mainWindow())
+        if pre_dialog.exec() != QDialog.Accepted:
+            return  # Пользователь отменил
+
         # Автоматическая очистка слоёв
         self.auto_cleanup_layers()
 
         # Инициализируем async manager
         if self.async_manager is None:
-            self.async_manager = get_async_manager(self.iface)
+            self.async_manager = registry.get('M_17')
 
         # Type assertion для Pylance (проверено в run() перед вызовом)
         assert self.project_manager is not None
@@ -148,6 +162,65 @@ class F_1_2_LoadWMS(BaseTool):
             on_cancelled=self._on_load_cancelled
         )
 
+    def _validate_boundary_crs(self, boundary_layer: QgsVectorLayer) -> bool:
+        """Проверка что CRS boundary слоя трансформируется в WGS-84 с адекватными координатами.
+
+        Трансформирует центр extent в EPSG:4326 и проверяет что результат
+        попадает в допустимые пределы (lon: -180..180, lat: -90..90).
+        Защита от запуска F_1_2 до корректной настройки CRS через F_0_3.
+
+        Returns:
+            True если CRS корректна, False если нет (показывает диалог ошибки)
+        """
+        try:
+            layer_crs = boundary_layer.crs()
+            if not layer_crs.isValid():
+                QMessageBox.critical(
+                    None,
+                    "Ошибка CRS",
+                    "Система координат слоя границ работ не определена.\n\n"
+                    "Укажите CRS через F_0_3 (Свойства проекта) перед загрузкой Web карт."
+                )
+                return False
+
+            extent = boundary_layer.extent()
+            if extent.isEmpty():
+                return True  # Пустой extent - пропускаем проверку
+
+            center = extent.center()
+            wgs84 = QgsCoordinateReferenceSystem('EPSG:4326')
+
+            if layer_crs != wgs84:
+                transform = QgsCoordinateTransform(layer_crs, wgs84, QgsProject.instance())
+                center_wgs84 = transform.transform(QgsPointXY(center.x(), center.y()))
+            else:
+                center_wgs84 = QgsPointXY(center.x(), center.y())
+
+            lon = center_wgs84.x()
+            lat = center_wgs84.y()
+
+            if not (-180 <= lon <= 180 and -90 <= lat <= 90):
+                log_warning(
+                    f"F_1_2: CRS проверка не пройдена - центр boundary в WGS-84: "
+                    f"lon={lon:.4f}, lat={lat:.4f} (вне допустимых пределов)"
+                )
+                QMessageBox.critical(
+                    None,
+                    "Ошибка CRS",
+                    f"Система координат слоя границ работ некорректна.\n\n"
+                    f"Центр территории в WGS-84: lon={lon:.1f}, lat={lat:.1f}\n"
+                    f"(ожидается lon: -180..180, lat: -90..90)\n\n"
+                    f"Укажите корректную CRS через F_0_3 (Свойства проекта)."
+                )
+                return False
+
+            return True
+
+        except Exception as e:
+            log_warning(f"F_1_2: Не удалось проверить CRS boundary слоя: {e}")
+            # При ошибке трансформации - не блокируем, но предупреждаем
+            return True
+
     def _on_load_completed(self, result: Dict[str, Any]) -> None:
         """Callback при успешном завершении загрузки (main thread)"""
 
@@ -159,31 +232,89 @@ class F_1_2_LoadWMS(BaseTool):
         # Добавляем загруженные слои из GPKG в проект
         self._add_layers_from_gpkg(loaded_layer_names, gpkg_path)
 
-        # Загружаем OSM, ЗОУИТ и WMS слои (требуют main thread)
+        # Загружаем ЗОУИТ и WMS слои (требуют main thread)
+        # OSM теперь загружается в background thread через Fsm_1_2_10
         main_thread_stats = self._load_main_thread_layers()
 
         # Финальная сортировка
         if self.layer_manager:
             self.layer_manager.sort_all_layers()
 
+        # Автоматическая выборка ЗУ/ОКС (F_2_1)
+        selection_stats = self._auto_run_selection()
+
         # Собираем финальную статистику
         egrn = statistics.get('egrn', 0)
         fgislk = statistics.get('fgislk', 0)
-        osm = main_thread_stats.get('osm', 0)
+        osm = statistics.get('osm', 0)  # OSM теперь из background thread
         zouit = main_thread_stats.get('zouit', 0)
+        redline = main_thread_stats.get('redline', 0)
+        servitude = main_thread_stats.get('servitude', 0)
         wms = main_thread_stats.get('wms', 0)
 
-        message = f"Загрузка завершена! ЕГРН: {egrn}, ФГИС ЛК: {fgislk}, OSM: {osm}, ЗОУИТ: {zouit}, WMS: {wms}"
+        selection_layers = selection_stats.get('selection_layers', 0) if selection_stats else 0
+
+        message = f"Загрузка завершена! ЕГРН: {egrn}, ФГИС ЛК: {fgislk}, OSM: {osm}, ЗОУИТ: {zouit}, КЛ: {redline}, ПС: {servitude}, WMS: {wms}"
+        if selection_layers > 0:
+            message += f", Выборка: {selection_layers}"
         if errors:
             message += f" | Ошибок: {len(errors)}"
 
         self.iface.messageBar().pushMessage(
-            "F_1_2_Загрузка Web карт",
-            message,
+            PLUGIN_NAME,
+            f"F_1_2: {message}",
             level=Qgis.Success,
             duration=7
         )
-        log_success(message)
+
+    def _auto_run_selection(self) -> Optional[Dict[str, Any]]:
+        """Автоматическая выборка ЗУ/ОКС после загрузки web карт (main thread)
+
+        Вызывает F_2_1_LandSelection для создания выборки по загруженным WFS слоям.
+        F_2_1 работает в main thread с QApplication.processEvents() - совместимо с callback.
+
+        Returns:
+            Dict со статистикой выборки или None при ошибке
+        """
+        try:
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_1_land_selection import F_2_1_LandSelection
+
+            log_info("F_1_2: Запуск автоматической выборки объектов (F_2_1)")
+
+            selection_tool = F_2_1_LandSelection(self.iface)
+            selection_tool.set_project_manager(self.project_manager)
+            selection_tool.set_layer_manager(self.layer_manager)
+            plugin_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            selection_tool.set_plugin_dir(plugin_dir)
+            selection_tool.run()
+
+            # Подсчитываем созданные слои выборки
+            from Daman_QGIS.constants import (
+                LAYER_SELECTION_ZU, LAYER_SELECTION_OKS,
+                LAYER_SELECTION_KK, LAYER_SELECTION_NP
+            )
+            project = QgsProject.instance()
+            selection_layer_names = [
+                LAYER_SELECTION_ZU, LAYER_SELECTION_OKS,
+                LAYER_SELECTION_KK, LAYER_SELECTION_NP
+            ]
+            count = sum(
+                1 for name in selection_layer_names
+                if project.mapLayersByName(name)
+            )
+
+            log_success(f"F_1_2: Автоматическая выборка завершена, создано {count} слоёв")
+            return {'selection_layers': count}
+
+        except Exception as e:
+            log_error(f"F_1_2: Ошибка автоматической выборки: {e}")
+            self.iface.messageBar().pushMessage(
+                PLUGIN_NAME,
+                f"Web карты загружены, но выборка не выполнена: {e}",
+                level=Qgis.Warning,
+                duration=10
+            )
+            return None
 
     def _on_load_failed(self, error: str) -> None:
         """Callback при ошибке загрузки (main thread)"""
@@ -220,7 +351,9 @@ class F_1_2_LoadWMS(BaseTool):
                 log_error(f"F_1_2: Ошибка добавления слоя {layer_name}: {str(e)}")
 
     def _load_main_thread_layers(self, boundary_layer=None) -> Dict[str, int]:
-        """Загрузка слоёв, требующих main thread (OSM, ЗОУИТ, WMS)
+        """Загрузка слоёв, требующих main thread (ЗОУИТ, WMS)
+
+        OSM перенесён в background thread (Fsm_1_2_10._load_osm_data).
 
         Args:
             boundary_layer: Слой границ работ (если None - получаем из проекта)
@@ -228,7 +361,7 @@ class F_1_2_LoadWMS(BaseTool):
         Returns:
             Dict с количеством загруженных слоёв по группам
         """
-        stats = {'osm': 0, 'zouit': 0, 'wms': 0}
+        stats = {'zouit': 0, 'redline': 0, 'servitude': 0, 'wms': 0}
 
         # Инициализируем компоненты если нужно
         if not self.api_manager:
@@ -238,19 +371,6 @@ class F_1_2_LoadWMS(BaseTool):
         if boundary_layer is None:
             boundary_layer = QgsProject.instance().mapLayersByName("L_1_1_2_Границы_работ_10_м")
             boundary_layer = boundary_layer[0] if boundary_layer else None
-
-        # ========== OSM слои ==========
-        try:
-            # Инициализируем QuickOSM loader если нужно
-            if not self.quickosm_loader:
-                from .submodules.Fsm_1_2_3_quickosm_loader import Fsm_1_2_3_QuickOSMLoader
-                self.quickosm_loader = Fsm_1_2_3_QuickOSMLoader(
-                    self.iface, self.layer_manager, self.project_manager, self.api_manager
-                )
-            osm_success, osm_count = self._load_osm_layers_only()
-            stats['osm'] = osm_count
-        except Exception as e:
-            log_error(f"F_1_2: Ошибка загрузки OSM: {str(e)}")
 
         # ========== ЗОУИТ слои ==========
         if boundary_layer and self.project_manager and self.project_manager.project_db:
@@ -279,6 +399,54 @@ class F_1_2_LoadWMS(BaseTool):
                 stats['zouit'] = zouit_count
             except Exception as e:
                 log_error(f"F_1_2: Ошибка загрузки ЗОУИТ: {str(e)}")
+
+        # ========== Красные линии (КЛ) ==========
+        if boundary_layer and self.project_manager and self.project_manager.project_db:
+            try:
+                # Lazy init redline_loader
+                if not self.redline_loader:
+                    from .submodules.Fsm_1_2_11_redline_loader import Fsm_1_2_11_RedlineLoader
+                    # Убеждаемся что зависимости инициализированы
+                    if not self.egrn_loader:
+                        from .submodules.Fsm_1_2_1_egrn_loader import Fsm_1_2_1_EgrnLoader
+                        self.egrn_loader = Fsm_1_2_1_EgrnLoader(self.iface, self.api_manager)
+                    if not self.geometry_processor:
+                        from .submodules.Fsm_1_2_8_geometry_processor import Fsm_1_2_8_GeometryProcessor
+                        self.geometry_processor = Fsm_1_2_8_GeometryProcessor(self.iface)
+                    self.redline_loader = Fsm_1_2_11_RedlineLoader(
+                        self.iface, self.egrn_loader, self.layer_manager,
+                        self.geometry_processor
+                    )
+
+                gpkg_path = self.project_manager.project_db.gpkg_path
+                redline_count = self.redline_loader.load_redline_layers(gpkg_path)
+                stats['redline'] = redline_count
+            except Exception as e:
+                log_error(f"F_1_2: Ошибка загрузки красных линий: {str(e)}")
+
+        # ========== Публичные сервитуты (ПС) ==========
+        if boundary_layer and self.project_manager and self.project_manager.project_db:
+            try:
+                # Lazy init servitude_loader
+                if not self.servitude_loader:
+                    from .submodules.Fsm_1_2_14_servitude_loader import Fsm_1_2_14_ServitudeLoader
+                    # Убеждаемся что зависимости инициализированы
+                    if not self.egrn_loader:
+                        from .submodules.Fsm_1_2_1_egrn_loader import Fsm_1_2_1_EgrnLoader
+                        self.egrn_loader = Fsm_1_2_1_EgrnLoader(self.iface, self.api_manager)
+                    if not self.geometry_processor:
+                        from .submodules.Fsm_1_2_8_geometry_processor import Fsm_1_2_8_GeometryProcessor
+                        self.geometry_processor = Fsm_1_2_8_GeometryProcessor(self.iface)
+                    self.servitude_loader = Fsm_1_2_14_ServitudeLoader(
+                        self.iface, self.egrn_loader, self.layer_manager,
+                        self.geometry_processor
+                    )
+
+                gpkg_path = self.project_manager.project_db.gpkg_path
+                servitude_count = self.servitude_loader.load_servitude_layers(gpkg_path)
+                stats['servitude'] = servitude_count
+            except Exception as e:
+                log_error(f"F_1_2: Ошибка загрузки публичных сервитутов: {str(e)}")
 
         # ========== WMS слои (растровые) ==========
         # Инициализируем raster loader
@@ -439,6 +607,14 @@ class F_1_2_LoadWMS(BaseTool):
                     elif config['category_id'] == 'zouit_layers':
                         log_info(f"F_1_2: Пропуск {config['layer_name']}: загружается через load_zouit_layers_final()")
                         continue
+                    # Красные линии - загружаются отдельно через Fsm_1_2_11_RedlineLoader
+                    elif config['category_id'] == 'redline_layers':
+                        log_info(f"F_1_2: Пропуск {config['layer_name']}: загружается через load_redline_layers()")
+                        continue
+                    # Публичные сервитуты - загружаются отдельно через Fsm_1_2_14_ServitudeLoader
+                    elif config['category_id'] == 'servitude_layers':
+                        log_info(f"F_1_2: Пропуск {config['layer_name']}: загружается через load_servitude_layers()")
+                        continue
                     # ПРИМЕЧАНИЕ: Старая обработка НП (L_1_2_3_WFS_НП) удалена
                     # Теперь все АТД слои (включая НП как Le_1_2_3_5_АТД_НП_poly) обрабатываются
                     # через специальную логику выше (isinstance(config['category_id'], dict))
@@ -501,9 +677,9 @@ class F_1_2_LoadWMS(BaseTool):
                 log_info(f"F_1_2: Создание родительских слоёв из {len(loaded_sublayers)} групп подслоёв")
                 self.parent_layer_manager.create_parent_layers(loaded_sublayers, gpkg_path)
 
-            # ОТКЛЮЧЕНО: Python Stack Trace - Windows fatal exception: access violation
-            # Проблема: refresh() может вызывать краш при большом количестве слоёв
-            # self.iface.mapCanvas().refresh()
+            # Безопасный отложенный refresh через QTimer (предотвращает краши)
+            from Daman_QGIS.utils import safe_refresh_canvas, REFRESH_HEAVY
+            safe_refresh_canvas(REFRESH_HEAVY, delay_ms=200)
 
             # Подсчитываем результаты
             loaded_count = 0
@@ -530,14 +706,18 @@ class F_1_2_LoadWMS(BaseTool):
 
     def _load_osm_layers_only(self) -> Tuple[bool, int]:
         """
-        Загрузить только OSM слои через QuickOSM (без ФГИС ЛК)
+        Загрузить только OSM слои через Overpass API + OGR (main thread, синхронно).
+
+        NOTE: С FIX-4 основная загрузка OSM выполняется в background thread
+        через Fsm_1_2_10._load_osm_data(). Этот метод сохранён для отладки
+        и standalone перезагрузки OSM слоёв.
 
         Returns:
             Tuple[bool, int]: (успех, количество загруженных слоёв)
         """
         try:
             if not self.quickosm_loader:
-                log_warning("F_1_2: QuickOSM загрузчик не инициализирован")
+                log_warning("F_1_2: OSM загрузчик не инициализирован")
                 return False, 0
             assert self.quickosm_loader is not None  # Type narrowing для Pylance
 
@@ -548,9 +728,9 @@ class F_1_2_LoadWMS(BaseTool):
             if success:
                 log_success(f"F_1_2: OSM слои успешно загружены: {count} слоя(ёв)")
 
-            # ОТКЛЮЧЕНО: Python Stack Trace - Windows fatal exception: access violation
-            # Проблема: refresh() может вызывать краш при большом количестве слоёв
-            # self.iface.mapCanvas().refresh()
+            # Безопасный отложенный refresh через QTimer (предотвращает краши)
+            from Daman_QGIS.utils import safe_refresh_canvas, REFRESH_HEAVY
+            safe_refresh_canvas(REFRESH_HEAVY, delay_ms=200)
 
             return True, count
 
@@ -612,9 +792,9 @@ class F_1_2_LoadWMS(BaseTool):
 
                     log_success(f"F_1_2: ФГИС ЛК слои успешно добавлены")
 
-                    # ОТКЛЮЧЕНО: Python Stack Trace - Windows fatal exception: access violation
-                    # Проблема: refresh() может вызывать краш при большом количестве слоёв
-                    # self.iface.mapCanvas().refresh()
+                    # Безопасный отложенный refresh через QTimer (предотвращает краши)
+                    from Daman_QGIS.utils import safe_refresh_canvas, REFRESH_HEAVY
+                    safe_refresh_canvas(REFRESH_HEAVY, delay_ms=200)
 
                     return True, len(fgislk_layers)
                 else:

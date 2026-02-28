@@ -24,20 +24,20 @@ from typing import List, Dict, Optional
 
 from qgis.core import (
     Qgis, QgsProject, QgsVectorLayer,
-    QgsWkbTypes, QgsProcessingContext
+    QgsProcessingContext
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QMessageBox, QPushButton, QApplication, QProgressBar
 
 from Daman_QGIS.core.base_tool import BaseTool
-from Daman_QGIS.managers import LayerReplacementManager, LayerManager, get_async_manager
+from Daman_QGIS.managers import LayerReplacementManager, LayerManager, registry
 from Daman_QGIS.database.project_db import ProjectDB
 from .submodules.Fsm_0_4_5_coordinator import Fsm_0_4_5_TopologyCoordinator
 from .submodules.Fsm_0_4_6_fixer import Fsm_0_4_6_TopologyFixer
 from .submodules.Fsm_0_4_7_dialog import Fsm_0_4_7_TopologyCheckDialog
 from .submodules.Fsm_0_4_10_async_task import Fsm_0_4_10_TopologyCheckTask
 from Daman_QGIS.constants import PLUGIN_NAME
-from Daman_QGIS.managers.M_19_project_structure_manager import get_project_structure_manager
+# registry already imported above
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
 import os
 
@@ -132,6 +132,9 @@ class F_0_4_TopologyCheck(BaseTool):
         self.check_cancelled = False
         self.check_context = []
 
+        # Читаем состояние checkbox анализа покрытия
+        self._gap_check_enabled = getattr(self.dialog, 'gap_check_enabled', False)
+
         log_info("F_0_4: Stage 1 - Обнаружение ошибок (async via M_17)")
 
         try:
@@ -172,7 +175,7 @@ class F_0_4_TopologyCheck(BaseTool):
         """
         # Инициализируем async manager (M_17)
         if self.async_manager is None:
-            self.async_manager = get_async_manager(self.iface)
+            self.async_manager = registry.get('M_17')
 
         # Отменяем предыдущие задачи если есть
         self.async_manager.cancel_all()
@@ -201,7 +204,8 @@ class F_0_4_TopologyCheck(BaseTool):
             task = Fsm_0_4_10_TopologyCheckTask(
                 layer_id=layer.id(),
                 layer_name=layer.name(),
-                processing_context=processing_context
+                processing_context=processing_context,
+                enable_gap_check=self._gap_check_enabled
             )
             tasks.append(task)
             # Сохраняем маппинг для callbacks
@@ -453,7 +457,7 @@ class F_0_4_TopologyCheck(BaseTool):
                     if not self.project_db:
                         # Инициализируем ProjectDB при первом использовании
                         project_path = QgsProject.instance().absolutePath()
-                        structure_manager = get_project_structure_manager()
+                        structure_manager = registry.get('M_19')
                         structure_manager.project_root = project_path
                         gpkg_path = structure_manager.get_gpkg_path(create=False)
                         if gpkg_path:
@@ -533,9 +537,9 @@ class F_0_4_TopologyCheck(BaseTool):
 
         # Проверяем поддерживаемые типы геометрий
         supported_types = [
-            QgsWkbTypes.PolygonGeometry,
-            QgsWkbTypes.LineGeometry,
-            QgsWkbTypes.PointGeometry
+            Qgis.GeometryType.Polygon,
+            Qgis.GeometryType.Line,
+            Qgis.GeometryType.Point
         ]
 
         if geom_type not in supported_types:
@@ -553,9 +557,9 @@ class F_0_4_TopologyCheck(BaseTool):
 
         # Определяем тип геометрии для логирования
         geom_type_name = {
-            QgsWkbTypes.PolygonGeometry: 'полигоны',
-            QgsWkbTypes.LineGeometry: 'линии',
-            QgsWkbTypes.PointGeometry: 'точки'
+            Qgis.GeometryType.Polygon: 'полигоны',
+            Qgis.GeometryType.Line: 'линии',
+            Qgis.GeometryType.Point: 'точки'
         }.get(geom_type, 'unknown')
 
         log_info(f"F_0_4: Проверка слоя '{layer.name()}' ({geom_type_name})")
@@ -664,7 +668,7 @@ class F_0_4_TopologyCheck(BaseTool):
         log_info(f"F_0_4: Слоёв с topology_check=1: {len(layers_to_check)}")
 
         # DEBUG: Логируем слои этапности из списка для проверки
-        staging_layers_in_check = [l for l in layers_to_check if 'Le_3_7' in l]
+        staging_layers_in_check = [l for l in layers_to_check if 'Le_2_7' in l]
         if staging_layers_in_check:
             log_info(f"F_0_4: Слои этапности в списке для проверки: {staging_layers_in_check[:5]}...")
 
@@ -679,11 +683,11 @@ class F_0_4_TopologyCheck(BaseTool):
                     log_info(f"F_0_4: Добавлен для проверки: {layer_name}")
 
         # DEBUG: Логируем слои этапности в проекте
-        staging_in_project = [l for l in project_layer_names if 'Le_3_7' in l]
+        staging_in_project = [l for l in project_layer_names if 'Le_2_7' in l]
         if staging_in_project:
             log_info(f"F_0_4: Слои этапности в проекте: {staging_in_project}")
         else:
-            log_info(f"F_0_4: Слоёв этапности (Le_3_7) в проекте не найдено")
+            log_info(f"F_0_4: Слоёв этапности (Le_2_7) в проекте не найдено")
 
         return layers
     def _find_layer_by_name(self, layer_name: str) -> Optional[QgsVectorLayer]:
@@ -716,7 +720,7 @@ class F_0_4_TopologyCheck(BaseTool):
 
         # Создаём виджет прогресс-бара
         self.progress_bar = QProgressBar()
-        self.progress_bar.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.progress_bar.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)

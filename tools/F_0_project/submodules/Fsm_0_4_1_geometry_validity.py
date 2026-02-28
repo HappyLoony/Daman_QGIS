@@ -20,7 +20,7 @@ class Fsm_0_4_1_GeometryValidityChecker:
 
     def _safe_get_field(self, feature: Any, field_name: str, default: Any = None) -> Any:
         """
-        Безопасное получение значения поля из feature
+        Безопасное получение значения поля из QgsFeature
 
         Args:
             feature: QgsFeature объект
@@ -31,10 +31,12 @@ class Fsm_0_4_1_GeometryValidityChecker:
             Значение поля или default
         """
         try:
-            if feature.fields().indexOf(field_name) >= 0:
-                return feature.get(field_name, default)
+            idx = feature.fields().indexOf(field_name)
+            if idx >= 0:
+                value = feature.attribute(idx)
+                return value if value is not None else default
             return default
-        except (AttributeError, KeyError) as e:
+        except Exception as e:
             log_info(f"Fsm_0_4_1: Не удалось получить поле {field_name}: {e}")
             return default
 
@@ -75,6 +77,9 @@ class Fsm_0_4_1_GeometryValidityChecker:
             log_info(f"Fsm_0_4_1: checkvalidity нашел {error_count} ошибок валидности")
 
         # Парсим error layer (точки с описанием ошибок)
+        # ВАЖНО: ERROR_OUTPUT содержит только поле 'message', без FID.
+        # Поэтому используем error_layer как основной источник, а invalid_layer
+        # только как fallback для ошибок, не покрытых error_layer.
         for error_feat in error_layer.getFeatures():
             geom = error_feat.geometry()
             if not geom:
@@ -82,33 +87,40 @@ class Fsm_0_4_1_GeometryValidityChecker:
 
             message = self._safe_get_field(error_feat, 'message', 'Неизвестная ошибка валидности')
             translated_message = self._translate_validity_message(message)
+
+            log_info(f"Fsm_0_4_1: Ошибка валидности: {message}")
+
             errors.append({
                 'type': 'validity',
                 'geometry': geom,
-                'feature_id': self._safe_get_field(error_feat, 'FID', -1),
+                'feature_id': error_feat.id(),
                 'description': translated_message,
                 'error_type': self._classify_error_type(message)
             })
 
-        # Дополнительно парсим invalid layer для получения невалидных геометрий
-        for invalid_feat in invalid_layer.getFeatures():
-            geom = invalid_feat.geometry()
-            if not geom:
-                continue
+        # Дополнительно парсим invalid layer только если error_layer
+        # не покрыл все ошибки (edge case: GEOS нашёл невалидную геометрию,
+        # но не смог создать точку ошибки)
+        error_layer_count = len(errors)
+        if error_layer_count < error_count:
+            log_info(
+                f"Fsm_0_4_1: error_layer={error_layer_count}, "
+                f"error_count={error_count}, проверяем invalid_layer"
+            )
+            for invalid_feat in invalid_layer.getFeatures():
+                geom = invalid_feat.geometry()
+                if not geom:
+                    continue
 
-            errors_field = self._safe_get_field(invalid_feat, '_errors', '')
+                errors_field = self._safe_get_field(invalid_feat, '_errors', '')
 
-            # Добавляем только если еще не добавлено
-            if not any(e['feature_id'] == invalid_feat.id() for e in errors):
                 # Безопасное получение точки для невалидной геометрии
                 error_geom = geom.centroid()
                 if not error_geom or error_geom.isEmpty():
-                    # Fallback: используем центр bounding box
                     bbox = geom.boundingBox()
                     if not bbox.isEmpty():
                         error_geom = QgsGeometry.fromPointXY(bbox.center())
                     else:
-                        # Последний fallback: используем исходную геометрию
                         error_geom = geom
 
                 translated_errors = self._translate_validity_message(errors_field) if errors_field else ''

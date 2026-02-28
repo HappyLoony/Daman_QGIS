@@ -23,9 +23,9 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt, QMimeData
 from qgis.PyQt.QtGui import QFont, QColor, QTextCursor, QIcon
 from qgis.core import (
-    QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry,
+    Qgis, QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry,
     QgsPointXY, QgsCoordinateReferenceSystem,
-    QgsCoordinateTransform, QgsWkbTypes, QgsSymbol,
+    QgsCoordinateTransform, QgsSymbol,
     QgsFillSymbol, QgsSimpleFillSymbolLayer, QgsPoint,
     QgsFeatureRequest, QgsRectangle
 )
@@ -86,7 +86,7 @@ class VertexHighlighter:
             )
 
         # Создаём RubberBand для контура (LineGeometry)
-        line_rb = QgsRubberBand(self.canvas, QgsWkbTypes.LineGeometry)
+        line_rb = QgsRubberBand(self.canvas, Qgis.GeometryType.Line)
 
         for point in points:
             display_point = self._transform_point(point, transform)
@@ -96,23 +96,23 @@ class VertexHighlighter:
         if self.close_contour and len(points) > 2:
             line_rb.closePoints(True)
 
-        line_rb.setColor(Qt.red)
+        line_rb.setColor(Qt.GlobalColor.red)
         line_rb.setWidth(2)
         self.line_highlights.append(line_rb)
 
         # Создаём RubberBand для каждой вершины (PointGeometry)
         for i, point in enumerate(points):
-            node_rb = QgsRubberBand(self.canvas, QgsWkbTypes.PointGeometry)
+            node_rb = QgsRubberBand(self.canvas, Qgis.GeometryType.Point)
             display_point = self._transform_point(point, transform)
             node_rb.addPoint(display_point, True, 0)
 
             # Стиль в зависимости от текущей вершины
             if i == current_vertex:
                 node_rb.setIcon(QgsRubberBand.ICON_FULL_BOX)
-                node_rb.setColor(Qt.darkRed)
+                node_rb.setColor(Qt.GlobalColor.darkRed)
             else:
                 node_rb.setIcon(QgsRubberBand.ICON_FULL_DIAMOND)
-                node_rb.setColor(Qt.darkBlue)
+                node_rb.setColor(Qt.GlobalColor.darkBlue)
 
             node_rb.setIconSize(10)
             self.node_highlights.append(node_rb)
@@ -129,10 +129,10 @@ class VertexHighlighter:
         for i, rb in enumerate(self.node_highlights):
             if i == current_vertex:
                 rb.setIcon(QgsRubberBand.ICON_FULL_BOX)
-                rb.setColor(Qt.darkRed)
+                rb.setColor(Qt.GlobalColor.darkRed)
             else:
                 rb.setIcon(QgsRubberBand.ICON_FULL_DIAMOND)
-                rb.setColor(Qt.darkBlue)
+                rb.setColor(Qt.GlobalColor.darkBlue)
 
         self.canvas.refresh()
 
@@ -140,12 +140,12 @@ class VertexHighlighter:
         """Удаление всей подсветки."""
         for rb in self.line_highlights:
             self.canvas.scene().removeItem(rb)
-            rb.reset(QgsWkbTypes.LineGeometry)
+            rb.reset(Qgis.GeometryType.Line)
         self.line_highlights.clear()
 
         for rb in self.node_highlights:
             self.canvas.scene().removeItem(rb)
-            rb.reset(QgsWkbTypes.PointGeometry)
+            rb.reset(Qgis.GeometryType.Point)
         self.node_highlights.clear()
 
         self.canvas.refresh()
@@ -271,7 +271,7 @@ class Fsm_1_1_3_CoordinateInput:
             True если данные сохранены, False если отменено
         """
         dialog = CoordinateInputDialog(self.parent_dialog, self, edit_mode=edit_mode)
-        result = dialog.exec_()
+        result = dialog.exec()
 
         # Очищаем при закрытии
         self._remove_preview_layer()
@@ -279,7 +279,7 @@ class Fsm_1_1_3_CoordinateInput:
         self.edit_feature = None
         self.edit_layer = None
 
-        return result == QDialog.Accepted
+        return result == QDialog.DialogCode.Accepted
 
     def copy_to_clipboard(self, points: List[QgsPointXY], delimiter: str = '\t') -> bool:
         """
@@ -364,7 +364,7 @@ class Fsm_1_1_3_CoordinateInput:
         points = []
         geom_type = layer.geometryType()
 
-        if geom_type == QgsWkbTypes.PointGeometry:
+        if geom_type == Qgis.GeometryType.Point:
             # Точка или мультиточка
             if geom.isMultipart():
                 for part in geom.constParts():
@@ -374,7 +374,7 @@ class Fsm_1_1_3_CoordinateInput:
                 point = geom.asPoint()
                 points.append(QgsPointXY(point.x(), point.y()))
 
-        elif geom_type == QgsWkbTypes.PolygonGeometry:
+        elif geom_type == Qgis.GeometryType.Polygon:
             # Полигон - берём только внешний контур
             if geom.isMultipart():
                 # Для MultiPolygon берём первый полигон
@@ -394,7 +394,7 @@ class Fsm_1_1_3_CoordinateInput:
             if len(points) > 1 and points[0] == points[-1]:
                 points = points[:-1]
 
-        elif geom_type == QgsWkbTypes.LineGeometry:
+        elif geom_type == Qgis.GeometryType.Line:
             # Линия
             if geom.isMultipart():
                 for part in geom.constParts():
@@ -439,12 +439,12 @@ class Fsm_1_1_3_CoordinateInput:
         # Создаём геометрию в зависимости от типа слоя
         geom_type = self.edit_layer.geometryType()
 
-        if geom_type == QgsWkbTypes.PolygonGeometry:
+        if geom_type == Qgis.GeometryType.Polygon:
             # Замыкаем полигон
             if points[0] != points[-1]:
                 points = points + [points[0]]
             new_geom = QgsGeometry.fromPolygonXY([points])
-        elif geom_type == QgsWkbTypes.LineGeometry:
+        elif geom_type == Qgis.GeometryType.Line:
             new_geom = QgsGeometry.fromPolylineXY(points)
         else:
             # Точки - берём первую
@@ -821,7 +821,7 @@ class Fsm_1_1_3_CoordinateInput:
             })
         else:
             # Красные точки
-            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+            symbol = QgsSymbol.defaultSymbol(Qgis.GeometryType.Point)
             symbol.setColor(QColor(255, 0, 0))
             symbol.setSize(3)
 
@@ -934,8 +934,8 @@ class CoordinateInputDialog(QDialog):
         # Убираем кнопку помощи и держим диалог поверх родителя (Qt best practice)
         self.setWindowFlags(
             self.windowFlags()
-            & ~Qt.WindowContextHelpButtonHint
-            | Qt.WindowStaysOnTopHint
+            & ~Qt.WindowType.WindowContextHelpButtonHint
+            | Qt.WindowType.WindowStaysOnTopHint
         )
 
         self._setup_ui()
@@ -1017,7 +1017,7 @@ class CoordinateInputDialog(QDialog):
         self.delimiter_combo.addItem("Пробел", "space")
         self.delimiter_combo.addItem("Точка с запятой (;)", ";")
         self.delimiter_combo.addItem("Запятая (,)", ",")
-        self.delimiter_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.delimiter_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         delimiter_layout.addWidget(self.delimiter_combo)
 
@@ -1449,7 +1449,7 @@ class CoordinateInputDialog(QDialog):
 
         # Определяем тип геометрии
         geom_type = layer.geometryType()
-        if geom_type == QgsWkbTypes.PointGeometry:
+        if geom_type == Qgis.GeometryType.Point:
             self.type_points.setChecked(True)
         else:
             self.type_polygon.setChecked(True)

@@ -16,8 +16,9 @@ from qgis.core import (
 
 from Daman_QGIS.core.base_tool import BaseTool
 from Daman_QGIS.utils import log_info, log_error, log_warning, log_success
-from Daman_QGIS.managers import get_reference_managers, get_project_structure_manager
+from Daman_QGIS.managers import get_reference_managers, registry
 from .submodules.Fsm_0_3_1_edit_project_dialog import EditProjectDialog
+from .submodules.base_metadata_dialog import OPTIONAL_METADATA_DESCRIPTIONS
 from Daman_QGIS.constants import MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION
 
 
@@ -60,7 +61,7 @@ class F_0_3_EditProjectProperties(BaseTool):
             if qgs_filename:
                 project_dir = os.path.dirname(qgs_filename)
                 # Используем M_19 для проверки структуры проекта
-                structure_manager = get_project_structure_manager()
+                structure_manager = registry.get('M_19')
                 structure_manager.project_root = project_dir
                 gpkg_path = structure_manager.get_gpkg_path(create=False)
 
@@ -107,7 +108,7 @@ class F_0_3_EditProjectProperties(BaseTool):
         # Создаем и показываем диалог
         dialog = EditProjectDialog(None, current_metadata, reference_managers)
 
-        if dialog.exec_():
+        if dialog.exec():
             # Получаем обновленные данные
             updated_data = dialog.get_updated_data()
 
@@ -222,32 +223,24 @@ class F_0_3_EditProjectProperties(BaseTool):
             crs_changed = True
             log_info(f"F_0_3: Изменена система координат: {updated_data['crs_description']}")
 
-        if 'crs_short_name' in changed_fields:
-            db.set_metadata('1_4_crs_short_name', updated_data['crs_short_name'],
-                          'Короткое название СК для приложений')
-            log_info(f"F_0_3: Изменено короткое название СК: {updated_data['crs_short_name']}")
+        if 'code_region' in changed_fields:
+            db.set_metadata('1_4_1_code_region', updated_data['code_region'],
+                          'Код региона')
+            log_info(f"F_0_3: Изменен код региона: {updated_data['code_region']}")
+
+        if 'code_zone' in changed_fields:
+            db.set_metadata('1_4_2_code_zone', updated_data['code_zone'],
+                          'Код зоны')
+            log_info(f"F_0_3: Изменен код зоны: {updated_data['code_zone']}")
 
         return crs_changed
 
     def _update_additional_metadata(self, db, updated_data: Dict[str, Any], changed_fields: list) -> None:
         """Обновление дополнительных метаданных проекта"""
-        metadata_map = {
-            'company': ('2_3_company', 'Компания выполняющая договор', 'компания'),
-            'city': ('2_4_city', 'Город', 'город'),
-            'customer': ('2_5_customer', 'Заказчик', 'заказчик'),
-            'general_director': ('2_6_general_director', 'Генеральный директор', 'генеральный директор'),
-            'technical_director': ('2_7_technical_director', 'Технический директор', 'технический директор'),
-            'cover': ('2_8_cover', 'Обложка обычно не наша', 'обложка'),
-            'title_start': ('2_9_title_start', 'С какого листа начинается наш титул, так как перед нами могут быть еще подрядчики', 'начальный лист титула'),
-            'main_scale': ('2_10_main_scale', 'Основной масштаб, основной массы чертежей (прописано в ТЗ)', 'основной масштаб'),
-            'developer': ('2_11_developer', 'Разаботал', 'разработчик'),
-            'examiner': ('2_12_examiner', 'Проверил', 'проверяющий'),
-        }
-
-        for field, (key, desc, log_name) in metadata_map.items():
+        for field, (key, desc) in OPTIONAL_METADATA_DESCRIPTIONS.items():
             if field in changed_fields:
                 db.set_metadata(key, updated_data[field], desc)
-                log_info(f"F_0_3: Изменен {log_name}: {updated_data[field]}")
+                log_info(f"F_0_3: Изменен {field}: {updated_data[field]}")
 
     def _update_project_manager_settings(self, updated_data: Dict[str, Any], changed_fields: list) -> None:
         """Обновление настроек в менеджере проектов"""
@@ -310,6 +303,38 @@ class F_0_3_EditProjectProperties(BaseTool):
             changes.append(f"• СК: {updated_data['crs_description']}")
             if crs_changed:
                 changes.append("• СК переопределена для всех слоев")
+        if 'code_region' in changed_fields:
+            changes.append(f"• Код региона: {updated_data['code_region']}")
+        if 'code_zone' in changed_fields:
+            changes.append(f"• Код зоны: {updated_data['code_zone']}")
+        if 'company' in changed_fields:
+            changes.append(f"• Компания: {updated_data['company']}")
+        if 'city' in changed_fields:
+            changes.append(f"• Город: {updated_data['city']}")
+        if 'customer' in changed_fields:
+            changes.append(f"• Заказчик: {updated_data['customer']}")
+        if 'general_director' in changed_fields:
+            changes.append(f"• Генеральный директор: {updated_data['general_director']}")
+        if 'technical_director' in changed_fields:
+            changes.append(f"• Технический директор: {updated_data['technical_director']}")
+        if 'cover' in changed_fields:
+            changes.append(f"• Обложка: {updated_data['cover']}")
+        if 'title_start' in changed_fields:
+            changes.append(f"• Начальный лист титула: {updated_data['title_start']}")
+        if 'main_scale' in changed_fields:
+            changes.append(f"• Основной масштаб: {updated_data['main_scale']}")
+        if 'dxf_text_height' in changed_fields:
+            changes.append(f"• Высота текста DXF: {updated_data['dxf_text_height']}")
+        if 'developer' in changed_fields:
+            changes.append(f"• Разработчик: {updated_data['developer']}")
+        if 'examiner' in changed_fields:
+            changes.append(f"• Проверяющий: {updated_data['examiner']}")
+        if 'quality_control' in changed_fields:
+            changes.append(f"• Н.Контроль: {updated_data['quality_control']}")
+        if 'sheet_format' in changed_fields:
+            changes.append(f"• Формат листа: {updated_data['sheet_format']}")
+        if 'sheet_orientation' in changed_fields:
+            changes.append(f"• Ориентация листа: {updated_data['sheet_orientation']}")
         return changes
     def apply_changes(self, updated_data: Dict[str, Any]) -> None:
         """Применение изменений к проекту"""

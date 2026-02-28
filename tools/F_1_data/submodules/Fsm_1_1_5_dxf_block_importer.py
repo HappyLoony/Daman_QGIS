@@ -113,7 +113,7 @@ class Fsm_1_1_5_DxfBlockImporter:
 
         # Проверяем ezdxf
         if not self._ensure_ezdxf():
-            result['errors'].append("Библиотека ezdxf не установлена. Установите через F_5_1.")
+            result['errors'].append("Библиотека ezdxf не установлена. Установите через F_4_1.")
             result['message'] = "ezdxf не установлен"
             return result
 

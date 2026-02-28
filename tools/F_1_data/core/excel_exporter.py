@@ -11,7 +11,7 @@ from collections import OrderedDict
 from qgis.core import (
     QgsVectorLayer, QgsProject, QgsMessageLog, Qgis,
     QgsCoordinateReferenceSystem, QgsCoordinateTransform,
-    QgsWkbTypes, QgsGeometry
+    QgsGeometry
 )
 
 from .base_exporter import BaseExporter
@@ -322,7 +322,7 @@ class ExcelExporter(BaseExporter):
             row_num += 1
 
         # Добавляем площадь если нужно и если это полигоны
-        if params.get('add_area', False) and layer.geometryType() == QgsWkbTypes.PolygonGeometry:
+        if params.get('add_area', False) and layer.geometryType() == Qgis.GeometryType.Polygon:
             # Пустая строка перед площадью
             row_num += 1
 
@@ -388,25 +388,48 @@ class ExcelExporter(BaseExporter):
         return contours, point_number
 
     def _extract_polygon_contours(self, geom, unique_points: dict, point_number: int, precision: int) -> Tuple[List, int]:
-        """Извлечение контуров из полигональной геометрии"""
+        """Извлечение контуров из полигональной геометрии с нормализацией П/0592"""
+        from Daman_QGIS.managers import registry
+        from qgis.core import QgsPointXY
+
         contours = []
         polygons = geom.asMultiPolygon() if geom.isMultipart() else [geom.asPolygon()]
+        pnm = registry.get('M_20')
 
         for polygon in polygons:
             if not polygon:
                 continue
 
-            # Внешний контур
-            ring = polygon[0]
-            contour_points, point_number = self._process_points_list(ring, unique_points, point_number, precision)
-            if contour_points:
-                contours.append(('exterior', contour_points))
+            for ring_idx, ring in enumerate(polygon):
+                if not ring:
+                    continue
 
-            # Внутренние контуры (дырки)
-            for hole in polygon[1:]:
-                hole_points, point_number = self._process_points_list(hole, unique_points, point_number, precision)
-                if hole_points:
-                    contours.append(('hole', hole_points))
+                is_exterior = (ring_idx == 0)
+
+                # Убираем замыкающую точку (первая == последняя)
+                ring_points = ring
+                if len(ring) > 1:
+                    first = CPM.round_point_tuple(ring[0], precision)
+                    last = CPM.round_point_tuple(ring[-1], precision)
+                    if first == last:
+                        ring_points = ring[:-1]
+
+                # Нормализация через M_20: ориентация + ротация к СЗ
+                point_tuples = [CPM.round_point_tuple(p, precision) for p in ring_points]
+                if len(point_tuples) >= 3:
+                    point_tuples = pnm.normalize_ring(point_tuples, is_exterior=is_exterior)
+
+                # Реконструкция QgsPointXY из нормализованных кортежей
+                normalized_points = [QgsPointXY(t[0], t[1]) for t in point_tuples]
+
+                contour_points, point_number = self._process_points_list(
+                    normalized_points, unique_points, point_number, precision
+                )
+                contour_type = 'exterior' if is_exterior else 'hole'
+                if contour_points:
+                    # Замыкание: добавляем первую точку в конец (П/0592 п.43)
+                    contour_points.append(contour_points[0])
+                    contours.append((contour_type, contour_points))
 
         return contours, point_number
 
@@ -445,11 +468,11 @@ class ExcelExporter(BaseExporter):
                 continue
 
             # Обработка в зависимости от типа геометрии
-            if geom.type() == QgsWkbTypes.LineGeometry:
+            if geom.type() == Qgis.GeometryType.Line:
                 contours, point_number = self._extract_line_contours(geom, unique_points, point_number, precision)
                 all_contours.extend(contours)
 
-            elif geom.type() == QgsWkbTypes.PolygonGeometry:
+            elif geom.type() == Qgis.GeometryType.Polygon:
                 contours, point_number = self._extract_polygon_contours(geom, unique_points, point_number, precision)
                 all_contours.extend(contours)
 
@@ -492,7 +515,7 @@ class ExcelExporter(BaseExporter):
         summary = []
         geom_type = layer.geometryType()
         
-        if geom_type == QgsWkbTypes.PolygonGeometry and params.get('add_area', True):
+        if geom_type == Qgis.GeometryType.Polygon and params.get('add_area', True):
             # Вычисляем площадь
             total_area = 0
             for feature in layer.getFeatures():
@@ -502,7 +525,7 @@ class ExcelExporter(BaseExporter):
             summary.append([f"Общая площадь: {total_area:.2f} м²"])
             summary.append([f"Общая площадь: {total_area/10000:.4f} га"])
         
-        elif geom_type == QgsWkbTypes.LineGeometry and params.get('add_length', True):
+        elif geom_type == Qgis.GeometryType.Line and params.get('add_length', True):
             # Вычисляем длину
             total_length = 0
             for feature in layer.getFeatures():

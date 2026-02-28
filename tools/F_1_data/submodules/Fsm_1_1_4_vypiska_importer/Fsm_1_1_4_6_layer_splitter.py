@@ -12,15 +12,14 @@ Fsm_1_1_4_6 - Разделение выписок по типам объекто
 from collections import defaultdict
 from typing import List, Dict, Any, Optional
 from qgis.core import (
-    QgsCoordinateReferenceSystem, QgsVectorLayer, QgsFeature, QgsFields,
+    Qgis, QgsCoordinateReferenceSystem, QgsVectorLayer, QgsFeature, QgsFields,
     QgsField, QgsProject, QgsVectorFileWriter, QgsCoordinateTransformContext,
-    QgsWkbTypes, QgsGeometry, QgsMultiPolygon
+    QgsGeometry, QgsMultiPolygon
 )
 from qgis.PyQt.QtCore import QMetaType
 
 from Daman_QGIS.utils import log_info, log_warning, log_error
-from Daman_QGIS.constants import MAX_FIELD_LEN
-from Daman_QGIS.managers import StyleManager
+from Daman_QGIS.managers import StyleManager, DataCleanupManager
 from .Fsm_1_1_4_4_layer_creator import set_field_aliases
 
 # Служебные поля, которые НЕ записываются в GPKG
@@ -53,6 +52,32 @@ GEOM_TO_SUBLAYER_SUFFIX_ZU = {
     'MultiPolygon': ('1', 'poly'),
     'NoGeometry': ('2', 'not')
 }
+
+
+def _apply_layer_visibility(layer: QgsVectorLayer, layer_name: str) -> None:
+    """
+    Применяет видимость слоя на основе поля 'hidden' из Base_layers.json
+
+    Args:
+        layer: Слой QGIS
+        layer_name: Имя слоя для поиска в базе
+    """
+    from Daman_QGIS.managers import get_reference_managers
+
+    ref_managers = get_reference_managers()
+    layer_info = ref_managers.layer.get_layer_by_full_name(layer_name)
+
+    if not layer_info:
+        return
+
+    hidden = layer_info.get('hidden', 0)
+
+    # hidden == 1 означает скрытый слой, 0 означает видимый
+    if hidden == 1 or hidden == "1":
+        root = QgsProject.instance().layerTreeRoot()
+        layer_node = root.findLayer(layer.id())
+        if layer_node:
+            layer_node.setItemVisibilityChecked(False)
 
 
 def split_and_create_layers(features_data: List[Dict[str, Any]],
@@ -155,25 +180,20 @@ def split_and_create_layers(features_data: List[Dict[str, Any]],
         # Определяем WKB тип геометрии
         # FIX: Используем *M типы для хранения M-координат (delta_geopoint)
         if geom_key == 'MultiPolygon':
-            wkb_type = QgsWkbTypes.MultiPolygonM
+            wkb_type = Qgis.WkbType.MultiPolygonM
         elif geom_key == 'MultiLineString':
-            wkb_type = QgsWkbTypes.MultiLineStringM
+            wkb_type = Qgis.WkbType.MultiLineStringM
         elif geom_key == 'MultiPoint':
-            wkb_type = QgsWkbTypes.MultiPointM
+            wkb_type = Qgis.WkbType.MultiPointM
         else:
-            wkb_type = QgsWkbTypes.NoGeometry
+            wkb_type = Qgis.WkbType.NoGeometry
 
         # Создаем структуру полей ДИНАМИЧЕСКИ из FieldMappingManager
-        if field_mapper and record_type:
-            # ZERO HARDCODE - все поля из базы данных
-            fields = field_mapper.create_fields_for_record_type(record_type)
-            log_info(f"Fsm_1_1_4_6: Создано {len(fields)} полей для record_type='{record_type}' (слой: {layer_name})")
-        else:
-            # Fallback - минимальный набор полей (для обратной совместимости)
-            log_warning(f"Fsm_1_1_4_6: FieldMappingManager не предоставлен для '{layer_name}', используется минимальный набор полей")
-            fields = QgsFields()
-            fields.append(QgsField("cad_number", QMetaType.Type.QString, len=50))
-            fields.append(QgsField("included_objects", QMetaType.Type.QString, len=MAX_FIELD_LEN))
+        if not field_mapper or not record_type:
+            log_error(f"Fsm_1_1_4_6: field_mapper и record_type обязательны для '{layer_name}'")
+            continue
+        fields = field_mapper.create_fields_for_record_type(record_type)
+        log_info(f"Fsm_1_1_4_6: Создано {len(fields)} полей для record_type='{record_type}' (слой: {layer_name})")
 
         # ПРЯМАЯ ЗАПИСЬ В GPKG (минуя memory layer)
         saved_layer = _write_layer_direct_to_gpkg(
@@ -201,6 +221,18 @@ def split_and_create_layers(features_data: List[Dict[str, Any]],
                 log_info(f"Fsm_1_1_4_6: Стиль применён к слою '{layer_name}'")
             else:
                 log_warning(f"Fsm_1_1_4_6: Не удалось применить стиль к слою '{layer_name}'")
+
+            # Применяем видимость из Base_layers.json (hidden)
+            _apply_layer_visibility(saved_layer, layer_name)
+
+            # FIX (2026-02-05): Финализация слоя - заполнение NULL значений и капитализация
+            # При импорте выписок после выборки NULL поля оставались пустыми
+            try:
+                data_cleanup = DataCleanupManager()
+                data_cleanup.finalize_layer(saved_layer, layer_name)
+                log_info(f"Fsm_1_1_4_6: Финализация слоя '{layer_name}' выполнена")
+            except Exception as e:
+                log_warning(f"Fsm_1_1_4_6: Ошибка финализации слоя '{layer_name}': {e}")
 
             created_layer_objects.append(saved_layer)
             feature_count = saved_layer.featureCount()
@@ -1208,6 +1240,17 @@ def supplement_selection_from_extracts(created_layers: List[QgsVectorLayer]) -> 
 
     if supplemented_count > 0:
         log_info(f"Fsm_1_1_4_6: Дополнены атрибуты для {supplemented_count} объектов в слое выборки")
+
+        # FIX (2026-02-05): Финализация слоя выборки после дополнения
+        # Применяет simplify_rent_individuals, сокращения юрлиц, капитализацию и т.д.
+        # ПРИМЕЧАНИЕ: Дублируется в F_1_1._finalize_selection_layers_after_sync() (после M_24).
+        # Операции идемпотентны. Можно удалить при рефакторинге.
+        try:
+            data_cleanup = DataCleanupManager()
+            data_cleanup.finalize_layer(selection_layer, SELECTION_LAYER_NAME)
+            log_info(f"Fsm_1_1_4_6: Финализация слоя выборки '{SELECTION_LAYER_NAME}' выполнена")
+        except Exception as e:
+            log_warning(f"Fsm_1_1_4_6: Ошибка финализации слоя выборки: {e}")
     else:
         log_info("Fsm_1_1_4_6: Нет объектов для дополнения в слое выборки")
 

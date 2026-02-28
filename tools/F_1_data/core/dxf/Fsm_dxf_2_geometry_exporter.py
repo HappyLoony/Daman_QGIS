@@ -10,7 +10,7 @@
 """
 
 from typing import Dict, Any, Optional, List, Tuple
-from qgis.core import QgsFeature, QgsVectorLayer, QgsCoordinateTransform, QgsWkbTypes
+from qgis.core import Qgis, QgsFeature, QgsVectorLayer, QgsCoordinateTransform
 
 from Daman_QGIS.utils import log_debug
 from Daman_QGIS.managers import CoordinatePrecisionManager as CPM
@@ -89,7 +89,7 @@ class DxfGeometryExporter:
         geom_type = geometry.type()
 
         # === ЭКСПОРТ ГЕОМЕТРИИ НАПРЯМУЮ В MODELSPACE ===
-        if geom_type == QgsWkbTypes.PointGeometry:
+        if geom_type == Qgis.GeometryType.Point:
             # Точки экспортируются как CIRCLE (окружность)
             # Параметры из style:
             # - line_scale: диаметр круга (мм), по умолчанию 1.5
@@ -126,7 +126,7 @@ class DxfGeometryExporter:
                         self._add_circle_solid_fill(msp, x, y, circle_radius, layer_name)
                     self._exported_points.add(point_key)
 
-        elif geom_type == QgsWkbTypes.LineGeometry:
+        elif geom_type == Qgis.GeometryType.Line:
             # Линии
             # МИГРАЦИЯ LINESTRING → MULTILINESTRING: упрощённый паттерн
             lines = geometry.asMultiPolyline() if geometry.isMultipart() else [geometry.asPolyline()]
@@ -137,7 +137,7 @@ class DxfGeometryExporter:
                     if style and 'width' in style:
                         polyline.dxf.const_width = style['width']
 
-        elif geom_type == QgsWkbTypes.PolygonGeometry:
+        elif geom_type == Qgis.GeometryType.Polygon:
             # Полигоны
             # МИГРАЦИЯ POLYGON → MULTIPOLYGON: упрощённый паттерн
             polygons = geometry.asMultiPolygon() if geometry.isMultipart() else [geometry.asPolygon()]
@@ -163,7 +163,7 @@ class DxfGeometryExporter:
                                 hole_polyline.dxf.const_width = style['width']
 
         # === ЭКСПОРТ ШТРИХОВКИ (для полигонов) ===
-        if geom_type == QgsWkbTypes.PolygonGeometry and style and self.hatch_manager:
+        if geom_type == Qgis.GeometryType.Polygon and style and self.hatch_manager:
             # Проверяем что есть паттерн штриховки в базе данных
             hatch_value = style.get('hatch')
 
@@ -179,9 +179,20 @@ class DxfGeometryExporter:
                         coords = self._remove_closing_point(coords)
 
                         if len(coords) > 2:
+                            # Подготавливаем координаты дырок
+                            hole_coords_list = []
+                            for hole in polygon[1:]:
+                                h_coords = [CPM.round_coordinates(pt.x(), pt.y(), coordinate_precision) for pt in hole]
+                                h_coords = self._remove_closing_point(h_coords)
+                                if len(h_coords) > 2:
+                                    hole_coords_list.append(h_coords)
+
                             # Штриховка с ByLayer (наследует цвет от слоя)
                             hatch_attribs = {'layer': layer_name}
-                            self.hatch_manager.apply_hatch(msp, coords, style, hatch_attribs)
+                            self.hatch_manager.apply_hatch(
+                                msp, coords, style, hatch_attribs,
+                                holes=hole_coords_list if hole_coords_list else None
+                            )
 
         # === ЭКСПОРТ ПОДПИСЕЙ НА СЛОЙ _Номер ===
         if self.label_exporter and self.ref_managers:

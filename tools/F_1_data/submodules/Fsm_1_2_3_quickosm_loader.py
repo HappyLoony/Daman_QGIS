@@ -1,41 +1,27 @@
 # -*- coding: utf-8 -*-
 """
-Субмодуль Fsm_1_2_3 для загрузки данных OSM (highway и railway) через QuickOSM
+Субмодуль Fsm_1_2_3 для загрузки данных OSM через нативный Overpass API + OGR
 Используется функцией F_1_2_Загрузка Web карт
 """
 
-import sys
 import os
+import re
+import tempfile
 from typing import Optional, Dict, List, Tuple
-from pathlib import Path
+from collections import defaultdict
 
 from qgis.core import (
     QgsVectorLayer, QgsProject, QgsFeature, QgsGeometry,
     QgsCoordinateReferenceSystem, QgsCoordinateTransform,
-    QgsRectangle, QgsWkbTypes, QgsFeedback
+    QgsRectangle, QgsWkbTypes, Qgis, QgsFeatureRequest
 )
 
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
-from Daman_QGIS.managers import LayerManager, get_project_structure_manager
+from Daman_QGIS.managers import LayerManager, registry
 
 
 class Fsm_1_2_3_QuickOSMLoader:
-    """Загрузчик данных OSM (highway/railway) через QuickOSM"""
-
-    # Константы для типов данных OSM
-    HIGHWAY_VALUES = [
-        'motorway', 'trunk', 'primary', 'secondary', 'tertiary',
-        'unclassified', 'residential', 'motorway_link', 'trunk_link',
-        'primary_link', 'secondary_link', 'tertiary_link',
-        'living_street', 'service', 'pedestrian', 'bus_guideway',
-        'escape', 'raceway', 'road', 'busway'
-    ]
-
-    RAILWAY_VALUES = [
-        'abandoned', 'construction', 'proposed', 'disused',
-        'funicular', 'light_rail', 'miniature', 'monorail',
-        'narrow_gauge', 'rail', 'subway', 'tram'
-    ]
+    """Загрузчик данных OSM через нативный Overpass API + OGR (data-driven)"""
 
     def __init__(self, iface, layer_manager: LayerManager = None, project_manager=None, api_manager=None):
         """
@@ -51,58 +37,8 @@ class Fsm_1_2_3_QuickOSMLoader:
         self.layer_manager = layer_manager
         self.project_manager = project_manager
         self.api_manager = api_manager
-        self.quickosm_available = None  # Lazy initialization - проверяем только при первом использовании
 
-    def _check_quickosm_availability(self) -> bool:
-        """
-        Проверить доступность плагина QuickOSM
-
-        Returns:
-            bool: True если QuickOSM доступен
-        """
-        try:
-            log_info("Fsm_1_2_3: Проверка доступности QuickOSM...")
-
-            # Проверяем стандартный путь установки QuickOSM
-            quickosm_path = Path.home() / 'AppData' / 'Roaming' / 'QGIS' / 'QGIS3' / 'profiles' / 'Daman_QGIS' / 'python' / 'plugins' / 'QuickOSM'
-
-            if not quickosm_path.exists():
-                log_warning(f"Fsm_1_2_3: QuickOSM не найден по пути: {quickosm_path}")
-                log_warning("Fsm_1_2_3: Проверяем альтернативный путь...")
-
-                # Альтернативный путь для разработки
-                quickosm_dev_path = Path(__file__).parent.parent.parent.parent / 'external_modules' / 'ВРЕМЕННО' / 'QuickOSM'
-                if quickosm_dev_path.exists():
-                    log_info(f"Fsm_1_2_3: QuickOSM найден в режиме разработки: {quickosm_dev_path}")
-                    quickosm_path = quickosm_dev_path
-                else:
-                    log_error("Fsm_1_2_3: QuickOSM не найден ни в стандартном, ни в альтернативном пути")
-                    return False
-
-            # Добавляем путь к QuickOSM в sys.path если его там нет
-            quickosm_str = str(quickosm_path)
-            if quickosm_str not in sys.path:
-                sys.path.insert(0, quickosm_str)
-                log_info(f"Fsm_1_2_3: QuickOSM добавлен в sys.path: {quickosm_str}")
-
-            # Пытаемся импортировать QuickOSM модули с дополнительной защитой от краша
-            try:
-                log_info("Fsm_1_2_3: Импорт QuickOSM.core.process...")
-                from QuickOSM.core.process import process_quick_query
-                log_info("Fsm_1_2_3: Импорт QuickOSM.definitions.osm...")
-                from QuickOSM.definitions.osm import OsmType, QueryType
-                log_success("Fsm_1_2_3: QuickOSM успешно импортирован")
-                return True
-            except Exception as import_error:
-                log_error(f"Fsm_1_2_3: Ошибка импорта модулей QuickOSM: {str(import_error)}")
-                return False
-
-        except ImportError as e:
-            log_error(f"Fsm_1_2_3: Не удалось импортировать QuickOSM: {str(e)}")
-            return False
-        except Exception as e:
-            log_error(f"Fsm_1_2_3: Ошибка при проверке доступности QuickOSM: {str(e)}")
-            return False
+    # --- Boundary и CRS ---
 
     def get_boundary_extent(self) -> Optional[QgsRectangle]:
         """
@@ -139,7 +75,7 @@ class Fsm_1_2_3_QuickOSMLoader:
             log_error(f"Fsm_1_2_3: Ошибка получения extent границ: {str(e)}")
             return None
 
-    def _transform_extent_to_wgs84(self, extent: QgsRectangle) -> QgsRectangle:
+    def _transform_extent_to_wgs84(self, extent: QgsRectangle) -> Optional[QgsRectangle]:
         """
         Трансформировать extent в WGS84 (EPSG:4326)
 
@@ -147,7 +83,7 @@ class Fsm_1_2_3_QuickOSMLoader:
             extent: Исходный extent
 
         Returns:
-            QgsRectangle: Extent в WGS84
+            QgsRectangle в WGS84 или None при ошибке трансформации
         """
         try:
             # ОТКЛЮЧЕНО: Python Stack Trace - Windows fatal exception: access violation
@@ -169,7 +105,198 @@ class Fsm_1_2_3_QuickOSMLoader:
 
         except Exception as e:
             log_error(f"Fsm_1_2_3: Ошибка трансформации extent в WGS84: {str(e)}")
-            return extent
+            return None
+
+    # --- Нативная реализация Overpass API + OGR ---
+
+    @staticmethod
+    def _build_overpass_query(
+        bbox_wgs84: QgsRectangle,
+        key: str,
+        values: Optional[List[str]] = None,
+        timeout: int = 60
+    ) -> str:
+        """
+        Генерация OQL запроса для Overpass API.
+
+        Args:
+            bbox_wgs84: Bounding box в WGS84
+            key: OSM ключ (highway, railway, waterway)
+            values: Список значений для фильтрации. None/[] = все объекты с ключом
+            timeout: Таймаут Overpass запроса (секунды, по умолчанию 60)
+        """
+        # Валидация ключа: alphanumeric, underscores, colons (стандарт OSM)
+        if not re.match(r'^[a-zA-Z_:][a-zA-Z0-9_:]*$', key):
+            log_error(f"Fsm_1_2_3: Invalid OSM key format: {key}")
+            raise ValueError(f"Invalid OSM key: {key}")
+
+        bbox_str = (
+            f"({bbox_wgs84.yMinimum()},{bbox_wgs84.xMinimum()},"
+            f"{bbox_wgs84.yMaximum()},{bbox_wgs84.xMaximum()})"
+        )
+
+        # Фильтрация values на стороне Overpass через regex
+        if values:
+            escaped_values = [re.escape(v) for v in values]
+            values_regex = '|'.join(escaped_values)
+            tag_filter = f'["{key}"~"^({values_regex})$"]'
+        else:
+            tag_filter = f'["{key}"]'
+
+        return (
+            f"[out:xml][timeout:{timeout}];\n"
+            f"(\n"
+            f"  way{tag_filter}{bbox_str};\n"
+            f"  relation{tag_filter}{bbox_str};\n"
+            f");\n"
+            f"(._;>;);\n"
+            f"out body;"
+        )
+
+    def _download_osm_data(self, query: str, server_url: str, timeout: int = 120) -> str:
+        """
+        Загрузка OSM данных через Overpass API (POST).
+
+        Args:
+            query: OQL запрос (результат _build_overpass_query)
+            server_url: URL сервера, например "https://overpass-api.de/api/"
+            timeout: HTTP таймаут (секунды). Должен быть >= Overpass timeout в запросе
+
+        Returns:
+            str: Путь к временному .osm файлу
+
+        Raises:
+            Exception: При ошибках Overpass (timeout, memory, rate limit)
+        """
+        import requests as req
+        from Daman_QGIS.constants import PLUGIN_VERSION
+
+        # POST к /interpreter с data= в теле запроса
+        interpreter_url = server_url.rstrip('/') + '/interpreter'
+
+        headers = {
+            'User-Agent': f'Daman_QGIS/{PLUGIN_VERSION} (QGIS Plugin; overpass-loader)'
+        }
+
+        response = req.post(
+            interpreter_url,
+            data={'data': query},
+            timeout=timeout,
+            headers=headers
+        )
+        response.raise_for_status()
+
+        # ВАЖНО: используем response.content (bytes), а не response.text
+        # Overpass API возвращает Content-Type: application/osm3s+xml без charset.
+        # requests может декодировать как ISO-8859-1, повредив кириллицу.
+        raw_content = response.content
+
+        # Проверка на runtime errors (Overpass возвращает 200 OK даже при ошибках!)
+        content_str = raw_content.decode('utf-8', errors='replace')
+        if 'runtime error' in content_str:
+            if 'Query timed out' in content_str:
+                raise Exception(f"Overpass timeout на {server_url}")
+            if 'out of memory' in content_str:
+                raise Exception(f"Overpass out of memory на {server_url}")
+            if 'rate_limited' in content_str.lower():
+                raise Exception(f"Overpass rate limit на {server_url}")
+            raise Exception(f"Overpass runtime error на {server_url}")
+
+        # Проверяем что получили XML, а не HTML с ошибкой
+        if not content_str.strip().startswith('<?xml'):
+            raise Exception(f"Overpass вернул не-XML ответ на {server_url}")
+
+        # Сохраняем во временный файл (бинарный режим!)
+        with tempfile.NamedTemporaryFile(
+            suffix='.osm', delete=False, mode='wb'
+        ) as f:
+            f.write(raw_content)
+            return f.name
+
+    def _load_osm_via_ogr(self, osm_file_path: str, layer_name: str) -> List[QgsVectorLayer]:
+        """
+        Загрузка .osm файла через OGR (встроенный в QGIS).
+
+        Returns:
+            List[QgsVectorLayer]: Список загруженных слоёв (memory copy)
+        """
+        result_layers = []
+        target_layer_types = ['lines', 'multilinestrings', 'multipolygons']
+
+        for layer_type in target_layer_types:
+            uri = f"{osm_file_path}|layername={layer_type}"
+            ogr_layer = QgsVectorLayer(uri, f"{layer_name}_{layer_type}", "ogr")
+
+            if not ogr_layer.isValid():
+                continue
+
+            # OGR OSM driver может вернуть -1 (unknown count) вместо 0
+            if ogr_layer.featureCount() == 0:
+                continue
+
+            # Копируем в memory layer (OGR слой привязан к файлу)
+            mem_layer = ogr_layer.materialize(QgsFeatureRequest())
+            if not mem_layer or not mem_layer.isValid():
+                continue
+
+            # После materialize featureCount() всегда точный
+            if mem_layer.featureCount() == 0:
+                continue
+
+            mem_layer.setName(f"{layer_name}_{layer_type}")
+            result_layers.append(mem_layer)
+            log_info(
+                f"Fsm_1_2_3: OGR загружен {layer_type}: "
+                f"{mem_layer.featureCount()} объектов"
+            )
+
+        return result_layers
+
+    def _cleanup_osm_file(self, osm_file_path: str):
+        """Удаление временного .osm файла"""
+        try:
+            if osm_file_path and os.path.exists(osm_file_path):
+                os.remove(osm_file_path)
+        except OSError as e:
+            log_warning(f"Fsm_1_2_3: Не удалось удалить временный файл {osm_file_path}: {e}")
+
+    def _find_sublayers_in_base(self, layer_name: str) -> Dict[str, str]:
+        """
+        Поиск sublayer имён в Base_layers.json по parent layer_name.
+
+        Args:
+            layer_name: Имя родительского слоя, например "L_1_4_1_OSM_Дороги"
+
+        Returns:
+            Dict маппинг геометрии к full_name:
+            {'line': 'Le_1_4_1_1_OSM_АД_line', 'poly': 'Le_1_4_1_2_OSM_АД_poly'}
+        """
+        parts = layer_name.split('_')
+        if len(parts) < 4:
+            log_warning(f"Fsm_1_2_3: Не удалось распарсить layer_name: {layer_name}")
+            return {}
+
+        group_num = parts[2]   # "4"
+        layer_num = parts[3]   # "1"
+
+        from Daman_QGIS.managers import get_reference_managers
+        layer_ref = get_reference_managers().layer
+        all_layers = layer_ref.get_base_layers()
+
+        sublayers: Dict[str, str] = {}
+        for entry in all_layers:
+            if (entry.get('group_num') == group_num and
+                    entry.get('layer_num') == layer_num and
+                    entry.get('full_name', '').startswith('Le_')):
+                geom = entry.get('geometry_type', '')
+                if 'Line' in geom:
+                    sublayers['line'] = entry['full_name']
+                elif 'Polygon' in geom:
+                    sublayers['poly'] = entry['full_name']
+
+        return sublayers
+
+    # --- Clip ---
 
     def _clip_layer_by_boundaries(self, layer: QgsVectorLayer) -> QgsVectorLayer:
         """
@@ -195,18 +322,28 @@ class Fsm_1_2_3_QuickOSMLoader:
             boundary_crs = boundary_layer.crs()
             transform = None
 
+            # Определяем идентификатор CRS для логирования
+            boundary_crs_id = boundary_crs.authid() or boundary_crs.description() or "custom CRS"
+
             if layer_crs != boundary_crs:
-                log_info(f"Fsm_1_2_3: OSM CRS: {layer_crs.authid()}, Границы CRS: {boundary_crs.authid()}")
+                log_info(f"Fsm_1_2_3: OSM CRS: {layer_crs.authid()}, Границы CRS: {boundary_crs_id}")
                 transform = QgsCoordinateTransform(layer_crs, boundary_crs, QgsProject.instance())
             else:
-                log_info(f"Fsm_1_2_3: OSM и границы в одной CRS: {layer_crs.authid()}")
+                log_info(f"Fsm_1_2_3: OSM и границы в одной CRS: {boundary_crs_id}")
 
             # Создаем новый memory слой для результата (в СК границ!)
+            # Используем Multi тип: intersection() может вернуть Multi вариант
+            multi_type = QgsWkbTypes.multiType(layer.wkbType())
+            crs_param = boundary_crs.authid() if boundary_crs.authid() else ""
             clipped_layer = QgsVectorLayer(
-                f"{QgsWkbTypes.displayString(layer.wkbType())}?crs={boundary_crs.authid()}",
+                f"{QgsWkbTypes.displayString(multi_type)}?crs={crs_param}",
                 layer.name(),
                 "memory"
             )
+            # Для пользовательских МСК без EPSG кода authid() пуст —
+            # явно задаём CRS из слоя границ
+            if not boundary_crs.authid():
+                clipped_layer.setCrs(boundary_crs)
 
             clipped_provider = clipped_layer.dataProvider()
             clipped_provider.addAttributes(layer.fields())
@@ -242,14 +379,41 @@ class Fsm_1_2_3_QuickOSMLoader:
                         clipped_geom = geom.intersection(boundary_rect_geom)
 
                         if not clipped_geom.isEmpty():
+                            # intersection() может вернуть тип, отличный от входного
+                            # (например GeometryCollection при касании угла,
+                            #  или LineString при polygon edge collinear с bbox)
+                            target_geom_type = QgsWkbTypes.geometryType(layer.wkbType())
+                            result_geom_type = QgsWkbTypes.geometryType(clipped_geom.wkbType())
+
+                            if result_geom_type != target_geom_type:
+                                # Пытаемся извлечь совместимые части из GeometryCollection
+                                if clipped_geom.wkbType() == QgsWkbTypes.GeometryCollection:
+                                    parts = [
+                                        QgsGeometry(part)
+                                        for part in clipped_geom.asGeometryCollection()
+                                        if QgsWkbTypes.geometryType(part.wkbType()) == target_geom_type
+                                    ]
+                                    if not parts:
+                                        continue
+                                    clipped_geom = QgsGeometry.collectGeometry(parts)
+                                else:
+                                    # Тип полностью несовместим (Point вместо Polygon) -- пропускаем
+                                    continue
+
+                            if not clipped_geom.isMultipart():
+                                clipped_geom.convertToMultiType()
                             new_feature = QgsFeature(feature)
                             new_feature.setGeometry(clipped_geom)
                             clipped_features.append(new_feature)
                             clipped_count += 1
 
-            clipped_provider.addFeatures(clipped_features)
+            if clipped_features:
+                success, added = clipped_provider.addFeatures(clipped_features)
+                if not success:
+                    log_warning(f"Fsm_1_2_3: addFeatures вернул ошибку при обрезке")
 
-            log_info(f"Fsm_1_2_3: OSM обрезка: {total_features} -> {clipped_count} объектов (удалено {total_features - clipped_count})")
+            actual_count = clipped_layer.featureCount()
+            log_info(f"Fsm_1_2_3: OSM обрезка: {total_features} -> {actual_count} объектов (удалено {total_features - actual_count})")
 
             return clipped_layer
 
@@ -257,62 +421,283 @@ class Fsm_1_2_3_QuickOSMLoader:
             log_error(f"Fsm_1_2_3: Ошибка обрезки OSM слоя: {str(e)}")
             return layer
 
-    def load_osm_layer(
-        self,
-        key: str,
-        values: List[str],
-        layer_name: str,
-        extent: QgsRectangle
-    ) -> Optional[List[QgsVectorLayer]]:
-        """
-        Загрузить слой OSM через QuickOSM с автоматическим переключением серверов
+    # --- Объединение линейных сегментов ---
 
-        ВАЖНО: Может вернуть несколько слоёв, если QuickOSM вернул разные типы геометрии
-        (например Lines и MultiPolygons). Каждый тип геометрии сохраняется в отдельный слой.
+    @staticmethod
+    def _extract_tag_value(other_tags: str, tag_name: str) -> str:
+        """
+        Извлечь значение тега из hstore-строки other_tags.
+
+        Формат OGR: "surface"=>"gravel","lanes"=>"2"
 
         Args:
-            key: OSM ключ (highway, railway)
-            values: Список значений ключа
-            layer_name: Базовое имя результирующих слоёв
-            extent: Границы загрузки
+            other_tags: hstore-строка из OGR OSM driver
+            tag_name: имя тега (surface, lanes, oneway...)
 
         Returns:
-            List[QgsVectorLayer]: Список загруженных слоёв (по одному на каждый тип геометрии) или None
+            Значение тега или пустая строка если не найден
         """
-        # Lazy check - проверяем доступность QuickOSM только при первом использовании
-        if self.quickosm_available is None:
-            self.quickosm_available = self._check_quickosm_availability()
+        if not other_tags or not tag_name:
+            return ''
+        match = re.search(rf'"{re.escape(tag_name)}"\s*=>\s*"([^"]*)"', other_tags)
+        return match.group(1) if match else ''
 
-        if not self.quickosm_available:
-            log_error("Fsm_1_2_3: QuickOSM недоступен, пропускаем загрузку")
-            return None
+    @staticmethod
+    def _find_connected_components(
+        features: List[QgsFeature]
+    ) -> List[List[QgsFeature]]:
+        """
+        Поиск пространственно связных компонент (Union-Find).
 
-        # Получаем список Overpass серверов из api_manager (fallback_group: "overpass_group")
-        priority_servers = []
+        Группирует features, геометрии которых intersects() (включая touches).
+        Транзитивно: если A intersects B и B intersects C, то [A, B, C] = одна компонента.
 
-        # Получаем fallback endpoints из M_14 (обязательно должны быть в Base_api_endpoints.json)
-        assert self.api_manager is not None, "api_manager не инициализирован"
-        fallback_endpoints = self.api_manager.get_fallback_servers("overpass_group")
-        assert fallback_endpoints, "Overpass серверы не найдены в Base_api_endpoints.json (fallback_group='overpass_group')"
+        Args:
+            features: список features для группировки
 
-        priority_servers = [ep['base_url'] for ep in fallback_endpoints if 'base_url' in ep]
-        log_info(f"Fsm_1_2_3: Получены Overpass серверы из api_manager: {len(priority_servers)} серверов")
+        Returns:
+            Список групп (каждая группа = list of QgsFeature)
+        """
+        n = len(features)
+        if n <= 1:
+            return [features] if features else []
 
-        # Пробуем каждый сервер по очереди
-        for server_index, server_url in enumerate(priority_servers, 1):
-            result = self._try_load_from_server(key, values, layer_name, extent, server_url)
+        if n > 500:
+            log_warning(
+                f"Fsm_1_2_3: Большая группа connected components: {n} features. "
+                f"O(n^2) попарное сравнение может быть медленным."
+            )
 
-            if result is not None:
-                log_success(f"Fsm_1_2_3: Успешная загрузка с сервера: {server_url}")
-                return result
+        # Union-Find
+        parent = list(range(n))
 
-            # Если это не последний сервер, сообщаем что переходим к следующему
-            if server_index < len(priority_servers):
-                log_warning(f"Fsm_1_2_3: Сервер {server_url} недоступен, переключаемся на следующий...")
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
 
-        # Все серверы недоступны
-        log_error(f"Fsm_1_2_3: Не удалось загрузить '{layer_name}' ни с одного из {len(priority_servers)} серверов")
-        return None
+        def union(a: int, b: int) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        # Кэш геометрий
+        geoms = [f.geometry() for f in features]
+
+        # Попарная проверка связности
+        for i in range(n):
+            for j in range(i + 1, n):
+                # intersects() включает touches() по DE-9IM
+                if geoms[i].intersects(geoms[j]):
+                    union(i, j)
+
+        # Сборка компонент
+        components: Dict[int, List[QgsFeature]] = defaultdict(list)
+        for i in range(n):
+            components[find(i)].append(features[i])
+
+        return list(components.values())
+
+    def _merge_line_segments(
+        self,
+        layer: QgsVectorLayer,
+        key: str
+    ) -> QgsVectorLayer:
+        """
+        Объединить связанные OSM линейные сегменты.
+
+        OSM way = один сегмент. Дорога из 10 ways = 10 отрезков.
+        Метод объединяет их в MultiLineString через collectGeometry + mergeLines.
+
+        Два режима:
+        - Named features: группировка по (key_value, name)
+        - Unnamed features (name=NULL): группировка по (key_value, surface),
+          затем поиск пространственно связных компонент (Union-Find).
+          Мерджатся только touches/intersects сегменты с одинаковым surface.
+
+        Args:
+            layer: Обрезанный memory layer с OSM линиями
+            key: Имя поля OSM ключа (highway, railway)
+
+        Returns:
+            QgsVectorLayer: Новый слой с объединёнными features, или исходный при ошибке
+        """
+        try:
+            # Guard: только Line geometry
+            geom_type = QgsWkbTypes.geometryType(layer.wkbType())
+            if geom_type != Qgis.GeometryType.Line:
+                return layer
+
+            initial_count = layer.featureCount()
+            if initial_count == 0:
+                return layer
+
+            # Guard: проверяем наличие поля key
+            fields = layer.fields()
+            key_idx = fields.indexOf(key)
+            name_idx = fields.indexOf('name')
+
+            if key_idx == -1:
+                log_warning(f"Fsm_1_2_3: Поле '{key}' не найдено в слое, пропуск merge")
+                return layer
+
+            # --- Группировка features ---
+            groups: Dict[Tuple[str, str], List[QgsFeature]] = defaultdict(list)
+            unnamed_features: List[QgsFeature] = []
+
+            for feature in layer.getFeatures():
+                key_value = feature.attribute(key)
+                name_value = feature.attribute('name') if name_idx >= 0 else None
+
+                # Объединяем только features С именем
+                if name_value and str(name_value).strip():
+                    group_key = (str(key_value or ''), str(name_value).strip())
+                    groups[group_key].append(feature)
+                else:
+                    unnamed_features.append(feature)
+
+            # --- Создаём output layer ---
+            multi_type = QgsWkbTypes.multiType(layer.wkbType())
+            crs = layer.crs()
+            crs_param = crs.authid() if crs.authid() else ""
+            merged_layer = QgsVectorLayer(
+                f"{QgsWkbTypes.displayString(multi_type)}?crs={crs_param}",
+                layer.name(),
+                "memory"
+            )
+            if not crs.authid():
+                merged_layer.setCrs(crs)
+
+            provider = merged_layer.dataProvider()
+            provider.addAttributes(fields)
+            merged_layer.updateFields()
+
+            result_features: List[QgsFeature] = []
+            merged_groups_count = 0
+
+            # --- Named groups: merge ---
+            for (kv, nm), group_features in groups.items():
+                if len(group_features) == 1:
+                    # Одиночный feature -- просто копируем
+                    feat = QgsFeature(fields)
+                    geom = QgsGeometry(group_features[0].geometry())
+                    if not geom.isMultipart():
+                        geom.convertToMultiType()
+                    feat.setGeometry(geom)
+                    feat.setAttributes(group_features[0].attributes())
+                    result_features.append(feat)
+                else:
+                    # Несколько features: collectGeometry + mergeLines
+                    geoms = [QgsGeometry(f.geometry()) for f in group_features]
+                    collected = QgsGeometry.collectGeometry(geoms)
+                    merged_geom = collected.mergeLines()
+
+                    if merged_geom.isEmpty():
+                        # Fallback: оставляем collected
+                        merged_geom = collected
+
+                    if not merged_geom.isMultipart():
+                        merged_geom.convertToMultiType()
+
+                    # Атрибуты от первого feature в группе
+                    feat = QgsFeature(fields)
+                    feat.setGeometry(merged_geom)
+                    feat.setAttributes(group_features[0].attributes())
+
+                    # osm_id от одного из N way-ов вводит в заблуждение --
+                    # лучше NULL чем произвольный ID одного сегмента
+                    osm_id_idx = fields.indexOf('osm_id')
+                    if osm_id_idx >= 0:
+                        feat.setAttribute(osm_id_idx, None)
+
+                    result_features.append(feat)
+                    merged_groups_count += 1
+
+            # --- Unnamed features: merge spatially connected with same (key, surface) ---
+            other_tags_idx = fields.indexOf('other_tags')
+            unnamed_groups: Dict[Tuple[str, str], List[QgsFeature]] = defaultdict(list)
+
+            for uf in unnamed_features:
+                kv = str(uf.attribute(key) or '')
+                other = str(uf.attribute('other_tags') or '') if other_tags_idx >= 0 else ''
+                surface = self._extract_tag_value(other, 'surface')
+                unnamed_groups[(kv, surface)].append(uf)
+
+            unnamed_merged_count = 0
+
+            for (kv, surf), group_feats in unnamed_groups.items():
+                if len(group_feats) == 1:
+                    # Одиночный -- копировать as-is
+                    feat = QgsFeature(fields)
+                    geom = QgsGeometry(group_feats[0].geometry())
+                    if not geom.isMultipart():
+                        geom.convertToMultiType()
+                    feat.setGeometry(geom)
+                    feat.setAttributes(group_feats[0].attributes())
+                    result_features.append(feat)
+                    continue
+
+                # Несколько features с одинаковым (key, surface):
+                # найти пространственно связные компоненты
+                components = self._find_connected_components(group_feats)
+
+                for component in components:
+                    if len(component) == 1:
+                        feat = QgsFeature(fields)
+                        geom = QgsGeometry(component[0].geometry())
+                        if not geom.isMultipart():
+                            geom.convertToMultiType()
+                        feat.setGeometry(geom)
+                        feat.setAttributes(component[0].attributes())
+                        result_features.append(feat)
+                    else:
+                        # collectGeometry + mergeLines
+                        geoms = [QgsGeometry(f.geometry()) for f in component]
+                        collected = QgsGeometry.collectGeometry(geoms)
+                        merged_geom = collected.mergeLines()
+
+                        if merged_geom.isEmpty():
+                            merged_geom = collected
+
+                        if not merged_geom.isMultipart():
+                            merged_geom.convertToMultiType()
+
+                        # Атрибуты от самого длинного feature в компоненте
+                        longest = max(component, key=lambda f: f.geometry().length())
+                        feat = QgsFeature(fields)
+                        feat.setGeometry(merged_geom)
+                        feat.setAttributes(longest.attributes())
+
+                        osm_id_idx = fields.indexOf('osm_id')
+                        if osm_id_idx >= 0:
+                            feat.setAttribute(osm_id_idx, None)
+
+                        result_features.append(feat)
+                        unnamed_merged_count += 1
+
+            # --- Сохраняем результат ---
+            if result_features:
+                success, added = provider.addFeatures(result_features)
+                if not success:
+                    log_warning("Fsm_1_2_3: addFeatures вернул ошибку при merge")
+                    return layer
+
+            final_count = merged_layer.featureCount()
+            log_info(
+                f"Fsm_1_2_3: Line merge: {initial_count} -> {final_count} "
+                f"({merged_groups_count} named merged, "
+                f"{unnamed_merged_count} unnamed merged, "
+                f"{len(unnamed_features)} unnamed total)"
+            )
+
+            return merged_layer
+
+        except Exception as e:
+            log_error(f"Fsm_1_2_3: Ошибка merge линейных сегментов: {str(e)}")
+            return layer
+
+    # --- Загрузка с серверов и объединение слоёв ---
 
     def _try_load_from_server(
         self,
@@ -323,7 +708,7 @@ class Fsm_1_2_3_QuickOSMLoader:
         server_url: str
     ) -> Optional[List[QgsVectorLayer]]:
         """
-        Попытка загрузки OSM слоя с конкретного сервера
+        Попытка загрузки OSM слоя с конкретного сервера через Overpass API + OGR.
 
         Args:
             key: OSM ключ (highway, railway)
@@ -333,136 +718,74 @@ class Fsm_1_2_3_QuickOSMLoader:
             server_url: URL Overpass API сервера
 
         Returns:
-            QgsVectorLayer или None при ошибке
+            List[QgsVectorLayer] или None при ошибке сервера
         """
-
+        osm_file = None
         try:
-            from QuickOSM.core.process import process_quick_query
-            from QuickOSM.definitions.osm import OsmType, QueryType, LayerType
-            from QuickOSM.definitions.format import Format
-            from QuickOSM.core.utilities.tools import set_setting
-
-            # Устанавливаем текущий сервер Overpass API
-            set_setting('defaultOAPI', server_url)
-
-            # Трансформируем extent в WGS84 для QuickOSM
+            # 1. Трансформируем extent в WGS84
             extent_wgs84 = self._transform_extent_to_wgs84(extent)
+            if extent_wgs84 is None:
+                log_error("Fsm_1_2_3: Не удалось трансформировать extent в WGS84, загрузка отменена")
+                return None
 
-            # Формируем значение для QuickOSM (через '|' для OR запроса)
-            value_query = '|'.join(values)
+            # 2. Генерируем OQL запрос
+            query = self._build_overpass_query(extent_wgs84, key, values)
+            log_info(f"Fsm_1_2_3: Загрузка '{key}' с {server_url}")
 
-            # Загружаем только lines и multilinestrings (без points)
-            output_geom_types = [LayerType.Lines, LayerType.Multilinestrings]
+            # 3. Скачиваем данные
+            osm_file = self._download_osm_data(query, server_url)
 
-            # Также разрешаем polygon/multipolygon на случай если OSM вернет их
-            output_geom_types.extend([LayerType.Multipolygons])
+            # 4. Загружаем через OGR
+            layers = self._load_osm_via_ogr(osm_file, layer_name)
 
-            # Вызываем QuickOSM для загрузки данных
-            # process_quick_query требует dialog с атрибутом feedback_process
-            # Создаем минимальный mock-объект для этого
-            class MockIface:
-                """Mock для iface с методом addCustomActionForLayer"""
-                def addCustomActionForLayer(self, action, layer):
-                    """Заглушка - не добавляем custom actions"""
-                    pass
-
-            class MockDialog:
-                def __init__(self):
-                    self.feedback_process = QgsFeedback()
-                    self.iface = MockIface()  # QuickOSM требует iface для custom actions
-                    self.reload_action = None  # Заглушка для reload action
-
-                def set_progress_text(self, text):
-                    """Заглушка для отображения прогресса"""
-                    log_info(f"QuickOSM: {text}")
-
-                def set_progress_percentage(self, percentage):
-                    """Заглушка для отображения процента прогресса"""
-                    if percentage % 10 == 0:  # Логируем каждые 10%
-                        log_info(f"QuickOSM: {percentage}%")
-
-            mock_dialog = MockDialog()
-
-            # Загружаем ВСЕ объекты с ключом (highway/railway)
-            # Фильтрацию по значениям применим после загрузки
-            num_layers = process_quick_query(
-                dialog=mock_dialog,  # Mock-объект с feedback_process
-                query_type=QueryType.BBox,  # BBox для запроса по extent
-                key=key,
-                value='',  # Пустое значение = все объекты с ключом
-                bbox=extent_wgs84,
-                osm_objects=[OsmType.Way, OsmType.Relation],  # Way для линий, Relation для сложных объектов
-                output_directory=None,  # Загружаем в память
-                output_format=None,  # Memory layer
-                layer_name=layer_name,
-                output_geometry_types=output_geom_types
-            )
-
-            # QuickOSM создаёт слои с суффиксами типа геометрии: "name lines", "name multilinestrings"
-            # Ищем все слои, которые начинаются с нашего имени
-            all_layers = QgsProject.instance().mapLayers().values()
-            loaded_layers = [
-                layer for layer in all_layers
-                if layer.name().startswith(layer_name)
-            ]
-
-            # ВАЖНО: Если QuickOSM вернул 0 слоёв, это УСПЕШНЫЙ результат (просто нет данных в этой области)
-            # Это НЕ ошибка сервера! Не нужно переключаться на другой сервер.
-            # Возвращаем специальное значение "пустой успех" - создаём пустой memory layer
-            if not loaded_layers:
+            # Если нет данных в области -- это нормально, не ошибка сервера
+            if not layers:
                 log_info(f"Fsm_1_2_3: Слой '{layer_name}' не содержит данных в указанной области (это нормально)")
-                # Создаём пустой memory layer для обозначения "успешной загрузки без данных"
-                from qgis.core import QgsVectorLayer, QgsWkbTypes
                 empty_layer = QgsVectorLayer("LineString?crs=EPSG:4326", layer_name, "memory")
-                empty_layer.setCustomProperty("osm_no_data", True)  # Маркер "нет данных"
+                empty_layer.setCustomProperty("osm_no_data", True)
                 return [empty_layer]
 
-            # QuickOSM может вернуть несколько слоев (lines, multilinestrings, multipolygons)
-            # ВСЕГДА объединяем их, группируя по типам геометрии (это также переименовывает слои)
-            combined_layers = self._combine_osm_layers(loaded_layers, layer_name)
-
-            # Удаляем исходные слои из проекта
-            for layer in loaded_layers:
-                QgsProject.instance().removeMapLayer(layer.id())
-
-            # Возвращаем список объединённых слоёв (может быть несколько типов геометрии)
-            return combined_layers
+            return layers
 
         except Exception as e:
             error_msg = str(e)
 
-            # Проверяем, является ли это сетевой ошибкой Overpass API
-            if "Gateway Timeout" in error_msg or "NetWorkErrorException" in error_msg:
-                log_warning(f"Fsm_1_2_3: Временная проблема с Overpass API для '{layer_name}': {error_msg}")
-                log_warning("Fsm_1_2_3: Попробуйте запустить загрузку позже")
+            # Сетевые ошибки -- пробуем следующий сервер
+            if any(kw in error_msg for kw in ("timeout", "Timeout", "ConnectionError", "Connection")):
+                log_warning(f"Fsm_1_2_3: Сервер {server_url} недоступен: {error_msg}")
             else:
-                log_error(f"Fsm_1_2_3: Ошибка загрузки OSM слоя '{layer_name}': {error_msg}")
+                log_error(f"Fsm_1_2_3: Ошибка загрузки OSM '{layer_name}' с {server_url}: {error_msg}")
 
             return None
+
+        finally:
+            if osm_file:
+                self._cleanup_osm_file(osm_file)
 
     def _combine_osm_layers(
         self,
         layers: List[QgsVectorLayer],
-        combined_name: str
+        combined_name: str,
+        sublayer_map: Optional[Dict[str, str]] = None
     ) -> List[QgsVectorLayer]:
         """
-        Объединить несколько OSM слоев, группируя по типам геометрии
+        Объединить несколько OSM слоев, группируя по типам геометрии.
 
-        ВАЖНО: QuickOSM может вернуть разные типы геометрии (Lines, MultiPolygons и т.д.)
-        для одного запроса. Нельзя смешивать разные типы в одном слое, поэтому
-        создаем отдельный слой для каждого типа геометрии.
+        OGR возвращает lines, multilinestrings, multipolygons как отдельные слои.
+        Группируем по типу геометрии (Line/Polygon) и переименовываем через sublayer_map.
 
         Args:
             layers: Список слоев для объединения
             combined_name: Базовое имя результирующих слоёв
+            sublayer_map: Маппинг геометрии к имени sublayer
+                          {'line': 'Le_1_4_1_1_OSM_АД_line', 'poly': 'Le_1_4_1_2_OSM_АД_poly'}
 
         Returns:
             List[QgsVectorLayer]: Список объединённых слоёв (по одному на каждый тип геометрии)
         """
         try:
             # Группируем слои по типу геометрии
-            from collections import defaultdict
-            layers_by_geom_type = defaultdict(list)
+            layers_by_geom_type: Dict[int, List[QgsVectorLayer]] = defaultdict(list)
 
             for layer in layers:
                 if layer.featureCount() > 0:
@@ -483,39 +806,31 @@ class Fsm_1_2_3_QuickOSMLoader:
                 crs = base_layer.crs()
                 geom_type_name = QgsWkbTypes.displayString(base_layer.wkbType())
 
-                # ВАЖНО: ВСЕГДА формируем имя с суффиксом типа геометрии
-                # Используем формат Base_layers.json: Le_1_4_1_1_OSM_АД_line, Le_1_4_1_2_OSM_АД_poly
-                # Маппинг типов геометрии на суффиксы в Base_layers.json
-                if geom_type == QgsWkbTypes.LineGeometry:
+                # Маппинг типов геометрии на суффиксы
+                if geom_type == Qgis.GeometryType.Line:
                     geom_suffix = "line"
-                elif geom_type == QgsWkbTypes.PolygonGeometry:
+                elif geom_type == Qgis.GeometryType.Polygon:
                     geom_suffix = "poly"
-                elif geom_type == QgsWkbTypes.PointGeometry:
+                elif geom_type == Qgis.GeometryType.Point:
                     geom_suffix = "point"
                 else:
                     geom_suffix = geom_type_str.lower()
 
-                # Преобразуем L_1_4_1_OSM_АД в Le_1_4_1_X_OSM_АД_suffix
-                # L_1_4_1_OSM_АД -> Le_1_4_1_1_OSM_АД_line, Le_1_4_1_2_OSM_АД_poly
-                if combined_name == 'L_1_4_1_OSM_АД':
-                    if geom_suffix == "line":
-                        layer_name = "Le_1_4_1_1_OSM_АД_line"
-                    else:  # poly
-                        layer_name = "Le_1_4_1_2_OSM_АД_poly"
-                elif combined_name == 'L_1_4_2_OSM_ЖД':
-                    if geom_suffix == "line":
-                        layer_name = "Le_1_4_2_1_OSM_ЖД_line"
-                    else:  # poly
-                        layer_name = "Le_1_4_2_2_OSM_ЖД_poly"
+                # Data-driven: имя из sublayer_map (Base_layers.json)
+                if sublayer_map and geom_suffix in sublayer_map:
+                    layer_name = sublayer_map[geom_suffix]
                 else:
                     layer_name = f"{combined_name}_{geom_suffix}"
 
                 # Создаём memory layer для этого типа геометрии
+                crs_param = crs.authid() if crs.authid() else ""
                 combined_layer = QgsVectorLayer(
-                    f"{geom_type_name}?crs={crs.authid()}",
+                    f"{geom_type_name}?crs={crs_param}",
                     layer_name,
                     "memory"
                 )
+                if not crs.authid():
+                    combined_layer.setCrs(crs)
 
                 # Копируем структуру полей из базового слоя
                 combined_layer.dataProvider().addAttributes(base_layer.fields())
@@ -557,7 +872,7 @@ class Fsm_1_2_3_QuickOSMLoader:
                         if success:
                             total_features += len(fixed_features)
                         else:
-                            log_error(f"Fsm_1_2_3: ОШИБКА: Не удалось добавить {len(fixed_features)} объектов")
+                            log_error(f"Fsm_1_2_3: Не удалось добавить {len(fixed_features)} объектов")
 
                 # Фиксируем изменения
                 commit_result = combined_layer.commitChanges()
@@ -575,6 +890,8 @@ class Fsm_1_2_3_QuickOSMLoader:
             log_error(f"Fsm_1_2_3: Ошибка объединения OSM слоёв: {str(e)}")
             # Возвращаем первый слой как fallback
             return [layers[0]]
+
+    # --- Filter (safety net) ---
 
     def _filter_osm_layer(
         self,
@@ -635,6 +952,8 @@ class Fsm_1_2_3_QuickOSMLoader:
                 layer.rollBack()
             return layer
 
+    # --- Сохранение в GPKG ---
+
     def save_layer_to_gpkg(
         self,
         layer: QgsVectorLayer,
@@ -661,7 +980,7 @@ class Fsm_1_2_3_QuickOSMLoader:
                 return True  # Это успех, просто нет данных
 
             if layer.featureCount() == 0:
-                log_warning(f"Fsm_1_2_3: Слой '{layer_name}' пустой, пропускаем сохранение")
+                log_info(f"Fsm_1_2_3: Слой '{layer_name}' пустой, пропускаем сохранение")
                 return False
 
             # ФИЛЬТРАЦИЯ ПО 'name' ОТКЛЮЧЕНА: Сохраняем все объекты OSM независимо от наличия имени
@@ -689,7 +1008,7 @@ class Fsm_1_2_3_QuickOSMLoader:
                 if not gpkg_path:
                     project_path = project.homePath()
                     if project_path:
-                        structure_manager = get_project_structure_manager()
+                        structure_manager = registry.get('M_19')
                         structure_manager.project_root = project_path
                         gpkg_path = structure_manager.get_gpkg_path(create=False)
                         log_info(f"Fsm_1_2_3: Получен путь через M_19: {gpkg_path}")
@@ -755,75 +1074,279 @@ class Fsm_1_2_3_QuickOSMLoader:
             log_error(f"Fsm_1_2_3: Ошибка сохранения слоя '{layer_name}' в GPKG: {str(e)}")
             return False
 
+    def save_layer_to_gpkg_only(
+        self,
+        layer: QgsVectorLayer,
+        layer_name: str,
+        gpkg_path: str
+    ) -> bool:
+        """
+        Сохранить слой в GeoPackage (только запись, без добавления в проект).
+
+        Thread-safe: не вызывает addMapLayer / LayerManager.
+        Используется из background thread (Fsm_1_2_10).
+
+        Args:
+            layer: Слой для сохранения
+            layer_name: Имя слоя в GPKG
+            gpkg_path: Путь к GeoPackage файлу
+
+        Returns:
+            bool: True если успешно
+        """
+        try:
+            if not layer or not layer.isValid():
+                log_error(f"Fsm_1_2_3: Невалидный слой для сохранения: {layer_name}")
+                return False
+
+            # Маркер "нет данных в области" -- пропускаем, это не ошибка
+            if layer.customProperty("osm_no_data"):
+                log_info(f"Fsm_1_2_3: Слой '{layer_name}' не содержит данных (это нормально), пропускаем сохранение")
+                return True
+
+            if layer.featureCount() == 0:
+                log_info(f"Fsm_1_2_3: Слой '{layer_name}' пустой, пропускаем сохранение")
+                return False
+
+            log_info(f"Fsm_1_2_3: Сохранение OSM слоя '{layer_name}' в GPKG: {layer.featureCount()} объектов")
+
+            from qgis.core import QgsVectorFileWriter
+
+            options = QgsVectorFileWriter.SaveVectorOptions()
+            options.driverName = "GPKG"
+            options.layerName = layer_name
+            options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+
+            error = QgsVectorFileWriter.writeAsVectorFormatV3(
+                layer,
+                gpkg_path,
+                QgsProject.instance().transformContext(),
+                options
+            )
+
+            if error[0] != QgsVectorFileWriter.NoError:
+                log_error(f"Fsm_1_2_3: Ошибка записи в GeoPackage: {error}")
+                return False
+
+            log_info(f"Fsm_1_2_3: Слой '{layer_name}' записан в GeoPackage")
+            return True
+
+        except Exception as e:
+            log_error(f"Fsm_1_2_3: Ошибка записи слоя '{layer_name}' в GPKG: {str(e)}")
+            return False
+
+    # --- Публичный API ---
+
+    def load_osm_layer(
+        self,
+        key: str,
+        values: List[str],
+        layer_name: str,
+        sublayer_map: Dict[str, str],
+        extent: QgsRectangle,
+        server_urls: List[str]
+    ) -> Optional[List[QgsVectorLayer]]:
+        """
+        Загрузить слой OSM с автоматическим переключением серверов.
+
+        Args:
+            key: OSM ключ (highway, railway, waterway)
+            values: Список значений ключа (пустой = все объекты с ключом)
+            layer_name: Базовое имя результирующих слоёв
+            sublayer_map: Маппинг геометрии к имени sublayer из Base_layers.json
+            extent: Границы загрузки
+            server_urls: Список URL Overpass серверов (по приоритету)
+
+        Returns:
+            List[QgsVectorLayer]: Список загруженных слоёв или None
+        """
+        log_info(f"Fsm_1_2_3: Загрузка OSM '{key}' ({layer_name}), серверов: {len(server_urls)}")
+
+        # Пробуем каждый сервер по очереди
+        for server_index, server_url in enumerate(server_urls, 1):
+            result = self._try_load_from_server(key, values, layer_name, extent, server_url)
+
+            if result is not None:
+                log_success(f"Fsm_1_2_3: Успешная загрузка с сервера: {server_url}")
+
+                # Если osm_no_data — возвращаем как есть (нет данных в области)
+                if result and result[0].customProperty("osm_no_data"):
+                    return result
+
+                # Объединяем OGR слои по типу геометрии и переименовываем
+                return self._combine_osm_layers(result, layer_name, sublayer_map)
+
+            # Если это не последний сервер, сообщаем что переходим к следующему
+            if server_index < len(server_urls):
+                log_warning(f"Fsm_1_2_3: Сервер {server_url} недоступен, переключаемся на следующий...")
+
+        # Все серверы недоступны
+        log_error(f"Fsm_1_2_3: Не удалось загрузить '{layer_name}' ни с одного из {len(server_urls)} серверов")
+        return None
+
     def load_all_osm_layers(self) -> Tuple[bool, int]:
         """
-        Загрузить все OSM слои (highway и railway)
+        Загрузить все OSM слои (data-driven из Base_api_endpoints.json).
 
         Returns:
             Tuple[bool, int]: (успех, количество загруженных слоёв)
         """
-        # Lazy check - проверяем доступность QuickOSM только при первом использовании
-        if self.quickosm_available is None:
-            self.quickosm_available = self._check_quickosm_availability()
-
-        if not self.quickosm_available:
-            log_error("Fsm_1_2_3: QuickOSM недоступен, загрузка невозможна")
-            return False, 0
-
         # Получаем границы загрузки
         extent = self.get_boundary_extent()
         if not extent:
             log_error("Fsm_1_2_3: Не удалось получить границы для загрузки")
             return False, 0
 
+        # 1. Получить все primary OVERPASS endpoints из Base_api_endpoints.json
+        assert self.api_manager is not None, "Fsm_1_2_3: api_manager не инициализирован"
+        overpass_endpoints = self.api_manager.get_endpoints_by_group("OVERPASS")
+
+        if not overpass_endpoints:
+            log_error("Fsm_1_2_3: OVERPASS endpoints не найдены в Base_api_endpoints.json")
+            return False, 0
+
+        # 2. Получить fallback серверы (дедупликация URL)
+        fallback_servers = self.api_manager.get_fallback_servers("overpass_group")
+        if not fallback_servers:
+            log_error("Fsm_1_2_3: Overpass серверы не найдены (fallback_group='overpass_group')")
+            return False, 0
+
+        seen: set = set()
+        server_urls: List[str] = []
+        for ep in fallback_servers:
+            url = ep['base_url']
+            if url not in seen:
+                seen.add(url)
+                server_urls.append(url)
+
+        log_info(f"Fsm_1_2_3: Найдено {len(overpass_endpoints)} OSM endpoint(ов), {len(server_urls)} сервер(ов)")
+
         loaded_count = 0
 
-        # Загружаем highway слой (L_1_4_1_OSM_АД)
+        for ep in overpass_endpoints:
+            key = ep['category_id']
+            values_str = ep.get('osm_values', '')
+            values = [v for v in values_str.split(';') if v] if values_str else []
+            layer_name = ep['layer_name']
 
-        highway_layers = self.load_osm_layer(
-            key='highway',
-            values=self.HIGHWAY_VALUES,
-            layer_name='L_1_4_1_OSM_АД',
-            extent=extent
-        )
+            # Найти sublayer имена в Base_layers.json
+            sublayer_map = self._find_sublayers_in_base(layer_name)
 
-        if highway_layers:
-            # Обрабатываем каждый слой (может быть несколько типов геометрии)
-            for idx, layer in enumerate(highway_layers):
-                # Обрезаем слой по границам L_1_1_2
-                clipped_layer = self._clip_layer_by_boundaries(layer)
+            layers = self.load_osm_layer(
+                key=key,
+                values=values,
+                layer_name=layer_name,
+                sublayer_map=sublayer_map,
+                extent=extent,
+                server_urls=server_urls
+            )
 
-                # ВАЖНО: Всегда используем имя с суффиксом из layer.name()
-                # Имя уже сформировано в _combine_osm_layers: Le_1_4_1_1_OSM_АД_line или Le_1_4_1_2_OSM_АД_poly
-                save_name = layer.name()
+            if layers:
+                for layer in layers:
+                    # Обрезаем слой по границам L_1_1_3
+                    clipped_layer = self._clip_layer_by_boundaries(layer)
 
-                if self.save_layer_to_gpkg(clipped_layer, save_name):
-                    loaded_count += 1
+                    # Объединяем связанные линейные сегменты с одинаковым именем
+                    clipped_layer = self._merge_line_segments(clipped_layer, key)
 
-        # Загружаем railway слой (L_1_4_2_OSM_ЖД)
-        railway_layers = self.load_osm_layer(
-            key='railway',
-            values=self.RAILWAY_VALUES,
-            layer_name='L_1_4_2_OSM_ЖД',
-            extent=extent
-        )
+                    # Имя уже сформировано в _combine_osm_layers через sublayer_map
+                    save_name = layer.name()
 
-        if railway_layers:
-            # Обрабатываем каждый слой (может быть несколько типов геометрии)
-            for idx, layer in enumerate(railway_layers):
-                # Обрезаем слой по границам L_1_1_2
-                clipped_layer = self._clip_layer_by_boundaries(layer)
-
-                # ВАЖНО: Всегда используем имя с суффиксом из layer.name()
-                # Имя уже сформировано в _combine_osm_layers: Le_1_4_2_1_OSM_ЖД_line или Le_1_4_2_2_OSM_ЖД_poly
-                save_name = layer.name()
-
-                if self.save_layer_to_gpkg(clipped_layer, save_name):
-                    loaded_count += 1
+                    if self.save_layer_to_gpkg(clipped_layer, save_name):
+                        loaded_count += 1
 
         if loaded_count > 0:
-            log_success(f"Fsm_1_2_3: Загрузка OSM завершена успешно: {loaded_count} слоя(ёв)")
+            log_success(f"Fsm_1_2_3: Загрузка OSM завершена: {loaded_count} слоя(ёв)")
         else:
             log_warning("Fsm_1_2_3: Загрузка OSM завершена: слои не загружены")
 
         return loaded_count > 0, loaded_count
+
+    def load_all_osm_layers_bg(self, gpkg_path: str) -> Tuple[int, List[str]]:
+        """
+        Загрузить все OSM слои в background thread (без добавления в проект).
+
+        Аналог load_all_osm_layers(), но:
+        - Сохраняет в GPKG через save_layer_to_gpkg_only() (thread-safe)
+        - НЕ вызывает LayerManager.add_layer() / addMapLayer()
+        - Возвращает список имён слоёв для добавления в main thread
+
+        Args:
+            gpkg_path: Путь к GeoPackage файлу
+
+        Returns:
+            Tuple[int, List[str]]: (количество загруженных, список имён слоёв)
+        """
+        loaded_layer_names: List[str] = []
+
+        # Получаем границы загрузки
+        extent = self.get_boundary_extent()
+        if not extent:
+            log_error("Fsm_1_2_3: Не удалось получить границы для загрузки")
+            return 0, []
+
+        # 1. Получить все primary OVERPASS endpoints
+        assert self.api_manager is not None, "Fsm_1_2_3: api_manager не инициализирован"
+        overpass_endpoints = self.api_manager.get_endpoints_by_group("OVERPASS")
+
+        if not overpass_endpoints:
+            log_error("Fsm_1_2_3: OVERPASS endpoints не найдены в Base_api_endpoints.json")
+            return 0, []
+
+        # 2. Получить fallback серверы (дедупликация URL)
+        fallback_servers = self.api_manager.get_fallback_servers("overpass_group")
+        if not fallback_servers:
+            log_error("Fsm_1_2_3: Overpass серверы не найдены (fallback_group='overpass_group')")
+            return 0, []
+
+        seen: set = set()
+        server_urls: List[str] = []
+        for ep in fallback_servers:
+            url = ep['base_url']
+            if url not in seen:
+                seen.add(url)
+                server_urls.append(url)
+
+        log_info(f"Fsm_1_2_3: [BG] Найдено {len(overpass_endpoints)} OSM endpoint(ов), {len(server_urls)} сервер(ов)")
+
+        loaded_count = 0
+
+        for ep in overpass_endpoints:
+            key = ep['category_id']
+            values_str = ep.get('osm_values', '')
+            values = [v for v in values_str.split(';') if v] if values_str else []
+            layer_name = ep['layer_name']
+
+            # Найти sublayer имена в Base_layers.json
+            sublayer_map = self._find_sublayers_in_base(layer_name)
+
+            layers = self.load_osm_layer(
+                key=key,
+                values=values,
+                layer_name=layer_name,
+                sublayer_map=sublayer_map,
+                extent=extent,
+                server_urls=server_urls
+            )
+
+            if layers:
+                for layer in layers:
+                    # Обрезаем слой по границам L_1_1_3
+                    clipped_layer = self._clip_layer_by_boundaries(layer)
+
+                    # Объединяем связанные линейные сегменты с одинаковым именем
+                    clipped_layer = self._merge_line_segments(clipped_layer, key)
+
+                    # Имя уже сформировано в _combine_osm_layers через sublayer_map
+                    save_name = layer.name()
+
+                    if self.save_layer_to_gpkg_only(clipped_layer, save_name, gpkg_path):
+                        loaded_layer_names.append(save_name)
+                        loaded_count += 1
+
+        if loaded_count > 0:
+            log_success(f"Fsm_1_2_3: [BG] Загрузка OSM завершена: {loaded_count} слоя(ёв)")
+        else:
+            log_warning("Fsm_1_2_3: [BG] Загрузка OSM завершена: слои не загружены")
+
+        return loaded_count, loaded_layer_names

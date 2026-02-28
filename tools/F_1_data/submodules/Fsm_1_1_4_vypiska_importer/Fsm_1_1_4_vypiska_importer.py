@@ -44,7 +44,7 @@ class Fsm_1_1_4_VypiskaImporter(BaseImporter):
         super().__init__(iface)
 
         # Инициализация FieldMappingManager для ZERO HARDCODE
-        from Daman_QGIS.managers.submodules.Msm_4_17_field_mapping_manager import FieldMappingManager
+        from Daman_QGIS.managers import FieldMappingManager
         self.field_mapper = FieldMappingManager()
 
         # Список пропущенных файлов (для автофильтрации дубликатов)
@@ -173,7 +173,13 @@ class Fsm_1_1_4_VypiskaImporter(BaseImporter):
         # Проверяем геометрии на валидность и собираем список невалидных
         for feat_data in all_features:
             geom = feat_data.get('geometry')
-            cad_number = feat_data.get('КН', feat_data.get('cad_number', 'UNKNOWN'))
+            # Для object_part используем КН_родителя:Номер_части, для остальных - КН
+            if feat_data.get('record_type') == 'object_part':
+                parent_kn = feat_data.get('КН_родителя', '')
+                part_num = feat_data.get('Номер_части', '')
+                cad_number = f"{parent_kn}:{part_num}" if parent_kn else 'UNKNOWN_PART'
+            else:
+                cad_number = feat_data.get('КН', feat_data.get('cad_number', 'UNKNOWN'))
 
             if geom and not geom.isEmpty():
                 if hasattr(geom, 'isGeosValid') and not geom.isGeosValid():
@@ -656,9 +662,9 @@ class Fsm_1_1_4_VypiskaImporter(BaseImporter):
         # Формируем итоговые значения с join через "; "
         for working_name, values in field_values.items():
             if values:
-                # Убираем дубликаты и объединяем через "; "
-                unique_values = list(dict.fromkeys(values))  # Сохраняем порядок
-                restrictions_attrs[working_name] = '; '.join(unique_values)
+                # RAW IMPORT: сохраняем ВСЕ значения в порядке XML
+                # БЕЗ дедупликации - позиционное соответствие между полями критично
+                restrictions_attrs[working_name] = '; '.join(values)
 
         return restrictions_attrs
 

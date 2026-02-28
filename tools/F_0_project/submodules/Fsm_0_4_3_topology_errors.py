@@ -7,12 +7,12 @@
 import math
 from typing import List, Dict, Any, Tuple
 from qgis.core import (
-    QgsVectorLayer, QgsGeometry,
+    Qgis, QgsVectorLayer, QgsGeometry,
     QgsPointXY, QgsSpatialIndex, QgsFeatureRequest, QgsRectangle,
     QgsWkbTypes, QgsGeometryUtils
 )
 from Daman_QGIS.utils import log_info, log_warning
-from Daman_QGIS.managers.M_6_coordinate_precision import CoordinatePrecisionManager as CPM
+from Daman_QGIS.managers import CoordinatePrecisionManager as CPM
 from Daman_QGIS.constants import COORDINATE_PRECISION
 
 class Fsm_0_4_3_TopologyErrorsChecker:
@@ -107,7 +107,7 @@ class Fsm_0_4_3_TopologyErrorsChecker:
 
                         if intersection and not intersection.isEmpty():
                             # Для полигонов берем только площадные пересечения
-                            if intersection.type() == QgsWkbTypes.PolygonGeometry:
+                            if intersection.type() == Qgis.GeometryType.Polygon:
                                 area = intersection.area()
 
                                 # Фильтрация микро-наложений (артефакты округления)
@@ -148,7 +148,7 @@ class Fsm_0_4_3_TopologyErrorsChecker:
         log_info(f"Fsm_0_4_3: Начало проверки spike углов для слоя '{layer.name()}'")
 
         # Проверяем что слой полигональный
-        if layer.geometryType() != QgsWkbTypes.PolygonGeometry:
+        if layer.geometryType() != Qgis.GeometryType.Polygon:
             log_info(f"Fsm_0_4_3: Слой '{layer.name()}' не является полигональным, проверка острых углов пропущена")
             self.spikes_found = 0
             return errors

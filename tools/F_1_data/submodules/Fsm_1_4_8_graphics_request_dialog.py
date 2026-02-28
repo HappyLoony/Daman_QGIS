@@ -92,20 +92,19 @@ class GraphicsRequestDialog(QDialog):
         layout.addWidget(basemap_group)
 
         # Примечание
-        note_label = QLabel("Примечание: Слой границ работ (L_1_1_1) добавляется автоматически\n"
-                           "Буферные слои (Le_1_1_2, Le_1_1_3) не отображаются на схеме")
+        note_label = QLabel("Примечание: Слой границ работ (L_1_1_1) добавляется автоматически")
         note_label.setWordWrap(True)
         note_label.setStyleSheet("QLabel { color: #888; font-size: 9pt; }")
         layout.addWidget(note_label)
 
         # Кнопки
         button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
-        button_box.button(QDialogButtonBox.Ok).setText("Создать схему")
-        button_box.button(QDialogButtonBox.Cancel).setText("Отмена")
+        button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Создать схему")
+        button_box.button(QDialogButtonBox.StandardButton.Cancel).setText("Отмена")
         layout.addWidget(button_box)
 
         self.setLayout(layout)
@@ -115,9 +114,8 @@ class GraphicsRequestDialog(QDialog):
 
         ВАЖНО:
         - Показываются только слои с объектами
-        - Исключаются буферные слои (Le_1_1_2, Le_1_1_3)
-        - Порядок слоёв согласно Base_layers.json
-        - Учитываются родительские слои (L_1_2_4_WFS_ОКС и др.)
+        - Показываются только слои с graphics_selectable=1 в Base_layers.json
+        - Порядок слоёв согласно Base_layers.json (order_layers)
         """
         project = QgsProject.instance()
 
@@ -132,16 +130,15 @@ class GraphicsRequestDialog(QDialog):
         all_base_layers = layer_manager.get_base_layers()
 
         # Создаём маппинг: layer_name -> (description, order)
+        # Используем поле graphics_selectable из Base_layers.json
         layer_order_map = {}
         for idx, layer_data in enumerate(all_base_layers):
             full_name = layer_data.get('full_name', '')
             description = layer_data.get('description', full_name)
 
-            # Проверяем что это векторный слой НСПД (группы L_1_2, Le_1_2)
-            if full_name.startswith('L_1_2_') or full_name.startswith('Le_1_2_'):
-                # Исключаем буферные слои и слои без легенды
-                if not full_name.startswith('Le_1_1_2') and not full_name.startswith('Le_1_1_3'):
-                    layer_order_map[full_name] = (description, idx)
+            # Проверяем что слой доступен для выбора в графике (graphics_selectable=1)
+            if layer_data.get('graphics_selectable') == 1:
+                layer_order_map[full_name] = (description, idx)
 
         # Собираем существующие слои из проекта с объектами
         available_layers = []
@@ -167,17 +164,12 @@ class GraphicsRequestDialog(QDialog):
             return
 
         # Создаём чекбоксы для каждого доступного слоя
-        default_layers = {'L_1_2_1_WFS_ЗУ', 'L_1_2_2_WFS_КК', 'Le_1_2_3_4_АТД_НП_line', 'Le_1_2_3_5_АТД_НП_poly'}  # По умолчанию включены
-        selected_count = 0
-
+        # Все слои изначально не выбраны - пользователь выбирает сам
+        # Границы работ и подложки добавляются автоматически в F_1_4
         for layer_name, description, order in available_layers:
-            checkbox = QCheckBox(f"{description} ({layer_name})")
-            checkbox.setToolTip(f"Слой: {layer_name}\nОписание: {description}")
-
-            # Устанавливаем состояние по умолчанию
-            if layer_name in default_layers and selected_count < self.MAX_LAYERS:
-                checkbox.setChecked(True)
-                selected_count += 1
+            checkbox = QCheckBox(f"{layer_name} - {description}")
+            checkbox.setToolTip(f"Слой: {layer_name}")
+            checkbox.setChecked(False)
 
             # Подключаем обработчик изменения состояния
             checkbox.stateChanged.connect(self._on_checkbox_changed)

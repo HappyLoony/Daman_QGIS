@@ -9,11 +9,11 @@
 
 from typing import List, Dict, Any, Tuple, Optional
 from qgis.core import (
-    QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY,
+    Qgis, QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY,
     QgsWkbTypes, QgsSpatialIndex, QgsRectangle
 )
 from Daman_QGIS.utils import log_info, log_warning
-from Daman_QGIS.managers.M_6_coordinate_precision import CoordinatePrecisionManager as CPM
+from Daman_QGIS.managers import CoordinatePrecisionManager as CPM
 from Daman_QGIS.constants import COORDINATE_PRECISION
 
 
@@ -51,7 +51,7 @@ class Fsm_0_4_8_LineChecker:
         log_info(f"Fsm_0_4_8: Запуск проверки линейной топологии для слоя '{layer.name()}'")
 
         # Проверяем тип геометрии
-        if layer.geometryType() != QgsWkbTypes.LineGeometry:
+        if layer.geometryType() != Qgis.GeometryType.Line:
             log_warning(f"Fsm_0_4_8: Слой '{layer.name()}' не является линейным, проверка пропущена")
             return [], [], []
 
@@ -227,7 +227,7 @@ class Fsm_0_4_8_LineChecker:
 
                         if intersection and not intersection.isEmpty():
                             # Проверяем что пересечение линейное (не точечное)
-                            if intersection.type() != QgsWkbTypes.LineGeometry:
+                            if intersection.type() != Qgis.GeometryType.Line:
                                 continue
 
                             length = intersection.length()

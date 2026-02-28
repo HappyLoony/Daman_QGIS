@@ -9,7 +9,7 @@
 """
 
 from typing import Dict, Any, Optional, Tuple
-from qgis.core import QgsFeature, QgsCoordinateTransform, QgsWkbTypes, QgsGeometry, QgsPointXY
+from qgis.core import Qgis, QgsFeature, QgsCoordinateTransform, QgsGeometry, QgsPointXY
 from ezdxf.render import mleader
 from ezdxf.render.arrows import ARROWS  # Стрелки для MULTILEADER
 from ezdxf.math import Vec2
@@ -37,7 +37,7 @@ class DxfLabelExporter:
         try:
             geom_type = geometry.type()
 
-            if geom_type == QgsWkbTypes.PointGeometry:
+            if geom_type == Qgis.GeometryType.Point:
                 # Для точек - сама точка
                 if geometry.isMultipart():
                     points = geometry.asMultiPoint()
@@ -49,7 +49,7 @@ class DxfLabelExporter:
                     point = geometry.asPoint()
                     return (point.x(), point.y())
 
-            elif geom_type == QgsWkbTypes.LineGeometry:
+            elif geom_type == Qgis.GeometryType.Line:
                 # Для линий - середина линии
                 # МИГРАЦИЯ LINESTRING → MULTILINESTRING: упрощённый паттерн
                 lines = geometry.asMultiPolyline() if geometry.isMultipart() else [geometry.asPolyline()]
@@ -61,7 +61,7 @@ class DxfLabelExporter:
                 else:
                     return None
 
-            elif geom_type == QgsWkbTypes.PolygonGeometry:
+            elif geom_type == Qgis.GeometryType.Polygon:
                 # Для полигонов - центроид
                 centroid = geometry.centroid()
                 point = centroid.asPoint()
@@ -205,7 +205,11 @@ class DxfLabelExporter:
             # Содержимое -> Стиль межстрочного интервала: "Точный", Межстрочный интервал: 1
 
             # Создаём MULTILEADER builder с использованием стиля
-            ml_builder = msp.add_multileader_mtext(style=mleader_style_name)
+            # Передаём layer через dxfattribs чтобы избежать post-build query
+            ml_builder = msp.add_multileader_mtext(
+                style=mleader_style_name,
+                dxfattribs={'layer': label_layer_name}
+            )
 
             # Настраиваем текст со стилем "GOST 2.304"
             # Текст подписи используется напрямую без MTEXT-форматирования
@@ -254,29 +258,23 @@ class DxfLabelExporter:
             # Строим MULTILEADER с указанием позиции текста
             ml_builder.build(insert=Vec2(text_position[0], text_position[1]))
 
-            # Получаем созданный MULTILEADER из последнего добавленного объекта
-            # (build() автоматически добавляет его в msp)
-            created_entities = list(msp.query('MULTILEADER'))
-            if created_entities:
-                multileader = created_entities[-1]  # Последний созданный
-                multileader.dxf.layer = label_layer_name
+            # Получаем MULTILEADER напрямую через свойство builder (O(1) вместо O(n) query)
+            multileader = ml_builder.multileader
 
-                # Настраиваем MTEXT внутри MULTILEADER
-                if hasattr(multileader, 'context') and hasattr(multileader.context, 'mtext'):
-                    mtext = multileader.context.mtext
-                    # Направление текста "По стилю" (by text style)
-                    object.__setattr__(mtext, 'flow_direction', 6)
-                    # Межстрочный интервал "Точный" (exact), а не "Минимальный" (at least)
-                    # Используем object.__setattr__() для обхода frozen dataclass
-                    object.__setattr__(mtext, 'line_spacing_style', 2)  # 1 = at least, 2 = exact
-                    # Коэффициент межстрочного интервала:
-                    # 1.0 = одинарный интервал (6.6667 единиц при высоте 4)
-                    # 2.0 = двойной интервал (13.3333 единиц при высоте 4)
-                    object.__setattr__(mtext, 'line_spacing_factor', 1.0)
+            # Настраиваем MTEXT внутри MULTILEADER
+            if hasattr(multileader, 'context') and hasattr(multileader.context, 'mtext'):
+                mtext = multileader.context.mtext
+                # Направление текста "По стилю" (by text style)
+                object.__setattr__(mtext, 'flow_direction', 6)
+                # Межстрочный интервал "Точный" (exact), а не "Минимальный" (at least)
+                # Используем object.__setattr__() для обхода frozen dataclass
+                object.__setattr__(mtext, 'line_spacing_style', 2)  # 1 = at least, 2 = exact
+                # Коэффициент межстрочного интервала:
+                # 1.0 = одинарный интервал (6.6667 единиц при высоте 4)
+                # 2.0 = двойной интервал (13.3333 единиц при высоте 4)
+                object.__setattr__(mtext, 'line_spacing_factor', 1.0)
 
-                return True
-            else:
-                return False
+            return True
 
         except Exception as e:
             log_debug(f"Не удалось экспортировать MULTILEADER: {str(e)}")
@@ -298,7 +296,7 @@ class DxfLabelExporter:
         try:
             geom_type = geometry.type()
 
-            if geom_type == QgsWkbTypes.PolygonGeometry:
+            if geom_type == Qgis.GeometryType.Polygon:
                 # Для полигонов - ближайшая вершина на границе к центроиду
                 # МИГРАЦИЯ POLYGON → MULTIPOLYGON: упрощённый паттерн
                 polygons = geometry.asMultiPolygon() if geometry.isMultipart() else [geometry.asPolygon()]

@@ -13,7 +13,7 @@ from qgis.PyQt.QtWidgets import QMessageBox
 from qgis.core import QgsProject, Qgis
 
 from Daman_QGIS.core.base_tool import BaseTool
-from Daman_QGIS.managers import LayerManager, get_reference_managers, get_async_manager, get_project_structure_manager, FolderType
+from Daman_QGIS.managers import LayerManager, get_reference_managers, registry, FolderType
 from Daman_QGIS.constants import PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION, MESSAGE_WARNING_DURATION
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
@@ -47,6 +47,7 @@ class F_1_3_BudgetSelection(BaseTool):
         # Async manager (M_17)
         self.async_manager = None
         self.temp_folder: Optional[str] = None
+        self.is_linear: bool = False
     
     def set_project_manager(self, project_manager) -> None:
         """Установка менеджера проектов"""
@@ -110,44 +111,32 @@ class F_1_3_BudgetSelection(BaseTool):
         """
         Определить папку для сохранения результатов бюджета
 
-        Использует M_19_ProjectStructureManager.
-        Fallback: создает папку "Бюджет" в корне проекта.
+        Использует M_19_ProjectStructureManager (FolderType.BUDGET).
+        Путь: 00_Предварительно/Бюджет/
 
         Returns:
             Путь к папке или None если не удалось определить
         """
         try:
-            # Используем ProjectStructureManager
-            structure_manager = get_project_structure_manager()
+            structure_manager = registry.get('M_19')
 
-            # Если менеджер не инициализирован, пробуем установить project_root
             if not structure_manager.is_active():
                 project = QgsProject.instance()
                 project_path = project.homePath()
                 if project_path:
                     structure_manager.project_root = project_path
 
-            # Получаем папку через менеджер (TABLES для ведомостей/бюджета)
-            if structure_manager.is_active():
-                output_folder = structure_manager.get_folder(FolderType.TABLES)
-                if output_folder:
-                    # Добавляем подпапку "Бюджет"
-                    budget_folder = os.path.join(output_folder, "Бюджет")
-                    log_info(f"F_1_3: Папка бюджета через M_19: {budget_folder}")
-                    return os.path.normpath(budget_folder)
-
-            # Fallback для старых проектов
-            log_warning("F_1_3: M_19 не активен, используем fallback")
-            project = QgsProject.instance()
-            project_path = project.homePath()
-
-            if not project_path:
-                log_warning("F_1_3: Проект QGIS не сохранён, не удалось определить папку")
+            if not structure_manager.is_active():
+                log_error("F_1_3: M_19 не активен, невозможно определить папку бюджета")
                 return None
 
-            # Создаём путь к папке "Бюджет" (старое название в корне)
-            output_folder = os.path.join(project_path, "Бюджет")
-            return os.path.normpath(output_folder)
+            budget_folder = structure_manager.get_folder(FolderType.BUDGET)
+            if budget_folder:
+                log_info(f"F_1_3: Папка бюджета через M_19: {budget_folder}")
+                return os.path.normpath(budget_folder)
+
+            log_error("F_1_3: M_19 не вернул путь к папке бюджета")
+            return None
 
         except Exception as e:
             log_error(f"F_1_3: Ошибка определения папки для сохранения: {str(e)}")
@@ -200,6 +189,13 @@ class F_1_3_BudgetSelection(BaseTool):
 
         log_info("F_1_3_Бюджет: Запуск через M_17 AsyncTaskManager")
 
+        # Определяем тип объекта (линейный / площадной)
+        object_type = ''
+        if self.project_manager and self.project_manager.settings:
+            object_type = getattr(self.project_manager.settings, 'object_type', '')
+        self.is_linear = 'Линейный' in str(object_type)
+        log_info(f"F_1_3: Тип объекта: '{object_type}', линейный: {self.is_linear}")
+
         # Получаем папку для результатов через M_19
         self.temp_folder = self._get_budget_folder()
         if not self.temp_folder:
@@ -219,7 +215,7 @@ class F_1_3_BudgetSelection(BaseTool):
         os.makedirs(self.temp_folder, exist_ok=True)
         # Инициализируем async manager
         if self.async_manager is None:
-            self.async_manager = get_async_manager(self.iface)
+            self.async_manager = registry.get('M_17')
 
         # Type assertion для Pylance (temp_folder установлен в run() перед вызовом)
         assert self.temp_folder is not None
@@ -230,7 +226,8 @@ class F_1_3_BudgetSelection(BaseTool):
             temp_folder=self.temp_folder,
             iface=self.iface,
             project_manager=self.project_manager,
-            layer_manager=self.layer_manager
+            layer_manager=self.layer_manager,
+            is_linear=self.is_linear
         )
 
         # Запускаем через AsyncTaskManager
@@ -252,9 +249,10 @@ class F_1_3_BudgetSelection(BaseTool):
 
         results = result.get('results', {})
         temp_folder = result.get('temp_folder', self.temp_folder)
+        is_linear = result.get('is_linear', self.is_linear)
 
         # Сохраняем результаты в txt
-        self._save_results_to_txt(results, temp_folder)
+        self._save_results_to_txt(results, temp_folder, is_linear)
 
         # Организуем слои в группы
         self._organize_layers_in_groups()
@@ -263,9 +261,10 @@ class F_1_3_BudgetSelection(BaseTool):
         results_dialog = BudgetSelectionResultsDialog(
             self.iface.mainWindow(),
             results,
-            temp_folder
+            temp_folder,
+            is_linear=is_linear
         )
-        results_dialog.exec_()
+        results_dialog.exec()
 
         log_info("F_1_3_Бюджет: Выборка для бюджета успешно завершена")
 
@@ -288,13 +287,14 @@ class F_1_3_BudgetSelection(BaseTool):
             duration=5
         )
 
-    def _save_results_to_txt(self, results: Dict[str, Any], temp_folder: str) -> None:
+    def _save_results_to_txt(self, results: Dict[str, Any], temp_folder: str,
+                             is_linear: bool = False) -> None:
         """Сохранение результатов в текстовый файл"""
 
         try:
             filename = "Выборка_для_бюджета.txt"
             filepath = os.path.join(temp_folder, filename)
-            
+
             # Форматируем список населенных пунктов
             settlements_text = ""
             if results['settlements']:
@@ -310,20 +310,19 @@ class F_1_3_BudgetSelection(BaseTool):
                     municipal_districts_text += f"   - {district}\n"
             else:
                 municipal_districts_text = "   - Нет данных\n"
-            
-            # Пересечения линий
-            road_road = results.get('road_road', 0)
-            road_railway = results.get('road_railway', 0)
-            railway_railway = results.get('railway_railway', 0)
 
             # ЗУ в лесном фонде (показываем всегда, даже если 0)
             forest_fund_count = results.get('land_plots_forest_fund', 0)
             forest_fund_text = f"   в том числе ЗУ в лесном фонде: {forest_fund_count}\n"
 
+            # Площадь границ работ
+            area_ha = results.get('boundaries_area_ha')
+            area_text = f"Площадь границ работ: {area_ha:.2f} га\n\n" if area_ha is not None else ""
+
             content = f"""=== ВЫБОРКА ДЛЯ БЮДЖЕТА ===
 Дата: {datetime.now().strftime('%Y-%m-%d')}
 
-РЕЗУЛЬТАТЫ:
+{area_text}РЕЗУЛЬТАТЫ:
 1. Кадастровые кварталы: {results['cadastral_quarters']}
 2. Земельные участки: {results['land_plots']}
 {forest_fund_text}3. Объекты капитального строительства: {results['capital_objects']}
@@ -331,7 +330,13 @@ class F_1_3_BudgetSelection(BaseTool):
 {settlements_text}5. Муниципальные образования:
 {municipal_districts_text}6. Лесные кварталы: {results['forest_quarters']}
 7. Лесоустроительные выделы: {results['forest_subdivisions']}
-8. Пересечения линий:
+"""
+            # Пересечения линий — только для линейных объектов
+            if is_linear:
+                road_road = results.get('road_road', 0)
+                road_railway = results.get('road_railway', 0)
+                railway_railway = results.get('railway_railway', 0)
+                content += f"""8. Пересечения линий:
    • АД и АД: {road_road}
    • АД и ЖД: {road_railway}
    • ЖД и ЖД: {railway_railway}

@@ -216,7 +216,7 @@ class XmlImportSubmodule(BaseImporter):
             return True
         except (ImportError, RuntimeError):
             log_error("Fsm_1_1_1: Библиотека lxml не установлена")
-            log_error("Fsm_1_1_1: Установите lxml через F_5_1 (Проверка зависимостей)")
+            log_error("Fsm_1_1_1: Установите lxml через F_4_1 (Проверка зависимостей)")
 
             from qgis.PyQt.QtWidgets import QMessageBox
             QMessageBox.critical(

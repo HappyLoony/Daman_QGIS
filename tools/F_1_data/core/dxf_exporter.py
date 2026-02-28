@@ -14,7 +14,7 @@
 
 from typing import Optional, List, Dict, Any
 import ezdxf
-from ezdxf import units
+from ezdxf import units, zoom
 from ezdxf.filemanagement import new as ezdxf_new
 import os
 
@@ -323,6 +323,9 @@ class DxfExporter(BaseExporter):
         # Очищаем неиспользуемые слои перед сохранением
         self._cleanup_unused_layers(doc)
 
+        # Устанавливаем начальный вид на все объекты (центрирование при открытии)
+        zoom.extents(msp)
+
         # Сохраняем файл
         doc.saveas(output_path)
 
@@ -405,13 +408,13 @@ class DxfExporter(BaseExporter):
         Raises:
             ValueError: Если масштаб проекта не определён в метаданных
         """
-        from Daman_QGIS.managers.M_19_project_structure_manager import get_project_structure_manager
+        from Daman_QGIS.managers import registry
 
         project_home = QgsProject.instance().homePath()
         if not project_home:
             raise ValueError("DxfExporter: Путь к проекту не определён. Сохраните проект перед экспортом.")
 
-        structure_manager = get_project_structure_manager()
+        structure_manager = registry.get('M_19')
         structure_manager.project_root = project_home
         gpkg_path = structure_manager.get_gpkg_path(create=False)
 

@@ -101,7 +101,7 @@ class ProjectSettings:
     
     # Настройки версионирования
     versioning_enabled: bool = True
-    current_version: str = "Рабочая версия"  # Папка текущей версии (M_19: FolderType.WORKING)
+    current_version: str = "01_Работа"  # Папка текущей версии (M_19: FolderType.WORKING)
     
     # Дополнительные параметры (расширяемые)
     custom_settings: Dict[str, Any] = field(default_factory=dict)

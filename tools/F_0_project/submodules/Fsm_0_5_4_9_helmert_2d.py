@@ -29,26 +29,18 @@ PROJ синтаксис:
 
 import math
 from typing import List, Tuple, Dict, Optional
-from dataclasses import dataclass
 
 from qgis.core import QgsPointXY
 
 from .Fsm_0_5_4_base_method import BaseCalculationMethod, CalculationResult
+from Daman_QGIS.core.math.helmert_2d import (
+    Helmert2DResult,
+    calculate_helmert_2d as _shared_calculate_helmert_2d,
+    transform_point as _shared_transform_point,
+    inverse_transform_point as _shared_inverse_transform_point,
+)
 from Daman_QGIS.utils import log_info, log_error, log_warning
 from Daman_QGIS.constants import ELLPS_KRASS
-
-
-@dataclass
-class Helmert2DResult:
-    """Результат 2D Helmert трансформации."""
-    dx: float  # Смещение по X (метры)
-    dy: float  # Смещение по Y (метры)
-    scale: float  # Масштаб (безразмерный, ~1.0)
-    rotation_deg: float  # Поворот (градусы)
-    rotation_arcsec: float  # Поворот (угловые секунды для PROJ)
-    rmse: float  # RMSE (метры)
-    residuals: List[float]  # Остатки для каждой точки
-    success: bool
 
 
 class Fsm_0_5_4_9_Helmert2D(BaseCalculationMethod):
@@ -181,13 +173,7 @@ class Fsm_0_5_4_9_Helmert2D(BaseCalculationMethod):
         """
         Расчёт 4 параметров 2D Helmert методом наименьших квадратов.
 
-        Модель:
-            X' = dx + a*X - b*Y
-            Y' = dy + b*X + a*Y
-
-        Где:
-            a = scale * cos(theta)
-            b = scale * sin(theta)
+        Делегирует в shared модуль core.math.helmert_2d.
 
         Parameters:
             src_points: Исходные точки [(x1,y1), (x2,y2), ...]
@@ -196,100 +182,7 @@ class Fsm_0_5_4_9_Helmert2D(BaseCalculationMethod):
         Returns:
             Helmert2DResult с параметрами трансформации
         """
-        n = len(src_points)
-
-        if n < 2:
-            return Helmert2DResult(
-                dx=0, dy=0, scale=1.0, rotation_deg=0,
-                rotation_arcsec=0, rmse=float('inf'),
-                residuals=[], success=False
-            )
-
-        # Метод наименьших квадратов для 4 параметров
-        # Система уравнений: A * [dx, dy, a, b]^T = L
-
-        # Построение матрицы коэффициентов A и вектора наблюдений L
-        # Для каждой точки: 2 уравнения
-        #   X' = dx + a*X - b*Y   =>  [1, 0, X, -Y] * [dx, dy, a, b]^T = X'
-        #   Y' = dy + b*X + a*Y   =>  [0, 1, Y,  X] * [dx, dy, a, b]^T = Y'
-
-        # Суммы для нормальных уравнений (без numpy)
-        sum_1 = n  # сумма 1
-        sum_X = sum(p[0] for p in src_points)
-        sum_Y = sum(p[1] for p in src_points)
-        sum_X2_Y2 = sum(p[0]**2 + p[1]**2 for p in src_points)
-
-        sum_Xp = sum(p[0] for p in dst_points)
-        sum_Yp = sum(p[1] for p in dst_points)
-        sum_X_Xp_Y_Yp = sum(s[0]*d[0] + s[1]*d[1] for s, d in zip(src_points, dst_points))
-        sum_X_Yp_Y_Xp = sum(s[0]*d[1] - s[1]*d[0] for s, d in zip(src_points, dst_points))
-
-        # Решение системы нормальных уравнений
-        # [n,    0,    sum_X,  -sum_Y ] [dx]   [sum_Xp]
-        # [0,    n,    sum_Y,   sum_X ] [dy] = [sum_Yp]
-        # [sum_X, sum_Y, sum_X2_Y2, 0 ] [a ]   [sum_X_Xp_Y_Yp]
-        # [-sum_Y, sum_X, 0, sum_X2_Y2] [b ]   [sum_X_Yp_Y_Xp]
-
-        # Упрощённое решение (для 2D Helmert с центрированием)
-        # Центрируем точки для численной стабильности
-        src_cx = sum_X / n
-        src_cy = sum_Y / n
-        dst_cx = sum_Xp / n
-        dst_cy = sum_Yp / n
-
-        # Центрированные суммы
-        sum_dx_dx_dy_dy = sum((s[0]-src_cx)**2 + (s[1]-src_cy)**2 for s in src_points)
-
-        if sum_dx_dx_dy_dy < 1e-10:
-            return Helmert2DResult(
-                dx=dst_cx - src_cx, dy=dst_cy - src_cy,
-                scale=1.0, rotation_deg=0, rotation_arcsec=0,
-                rmse=0.0, residuals=[0.0]*n, success=True
-            )
-
-        sum_dx_dxp_dy_dyp = sum(
-            (s[0]-src_cx)*(d[0]-dst_cx) + (s[1]-src_cy)*(d[1]-dst_cy)
-            for s, d in zip(src_points, dst_points)
-        )
-        sum_dx_dyp_dy_dxp = sum(
-            (s[0]-src_cx)*(d[1]-dst_cy) - (s[1]-src_cy)*(d[0]-dst_cx)
-            for s, d in zip(src_points, dst_points)
-        )
-
-        # Параметры a, b
-        a = sum_dx_dxp_dy_dyp / sum_dx_dx_dy_dy
-        b = sum_dx_dyp_dy_dxp / sum_dx_dx_dy_dy
-
-        # Масштаб и поворот
-        scale = math.sqrt(a**2 + b**2)
-        rotation_rad = math.atan2(b, a)
-        rotation_deg = math.degrees(rotation_rad)
-        rotation_arcsec = rotation_deg * 3600  # градусы -> угловые секунды
-
-        # Смещение (с учётом центрирования)
-        dx = dst_cx - (a * src_cx - b * src_cy)
-        dy = dst_cy - (b * src_cx + a * src_cy)
-
-        # Вычисление остатков
-        residuals = []
-        for (sx, sy), (dx_t, dy_t) in zip(src_points, dst_points):
-            tx = dx + a * sx - b * sy
-            ty = dy + b * sx + a * sy
-            residual = math.sqrt((tx - dx_t)**2 + (ty - dy_t)**2)
-            residuals.append(residual)
-
-        rmse = self._calculate_rmse(residuals)
-
-        return Helmert2DResult(
-            dx=dx,
-            dy=dy,
-            scale=scale,
-            rotation_deg=rotation_deg,
-            rotation_arcsec=rotation_arcsec,
-            rmse=rmse,
-            residuals=residuals,
-            success=True
-        )
+        return _shared_calculate_helmert_2d(src_points, dst_points)
 
     def transform_point(
         self,
@@ -299,21 +192,9 @@ class Fsm_0_5_4_9_Helmert2D(BaseCalculationMethod):
     ) -> Tuple[float, float]:
         """
         Применение 2D Helmert к одной точке.
-
-        Parameters:
-            x, y: Исходные координаты
-            params: Параметры трансформации
-
-        Returns:
-            (x', y'): Трансформированные координаты
+        Делегирует в shared модуль core.math.helmert_2d.
         """
-        a = params.scale * math.cos(math.radians(params.rotation_deg))
-        b = params.scale * math.sin(math.radians(params.rotation_deg))
-
-        x_new = params.dx + a * x - b * y
-        y_new = params.dy + b * x + a * y
-
-        return (x_new, y_new)
+        return _shared_transform_point(x, y, params)
 
     def inverse_transform_point(
         self,
@@ -323,32 +204,9 @@ class Fsm_0_5_4_9_Helmert2D(BaseCalculationMethod):
     ) -> Tuple[float, float]:
         """
         Обратная 2D Helmert трансформация.
-
-        Parameters:
-            x, y: Трансформированные координаты
-            params: Параметры трансформации
-
-        Returns:
-            (x_orig, y_orig): Исходные координаты
+        Делегирует в shared модуль core.math.helmert_2d.
         """
-        a = params.scale * math.cos(math.radians(params.rotation_deg))
-        b = params.scale * math.sin(math.radians(params.rotation_deg))
-
-        # Обратная матрица: det = a^2 + b^2 = scale^2
-        det = params.scale ** 2
-
-        if det < 1e-10:
-            return (x, y)
-
-        # Убираем смещение
-        x_shifted = x - params.dx
-        y_shifted = y - params.dy
-
-        # Обратная трансформация
-        x_orig = (a * x_shifted + b * y_shifted) / det
-        y_orig = (-b * x_shifted + a * y_shifted) / det
-
-        return (x_orig, y_orig)
+        return _shared_inverse_transform_point(x, y, params)
 
     def _to_proj_string(self, params: Helmert2DResult) -> str:
         """

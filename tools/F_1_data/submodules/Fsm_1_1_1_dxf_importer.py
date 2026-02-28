@@ -26,7 +26,7 @@ import processing
 from ..core.base_importer import BaseImporter
 from Daman_QGIS.database.schemas import ImportSettings
 from Daman_QGIS.constants import PLUGIN_NAME, MIN_POLYGON_AREA, COORDINATE_PRECISION
-from Daman_QGIS.managers.M_6_coordinate_precision import CoordinatePrecisionManager
+from Daman_QGIS.managers import CoordinatePrecisionManager
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from .Fsm_1_1_2_polygon_builder import PolygonBuilder
 
@@ -301,7 +301,7 @@ class DxfImporter(BaseImporter):
         """
         # Проверяем ezdxf
         if not self._ensure_ezdxf():
-            self.log_message("Библиотека ezdxf не установлена. Установите через F_5_1.", Qgis.Critical)
+            self.log_message("Библиотека ezdxf не установлена. Установите через F_4_1.", Qgis.Critical)
             return None
 
         # Инициализируем список созданных слоёв

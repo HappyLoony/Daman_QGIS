@@ -17,6 +17,11 @@ from typing import List, Dict, Any
 class Fsm_1_2_0_LayerConfigBuilder:
     """Построитель конфигурации слоёв F_1_2 из Base_layers.json"""
 
+    # Группы API с собственными загрузчиками (НЕ проходят через Fsm_1_2_1 intersects)
+    # Все остальные группы (EGRN_WFS, EGRN_WMTS, NSPD_MINSTROY, ...) загружаются
+    # через универсальный Fsm_1_2_1 (intersects API)
+    SKIP_API_GROUPS = {'OVERPASS', 'OVERPASS_FALLBACK', 'FGISLK', 'GOOGLE'}
+
     def __init__(self, api_manager):
         """
         Инициализация построителя конфигурации
@@ -46,9 +51,13 @@ class Fsm_1_2_0_LayerConfigBuilder:
         # Специальные маркеры для слоёв с custom загрузчиками
         # ОКС загружается через load_oks_combined (3 category: 36369, 36383, 36384)
         # ЗОУИТ загружается через load_zouit_layers (2 category: 36940, 36948)
+        # КЛ загружается через Fsm_1_2_11 (2 category: 38942, 37776)
+        # ПС загружается через Fsm_1_2_14 (2+ category: 39353, 469042)
         special_handlers = {
             'L_1_2_4_WFS_ОКС': 'oks_combined',
-            'Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ': 'zouit_layers'
+            'Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ': 'zouit_layers',
+            'Le_1_2_7_1_WFS_КЛ_Сущ': 'redline_layers',
+            'Le_1_2_6_2_WFS_ПС': 'servitude_layers',
         }
 
         # Фильтруем слои которые загружаются через F_1_2 и имеют endpoint в api_manager
@@ -89,9 +98,9 @@ class Fsm_1_2_0_LayerConfigBuilder:
             if endpoint.get('api_type') == 'raster':
                 continue
 
-            # Пропускаем non-EGRN слои (FGISLK, OVERPASS, GOOGLE) - они имеют свои loader'ы
+            # Пропускаем группы с собственными загрузчиками (OSM, ФГИС ЛК, Google)
             api_group = endpoint.get('api_group', '')
-            if api_group not in ('EGRN_WFS', 'EGRN_WMTS'):
+            if api_group in self.SKIP_API_GROUPS:
                 continue
 
             # Получаем category_id из endpoint

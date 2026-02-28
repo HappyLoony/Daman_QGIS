@@ -13,7 +13,7 @@ from qgis.PyQt.QtCore import QObject, pyqtSignal, QSettings
 
 from Daman_QGIS.managers import DataCleanupManager
 from Daman_QGIS.utils import log_info, log_warning, log_error, create_crs_from_string
-from Daman_QGIS.constants import PLUGIN_NAME
+from Daman_QGIS.constants import PLUGIN_NAME, FIXED_ZONE_REGIONS, SPECIAL_REGION_NAMES
 
 
 class BaseExporter(QObject):
@@ -84,12 +84,12 @@ class BaseExporter(QObject):
         Получение информации о системе координат проекта
 
         Returns:
-            tuple: (crs_short_name, project_crs)
+            tuple: (crs_display_name, project_crs)
         """
         # Находим GeoPackage
-        from Daman_QGIS.managers.M_19_project_structure_manager import get_project_structure_manager
+        from Daman_QGIS.managers import registry
         project_home = QgsProject.instance().homePath()
-        structure_manager = get_project_structure_manager()
+        structure_manager = registry.get('M_19')
         structure_manager.project_root = project_home
         gpkg_path = structure_manager.get_gpkg_path(create=False)
 
@@ -100,9 +100,8 @@ class BaseExporter(QObject):
         from Daman_QGIS.database.project_db import ProjectDB
         project_db = ProjectDB(gpkg_path)
 
-        # Короткое название СК
-        crs_short_name_data = project_db.get_metadata('1_4_crs_short_name')
-        crs_short_name = crs_short_name_data['value'] if crs_short_name_data else None
+        # Формируем название СК из code_region и code_zone
+        crs_display_name = self._build_crs_display_name(project_db)
 
         # Получаем СК проекта
         project_crs = None
@@ -123,7 +122,47 @@ class BaseExporter(QObject):
         if not project_crs or not project_crs.isValid():
             project_crs = QgsProject.instance().crs()
 
-        return crs_short_name, project_crs
+        return crs_display_name, project_crs
+
+    def _build_crs_display_name(self, project_db) -> Optional[str]:
+        """
+        Формирование отображаемого названия СК из метаданных проекта
+
+        Логика:
+        - Особые регионы (77, 78): МГГТ, МСК-1964
+        - Фиксированные регионы: МСК-XX (без зоны)
+        - Обычные регионы: МСК-XX зона Y
+
+        Args:
+            project_db: База данных проекта
+
+        Returns:
+            Название СК для документов или None
+        """
+        # Получаем код региона
+        code_region_data = project_db.get_metadata('1_4_1_code_region')
+        code_region = code_region_data['value'] if code_region_data else None
+
+        if not code_region:
+            return None
+
+        # Особые регионы с кастомным названием
+        if code_region in SPECIAL_REGION_NAMES:
+            return SPECIAL_REGION_NAMES[code_region]
+
+        # Фиксированные регионы - без номера зоны
+        if code_region in FIXED_ZONE_REGIONS:
+            return f"МСК-{code_region}"
+
+        # Обычные регионы - с зоной
+        code_zone_data = project_db.get_metadata('1_4_2_code_zone')
+        code_zone = code_zone_data['value'] if code_zone_data else None
+
+        if code_zone:
+            return f"МСК-{code_region} зона {code_zone}"
+        else:
+            # Регион без зоны (FIXED_ZONE_REGIONS: 77, 78 и др.)
+            return f"МСК-{code_region}"
     
     def format_filename(self, layer: QgsVectorLayer, pattern: Optional[str] = None, **kwargs) -> str:
         """
@@ -140,11 +179,8 @@ class BaseExporter(QObject):
         if pattern is None:
             pattern = self.default_params.get('filename_pattern')
 
-        # Если шаблон все еще None, используем имя слоя
-        # КРИТИЧНО: 2025-10-28 - Добавлена очистка имени через sanitize_filename()
-        # Раньше имя слоя использовалось БЕЗ ОЧИСТКИ
+        # Если шаблон None, используем имя слоя
         if not pattern:
-            # DEPRECATED: return layer.name()
             return self.data_cleanup_manager.sanitize_filename(layer.name())
 
         # Получаем информацию о СК
@@ -168,11 +204,9 @@ class BaseExporter(QObject):
             log_warning(
                 f"Ошибка форматирования имени файла: {str(e)}"
             )
-            # DEPRECATED: filename = layer.name()
             filename = self.data_cleanup_manager.sanitize_filename(layer.name())
 
-        # КРИТИЧНО: 2025-10-28 - Применяем очистку к результату форматирования
-        # Даже если pattern не содержит запрещённых символов, layer_name может содержать
+        # Применяем очистку к результату форматирования
         filename = self.data_cleanup_manager.sanitize_filename(filename)
 
         return filename

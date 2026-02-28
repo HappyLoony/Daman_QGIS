@@ -5,14 +5,19 @@ Base class for plugin tools
 from typing import Optional, Any
 import os
 from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtWidgets import QMessageBox
 from Daman_QGIS.managers import LayerCleanupManager
 from qgis.core import QgsProject, Qgis
 from Daman_QGIS.constants import MESSAGE_INFO_DURATION
-from Daman_QGIS.managers import get_project_structure_manager
-from Daman_QGIS.utils import log_error
+from Daman_QGIS.managers import registry
+from Daman_QGIS.utils import log_error, log_warning
 
 class BaseTool:
     """Базовый класс для инструментов плагина"""
+
+    # Флаг: требуется ли лицензия для этого инструмента
+    # Переопределите в False для F_4_1 (зависимости) и F_4_3 (управление лицензией)
+    requires_license = True
 
     def __init__(self, iface: Any) -> None:
         """Инициализация инструмента
@@ -32,6 +37,10 @@ class BaseTool:
         
     def run(self) -> None:
         """Запуск инструмента"""
+        # Проверка лицензии
+        if self.requires_license and not self._check_license_access():
+            return
+
         if not self.dialog:
             self.dialog = self.create_dialog()
 
@@ -41,7 +50,54 @@ class BaseTool:
         self.dialog.raise_()
         # Активировать окно
         self.dialog.activateWindow()
-        
+
+    def _check_license_access(self) -> bool:
+        """
+        Проверка доступа по лицензии.
+
+        Returns:
+            True если доступ разрешён, False если заблокирован
+        """
+        try:
+            license_manager = registry.get('M_29')
+
+            if license_manager.check_access():
+                return True
+
+            # Лицензия не активна - показываем диалог
+            log_warning("BaseTool: License check failed, access denied")
+            self._show_license_required_dialog()
+            return False
+
+        except Exception as e:
+            # FAIL-CLOSED: при ошибке проверки - блокируем доступ (OWASP Fail Securely)
+            log_error(f"BaseTool: License check error: {e}")
+            return False
+
+    def _show_license_required_dialog(self):
+        """Показать диалог о необходимости лицензии."""
+        reply = QMessageBox.warning(
+            None,
+            "Требуется лицензия",
+            "Для использования этой функции требуется активная лицензия.\n\n"
+            "Активируйте лицензию через меню:\n"
+            "Daman QGIS -> Плагин -> Управление лицензией",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Open,
+            QMessageBox.StandardButton.Open
+        )
+
+        if reply == QMessageBox.StandardButton.Open:
+            self._open_license_dialog()
+
+    def _open_license_dialog(self):
+        """Открыть диалог управления лицензией."""
+        try:
+            from Daman_QGIS.tools.F_4_plagin.F_4_3_license_management import F_4_3_LicenseManagement
+            license_tool = F_4_3_LicenseManagement(self.iface)
+            license_tool.run()
+        except Exception as e:
+            log_error(f"BaseTool: Failed to open license dialog: {e}")
+
     def create_dialog(self) -> Any:
         """Создание диалога инструмента
 
@@ -93,7 +149,7 @@ class BaseTool:
             return False
 
         # Используем M_19 для получения пути к GPKG
-        structure_manager = get_project_structure_manager()
+        structure_manager = registry.get('M_19')
         structure_manager.project_root = project_path
         gpkg_path = structure_manager.get_gpkg_path(create=False)
 

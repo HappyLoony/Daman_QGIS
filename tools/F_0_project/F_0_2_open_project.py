@@ -7,11 +7,12 @@ import os
 from typing import Dict, Any
 
 from qgis.PyQt.QtWidgets import QMessageBox, QFileDialog
+from qgis.PyQt.QtCore import QSettings, QStandardPaths
 from qgis.core import QgsProject, QgsCoordinateReferenceSystem
 
 from Daman_QGIS.core.base_tool import BaseTool
 from Daman_QGIS.utils import log_info, log_error, log_success, log_warning, create_crs_from_string
-from Daman_QGIS.managers import get_project_structure_manager
+from Daman_QGIS.managers import registry
 
 
 class F_0_2_OpenProject(BaseTool):
@@ -56,7 +57,7 @@ class F_0_2_OpenProject(BaseTool):
             if QgsProject.instance().fileName():
                 project_dir = os.path.dirname(QgsProject.instance().fileName())
                 # Используем M_19 для проверки структуры проекта
-                structure_manager = get_project_structure_manager()
+                structure_manager = registry.get('M_19')
                 structure_manager.project_root = project_dir
                 gpkg_path = structure_manager.get_gpkg_path(create=False)
                 is_plugin_project = gpkg_path is not None and os.path.exists(gpkg_path)
@@ -86,13 +87,13 @@ class F_0_2_OpenProject(BaseTool):
                     "Несохранённые изменения",
                     f"В проекте '{current_project_name}' есть несохранённые изменения.\n\n"
                     f"Сохранить изменения перед открытием нового проекта?",
-                    QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                    QMessageBox.Save
+                    QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Save
                 )
 
-                if reply == QMessageBox.Cancel:
+                if reply == QMessageBox.StandardButton.Cancel:
                     return
-                elif reply == QMessageBox.Save:
+                elif reply == QMessageBox.StandardButton.Save:
                     # Сохраняем проект
                     if not QgsProject.instance().write():
                         QMessageBox.critical(
@@ -109,10 +110,10 @@ class F_0_2_OpenProject(BaseTool):
                     None,
                     "Подтверждение",
                     f"Текущий проект '{current_project_name}' будет закрыт.\n\nПродолжить?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.Yes
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes
                 )
-                if reply == QMessageBox.No:
+                if reply == QMessageBox.StandardButton.No:
                     return
 
             # Закрываем текущий проект
@@ -123,16 +124,29 @@ class F_0_2_OpenProject(BaseTool):
                 QgsProject.instance().clear()
                 log_info(f"F_0_2: Обычный QGIS проект '{current_project_name}' закрыт")
 
+        # Начальная директория: последняя использованная или рабочий стол
+        settings = QSettings()
+        saved_dir = settings.value("Daman_QGIS/last_project_folder", "")
+        if not saved_dir or not os.path.isdir(saved_dir):
+            saved_dir = QStandardPaths.writableLocation(
+                QStandardPaths.StandardLocation.DesktopLocation
+            )
+
         # Открываем диалог выбора рабочей папки проекта
         project_path = QFileDialog.getExistingDirectory(
             None,
             "Выберите рабочую папку проекта",
-            "",
-            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+            saved_dir,
+            QFileDialog.Option.ShowDirsOnly | QFileDialog.Option.DontResolveSymlinks
         )
 
         if not project_path:
             return  # Пользователь отменил выбор
+
+        # Сохраняем родительскую директорию для следующего открытия
+        parent_dir = os.path.dirname(project_path)
+        if parent_dir and os.path.isdir(parent_dir):
+            settings.setValue("Daman_QGIS/last_project_folder", parent_dir)
 
         # Проверяем наличие project.gpkg (поддержка обеих структур)
         gpkg_path = self._find_gpkg_path(project_path)
@@ -213,7 +227,7 @@ class F_0_2_OpenProject(BaseTool):
             Путь к найденному gpkg или пустая строка
         """
         # Используем M_19 для получения пути к GPKG
-        structure_manager = get_project_structure_manager()
+        structure_manager = registry.get('M_19')
         structure_manager.project_root = project_path
         gpkg_path = structure_manager.get_gpkg_path(create=False)
 

@@ -10,12 +10,13 @@ from qgis.core import (
     QgsProject, QgsMessageLog, Qgis, QgsPrintLayout,
     QgsLayoutExporter, QgsReadWriteContext,
     QgsLayoutItemLabel, QgsLayoutItemMap, QgsLayoutItemLegend,
-    QgsRectangle
+    QgsRectangle, QgsLayoutSize, QgsVectorLayer
 )
 from Daman_QGIS.database.project_db import ProjectDB
-from Daman_QGIS.constants import PLUGIN_NAME
+from Daman_QGIS.constants import PLUGIN_NAME, EXPORT_DPI_ROSREESTR
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.title_generator import TitleGenerator
+from Daman_QGIS.managers import registry
 
 
 class LayoutManager:
@@ -35,15 +36,16 @@ class LayoutManager:
     
     def __init__(self, iface):
         """Инициализация менеджера
-        
+
         Args:
             iface: Интерфейс QGIS
         """
         self.iface = iface
         self.layout_name = None  # Храним только имя макета, не ссылку
         self._layout_ref = None  # Ссылка на layout для предотвращения удаления сборщиком мусора
-    def create_layout_from_template(self, selected_layer_ids, nspd_layers, use_satellite=False):
-        """Создание компоновки из готового шаблона
+
+    def create_layout(self, selected_layer_ids, nspd_layers, use_satellite=False):
+        """Создание компоновки программно из JSON конфигурации
 
         Args:
             selected_layer_ids: Список ID выбранных слоев
@@ -53,20 +55,16 @@ class LayoutManager:
         Returns:
             tuple: (success, error_msg)
         """
-        # Обнуляем имя старого макета сразу в начале
         self.layout_name = None
         self._layout_ref = None
 
         project = QgsProject.instance()
 
         # Проверяем наличие слоев НСПД с данными
-        # ВАЖНО: Учитываем родительские слои созданные через F_1_2
         available_nspd_layers = []
         for layer in project.mapLayers().values():
             layer_name = layer.name()
-            # Проверяем векторные слои НСПД (включая родительские слои)
-            if (layer_name.startswith('L_1_2_') or layer_name.startswith('Le_1_2_')) and not layer_name.startswith('Le_1_2_7'):
-                # Это векторный слой НСПД
+            if (layer_name.startswith('L_1_2_') or layer_name.startswith('Le_1_2_')) and isinstance(layer, QgsVectorLayer):
                 if hasattr(layer, 'featureCount') and layer.featureCount() > 0:
                     available_nspd_layers.append(layer_name)
 
@@ -78,7 +76,6 @@ class LayoutManager:
         layouts_to_remove = []
         for layout in project.layoutManager().layouts():
             if layout.name().startswith("Графика к запросу"):
-                # Сохраняем имя ДО удаления
                 layout_name_to_remove = layout.name()
                 layouts_to_remove.append((layout, layout_name_to_remove))
 
@@ -86,89 +83,30 @@ class LayoutManager:
             project.layoutManager().removeLayout(layout)
             log_info(f"Fsm_1_4_5: Удален старый макет: {layout_name_to_remove}")
 
-        # Создаем уникальное имя для нового макета
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%H%M%S")
-        layout_name = f"Графика к запросу_{timestamp}"
+        layout_name = "Графика к запросу"
+        layout_mgr = registry.get('M_34')
 
-        # Путь к шаблону в data/templates
-        template_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-            'data', 'templates', 'F_1_4_template.qpt'
-        )
+        # Программная генерация из JSON
+        layout = layout_mgr.build_layout(layout_name=layout_name, layout_type='F_1_4')
 
-        if not os.path.exists(template_path):
-            raise RuntimeError(f"Шаблон не найден: {template_path}")
+        if not layout:
+            raise RuntimeError("Не удалось создать макет из JSON конфигурации")
 
+        layout_manager = QgsProject.instance().layoutManager()
+        if not layout_manager.addLayout(layout):
+            raise RuntimeError("Не удалось добавить макет в менеджер")
 
-        # Читаем шаблон
-        with open(template_path, 'r', encoding='utf-8') as f:
-            template_content = f.read()
+        self.layout_name = layout_name
+        self._layout_ref = layout
 
+        log_info(f"Fsm_1_4_5: Макет '{layout_name}' создан")
 
-        # Создаем DOM документ из шаблона
-        doc = QDomDocument()
-        doc.setContent(template_content)
-
-        # Создаем новую компоновку
-        layout = QgsPrintLayout(QgsProject.instance())
-        # НЕ устанавливаем имя здесь - оно будет перезаписано при загрузке шаблона
-
-        # Сначала пробуем загрузить шаблон ДО добавления в менеджер
-        try:
-            # Получаем корневой элемент Layout из документа
-            layout_elem = doc.documentElement()
-            if layout_elem.tagName() != "Layout":
-                # Если это не Layout, ищем его как дочерний элемент
-                layout_elem = layout_elem.firstChildElement("Layout")
-
-            if not layout_elem.isNull():
-                # Используем readLayoutXml
-                result = layout.readLayoutXml(layout_elem, doc, QgsReadWriteContext())
-                if not result:
-                    # Если не удалось, пробуем альтернативный метод
-                    result = layout.loadFromTemplate(doc, QgsReadWriteContext())
-                    if not result:
-                        raise RuntimeError("Не удалось загрузить шаблон")
-            else:
-                # Если не нашли Layout, пробуем загрузить весь документ
-                result = layout.loadFromTemplate(doc, QgsReadWriteContext())
-                if not result:
-                    raise RuntimeError("Не удалось загрузить шаблон через loadFromTemplate")
-
-            # ВАЖНО: Устанавливаем имя ПОСЛЕ загрузки шаблона
-            layout.setName(layout_name)
-
-            # Только после успешной загрузки добавляем в менеджер
-            layout_manager = QgsProject.instance().layoutManager()
-            if not layout_manager.addLayout(layout):
-                # Если не удалось добавить, очищаем layout
-                layout = None
-                raise RuntimeError("Не удалось добавить макет в менеджер")
-
-            # Сохраняем имя и ссылку на макет после успешного добавления
-            self.layout_name = layout_name
-            self._layout_ref = layout  # Сохраняем ссылку чтобы предотвратить удаление сборщиком мусора
-
-        except Exception as e:
-            # При любой ошибке обнуляем имя макета
-            self.layout_name = None
-            self._layout_ref = None
-            raise RuntimeError(f"Ошибка создания макета: {str(e)}")
-
-        # Обновляем название объекта в заголовке
+        # Настройка макета
         self.update_object_name()
-
-        # Обновляем слои в легенде
         self.update_legend_layers(selected_layer_ids, nspd_layers)
-
-        # Настраиваем фильтры для карт
         self.configure_map_filters(nspd_layers, use_satellite)
-
-        # Программно устанавливаем экстент карт (вместо выражений в шаблоне)
         self._apply_map_extents(layout)
 
-        # Возвращаем True для совместимости
         return True, None
 
     def _apply_map_extents(self, layout):
@@ -184,8 +122,6 @@ class LayoutManager:
         Args:
             layout: QgsPrintLayout макет
         """
-        from Daman_QGIS.managers import get_extent_manager
-        from Daman_QGIS.managers.M_19_project_structure_manager import get_project_structure_manager
         import os
 
         # Ищем слой границ работ
@@ -203,17 +139,60 @@ class LayoutManager:
             log_warning("Fsm_1_4_5: Слой границ пуст, экстент не установлен")
             return
 
-        extent_manager = get_extent_manager()
+        extent_manager = registry.get('M_18')
 
-        # Применяем к main_map с адаптивным padding
-        result_main = extent_manager.apply_layer_extent_to_map(
-            layout,
-            map_id='main_map',
-            layer=boundaries_layer,
-            padding_percent=10.0,
-            adaptive_padding=True,
-            fit_to_map_ratio=True
+        # === MAIN_MAP: расширение до нижнего поля + асимметричный экстент ===
+        main_map = extent_manager.applier.get_map_item_by_id(layout, 'main_map')
+        if not main_map:
+            log_warning("Fsm_1_4_5: Карта 'main_map' не найдена в макете")
+            return
+
+        # Размеры страницы и карты
+        page = layout.pageCollection().page(0)
+        page_height = page.pageSize().height()
+        margin_bottom = 5
+
+        map_top_y = main_map.pagePos().y()
+        original_width = main_map.rect().width()
+        original_height = main_map.rect().height()
+        new_height = page_height - margin_bottom - map_top_y
+
+        # Расширяем main_map до нижнего поля (от TopLeft вниз)
+        main_map.attemptResize(QgsLayoutSize(
+            original_width, new_height, Qgis.LayoutUnit.Millimeters
+        ))
+        log_info(f"Fsm_1_4_5: main_map resize: {original_height:.0f} -> {new_height:.0f} мм")
+
+        # Z-order: main_map на дно стека (overlay поверх)
+        layout.moveItemToBottom(main_map)
+
+        # Label Blocking: подписи карты не рендерятся под overlay-элементами
+        overview_map_item = layout.itemById('overview_map')
+        legend_item = layout.itemById('legend')
+        north_arrow_item = layout.itemById('north_arrow')
+        if overview_map_item:
+            main_map.addLabelBlockingItem(overview_map_item)
+        if legend_item:
+            main_map.addLabelBlockingItem(legend_item)
+        if north_arrow_item:
+            main_map.addLabelBlockingItem(north_arrow_item)
+
+        # Расчет safe_fraction (доля карты без overlay)
+        overlay_top_y = overview_map_item.pagePos().y()
+        safety_margin_mm = 10
+        safe_zone_mm = overlay_top_y - map_top_y - safety_margin_mm
+        safe_fraction = safe_zone_mm / new_height
+
+        # Асимметричный экстент с расширением на юг
+        extent = extent_manager.calculator.calculate_from_layer(boundaries_layer)
+        extent = extent_manager.calculator.add_padding_south_extended(
+            extent, padding_percent=10.0, safe_fraction=safe_fraction
         )
+        extent = extent_manager.fitter.fit_extent_to_ratio(
+            extent, original_width, new_height
+        )
+        result_main = extent_manager.applier.apply_extent(main_map, extent)
+        log_info(f"Fsm_1_4_5: South-extend: safe_fraction={safe_fraction:.3f}")
 
         if result_main:
             log_info("Fsm_1_4_5: Экстент main_map установлен программно")
@@ -227,7 +206,7 @@ class LayoutManager:
         overview_scale = None
         try:
             project_home = QgsProject.instance().homePath()
-            structure_manager = get_project_structure_manager()
+            structure_manager = registry.get('M_19')
             structure_manager.project_root = project_home
             gpkg_path = structure_manager.get_gpkg_path(create=False)
 
@@ -303,9 +282,8 @@ class LayoutManager:
             return False
 
         # Получаем метаданные из БД
-        from Daman_QGIS.managers.M_19_project_structure_manager import get_project_structure_manager
         project_home = QgsProject.instance().homePath()
-        structure_manager = get_project_structure_manager()
+        structure_manager = registry.get('M_19')
         structure_manager.project_root = project_home
         gpkg_path = structure_manager.get_gpkg_path(create=False)
 
@@ -433,14 +411,15 @@ class LayoutManager:
         project = QgsProject.instance()
 
         # Получаем метаданные из БД для формирования названия слоя границ
-        from Daman_QGIS.managers.M_19_project_structure_manager import get_project_structure_manager
         project_home = QgsProject.instance().homePath()
-        structure_manager = get_project_structure_manager()
+        structure_manager = registry.get('M_19')
         structure_manager.project_root = project_home
         gpkg_path = structure_manager.get_gpkg_path(create=False)
 
         # Значения по умолчанию
         metadata_dict = {
+            "1_2_object_type": "Площадной",
+            "1_2_1_object_type_value": "-",
             "1_5_doc_type": "ДПТ",
             "1_6_stage": "Первичная"
         }
@@ -526,6 +505,7 @@ class LayoutManager:
         legend.adjustBoxSize()
 
         return True
+
     def configure_map_filters(self, nspd_layers, use_satellite=False):
         """Настройка фильтров слоев для карт через темы (Map Themes)
 
@@ -627,9 +607,9 @@ class LayoutManager:
             # Добавляем в тему главной карты
             main_theme_layers.append(layer_record)
 
-            # Для обзорной карты - только слои с 1_1_1 или L_1_3_3
-            # ЦОС (L_1_3_3) всегда включена независимо от use_satellite
-            if '1_1_1' in layer_name or 'L_1_3_3' in layer_name:
+            # Для обзорной карты - только границы работ (L_1_1_1) и ЦОС (L_1_3_3)
+            # ЦОС всегда включена независимо от use_satellite
+            if layer_name.startswith('L_1_1_1') or layer_name.startswith('L_1_3_3'):
                 overview_record = QgsMapThemeCollection.MapThemeLayerRecord(layer)
                 overview_record.isVisible = True
                 overview_record.usingCurrentStyle = True
@@ -659,15 +639,50 @@ class LayoutManager:
                     item.setFollowVisibilityPresetName('F_1_4_2_overview_map')
                     log_info("Fsm_1_4_5: Тема 'F_1_4_2_overview_map' применена к обзорной карте")
 
-        # Обновляем макет
-        layout.refresh()
+        # НЕ вызываем layout.refresh() здесь - это провоцирует массовые запросы
+        # к WMS/WMTS слоям (Google, НСПД), что вызывает rate limiting
+        # Обновление макета произойдёт при экспорте в PDF или в диалоге превью
 
         return True
-    def export_to_pdf(self, pdf_path):
+    def get_overview_map_scale(self):
+        """Получение текущего масштаба обзорной карты
+
+        Returns:
+            float: Масштаб карты или None
+        """
+        layout = self._get_layout()
+        if not layout:
+            return None
+
+        for item in layout.items():
+            if isinstance(item, QgsLayoutItemMap) and item.id() == 'overview_map':
+                return item.scale()
+
+        return None
+
+    def set_overview_map_scale(self, scale: float):
+        """Установка масштаба обзорной карты
+
+        Args:
+            scale: Новый масштаб карты
+        """
+        layout = self._get_layout()
+        if not layout:
+            return
+
+        for item in layout.items():
+            if isinstance(item, QgsLayoutItemMap) and item.id() == 'overview_map':
+                item.setScale(scale)
+                item.refresh()
+                log_info(f"Fsm_1_4_5: Масштаб overview_map установлен: 1:{int(scale)}")
+                return
+
+    def export_to_pdf(self, pdf_path, dpi: int = EXPORT_DPI_ROSREESTR):
         """Экспорт компоновки в PDF
 
         Args:
             pdf_path: Путь для сохранения PDF файла
+            dpi: Разрешение экспорта (по умолчанию 300 DPI согласно Приказу Росреестра П/0148)
 
         Returns:
             tuple: (success, error_msg)
@@ -677,34 +692,19 @@ class LayoutManager:
         if not layout:
             raise RuntimeError("Макет не создан или удален")
 
-        # КРИТИЧЕСКИ ВАЖНО: Принудительно обновляем все слои перед экспортом
-        # Это гарантирует что стили применены корректно
-        project = QgsProject.instance()
-        for layer_id, layer in project.mapLayers().items():
-            if hasattr(layer, 'triggerRepaint'):
-                try:
-                    layer.triggerRepaint()
-                except:
-                    pass  # Игнорируем ошибки для проблемных слоев
-
-        # Обновляем все карты в макете для корректного рендеринга
-        for item in layout.items():
-            if isinstance(item, QgsLayoutItemMap):
-                item.refresh()
-
-        # Финальное обновление макета
-        layout.refresh()
+        # НЕ вызываем triggerRepaint/refresh - тайлы уже загружены в кэш при превью
+        # Повторный refresh() вызывает rate limiting от Google/НСПД
 
         exporter = QgsLayoutExporter(layout)
 
         # Настройки экспорта для РАСТРОВОГО PDF
         settings = QgsLayoutExporter.PdfExportSettings()
 
-        # РАСТРОВЫЙ ЭКСПОРТ с DPI 200
+        # РАСТРОВЫЙ ЭКСПОРТ с указанным DPI
         # Причина: роза ветров "утолщается" в векторном формате и становится нечитаемой
         # Решение: экспортируем весь макет в растре с высоким качеством
         # QGIS API не поддерживает выборочную растеризацию отдельных элементов
-        settings.dpi = 200  # Высокое разрешение 200 DPI для качественного растра
+        settings.dpi = dpi
 
         # РАСТРОВЫЙ режим - экспортируем весь макет как растр
         settings.rasterizeWholeImage = True  # Растеризация всего макета
@@ -728,7 +728,7 @@ class LayoutManager:
         if result != QgsLayoutExporter.Success:
             raise RuntimeError("Ошибка экспорта в PDF")
 
-        log_info(f"Fsm_1_4_5: Схема экспортирована в {pdf_path} с разрешением 200 DPI (растровый режим)")
+        log_info(f"Fsm_1_4_5: Схема экспортирована в {pdf_path} с разрешением {dpi} DPI (растровый режим)")
 
         return True, None
     def get_layout_extent(self):

@@ -11,8 +11,8 @@
 
 from typing import List, Dict, Any, Tuple, Set, Optional
 from qgis.core import (
-    QgsVectorLayer, QgsGeometry, QgsPointXY, QgsProject,
-    QgsSpatialIndex, QgsFeatureRequest, QgsWkbTypes, QgsRectangle
+    Qgis, QgsVectorLayer, QgsGeometry, QgsPointXY, QgsProject,
+    QgsSpatialIndex, QgsFeatureRequest, QgsRectangle
 )
 from Daman_QGIS.constants import COORDINATE_PRECISION
 from Daman_QGIS.utils import log_info, log_warning
@@ -68,7 +68,7 @@ class Fsm_0_4_10_CrossFeatureChecker:
         try:
             geom_type = layer.geometryType()
 
-            if geom_type not in (QgsWkbTypes.PolygonGeometry, QgsWkbTypes.LineGeometry):
+            if geom_type not in (Qgis.GeometryType.Polygon, Qgis.GeometryType.Line):
                 log_info("Fsm_0_4_10: Cross-feature проверка только для полигонов и линий")
                 return []
 
@@ -134,7 +134,7 @@ class Fsm_0_4_10_CrossFeatureChecker:
             if not geom or geom.isEmpty():
                 continue
 
-            if geom_type == QgsWkbTypes.PolygonGeometry:
+            if geom_type == Qgis.GeometryType.Polygon:
                 polygons = geom.asMultiPolygon() if geom.isMultipart() else [geom.asPolygon()]
                 for part_idx, polygon in enumerate(polygons):
                     if not polygon:
@@ -149,7 +149,7 @@ class Fsm_0_4_10_CrossFeatureChecker:
                                 'ring_idx': ring_idx
                             })
 
-            elif geom_type == QgsWkbTypes.LineGeometry:
+            elif geom_type == Qgis.GeometryType.Line:
                 lines = geom.asMultiPolyline() if geom.isMultipart() else [geom.asPolyline()]
                 for part_idx, line in enumerate(lines):
                     if not line:
@@ -187,7 +187,10 @@ class Fsm_0_4_10_CrossFeatureChecker:
             point = vertex_data['point']
 
             # Создаём feature для индекса
-            feat = QgsFeature(i)
+            # ВАЖНО: сначала создать QgsFeature(), затем setId() и setGeometry()
+            # QgsFeature(id) может создать невалидный feature, вызывающий access violation
+            feat = QgsFeature()
+            feat.setId(i)
             feat.setGeometry(QgsGeometry.fromPointXY(point))
 
             spatial_index.addFeature(feat)
@@ -359,8 +362,8 @@ class Fsm_0_4_10_CrossFeatureChecker:
         Поиск точечного слоя с префиксом "Т_" для полигонального слоя.
 
         Точечные слои имеют структуру:
-        - Le_3_1_1_1_Раздел_ЗПР_ОКС -> Le_3_5_1_1_Т_Раздел_ЗПР_ОКС
-        - Le_3_1_2_1_Раздел_ЗПР_ПО -> Le_3_5_2_1_Т_Раздел_ЗПР_ПО
+        - Le_2_1_1_1_Раздел_ЗПР_ОКС -> Le_2_5_1_1_Т_Раздел_ЗПР_ОКС
+        - Le_2_1_2_1_Раздел_ЗПР_ПО -> Le_2_5_2_1_Т_Раздел_ЗПР_ПО
 
         Args:
             polygon_layer_name: Имя полигонального слоя
@@ -374,7 +377,7 @@ class Fsm_0_4_10_CrossFeatureChecker:
         if len(parts) < 5:
             return None
 
-        # Ищем часть после "Le_3_1_X_Y_" -> берём всё после 5-го элемента
+        # Ищем часть после "Le_2_1_X_Y_" -> берём всё после 5-го элемента
         suffix = '_'.join(parts[5:]) if len(parts) > 5 else ''
         if not suffix:
             return None

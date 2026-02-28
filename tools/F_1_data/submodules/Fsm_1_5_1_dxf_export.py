@@ -56,7 +56,7 @@ class DxfExportSubmodule:
             # Показываем диалог
             dialog = ExportDialog(self.iface.mainWindow(), "DXF")
 
-            if not dialog.exec_():
+            if not dialog.exec():
                 return {}
 
             layers = dialog.selected_layers
@@ -96,7 +96,7 @@ class DxfExportSubmodule:
                 100,
                 self.iface.mainWindow()
             )
-            progress.setWindowModality(Qt.WindowModal)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
             progress.setAutoClose(True)
             progress.show()
 
@@ -131,15 +131,10 @@ class DxfExportSubmodule:
                 progress.setLabelText(f"Экспорт слоя: {layer.name()}")
 
             # Формируем имя файла
-            # КРИТИЧНО: 2025-10-28 - Добавлена очистка имени через sanitize_filename()
-            # Раньше имя слоя использовалось БЕЗ ОЧИСТКИ, что могло вызывать ошибки Windows
-            # при наличии запрещённых символов в имени слоя (например : / \ < > | ? *)
             layer_name = layer.name()
             if layer_name.startswith('1_1_1_Границы_работ'):
-                # Для границ работ используем фиксированное имя (уже безопасное)
                 filename = 'Границы_работ.dxf'
             else:
-                # DEPRECATED: filename = f"{layer_name}.dxf"  # БЕЗ ОЧИСТКИ - опасно!
                 safe_layer_name = self.data_cleanup_manager.sanitize_filename(layer_name)
                 filename = f"{safe_layer_name}.dxf"
 

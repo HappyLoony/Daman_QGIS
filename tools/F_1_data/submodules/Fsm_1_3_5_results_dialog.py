@@ -17,17 +17,19 @@ from qgis.core import QgsMessageLog, Qgis
 class BudgetSelectionResultsDialog(QDialog):
     """Диалог с результатами выборки"""
     
-    def __init__(self, parent, results, temp_folder):
+    def __init__(self, parent, results, temp_folder, is_linear: bool = False):
         """Инициализация диалога
-        
+
         Args:
             parent: Родительское окно
             results: Словарь с результатами анализа
             temp_folder: Папка для сохранения результатов
+            is_linear: True если тип объекта линейный (показывать секцию пересечений)
         """
         super().__init__(parent)
         self.results = results
         self.temp_folder = temp_folder
+        self.is_linear = is_linear
         
         self.setWindowTitle("Выборка для бюджета - Результаты")
         self.setModal(True)
@@ -44,13 +46,23 @@ class BudgetSelectionResultsDialog(QDialog):
         # Заголовок
         title_label = QLabel("Результаты выборки для бюджета")
         title_label.setStyleSheet("font-size: 14px; font-weight: bold; padding: 10px;")
-        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title_label)
         
+        # Площадь границ работ (сверху, перед результатами)
+        area_ha = self.results.get('boundaries_area_ha')
+        if area_ha is not None:
+            area_label = QLabel(f"Площадь границ работ: {area_ha:.2f} га")
+            area_label.setStyleSheet(
+                "font-size: 13px; font-weight: bold; padding: 5px 10px; color: #1565C0;"
+            )
+            area_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(area_label)
+
         # Группа с результатами
         results_group = QGroupBox("Результаты анализа")
         results_layout = QVBoxLayout()
-        
+
         # 1. Кадастровые кварталы
         cadastral_label = QLabel(
             f"1. Кадастровые кварталы: {self.results['cadastral_quarters']}"
@@ -183,22 +195,23 @@ class BudgetSelectionResultsDialog(QDialog):
         forest_label.setStyleSheet("padding: 5px;")
         results_layout.addWidget(forest_label)
 
-        # 8. Пересечения линий АД и ЖД
-        intersections_label = QLabel("8. Пересечения линий:")
-        intersections_label.setStyleSheet("padding: 5px; font-weight: bold;")
-        results_layout.addWidget(intersections_label)
+        # 8. Пересечения линий АД и ЖД (только для линейных объектов)
+        if self.is_linear:
+            intersections_label = QLabel("8. Пересечения линий:")
+            intersections_label.setStyleSheet("padding: 5px; font-weight: bold;")
+            results_layout.addWidget(intersections_label)
 
-        road_road = self.results.get('road_road', 0)
-        road_railway = self.results.get('road_railway', 0)
-        railway_railway = self.results.get('railway_railway', 0)
+            road_road = self.results.get('road_road', 0)
+            road_railway = self.results.get('road_railway', 0)
+            railway_railway = self.results.get('railway_railway', 0)
 
-        intersections_text = QLabel(
-            f"   • АД и АД: {road_road}\n"
-            f"   • АД и ЖД: {road_railway}\n"
-            f"   • ЖД и ЖД: {railway_railway}"
-        )
-        intersections_text.setStyleSheet("padding-left: 20px;")
-        results_layout.addWidget(intersections_text)
+            intersections_text = QLabel(
+                f"   • АД и АД: {road_road}\n"
+                f"   • АД и ЖД: {road_railway}\n"
+                f"   • ЖД и ЖД: {railway_railway}"
+            )
+            intersections_text.setStyleSheet("padding-left: 20px;")
+            results_layout.addWidget(intersections_text)
 
         results_group.setLayout(results_layout)
         layout.addWidget(results_group)

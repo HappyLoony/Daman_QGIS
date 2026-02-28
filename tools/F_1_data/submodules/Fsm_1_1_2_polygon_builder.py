@@ -6,14 +6,14 @@
 
 from typing import List, Dict, Any, Tuple, Optional
 from qgis.core import (
-    QgsGeometry, QgsFeature, QgsVectorLayer,
+    Qgis, QgsGeometry, QgsFeature, QgsVectorLayer,
     QgsField, QgsFields, QgsSpatialIndex,
-    QgsWkbTypes, QgsPoint, QgsPointXY,
+    QgsPoint, QgsPointXY,
     QgsCoordinateReferenceSystem, QgsProject
 )
 from qgis.PyQt.QtCore import QMetaType
 from Daman_QGIS.constants import MIN_POLYGON_AREA
-from Daman_QGIS.managers.M_6_coordinate_precision import CoordinatePrecisionManager
+from Daman_QGIS.managers import CoordinatePrecisionManager
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
@@ -196,7 +196,7 @@ class PolygonBuilder:
                 continue
             
             # Обработка в зависимости от типа
-            if geom.type() == QgsWkbTypes.LineGeometry:
+            if geom.type() == Qgis.GeometryType.Line:
                 # Это линия - конвертируем
                 # МИГРАЦИЯ LINESTRING → MULTILINESTRING: упрощённый паттерн
                 lines = geom.asMultiPolyline() if geom.isMultipart() else [geom.asPolyline()]
@@ -229,7 +229,7 @@ class PolygonBuilder:
                             'used': False
                         })
                         
-            elif geom.type() == QgsWkbTypes.PolygonGeometry:
+            elif geom.type() == Qgis.GeometryType.Polygon:
                 # Уже полигон - используем как есть
                 area = geom.area()
                 if area >= min_area:
@@ -267,10 +267,12 @@ class PolygonBuilder:
         spatial_index = None
 
         # Создаем пространственный индекс для оптимизации (best practice)
+        # ВАЖНО: QgsFeature() + setId() вместо QgsFeature(id) для избежания access violation
         if use_spatial_index:
             spatial_index = QgsSpatialIndex()
             for i, poly in enumerate(polygons):
-                feature = QgsFeature(i)
+                feature = QgsFeature()
+                feature.setId(i)
                 feature.setGeometry(poly['geometry'])
                 spatial_index.addFeature(feature)
 

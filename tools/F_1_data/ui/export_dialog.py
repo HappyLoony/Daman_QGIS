@@ -5,6 +5,7 @@
 
 import os
 import subprocess
+import sys
 from typing import List, Optional
 
 from qgis.PyQt.QtWidgets import (
@@ -17,7 +18,7 @@ from qgis.PyQt.QtGui import QIcon
 
 from qgis.core import QgsProject, QgsVectorLayer, QgsMessageLog, Qgis
 from Daman_QGIS.constants import PLUGIN_NAME
-from Daman_QGIS.managers import get_project_structure_manager, FolderType
+from Daman_QGIS.managers import registry, FolderType
 
 
 class ExportDialog(QDialog):
@@ -49,7 +50,7 @@ class ExportDialog(QDialog):
         Returns:
             str: Путь к папке Экспорт или пустая строка
         """
-        structure = get_project_structure_manager()
+        structure = registry.get('M_19')
         if structure.is_active():
             folder = structure.get_folder(FolderType.EXPORT, create=True)
             return folder if folder else ""
@@ -74,7 +75,7 @@ class ExportDialog(QDialog):
         # Дерево слоев
         self.tree_widget = QTreeWidget()
         self.tree_widget.setHeaderLabel("Слои проекта")
-        self.tree_widget.setSelectionMode(QTreeWidget.ExtendedSelection)
+        self.tree_widget.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
         layers_layout.addWidget(self.tree_widget)
         
         # Кнопки выбора
@@ -100,7 +101,7 @@ class ExportDialog(QDialog):
             options_layout = QVBoxLayout()
             
             self.wgs84_check = QCheckBox("Создать дополнительный файл в WGS-84")
-            self.wgs84_check.setChecked(True)
+            self.wgs84_check.setChecked(False)
             options_layout.addWidget(self.wgs84_check)
             
             if self.export_format == "Excel":
@@ -117,7 +118,7 @@ class ExportDialog(QDialog):
         else:
             # Для пакетного экспорта
             self.wgs84_check = QCheckBox("Создать дополнительные файлы в WGS-84")
-            self.wgs84_check.setChecked(True)
+            self.wgs84_check.setChecked(False)
             layout.addWidget(self.wgs84_check)
         
         # Кнопки диалога
@@ -131,7 +132,7 @@ class ExportDialog(QDialog):
         buttons_layout.addStretch()
 
         button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
@@ -181,35 +182,35 @@ class ExportDialog(QDialog):
                 '0': 'F_0_Проект',
                 '1': 'F_1_Данные',
                 '2': 'F_2_Обработка',
-                '3': 'F_3_Нарезка',
-                '4': 'F_4_ХЛУ',
-                '5': 'F_5_Настройка',
-                '6': 'F_6_Выпуск'
+                '3': 'F_2_Нарезка',
+                '4': 'F_3_ХЛУ',
+                '5': 'F_4_Настройка',
+                '6': 'F_5_Выпуск'
             }
             section_name = section_names.get(section, f'F_{section}_Раздел')
             
             section_item = QTreeWidgetItem(self.tree_widget, [section_name])
             section_item.setExpanded(True)
-            section_item.setFlags(section_item.flags() | Qt.ItemIsTristate | Qt.ItemIsUserCheckable)
+            section_item.setFlags(section_item.flags() | Qt.ItemFlag.ItemIsAutoTristate | Qt.ItemFlag.ItemIsUserCheckable)
             
             # Добавляем слои в раздел
             for layer in layers:
                 layer_item = QTreeWidgetItem(section_item, [layer.name()])
-                layer_item.setData(0, Qt.UserRole, layer.id())
-                layer_item.setCheckState(0, Qt.Unchecked)
-                layer_item.setFlags(layer_item.flags() | Qt.ItemIsUserCheckable)
+                layer_item.setData(0, Qt.ItemDataRole.UserRole, layer.id())
+                layer_item.setCheckState(0, Qt.CheckState.Unchecked)
+                layer_item.setFlags(layer_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
     
     def select_all(self):
         """Выбрать все слои"""
         for i in range(self.tree_widget.topLevelItemCount()):
             section_item = self.tree_widget.topLevelItem(i)
-            section_item.setCheckState(0, Qt.Checked)
+            section_item.setCheckState(0, Qt.CheckState.Checked)
     
     def deselect_all(self):
         """Снять выделение со всех слоев"""
         for i in range(self.tree_widget.topLevelItemCount()):
             section_item = self.tree_widget.topLevelItem(i)
-            section_item.setCheckState(0, Qt.Unchecked)
+            section_item.setCheckState(0, Qt.CheckState.Unchecked)
 
     def open_export_folder(self):
         """Открыть папку экспорта в проводнике"""
@@ -218,7 +219,7 @@ class ExportDialog(QDialog):
             if os.name == 'nt':
                 os.startfile(self.output_folder)
             # macOS
-            elif os.sys.platform == 'darwin':
+            elif sys.platform == 'darwin':
                 subprocess.run(['open', self.output_folder])
             # Linux
             else:
@@ -251,8 +252,8 @@ class ExportDialog(QDialog):
             for j in range(section_item.childCount()):
                 layer_item = section_item.child(j)
                 
-                if layer_item.checkState(0) == Qt.Checked:
-                    layer_id = layer_item.data(0, Qt.UserRole)
+                if layer_item.checkState(0) == Qt.CheckState.Checked:
+                    layer_id = layer_item.data(0, Qt.ItemDataRole.UserRole)
                     layer = QgsProject.instance().mapLayer(layer_id)
                     if layer:
                         selected.append(layer)

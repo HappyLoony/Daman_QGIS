@@ -49,7 +49,7 @@ class CustomProjectionBuilderDialog(QDialog):
     def setup_ui(self):
         """Настройка интерфейса"""
         self.setWindowTitle("0_5 Кастомная проекция")
-        self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
         self.setMinimumWidth(700)
         self.setMinimumHeight(300)
 
@@ -91,28 +91,28 @@ class CustomProjectionBuilderDialog(QDialog):
         ])
 
         # Настройка таблицы
-        self.points_table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.points_table.setSelectionBehavior(QAbstractItemView.SelectItems)
+        self.points_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.points_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
         self.points_table.verticalHeader().setVisible(False)
 
         # Настройка ширины колонок
         header = self.points_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.points_table.setColumnWidth(0, 40)
         for i in range(1, 5):
-            header.setSectionResizeMode(i, QHeaderView.Stretch)
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
 
         # Заполняем номера пар
         for i in range(4):
             item = QTableWidgetItem(str(i + 1))
-            item.setFlags(Qt.ItemIsEnabled)  # Только чтение
-            item.setTextAlignment(Qt.AlignCenter)
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled)  # Только чтение
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.points_table.setItem(i, 0, item)
 
             # Создаем ячейки для координат
             for col in range(1, 5):
                 item = QTableWidgetItem("")
-                item.setTextAlignment(Qt.AlignCenter)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.points_table.setItem(i, col, item)
 
         # Подключаем обработчики
@@ -328,7 +328,7 @@ class CustomProjectionBuilderDialog(QDialog):
                 QMessageBox.critical(
                     self,
                     "Ошибка",
-                    "Библиотека pyproj не установлена.\nУстановите через меню Плагины -> F_5_1 Установка зависимостей."
+                    "Библиотека pyproj не установлена.\nУстановите через меню Плагины -> F_4_1 Установка зависимостей."
                 )
                 return
             except Exception as e:
@@ -386,7 +386,7 @@ class CustomProjectionBuilderDialog(QDialog):
                 QMessageBox.critical(
                     self,
                     "Ошибка",
-                    "Библиотека pyproj не установлена.\nУстановите через меню Плагины -> F_5_1 Установка зависимостей."
+                    "Библиотека pyproj не установлена.\nУстановите через меню Плагины -> F_4_1 Установка зависимостей."
                 )
                 return
             except Exception as e:
@@ -517,13 +517,23 @@ class CustomProjectionBuilderDialog(QDialog):
         # Генерируем имя
         crs_name = self.generate_crs_name()
 
-        # Сохраняем как USER CRS через Registry API (QGIS 3.18+, WKT формат)
-        registry = QgsApplication.coordinateReferenceSystemRegistry()
-        srsid = registry.addUserCrs(new_crs, crs_name, Qgis.CrsDefinitionFormat.Wkt)
+        # Проверяем существующую USER CRS по имени (не по PROJ4!)
+        from Daman_QGIS.core.crs_utils import find_existing_user_crs_by_name
+        existing_id = find_existing_user_crs_by_name(crs_name)
 
-        if srsid == -1:
-            QMessageBox.critical(self, "Ошибка", "Не удалось сохранить проекцию")
-            return
+        if existing_id is not None:
+            srsid = existing_id
+            registry = QgsApplication.coordinateReferenceSystemRegistry()
+            registry.updateUserCrs(srsid, new_crs, crs_name, Qgis.CrsDefinitionFormat.Wkt)
+            log_info(f"Fsm_0_5_2: Обновлена существующая USER:{srsid}")
+        else:
+            # Сохраняем как USER CRS через Registry API (QGIS 3.18+, WKT формат)
+            registry = QgsApplication.coordinateReferenceSystemRegistry()
+            srsid = registry.addUserCrs(new_crs, crs_name, Qgis.CrsDefinitionFormat.Wkt)
+
+            if srsid == -1:
+                QMessageBox.critical(self, "Ошибка", "Не удалось сохранить проекцию")
+                return
 
         # Очищаем кэш CRS
         QgsCoordinateReferenceSystem.invalidateCache()
@@ -531,8 +541,11 @@ class CustomProjectionBuilderDialog(QDialog):
         # Получаем сохранённую CRS по USER ID
         saved_crs = QgsCoordinateReferenceSystem(f"USER:{srsid}")
 
-        # Применяем к проекту
-        self.parent_tool.apply_crs_to_all_layers(saved_crs)
+        # Запоминаем текущую CRS проекта ДО применения (для переопределения слоёв)
+        old_crs = QgsProject.instance().crs()
+
+        # Применяем к проекту и переопределяем CRS слоёв
+        self.parent_tool.apply_crs_to_all_layers(saved_crs, old_crs=old_crs)
 
         log_success(f"Fsm_0_5_2: Создана и применена кастомная проекция '{crs_name}'")
         log_info(f"Fsm_0_5_2: Координаты объектов сохранены (setCrs), изменена система координат")
@@ -547,32 +560,17 @@ class CustomProjectionBuilderDialog(QDialog):
         self.accept()
         
     def generate_crs_name(self):
-        """Генерация имени для кастомной проекции"""
-        # Читаем рабочее название проекта из метаданных
-        project = QgsProject.instance()
-        working_name = "Проект"
+        """Генерация имени для кастомной проекции.
 
-        project_path = project.absolutePath()
-        if project_path:
-            import os
-            from Daman_QGIS.managers.M_19_project_structure_manager import get_project_structure_manager
-            structure_manager = get_project_structure_manager()
-            structure_manager.project_root = project_path
-            gpkg_path = structure_manager.get_gpkg_path(create=False)
-
-            if gpkg_path and os.path.exists(gpkg_path):
-                from Daman_QGIS.database.project_db import ProjectDB
-                try:
-                    db = ProjectDB(gpkg_path)
-                    metadata = db.get_metadata('1_0_working_name')
-                    if metadata and metadata.get('value'):
-                        working_name = metadata['value']
-                except Exception as e:
-                    log_warning(f"Fsm_0_5_2: Не удалось прочитать рабочее название: {e}")
-
-        # Формат: {РабочееНазвание}_Custom_TM_{lon_0}
-        lon_0 = self.optimal_params['lon_0']
-        return f"{working_name}_Custom_TM_{lon_0:.2f}"
+        Формат: _{рабочее_имя}_{предыдущая_CRS}
+        Пример: _Эльбрус_GB_МСК - г. Анапа
+        Единый формат с F_0_5.generate_crs_name().
+        Префикс '_' -- конвенция кастомных (проектных) CRS.
+        """
+        # Делегируем в F_0_5 (единый формат)
+        # Предыдущая CRS -- текущая CRS проекта до применения кастомной
+        base_crs = QgsProject.instance().crs()
+        return self.parent_tool.generate_crs_name(base_crs)
 
     def auto_load_default_layer(self):
         """Автоматическая загрузка extent из слоя L_1_1_1_Границы_работ"""
@@ -633,7 +631,7 @@ class CustomProjectionBuilderDialog(QDialog):
 
     def on_advanced_mode_toggled(self, state):
         """Переключение расширенного режима"""
-        self.advanced_mode = (state == Qt.Checked)
+        self.advanced_mode = (state == Qt.CheckState.Checked)
         self.points_group.setVisible(self.advanced_mode)
 
         if self.advanced_mode:

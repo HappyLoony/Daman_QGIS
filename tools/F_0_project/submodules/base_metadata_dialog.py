@@ -8,10 +8,40 @@
 - Общие методы для заполнения полей
 """
 
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, List, Tuple
 from qgis.PyQt.QtWidgets import QDialog, QComboBox, QLineEdit, QMessageBox
 from Daman_QGIS.utils import log_info, log_warning
-from Daman_QGIS.managers.submodules.Msm_13_4_data_validator import DataValidator
+from Daman_QGIS.managers import DataValidator
+
+# Маппинг необязательных метаданных: field -> (db_key, description)
+# Единый источник истины для F_0_1 (создание) и F_0_3 (редактирование)
+OPTIONAL_METADATA_DESCRIPTIONS = {
+    'code': ('2_1_code', 'Шифр (внутренняя кодировка объекта)'),
+    'release_date': ('2_2_date', 'Дата выпуска для титулов, обложек, и штампов'),
+    'company': ('2_3_company', 'Компания выполняющая договор'),
+    'city': ('2_4_city', 'Город'),
+    'customer': ('2_5_customer', 'Заказчик'),
+    'general_director': ('2_6_general_director', 'Генеральный директор'),
+    'technical_director': ('2_7_technical_director', 'Технический директор'),
+    'cover': ('2_8_cover', 'Обложка обычно не наша'),
+    'title_start': ('2_9_title_start', 'С какого листа начинается наш титул, так как перед нами могут быть еще подрядчики'),
+    'main_scale': ('2_10_main_scale', 'Основной масштаб, основной массы чертежей (прописано в ТЗ)'),
+    'dxf_text_height': ('2_10_1_DXF_SCALE_TO_TEXT_HEIGHT', 'Высота текста в DXF (определяется масштабом)'),
+    'developer': ('2_11_developer', 'Разработал'),
+    'examiner': ('2_12_examiner', 'Проверил'),
+    'quality_control': ('2_13_quality_control', 'Н.Контроль'),
+    'sheet_format': ('2_13_sheet_format', 'Формат листа для макетов'),
+    'sheet_orientation': ('2_14_sheet_orientation', 'Ориентация листа'),
+}
+
+
+# Маппинг масштаба -> высота текста в DXF (единицы чертежа, метры для МСК)
+# Источник: Project_Metadata.json (2_10_1_DXF_SCALE_TO_TEXT_HEIGHT)
+SCALE_TO_TEXT_HEIGHT_MAP = {
+    '500': '1.5',
+    '1000': '3',
+    '2000': '6',
+}
 
 
 class BaseMetadataDialog(QDialog):
@@ -34,6 +64,9 @@ class BaseMetadataDialog(QDialog):
         """
         super().__init__(parent)
         self.reference_db = reference_db
+
+        # ID модуля для логирования (переопределяется в подклассах)
+        self.MODULE_ID = "BaseMetadataDialog"
 
         # Инициализация валидатора метаданных
         self.validator = None
@@ -88,104 +121,6 @@ class BaseMetadataDialog(QDialog):
 
         return True
 
-    def populate_enum_combo_simple(self, combo: QComboBox, field_key: str) -> bool:
-        """
-        Упрощенная загрузка enum (только labels, без codes)
-
-        Args:
-            combo: QComboBox для заполнения
-            field_key: Ключ поля
-
-        Returns:
-            bool: True если успешно
-        """
-        if not self.metadata_manager:
-            return False
-
-        values = self.metadata_manager.get_field_values(field_key)
-
-        if not values:
-            return False
-
-        combo.clear()
-        for value in values:
-            combo.addItem(value)
-
-        return True
-
-    def set_combo_by_code(self, combo: QComboBox, code: str) -> bool:
-        """
-        Установка значения комбобокса по коду (data)
-
-        Args:
-            combo: QComboBox
-            code: Код для поиска
-
-        Returns:
-            bool: True если найдено и установлено
-        """
-        if not code:
-            return False
-
-        index = combo.findData(code)
-        if index >= 0:
-            combo.setCurrentIndex(index)
-            return True
-
-        log_warning(f"BaseMetadataDialog: Код '{code}' не найден в комбобоксе")
-        return False
-
-    def set_combo_by_text(self, combo: QComboBox, text: str) -> bool:
-        """
-        Установка значения комбобокса по тексту (label)
-
-        Args:
-            combo: QComboBox
-            text: Текст для поиска
-
-        Returns:
-            bool: True если найдено и установлено
-        """
-        if not text:
-            return False
-
-        index = combo.findText(text)
-        if index >= 0:
-            combo.setCurrentIndex(index)
-            return True
-
-        # Если не найдено и комбобокс редактируемый, устанавливаем текст
-        if combo.isEditable():
-            combo.setCurrentText(text)
-            return True
-
-        log_warning(f"BaseMetadataDialog: Текст '{text}' не найден в комбобоксе")
-        return False
-
-    def get_combo_code(self, combo: QComboBox) -> Optional[str]:
-        """
-        Получение кода (data) из комбобокса
-
-        Args:
-            combo: QComboBox
-
-        Returns:
-            str: Код или None
-        """
-        return combo.currentData()
-
-    def get_combo_text(self, combo: QComboBox) -> str:
-        """
-        Получение текста (label) из комбобокса
-
-        Args:
-            combo: QComboBox
-
-        Returns:
-            str: Текст
-        """
-        return combo.currentText().strip()
-
     def _map_short_keys_to_full(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
         Преобразование коротких ключей в полные для валидации
@@ -208,7 +143,8 @@ class BaseMetadataDialog(QDialog):
             '1_4_crs_description': metadata.get('crs_description'),
             '1_4_crs_epsg': metadata.get('crs_epsg'),
             '1_4_crs_wkt': metadata.get('crs_wkt'),
-            '1_4_crs_short_name': metadata.get('crs_short_name'),
+            '1_4_1_code_region': metadata.get('code_region'),  # Код региона
+            '1_4_2_code_zone': metadata.get('code_zone'),  # Код зоны
             '1_5_doc_type': metadata.get('doc_type_name'),  # Используем _name для enum
             '1_6_stage': metadata.get('stage_name'),  # Используем _name для enum
             '2_1_code': metadata.get('code'),
@@ -221,6 +157,7 @@ class BaseMetadataDialog(QDialog):
             '2_8_cover': metadata.get('cover'),
             '2_9_title_start': metadata.get('title_start'),
             '2_10_main_scale': metadata.get('main_scale'),
+            '2_10_1_DXF_SCALE_TO_TEXT_HEIGHT': metadata.get('dxf_text_height'),
             '2_11_developer': metadata.get('developer'),
             '2_12_examiner': metadata.get('examiner')
         }
@@ -229,11 +166,12 @@ class BaseMetadataDialog(QDialog):
         for key, value in metadata.items():
             if key not in ['working_name', 'full_name', 'object_type', 'object_type_name',
                           'object_type_value', 'object_type_value_name', 'project_folder',
-                          'crs', 'crs_description', 'crs_epsg', 'crs_wkt', 'crs_short_name',
+                          'crs', 'crs_description', 'crs_epsg', 'crs_wkt',
+                          'code_region', 'code_zone',
                           'doc_type', 'doc_type_name', 'stage', 'stage_name', 'code',
                           'release_date', 'company', 'city', 'customer', 'general_director',
                           'technical_director', 'cover', 'title_start', 'main_scale',
-                          'developer', 'examiner', 'changed_fields']:
+                          'dxf_text_height', 'developer', 'examiner', 'changed_fields']:
                 mapped[key] = value
 
         return mapped
@@ -301,47 +239,112 @@ class BaseMetadataDialog(QDialog):
 
         return is_valid
 
-    def get_field_name(self, field_key: str) -> str:
+    def load_developers(self):
+        """Загрузка разработчиков из справочной БД"""
+        self.developer_combo.addItem("")
+
+        if self.reference_db:
+            try:
+                developers = self.reference_db.employee.get_employees_by_role('developed')
+                last_names = sorted([emp.get('last_name', '') for emp in developers if emp.get('last_name')])
+
+                for last_name in last_names:
+                    self.developer_combo.addItem(last_name)
+
+                if len(last_names) > 10:
+                    from qgis.PyQt.QtWidgets import QListView
+                    self.developer_combo.setView(QListView())
+                    self.developer_combo.view().setMaximumHeight(300)
+            except Exception as e:
+                log_warning(f"{self.MODULE_ID}: Не удалось загрузить разработчиков: {e}")
+        else:
+            log_warning(f"{self.MODULE_ID}: Справочная БД недоступна для загрузки разработчиков")
+
+    def load_examiners(self):
+        """Загрузка проверяющих из справочной БД"""
+        self.examiner_combo.addItem("")
+
+        if self.reference_db:
+            try:
+                examiners = self.reference_db.employee.get_employees_by_role('verified')
+                last_names = sorted([emp.get('last_name', '') for emp in examiners if emp.get('last_name')])
+
+                for last_name in last_names:
+                    self.examiner_combo.addItem(last_name)
+
+                if len(last_names) > 10:
+                    from qgis.PyQt.QtWidgets import QListView
+                    self.examiner_combo.setView(QListView())
+                    self.examiner_combo.view().setMaximumHeight(300)
+            except Exception as e:
+                log_warning(f"{self.MODULE_ID}: Не удалось загрузить проверяющих: {e}")
+        else:
+            log_warning(f"{self.MODULE_ID}: Справочная БД недоступна для загрузки проверяющих")
+
+    def update_quality_control(self):
         """
-        Получить название поля по ключу
+        Автоматическое обновление поля "Н.Контроль" на основе типа объекта
 
-        Args:
-            field_key: Ключ поля
-
-        Returns:
-            str: Название поля
+        Логика:
+        - "Площадной" -> Евдокимова
+        - "Линейный" -> Никитин
         """
-        if self.metadata_manager:
-            return self.metadata_manager.get_field_name(field_key)
-        return field_key
+        object_type = self.object_type_combo.currentText()
 
-    def is_field_enum(self, field_key: str) -> bool:
+        if "Площадной" in object_type:
+            self.quality_control_edit.setText("Евдокимова")
+        elif "Линейный" in object_type:
+            self.quality_control_edit.setText("Никитин")
+        else:
+            self.quality_control_edit.clear()
+
+    def on_scale_changed(self):
         """
-        Проверка является ли поле enum
+        Автоматическое обновление высоты текста DXF при смене масштаба.
 
-        Args:
-            field_key: Ключ поля
-
-        Returns:
-            bool: True если enum
+        Маппинг масштаб -> высота текста:
+        - 1:500  -> 1.5м
+        - 1:1000 -> 3м
+        - 1:2000 -> 6м
         """
-        if self.metadata_manager:
-            return self.metadata_manager.is_field_enum(field_key)
-        return False
+        scale_code = self.main_scale_combo.currentData()
+        if scale_code and scale_code in SCALE_TO_TEXT_HEIGHT_MAP:
+            self.dxf_text_height_edit.setText(SCALE_TO_TEXT_HEIGHT_MAP[scale_code])
+        else:
+            self.dxf_text_height_edit.clear()
 
-    def get_field_values(self, field_key: str) -> List[str]:
+    def on_cover_changed(self):
+        """Обработчик изменения типа обложки"""
+        cover_type = self.cover_combo.currentText()
+
+        if cover_type == "Наша":
+            self.title_start_edit.setText("2")
+            self.title_start_edit.setReadOnly(True)
+            self.title_start_edit.setStyleSheet("background-color: #f0f0f0;")
+        else:
+            self.title_start_edit.setReadOnly(False)
+            self.title_start_edit.setStyleSheet("")
+            if self.title_start_edit.text() == "2":
+                self.title_start_edit.clear()
+
+    def setup_company_city_dependency(self) -> None:
         """
-        Получить список значений для enum поля
+        Настройка зависимости города от компании.
 
-        Args:
-            field_key: Ключ поля
-
-        Returns:
-            List[str]: Список значений
+        Логика:
+        - БТИиК -> город всегда "Санкт-Петербург", поле заблокировано
+        - КРТ (и другие) -> город можно выбирать свободно
         """
-        if self.metadata_manager:
-            return self.metadata_manager.get_field_values(field_key)
-        return []
+        def on_company_changed(text: str):
+            if 'БТИиК' in text:
+                self.city_combo.setCurrentText('Санкт-Петербург')
+                self.city_combo.setEnabled(False)
+            else:
+                self.city_combo.setEnabled(True)
+
+        self.company_combo.currentTextChanged.connect(on_company_changed)
+        # Инициализируем состояние по текущему значению
+        on_company_changed(self.company_combo.currentText())
 
     def setup_conditional_field(self, parent_combo: QComboBox, child_combo: QComboBox,
                                 parent_value_to_enable: str) -> None:

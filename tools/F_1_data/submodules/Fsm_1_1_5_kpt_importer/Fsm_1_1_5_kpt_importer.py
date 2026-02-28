@@ -19,9 +19,8 @@ from typing import Dict, List, Optional, Any, Callable
 
 from qgis.core import (
     QgsProject, QgsVectorLayer, QgsFeature, QgsField, QgsFields,
-    QgsCoordinateReferenceSystem, QgsVectorFileWriter
-)
-from qgis.PyQt.QtCore import QVariant, QDate, QDateTime
+    QgsCoordinateReferenceSystem, QgsVectorFileWriter, NULL)
+from qgis.PyQt.QtCore import QMetaType, QDate, QDateTime
 
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
@@ -412,31 +411,31 @@ class Fsm_1_1_5_KptImporter:
         return cache
 
     def _get_field_type(self, short_name: str) -> int:
-        """Получение QVariant типа поля"""
+        """Получение QMetaType типа поля"""
         type_map = {
-            "Integer": QVariant.Int,
-            "Long": QVariant.LongLong,
-            "Real": QVariant.Double,
-            "String": QVariant.String,
-            "Date": QVariant.Date,
-            "DateTime": QVariant.DateTime
+            "Integer": QMetaType.Type.Int,
+            "Long": QMetaType.Type.LongLong,
+            "Real": QMetaType.Type.Double,
+            "String": QMetaType.Type.QString,
+            "Date": QMetaType.Type.QDate,
+            "DateTime": QMetaType.Type.QDateTime
         }
         type_str = self._field_type_cache.get(short_name, "String")
-        return type_map.get(type_str, QVariant.String)
+        return type_map.get(type_str, QMetaType.Type.QString)
 
     def _convert_value(self, value: Any, target_type: int) -> Any:
         """Конвертация значения в нужный тип"""
         if value is None or value == "":
-            return QVariant()
+            return NULL
 
         try:
             cleaned_value = str(value).strip()
 
-            if target_type in (QVariant.Int, QVariant.LongLong):
+            if target_type in (QMetaType.Type.Int, QMetaType.Type.LongLong):
                 return int(float(cleaned_value))
-            elif target_type == QVariant.Double:
+            elif target_type == QMetaType.Type.Double:
                 return float(cleaned_value)
-            elif target_type == QVariant.Date:
+            elif target_type == QMetaType.Type.QDate:
                 dt = None
                 for fmt in ('%Y-%m-%d', '%d.%m.%Y', '%Y.%m.%d'):
                     try:
@@ -444,8 +443,8 @@ class Fsm_1_1_5_KptImporter:
                         break
                     except ValueError:
                         continue
-                return QDate(dt.year, dt.month, dt.day) if dt else QVariant()
-            elif target_type == QVariant.DateTime:
+                return QDate(dt.year, dt.month, dt.day) if dt else NULL
+            elif target_type == QMetaType.Type.QDateTime:
                 dt = None
                 for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%d.%m.%Y %H:%M:%S', '%d.%m.%Y'):
                     try:
@@ -453,12 +452,12 @@ class Fsm_1_1_5_KptImporter:
                         break
                     except ValueError:
                         continue
-                return QDateTime(dt) if dt else QVariant()
+                return QDateTime(dt) if dt else NULL
             else:
                 return cleaned_value
 
         except (ValueError, TypeError):
-            return QVariant()
+            return NULL
 
     def _create_group_name(self, suffix: str, root_tag: str) -> str:
         """Создание имени группы из суффикса и root_tag"""

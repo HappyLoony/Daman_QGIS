@@ -21,6 +21,7 @@ from Daman_QGIS.database.schemas import ProjectSettings
 from Daman_QGIS.constants import MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION, COORDINATE_PRECISION
 from Daman_QGIS.utils import log_success, log_info, log_error
 from Daman_QGIS.managers import DataCleanupManager
+from Daman_QGIS.tools.F_0_project.submodules.base_metadata_dialog import OPTIONAL_METADATA_DESCRIPTIONS
 
 
 class F_0_1_NewProject(BaseTool):
@@ -71,9 +72,9 @@ class F_0_1_NewProject(BaseTool):
                 None,
                 "Подтверждение",
                 "Текущий проект будет закрыт. Продолжить?",
-                QMessageBox.Yes | QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
-            if reply == QMessageBox.No:
+            if reply == QMessageBox.StandardButton.No:
                 return
 
             # Закрываем текущий проект
@@ -82,7 +83,7 @@ class F_0_1_NewProject(BaseTool):
         # Создаем и показываем диалог
         dialog = NewProjectDialog(None, self.reference_manager)
 
-        if dialog.exec_():
+        if dialog.exec():
             # Получаем данные из диалога
             project_data = dialog.get_project_data()
 
@@ -119,17 +120,16 @@ class F_0_1_NewProject(BaseTool):
 
         db.set_metadata('1_4_crs_description', project_data['crs_description'],
                        'Описание системы координат')
-        db.set_metadata('1_4_crs_short_name', project_data['crs_short_name'],
-                       'Короткое название СК для приложений')
 
-        # Код региона (обязательное поле)
+        # Код региона (обязательное поле, ручной ввод)
         db.set_metadata('1_4_1_code_region', project_data.get('code_region', ''),
-                       'Код региона для CRS')
+                       'Код региона (например: 23, 89)')
 
-        # Код региона:района (условное поле - только если указан район)
-        if project_data.get('code_region_district'):
-            db.set_metadata('1_4_2_code_region_district', project_data['code_region_district'],
-                           'Полный код региона:района для CRS')
+        # Код зоны (условное поле - пустое для фиксированных регионов)
+        code_zone = project_data.get('code_zone', '')
+        if code_zone:
+            db.set_metadata('1_4_2_code_zone', code_zone,
+                           'Код зоны МСК (например: 1, 2)')
 
         db.set_metadata('1_5_doc_type', project_data['doc_type'],
                        'Тип документации (dpt - ДПТ, masterplan - Мастер-План)')
@@ -143,33 +143,18 @@ class F_0_1_NewProject(BaseTool):
 
     def _save_optional_metadata(self, db, project_data: Dict[str, Any]) -> None:
         """Сохранение необязательных метаданных проекта"""
-        optional_fields = {
-            'code': ('2_1_code', 'Шифр (внутренняя кодировка объекта)'),
-            'release_date': ('2_2_date', 'Дата выпуска для титулов, обложек, и штампов'),
-            'company': ('2_3_company', 'Компания выполняющая договор'),
-            'city': ('2_4_city', 'Город'),
-            'customer': ('2_5_customer', 'Заказчик'),
-            'general_director': ('2_6_general_director', 'Генеральный директор'),
-            'technical_director': ('2_7_technical_director', 'Технический директор'),
-            'cover': ('2_8_cover', 'Обложка обычно не наша'),
-            'title_start': ('2_9_title_start', 'С какого листа начинается наш титул'),
-            'main_scale': ('2_10_main_scale', 'Основной масштаб'),
-            'developer': ('2_11_developer', 'Разаботал'),
-            'examiner': ('2_12_examiner', 'Проверил'),
-        }
-
-        for field, (key, desc) in optional_fields.items():
+        for field, (key, desc) in OPTIONAL_METADATA_DESCRIPTIONS.items():
             if field in project_data and project_data[field]:
                 db.set_metadata(key, project_data[field], desc)
 
     def _configure_qgis_project(self, project_data: Dict[str, Any]) -> None:
         """Конфигурация параметров проекта QGIS"""
-        from qgis.core import QgsProject, QgsUnitTypes, QgsSnappingConfig, QgsTolerance
+        from qgis.core import QgsProject, Qgis, QgsSnappingConfig, QgsTolerance
         from Daman_QGIS.constants import COORDINATE_PRECISION
         from Daman_QGIS.utils import log_info
 
-        QgsProject.instance().setDistanceUnits(QgsUnitTypes.DistanceMeters)
-        QgsProject.instance().setAreaUnits(QgsUnitTypes.AreaSquareMeters)
+        QgsProject.instance().setDistanceUnits(Qgis.DistanceUnit.Meters)
+        QgsProject.instance().setAreaUnits(Qgis.AreaUnit.SquareMeters)
 
         snapping_config = QgsProject.instance().snappingConfig()
         snapping_config.setEnabled(True)

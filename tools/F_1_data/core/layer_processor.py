@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Процессор слоев для импорта
-Сохранение в GeoPackage, применение стилей, организация в группы
+Сохранение в GeoPackage, применение стилей
 """
 
 import os
@@ -10,8 +10,7 @@ import json
 from typing import Optional, Dict, Any, List
 from qgis.core import (
     QgsVectorLayer, QgsProject, QgsMessageLog, Qgis,
-    QgsVectorFileWriter, QgsLayerTreeGroup,
-    QgsCoordinateReferenceSystem
+    QgsVectorFileWriter, QgsCoordinateReferenceSystem
 )
 from qgis.PyQt.QtGui import QColor
 
@@ -39,7 +38,7 @@ class LayerProcessor:
         """
         Загрузка параметров слоев из Base_layers.json через LayerReferenceManager
         """
-        from Daman_QGIS.managers.submodules.Msm_4_6_layer_reference_manager import LayerReferenceManager
+        from Daman_QGIS.managers import LayerReferenceManager
 
         layer_manager = LayerReferenceManager()
         data = layer_manager.get_base_layers()
@@ -124,6 +123,13 @@ class LayerProcessor:
         # Очищаем имя слоя от недопустимых символов
         layer_name = self._clean_layer_name(layer_name)
 
+        # Дополняем обязательные поля для слоёв ЗПР (L_2_4_*, L_2_5_*)
+        # ПЕРЕД сохранением в GPKG, чтобы F_2_1 мог работать со слоем
+        self._ensure_zpr_fields(layer, layer_name)
+
+        # Дополняем обязательные поля для слоя лесных выделов (Le_3_1_1_1_*)
+        self._ensure_forest_vydely_fields(layer, layer_name)
+
         # Логируем
         log_info(
             f"Сохранение слоя в GeoPackage: {layer_name}"
@@ -146,12 +152,10 @@ class LayerProcessor:
         if error[0] != QgsVectorFileWriter.NoError:
             raise ValueError(f"Ошибка сохранения: {error[1]}")
 
-        # Проверяем существование целевого слоя в проекте
+        # Проверяем существование целевого слоя в проекте и удаляем его
         existing_gpkg_layer = self.replacement_manager.find_layer_by_name(layer_name)
-        position, parent_group = None, None
         if existing_gpkg_layer:
-            # Сохраняем позицию существующего GPKG слоя
-            position, parent_group = self.replacement_manager.remove_layer_preserve_position(existing_gpkg_layer)
+            self.replacement_manager.remove_layer_preserve_position(existing_gpkg_layer)
 
         # Загружаем слой из GeoPackage
         gpkg_layer = QgsVectorLayer(
@@ -223,7 +227,9 @@ class LayerProcessor:
         )
 
         if success:
-            # ВАЖНО: triggerRepaint() может вызвать краш, не вызываем
+            # Безопасный отложенный refresh через QTimer
+            from Daman_QGIS.utils import safe_refresh_layer
+            safe_refresh_layer(layer)
             log_info(
                 f"Применен стиль красной линии к слою {layer.name()}"
             )
@@ -316,14 +322,100 @@ class LayerProcessor:
     def generate_layer_name(self, base_name: str, suffix: Optional[str] = None) -> str:
         """
         Генерация имени слоя по шаблону X_Y_Z_Name
-        
+
         Args:
             base_name: Базовое имя (например, '1_1_1_Границы')
             suffix: Суффикс (например, '_point', '_line')
-            
+
         Returns:
             Полное имя слоя
         """
         if suffix and not base_name.endswith(suffix):
             return f"{base_name}{suffix}"
         return base_name
+
+    def _ensure_zpr_fields(self, layer: QgsVectorLayer, layer_name: str) -> None:
+        """
+        Дополнение обязательных полей для слоёв ЗПР
+
+        Проверяет, является ли слой слоем ЗПР (L_2_4_* или L_2_5_*),
+        и если да - добавляет недостающие обязательные поля.
+
+        Обязательные поля ЗПР (схема 'ZPR' в M_28):
+        - ID, ID_KV, VRI, MIN_AREA_VRI
+
+        Args:
+            layer: Слой для проверки и дополнения
+            layer_name: Имя слоя
+        """
+        # Проверяем, является ли слой слоем ЗПР
+        if not (layer_name.startswith('L_2_4_') or layer_name.startswith('L_2_5_')):
+            return
+
+        try:
+            from Daman_QGIS.managers import LayerSchemaValidator
+
+            validator = LayerSchemaValidator()
+
+            # Проверяем, входит ли слой в схему ZPR
+            if not validator.is_layer_in_schema(layer_name, 'ZPR'):
+                log_info(f"LayerProcessor: Слой {layer_name} не в схеме ZPR, пропускаем дополнение полей")
+                return
+
+            # Дополняем недостающие поля
+            result = validator.ensure_required_fields(layer, 'ZPR')
+
+            if result['success'] and result['fields_added']:
+                log_info(
+                    f"LayerProcessor: Слой {layer_name} дополнен полями: "
+                    f"{', '.join(result['fields_added'])}"
+                )
+            elif not result['success']:
+                log_warning(
+                    f"LayerProcessor: Ошибка дополнения полей слоя {layer_name}: "
+                    f"{result.get('error', 'unknown')}"
+                )
+
+        except Exception as e:
+            log_warning(f"LayerProcessor: Ошибка проверки полей ЗПР для {layer_name}: {e}")
+
+    def _ensure_forest_vydely_fields(self, layer: QgsVectorLayer, layer_name: str) -> None:
+        """
+        Дополнение обязательных полей для слоя лесных выделов
+
+        Проверяет, является ли слой слоем лесных выделов (Le_3_1_1_1_Лес_Ред_Выделы),
+        и если да - добавляет недостающие обязательные поля с правильными типами
+        (Int для Номер_квартала/Номер_выдела, String с разной длиной для остальных).
+
+        17 обязательных полей загружаются из Base_forest_vydely.json.
+
+        Args:
+            layer: Слой для проверки и дополнения
+            layer_name: Имя слоя
+        """
+        from Daman_QGIS.constants import LAYER_FOREST_VYDELY
+
+        if layer_name != LAYER_FOREST_VYDELY:
+            return
+
+        try:
+            from Daman_QGIS.managers import LayerSchemaValidator
+
+            validator = LayerSchemaValidator()
+
+            # Дополняем недостающие поля (с типами из динамического провайдера)
+            result = validator.ensure_required_fields(layer, 'FOREST_VYDELY')
+
+            if result['success'] and result['fields_added']:
+                log_info(
+                    f"LayerProcessor: Слой {layer_name} дополнен полями: "
+                    f"{', '.join(result['fields_added'])}"
+                )
+            elif not result['success']:
+                log_warning(
+                    f"LayerProcessor: Ошибка дополнения полей слоя {layer_name}: "
+                    f"{result.get('error', 'unknown')}"
+                )
+
+        except Exception as e:
+            log_warning(f"LayerProcessor: Ошибка проверки полей лесных выделов для {layer_name}: {e}")

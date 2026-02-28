@@ -9,8 +9,8 @@
 
 from typing import List, Dict, Any, Tuple, Optional
 from qgis.core import (
-    QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY,
-    QgsWkbTypes, QgsSpatialIndex, QgsRectangle
+    Qgis, QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY,
+    QgsSpatialIndex, QgsRectangle
 )
 from Daman_QGIS.constants import COORDINATE_PRECISION
 from Daman_QGIS.utils import log_info, log_warning
@@ -59,7 +59,7 @@ class Fsm_0_4_9_PointChecker:
         log_info(f"Fsm_0_4_9: Запуск проверки точечной топологии для слоя '{layer.name()}'")
 
         # Проверяем тип геометрии
-        if layer.geometryType() != QgsWkbTypes.PointGeometry:
+        if layer.geometryType() != Qgis.GeometryType.Point:
             log_warning(f"Fsm_0_4_9: Слой '{layer.name()}' не является точечным, проверка пропущена")
             return [], []
 

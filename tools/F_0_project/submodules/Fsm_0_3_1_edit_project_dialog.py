@@ -11,11 +11,12 @@ from qgis.PyQt.QtWidgets import (
     QFileDialog, QFrame
 )
 from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtGui import QIntValidator
 from qgis.gui import QgsProjectionSelectionWidget
 from qgis.core import QgsCoordinateReferenceSystem
-from Daman_QGIS.core.crs_utils import extract_crs_short_name
 from Daman_QGIS.utils import log_info, log_warning
 from Daman_QGIS.tools.F_0_project.submodules.base_metadata_dialog import BaseMetadataDialog
+from Daman_QGIS.constants import FIXED_ZONE_REGIONS, SPECIAL_REGION_NAMES
 
 
 class EditProjectDialog(BaseMetadataDialog):
@@ -31,8 +32,8 @@ class EditProjectDialog(BaseMetadataDialog):
             reference_db: Менеджер справочных БД
         """
         super().__init__(parent, reference_db)
+        self.MODULE_ID = "F_0_3"
         self.current_metadata = current_metadata or {}
-        self.crs_short_name = ""  # Для хранения короткого названия СК
 
         self.setup_ui()
         self.load_current_values()
@@ -153,14 +154,45 @@ class EditProjectDialog(BaseMetadataDialog):
         warning_label.setWordWrap(True)
         warning_label.setStyleSheet("QLabel { background-color: #fff3cd; padding: 10px; border: 1px solid #ffc107; border-radius: 3px; }")
         crs_layout.addWidget(warning_label)
-        
+
+        # Форма для кода региона и зоны
+        region_form = QFormLayout()
+
+        # 1_4_1 Код региона (ОБЯЗАТЕЛЬНОЕ поле, выбор из списка)
+        self.region_code_combo = QComboBox()
+        # Заполняем значениями 01-91 (максимальный код региона РФ)
+        self.region_code_combo.addItem("")  # Пустой элемент для "не выбрано"
+        for i in range(1, 92):
+            code = f"{i:02d}"  # Форматируем как 01, 02, ... 91
+            self.region_code_combo.addItem(code, code)
+
+        # Ограничиваем высоту выпадающего списка
+        self.region_code_combo.setMaxVisibleItems(12)
+
+        self.region_code_combo.currentTextChanged.connect(self.on_region_changed)
+        region_form.addRow("Код региона:", self.region_code_combo)
+
+        # 1_4_2 Код зоны (УСЛОВНОЕ поле, ручной ввод)
+        self.zone_code_edit = QLineEdit()
+        self.zone_code_edit.setPlaceholderText("Например: 1")
+        self.zone_code_edit.setMaxLength(1)
+        self.zone_code_edit.setValidator(QIntValidator(1, 9, self))
+        region_form.addRow("Код зоны:", self.zone_code_edit)
+
+        # Информационная метка о типе региона
+        self.region_hint_label = QLabel()
+        self.region_hint_label.setStyleSheet("color: gray; font-style: italic;")
+        region_form.addRow("", self.region_hint_label)
+
+        crs_layout.addLayout(region_form)
+
         crs_group.setLayout(crs_layout)
         main_layout.addWidget(crs_group)
         
         # Разделитель
         separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
         main_layout.addWidget(separator)
         
         # Группа дополнительных свойств
@@ -186,6 +218,9 @@ class EditProjectDialog(BaseMetadataDialog):
         self.city_combo = QComboBox()
         self.populate_enum_combo(self.city_combo, '2_4_city', editable=True)
         optional_layout.addRow("Город:", self.city_combo)
+
+        # Зависимость: БТИиК -> всегда Санкт-Петербург
+        self.setup_company_city_dependency()
 
         # 2_5 Заказчик
         self.customer_edit = QLineEdit()
@@ -224,7 +259,15 @@ class EditProjectDialog(BaseMetadataDialog):
         # 2_10 Основной масштаб
         self.main_scale_combo = QComboBox()
         self.populate_enum_combo(self.main_scale_combo, '2_10_main_scale')
+        self.main_scale_combo.currentIndexChanged.connect(self.on_scale_changed)
         optional_layout.addRow("Основной масштаб:", self.main_scale_combo)
+
+        # 2_10_1 Высота текста в DXF (readonly, автоматически по масштабу)
+        self.dxf_text_height_edit = QLineEdit()
+        self.dxf_text_height_edit.setReadOnly(True)
+        self.dxf_text_height_edit.setStyleSheet("background-color: #f0f0f0;")
+        self.dxf_text_height_edit.setPlaceholderText("Определяется масштабом")
+        optional_layout.addRow("Высота текста DXF:", self.dxf_text_height_edit)
 
         # 2_11 Разработчик
         self.developer_combo = QComboBox()
@@ -253,7 +296,7 @@ class EditProjectDialog(BaseMetadataDialog):
         
         # Кнопки
         self.button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         self.button_box.accepted.connect(self.validate_and_accept)
         self.button_box.rejected.connect(self.reject)
@@ -276,7 +319,7 @@ class EditProjectDialog(BaseMetadataDialog):
             self,
             "Выберите новое расположение папки проекта",
             parent_folder,
-            QFileDialog.ShowDirsOnly
+            QFileDialog.Option.ShowDirsOnly
         )
         
         if folder:
@@ -367,22 +410,33 @@ class EditProjectDialog(BaseMetadataDialog):
             if crs.isValid():
                 self.crs_widget.setCrs(crs)
 
-        # Короткое название СК (загружаем в переменную)
-        if '1_4_crs_short_name' in self.current_metadata:
-            self.crs_short_name = self.current_metadata['1_4_crs_short_name'].get('value', '')
-        else:
-            # Если короткого названия нет, пытаемся извлечь автоматически
-            if crs_desc:
-                short_name = extract_crs_short_name(crs_desc)
-                if short_name:
-                    self.crs_short_name = short_name
-                else:
-                    self.crs_short_name = ""
+        # Короткое название СК (crs_short_name) теперь генерируется динамически
+        # в BaseExporter._build_crs_display_name() из code_region и code_zone
 
         # Отключаем tooltip после установки СК
         self.crs_widget.setToolTip("")
         for child in self.crs_widget.findChildren(QWidget):
             child.setToolTip("")
+
+        # Загрузка кода региона (1_4_1)
+        # Блокируем сигналы чтобы on_region_changed не вызывался до загрузки зоны
+        self.region_code_combo.blockSignals(True)
+        if '1_4_1_code_region' in self.current_metadata:
+            region_code = self.current_metadata['1_4_1_code_region'].get('value', '')
+            if region_code:
+                index = self.region_code_combo.findText(region_code)
+                if index >= 0:
+                    self.region_code_combo.setCurrentIndex(index)
+        self.region_code_combo.blockSignals(False)
+
+        # Загрузка кода зоны (1_4_2)
+        if '1_4_2_code_zone' in self.current_metadata:
+            zone_code = self.current_metadata['1_4_2_code_zone'].get('value', '')
+            if zone_code:
+                self.zone_code_edit.setText(zone_code)
+
+        # Вызываем обработчик изменения региона для обновления состояния поля зоны
+        self.on_region_changed()
 
         # Загрузка дополнительных метаданных (2_3 - 2_12)
 
@@ -419,14 +473,18 @@ class EditProjectDialog(BaseMetadataDialog):
             if index >= 0:
                 self.cover_combo.setCurrentIndex(index)
 
+        # Применяем логику блокировки поля в зависимости от типа обложки
+        # ВАЖНО: вызываем ДО загрузки title_start, чтобы on_cover_changed()
+        # не затёр значение из БД (очистка "2" при не-"Наша" обложке)
+        self.on_cover_changed()
+
         # 2_9 С какого листа начинается наш титул
+        # Загружается ПОСЛЕ on_cover_changed() чтобы значение из БД
+        # всегда имело приоритет над автоматической логикой обложки
         if '2_9_title_start' in self.current_metadata:
             self.title_start_edit.setText(
                 self.current_metadata['2_9_title_start'].get('value', '')
             )
-
-        # Применяем логику блокировки поля в зависимости от типа обложки
-        self.on_cover_changed()
 
         # 2_10 Основной масштаб
         if '2_10_main_scale' in self.current_metadata:
@@ -434,6 +492,9 @@ class EditProjectDialog(BaseMetadataDialog):
             index = self.main_scale_combo.findData(main_scale)
             if index >= 0:
                 self.main_scale_combo.setCurrentIndex(index)
+
+        # 2_10_1 Высота текста DXF (автоматически по масштабу)
+        self.on_scale_changed()
 
         # 2_11 Разработчик
         if '2_11_developer' in self.current_metadata:
@@ -472,93 +533,60 @@ class EditProjectDialog(BaseMetadataDialog):
         Args:
             crs: Система координат (передается автоматически сигналом crsChanged, игнорируется)
         """
-        crs = self.crs_widget.crs()
-        if crs and crs.isValid():
-            crs_desc = crs.description()
-            # Извлекаем короткое название из описания СК и сохраняем в переменной
-            short_name = extract_crs_short_name(crs_desc)
-            if short_name:
-                self.crs_short_name = short_name
-            else:
-                # Если не удалось извлечь, используем пустую строку
-                self.crs_short_name = ""
-                log_warning(f"Fsm_0_3_1: Не удалось автоматически определить короткое название СК из '{crs_desc}'")
-        else:
-            self.crs_short_name = ""
-    def load_developers(self):
-        """Загрузка разработчиков из справочной БД"""
-        # Добавляем пустой элемент по умолчанию
-        self.developer_combo.addItem("")
+        # Короткое название СК (crs_short_name) теперь генерируется динамически
+        # в BaseExporter._build_crs_display_name() из code_region и code_zone
+        pass
 
-        if self.reference_db:
-            try:
-                developers = self.reference_db.employee.get_employees_by_role('developed')
-
-                # Извлекаем только фамилии и сортируем по алфавиту
-                last_names = sorted([emp.get('last_name', '') for emp in developers if emp.get('last_name')])
-
-                # Добавляем каждую фамилию
-                for last_name in last_names:
-                    self.developer_combo.addItem(last_name)
-            except Exception as e:
-                log_warning(f"F_0_3: Не удалось загрузить разработчиков: {e}")
-        else:
-            log_warning("F_0_3: Справочная БД недоступна для загрузки разработчиков")
-    def load_examiners(self):
-        """Загрузка проверяющих из справочной БД"""
-        # Добавляем пустой элемент по умолчанию
-        self.examiner_combo.addItem("")
-
-        if self.reference_db:
-            try:
-                examiners = self.reference_db.employee.get_employees_by_role('verified')
-
-                # Извлекаем только фамилии и сортируем по алфавиту
-                last_names = sorted([emp.get('last_name', '') for emp in examiners if emp.get('last_name')])
-
-                # Добавляем каждую фамилию
-                for last_name in last_names:
-                    self.examiner_combo.addItem(last_name)
-            except Exception as e:
-                log_warning(f"F_0_3: Не удалось загрузить проверяющих: {e}")
-        else:
-            log_warning("F_0_3: Справочная БД недоступна для загрузки проверяющих")
-
-    def update_quality_control(self):
+    def on_region_changed(self):
         """
-        Автоматическое обновление поля "Н.Контроль" на основе типа объекта
+        Обработчик изменения кода региона.
 
         Логика:
-        - "Площадной" → Евдокимова
-        - "Линейный" → Косынкина
+        - Фиксированные регионы (FIXED_ZONE_REGIONS): блокируем поле зоны
+        - Особые регионы (77, 78): показываем кастомное название
+        - Обычные регионы: разблокируем поле зоны
         """
-        object_type = self.object_type_combo.currentText()
+        region_code = self.region_code_combo.currentText().strip()
 
-        if "Площадной" in object_type:
-            self.quality_control_edit.setText("Евдокимова")
-        elif "Линейный" in object_type:
-            self.quality_control_edit.setText("Косынкина")
+        if not region_code:
+            # Регион не выбран - сбрасываем состояние
+            self.zone_code_edit.setEnabled(True)
+            self.zone_code_edit.clear()
+            self.zone_code_edit.setPlaceholderText("Например: 1")
+            self.region_hint_label.clear()
+            return
+
+        if region_code in FIXED_ZONE_REGIONS:
+            # Фиксированная зона - блокируем поле
+            self.zone_code_edit.setEnabled(False)
+            self.zone_code_edit.clear()
+
+            if region_code in SPECIAL_REGION_NAMES:
+                # Особый регион с кастомным названием
+                special_name = SPECIAL_REGION_NAMES[region_code]
+                self.zone_code_edit.setPlaceholderText("Не требуется")
+                self.region_hint_label.setText(f"Особый регион: {special_name}")
+                self.region_hint_label.setStyleSheet("color: blue; font-style: italic;")
+            else:
+                # Обычный фиксированный регион
+                self.zone_code_edit.setPlaceholderText("Не требуется")
+                self.region_hint_label.setText("Единственная зона в регионе")
+                self.region_hint_label.setStyleSheet("color: gray; font-style: italic;")
+
+            log_info(f"F_0_3: Регион {region_code} - фиксированная зона")
         else:
-            # Если тип объекта неизвестен, оставляем пустым
-            self.quality_control_edit.clear()
+            # Обычный регион - разблокируем поле зоны
+            self.zone_code_edit.setEnabled(True)
+            self.zone_code_edit.setPlaceholderText("Обязательно")
 
-    def on_cover_changed(self):
-        """Обработчик изменения типа обложки"""
-        cover_type = self.cover_combo.currentText()
-
-        if cover_type == "Наша":
-            # Если обложка наша, титул начинается со 2 страницы
-            self.title_start_edit.setText("2")
-            self.title_start_edit.setReadOnly(True)
-            self.title_start_edit.setStyleSheet("background-color: #f0f0f0;")  # Серый фон для визуальной индикации
-        else:
-            # Если обложка заказчика, разблокируем поле
-            self.title_start_edit.setReadOnly(False)
-            self.title_start_edit.setStyleSheet("")  # Сбрасываем стиль
-            # Очищаем поле, если там было автоматическое значение "2"
-            if self.title_start_edit.text() == "2":
-                self.title_start_edit.clear()
-
+            # Если зона уже заполнена, показываем нейтральную подсказку
+            if self.zone_code_edit.text().strip():
+                self.region_hint_label.setText(f"Зона: {self.zone_code_edit.text().strip()}")
+                self.region_hint_label.setStyleSheet("color: gray; font-style: italic;")
+            else:
+                self.region_hint_label.setText("Укажите номер зоны (1-9)")
+                self.region_hint_label.setStyleSheet("color: orange; font-style: italic;")
+                log_info(f"F_0_3: Регион {region_code} - требуется указать зону")
     def validate_and_accept(self):
         """Валидация и принятие диалога"""
         # Получаем обновленные данные для валидации
@@ -576,7 +604,7 @@ class EditProjectDialog(BaseMetadataDialog):
                 "Укажите папку проекта"
             )
             return
-        
+
         # Проверка системы координат
         crs = self.crs_widget.crs()
         if not crs or not crs.isValid():
@@ -586,18 +614,31 @@ class EditProjectDialog(BaseMetadataDialog):
                 "Выберите корректную систему координат"
             )
             return
-        
-        # Автоматическое извлечение короткого названия СК (если еще не извлечено)
-        if not self.crs_short_name:
-            crs = self.crs_widget.crs()
-            if crs and crs.isValid():
-                short_name = extract_crs_short_name(crs.description())
-                if short_name:
-                    self.crs_short_name = short_name
-                else:
-                    # Если не удалось извлечь, используем пустое значение
-                    self.crs_short_name = ""
-                    log_warning("Fsm_0_3_1: Короткое название СК не определено, будет использовано пустое значение")
+
+        # Валидация кода региона (обязательное поле)
+        region_code = self.region_code_combo.currentText().strip()
+        if not region_code:
+            QMessageBox.warning(
+                self,
+                "Внимание",
+                "Выберите код региона"
+            )
+            self.region_code_combo.setFocus()
+            return
+
+        # Валидация кода зоны (обязательно для обычных регионов)
+        zone_code = self.zone_code_edit.text().strip()
+
+        if region_code not in FIXED_ZONE_REGIONS:
+            # Обычный регион - зона обязательна
+            if not zone_code:
+                QMessageBox.warning(
+                    self,
+                    "Внимание",
+                    "Укажите код зоны (например: 1)"
+                )
+                self.zone_code_edit.setFocus()
+                return
         
         # Предупреждение о переопределении СК
         current_crs_desc = self.current_crs_label.text()
@@ -614,10 +655,10 @@ class EditProjectDialog(BaseMetadataDialog):
                 f"Это выполнит ПЕРЕОПРЕДЕЛЕНИЕ СК для всех слоев.\n"
                 f"Координаты НЕ будут трансформированы!\n\n"
                 f"Продолжить?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
             )
-            if reply == QMessageBox.No:
+            if reply == QMessageBox.StandardButton.No:
                 return
         
         self.accept()
@@ -625,199 +666,103 @@ class EditProjectDialog(BaseMetadataDialog):
     def get_updated_data(self):
         """
         Получение обновленных данных проекта
-        
+
         Returns:
             Словарь с обновленными данными и флагами изменений
         """
         crs = self.crs_widget.crs()
-        
-        # Определяем что изменилось
-        changed_fields = []
-        
-        # Проверка изменения рабочего названия
-        old_working_name = self.current_metadata.get('1_0_working_name', {}).get('value', '')
-        new_working_name = self.working_name_edit.text().strip()
-        if old_working_name != new_working_name:
-            changed_fields.append('working_name')
-        
-        # Проверка изменения полного наименования
-        old_full_name = self.current_metadata.get('1_1_full_name', {}).get('value', '')
-        new_full_name = self.full_name_edit.text().strip()
-        if old_full_name != new_full_name:
-            changed_fields.append('full_name')
-        
-        # Проверка изменения типа
-        old_type = self.current_metadata.get('1_2_object_type', {}).get('value', '')
-        new_type = self.object_type_combo.currentData()
-        if old_type != new_type:
-            changed_fields.append('object_type')
 
-        # Проверка изменения значения линейного объекта
+        # Дескрипторы полей: (field_name, metadata_key, widget, extraction_method)
+        # extraction_method: 'text' = QLineEdit.text().strip()
+        #                    'combo_data' = QComboBox.currentData()
+        #                    'combo_text' = QComboBox.currentText().strip()
+        field_descriptors = [
+            ('working_name', '1_0_working_name', self.working_name_edit, 'text'),
+            ('full_name', '1_1_full_name', self.full_name_edit, 'text'),
+            ('object_type', '1_2_object_type', self.object_type_combo, 'combo_data'),
+            ('doc_type', '1_5_doc_type', self.doc_type_combo, 'combo_data'),
+            ('stage', '1_6_stage', self.stage_combo, 'combo_data'),
+            ('project_folder', '1_3_project_folder', self.folder_edit, 'text'),
+            ('code', '2_1_code', self.code_edit, 'text'),
+            ('release_date', '2_2_date', self.release_date_edit, 'text'),
+            ('code_region', '1_4_1_code_region', self.region_code_combo, 'combo_text'),
+            ('company', '2_3_company', self.company_combo, 'combo_text'),
+            ('city', '2_4_city', self.city_combo, 'combo_text'),
+            ('customer', '2_5_customer', self.customer_edit, 'text'),
+            ('general_director', '2_6_general_director', self.general_director_combo, 'combo_text'),
+            ('technical_director', '2_7_technical_director', self.technical_director_combo, 'combo_text'),
+            ('cover', '2_8_cover', self.cover_combo, 'combo_text'),
+            ('title_start', '2_9_title_start', self.title_start_edit, 'text'),
+            ('main_scale', '2_10_main_scale', self.main_scale_combo, 'combo_data'),
+            ('dxf_text_height', '2_10_1_DXF_SCALE_TO_TEXT_HEIGHT', self.dxf_text_height_edit, 'text'),
+            ('developer', '2_11_developer', self.developer_combo, 'combo_text'),
+            ('examiner', '2_12_examiner', self.examiner_combo, 'combo_text'),
+            ('quality_control', '2_13_quality_control', self.quality_control_edit, 'text'),
+            ('sheet_format', '2_13_sheet_format', self.sheet_format_combo, 'combo_text'),
+            ('sheet_orientation', '2_14_sheet_orientation', self.sheet_orientation_combo, 'combo_text'),
+        ]
+
+        # Извлечение значений и детекция изменений
+        changed_fields = []
+        values = {}
+
+        for field_name, meta_key, widget, method in field_descriptors:
+            if method == 'text':
+                new_val = widget.text().strip()
+            elif method == 'combo_data':
+                new_val = widget.currentData()
+            elif method == 'combo_text':
+                new_val = widget.currentText().strip()
+            else:
+                new_val = ''
+
+            old_val = self.current_metadata.get(meta_key, {}).get('value', '')
+            if old_val != new_val:
+                changed_fields.append(field_name)
+
+            values[field_name] = new_val
+
+        # Специальные поля с нестандартной логикой извлечения
+
+        # object_type_value: условное поле, зависит от isEnabled()
         old_type_value = self.current_metadata.get('1_2_1_object_type_value', {}).get('value', '')
-        new_type_value = self.object_type_value_combo.currentData() if self.object_type_value_combo.isEnabled() else None
+        new_type_value = self.object_type_value_combo.currentData() if self.object_type_value_combo.isEnabled() else ''
         if old_type_value != new_type_value:
             changed_fields.append('object_type_value')
 
-        # Проверка изменения типа документации
-        old_doc_type = self.current_metadata.get('1_5_doc_type', {}).get('value', '')
-        new_doc_type = self.doc_type_combo.currentData()
-        if old_doc_type != new_doc_type:
-            changed_fields.append('doc_type')
-
-        # Проверка изменения этапа разработки
-        old_stage = self.current_metadata.get('1_6_stage', {}).get('value', '')
-        new_stage = self.stage_combo.currentData()
-        if old_stage != new_stage:
-            changed_fields.append('stage')
-
-        # Проверка изменения папки проекта
-        old_folder = self.current_metadata.get('1_3_project_folder', {}).get('value', '')
-        new_folder = self.folder_edit.text().strip()
-        if old_folder != new_folder:
-            changed_fields.append('project_folder')
-        
-        # Проверка изменения шифра
-        old_code = self.current_metadata.get('2_1_code', {}).get('value', '')
-        new_code = self.code_edit.text().strip()
-        if old_code != new_code:
-            changed_fields.append('code')
-        
-        # Проверка изменения даты выпуска
-        old_release_date = self.current_metadata.get('2_2_date', {}).get('value', '')
-        new_release_date = self.release_date_edit.text().strip()
-        if old_release_date != new_release_date:
-            changed_fields.append('release_date')
-        
-        # Проверка изменения СК
+        # CRS: сравнение по описанию
         old_crs_desc = self.current_metadata.get('1_4_crs_description', {}).get('value', '')
         new_crs_desc = crs.description() if crs else ""
         if old_crs_desc != new_crs_desc:
             changed_fields.append('crs')
-        
-        # Проверка изменения короткого названия СК
-        old_crs_short_name = self.current_metadata.get('1_4_crs_short_name', {}).get('value', '')
-        new_crs_short_name = self.crs_short_name
-        if old_crs_short_name != new_crs_short_name:
-            changed_fields.append('crs_short_name')
 
-        # Проверка изменения дополнительных метаданных (2_3 - 2_12)
+        # code_zone: условное поле, зависит от isEnabled()
+        old_code_zone = self.current_metadata.get('1_4_2_code_zone', {}).get('value', '')
+        new_code_zone = self.zone_code_edit.text().strip() if self.zone_code_edit.isEnabled() else ""
+        if old_code_zone != new_code_zone:
+            changed_fields.append('code_zone')
 
-        # 2_3 Компания
-        old_company = self.current_metadata.get('2_3_company', {}).get('value', '')
-        new_company = self.company_combo.currentText().strip()
-        if old_company != new_company:
-            changed_fields.append('company')
-
-        # 2_4 Город
-        old_city = self.current_metadata.get('2_4_city', {}).get('value', '')
-        new_city = self.city_combo.currentText().strip()
-        if old_city != new_city:
-            changed_fields.append('city')
-
-        # 2_5 Заказчик
-        old_customer = self.current_metadata.get('2_5_customer', {}).get('value', '')
-        new_customer = self.customer_edit.text().strip()
-        if old_customer != new_customer:
-            changed_fields.append('customer')
-
-        # 2_6 Генеральный директор
-        old_general_director = self.current_metadata.get('2_6_general_director', {}).get('value', '')
-        new_general_director = self.general_director_combo.currentText().strip()
-        if old_general_director != new_general_director:
-            changed_fields.append('general_director')
-
-        # 2_7 Технический директор
-        old_technical_director = self.current_metadata.get('2_7_technical_director', {}).get('value', '')
-        new_technical_director = self.technical_director_combo.currentText().strip()
-        if old_technical_director != new_technical_director:
-            changed_fields.append('technical_director')
-
-        # 2_8 Обложка
-        old_cover = self.current_metadata.get('2_8_cover', {}).get('value', '')
-        new_cover = self.cover_combo.currentText().strip()
-        if old_cover != new_cover:
-            changed_fields.append('cover')
-
-        # 2_9 С какого листа начинается наш титул
-        old_title_start = self.current_metadata.get('2_9_title_start', {}).get('value', '')
-        new_title_start = self.title_start_edit.text().strip()
-        if old_title_start != new_title_start:
-            changed_fields.append('title_start')
-
-        # 2_10 Основной масштаб
-        old_main_scale = self.current_metadata.get('2_10_main_scale', {}).get('value', '')
-        new_main_scale = self.main_scale_combo.currentData()
-        if old_main_scale != new_main_scale:
-            changed_fields.append('main_scale')
-
-        # 2_11 Разработчик
-        old_developer = self.current_metadata.get('2_11_developer', {}).get('value', '')
-        new_developer = self.developer_combo.currentText().strip()
-        if old_developer != new_developer:
-            changed_fields.append('developer')
-
-        # 2_12 Проверяющий
-        old_examiner = self.current_metadata.get('2_12_examiner', {}).get('value', '')
-        new_examiner = self.examiner_combo.currentText().strip()
-        if old_examiner != new_examiner:
-            changed_fields.append('examiner')
-
-        # 2_13 Н.Контроль
-        old_quality_control = self.current_metadata.get('2_13_quality_control', {}).get('value', '')
-        new_quality_control = self.quality_control_edit.text().strip()
-        if old_quality_control != new_quality_control:
-            changed_fields.append('quality_control')
-
-        # 2_13 Формат листа (sheet_format)
-        old_sheet_format = self.current_metadata.get('2_13_sheet_format', {}).get('value', '')
-        new_sheet_format = self.sheet_format_combo.currentText().strip()
-        if old_sheet_format != new_sheet_format:
-            changed_fields.append('sheet_format')
-
-        # 2_14 Ориентация листа
-        old_sheet_orientation = self.current_metadata.get('2_14_sheet_orientation', {}).get('value', '')
-        new_sheet_orientation = self.sheet_orientation_combo.currentText().strip()
-        if old_sheet_orientation != new_sheet_orientation:
-            changed_fields.append('sheet_orientation')
-
-        # Получаем значение линейного объекта только если оно активно
+        # Значение линейного объекта (только если активно)
         object_type_value = None
         object_type_value_name = None
         if self.object_type_value_combo.isEnabled():
             object_type_value = self.object_type_value_combo.currentData()
             object_type_value_name = self.object_type_value_combo.currentText()
 
-        return {
-            'working_name': new_working_name,
-            'full_name': new_full_name,
-            'object_type': new_type,
+        # Сборка результата
+        result = dict(values)
+        result.update({
             'object_type_name': self.object_type_combo.currentText(),
             'object_type_value': object_type_value,
             'object_type_value_name': object_type_value_name,
-            'doc_type': new_doc_type,
             'doc_type_name': self.doc_type_combo.currentText(),
-            'stage': new_stage,
             'stage_name': self.stage_combo.currentText(),
-            'project_folder': new_folder,
-            'code': new_code,
-            'release_date': new_release_date,
-            'company': new_company,
-            'city': new_city,
-            'customer': new_customer,
-            'general_director': new_general_director,
-            'technical_director': new_technical_director,
-            'cover': new_cover,
-            'title_start': new_title_start,
-            'main_scale': new_main_scale,
-            'developer': new_developer,
-            'examiner': new_examiner,
-            'quality_control': new_quality_control,
-            'sheet_format': new_sheet_format,
-            'sheet_orientation': new_sheet_orientation,
             'crs': crs,
             'crs_epsg': crs.postgisSrid() if crs else 0,
             'crs_description': new_crs_desc,
             'crs_wkt': crs.toWkt() if crs else "",
-            'crs_short_name': self.crs_short_name,
-            'changed_fields': changed_fields
-        }
+            'code_zone': new_code_zone,
+            'changed_fields': changed_fields,
+        })
+
+        return result

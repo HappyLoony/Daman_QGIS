@@ -16,8 +16,8 @@ from qgis.core import (
 )
 from Daman_QGIS.constants import DEFAULT_LAYER_ORDER
 from Daman_QGIS.utils import log_info, log_warning, log_error
-from Daman_QGIS.managers.M_19_project_structure_manager import (
-    get_project_structure_manager, FolderType
+from Daman_QGIS.managers import (
+    registry, FolderType
 )
 
 
@@ -69,8 +69,8 @@ class BaseLayersManager:
         # Картооснова НСПД ЦОС
         self.add_nspd_base_layer()
 
-        # Google Labels
-        self.add_google_labels()
+        # ЦОС (Цифровая общегеографическая схема)
+        self.add_cos_layer()
 
         return True, None
     
@@ -119,7 +119,7 @@ class BaseLayersManager:
             bool: Успешность добавления
         """
         project = QgsProject.instance()
-        layer_name = "Le_1_2_7_1_Google_Satellite"
+        layer_name = "L_1_3_1_Google_Satellite"
         
         # Удаляем существующий слой для обновления
         for layer in project.mapLayers().values():
@@ -149,23 +149,26 @@ class BaseLayersManager:
             log_warning("Fsm_1_4_1: Не удалось добавить Google Satellite")
             return False
     
-    def add_google_labels(self):
-        """Добавление слоя Google Labels
-        
+    def add_cos_layer(self):
+        """Добавление слоя ЦОС - Цифровая общегеографическая схема (category_id 849241)
+
         Returns:
             bool: Успешность добавления
         """
         project = QgsProject.instance()
-        layer_name = "Le_1_2_7_3_Google_Labels"
-        
+        layer_name = "L_1_3_3_ЦОС"
+
         # Удаляем существующий слой для обновления
         for layer in project.mapLayers().values():
             if layer.name() == layer_name:
                 log_info(f"Fsm_1_4_1: Удаляем существующий слой {layer_name} для обновления")
                 project.removeMapLayer(layer.id())
 
-        uri = 'type=xyz&url=https://mt1.google.com/vt/lyrs%3Dh%26x%3D%7Bx%7D%26y%3D%7By%7D%26z%3D%7Bz%7D&zmax=22&zmin=0'
-        
+        # НСПД WMTS endpoint (category_id 849241)
+        category_id = 849241
+        maphead = f'http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D{category_id}'
+        uri = f'{maphead}&referer=https://nspd.gov.ru/map?baseLayerId%3D{category_id}&type=xyz&url=https://nspd.gov.ru/api/aeggis/v2/{category_id}/wmts/%7Bz%7D/%7Bx%7D/%7By%7D.png&zmax=18&zmin=0'
+
         layer = QgsRasterLayer(uri, layer_name, 'wms')
 
         if layer.isValid():
@@ -180,10 +183,10 @@ class BaseLayersManager:
                 # Fallback: добавляем напрямую
                 project.addMapLayer(layer, True)
 
-            log_info("Fsm_1_4_1: Google Labels добавлен")
+            log_info("Fsm_1_4_1: ЦОС добавлен")
             return True
         else:
-            log_warning("Fsm_1_4_1: Не удалось добавить Google Labels")
+            log_warning("Fsm_1_4_1: Не удалось добавить ЦОС")
             return False
     def load_nspd_layers(self, nspd_layers):
         """Загрузка векторных слоев ЕГРН через модуль okno_egrn
@@ -224,6 +227,12 @@ class BaseLayersManager:
                     'layer_name': 'Le_1_2_6_1_WFS_Зоны_эконом'
                 },
                 {
+                    'enabled': nspd_layers.get('cultural_heritage', False),
+                    'category_name': 'Территории объектов культурного наследия',  # ID 36947 в НСПД
+                    'category_id': 36947,
+                    'layer_name': 'Le_1_2_6_3_WFS_Тер_ОКН'
+                },
+                {
                     'enabled': nspd_layers.get('land_plots', False),
                     'category_name': 'Земельные участки из ЕГРН',  # ID 12 в okno_egrn
                     'category_id': 36368,
@@ -245,7 +254,7 @@ class BaseLayersManager:
         gpkg_path = None
         project_path = project.homePath()
         if project_path:
-            structure_manager = get_project_structure_manager()
+            structure_manager = registry.get('M_19')
             structure_manager.project_root = project_path
             gpkg_path = structure_manager.get_gpkg_path(create=False)
 

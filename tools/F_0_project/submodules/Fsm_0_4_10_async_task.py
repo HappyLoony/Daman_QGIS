@@ -15,7 +15,7 @@ Fsm_0_4_10: Асинхронный Task для проверки топологи
 
 from typing import List, Optional
 from qgis.core import QgsProject, QgsProcessingContext, QgsVectorLayer
-from Daman_QGIS.managers.submodules.Msm_17_1_base_task import BaseAsyncTask
+from Daman_QGIS.managers import BaseAsyncTask
 from Daman_QGIS.utils import log_info
 
 
@@ -29,13 +29,13 @@ class Fsm_0_4_10_TopologyCheckTask(BaseAsyncTask):
     IMPORTANT: Передавать layer_id, не layer object!
 
     Использование:
-        from Daman_QGIS.managers import get_async_manager
+        from Daman_QGIS.managers import registry
 
         task = Fsm_0_4_10_TopologyCheckTask(
             layer_id=layer.id(),
             layer_name=layer.name()
         )
-        manager = get_async_manager(iface)
+        manager = registry.get('M_17')
         manager.run(task, on_completed=handle_result)
     """
 
@@ -43,7 +43,8 @@ class Fsm_0_4_10_TopologyCheckTask(BaseAsyncTask):
                  layer_id: str,
                  layer_name: str,
                  check_types: Optional[List[str]] = None,
-                 processing_context: Optional[QgsProcessingContext] = None):
+                 processing_context: Optional[QgsProcessingContext] = None,
+                 enable_gap_check: bool = False):
         """
         Args:
             layer_id: ID слоя для проверки (НЕ layer object!)
@@ -51,6 +52,7 @@ class Fsm_0_4_10_TopologyCheckTask(BaseAsyncTask):
             check_types: Список типов проверок (None = все)
             processing_context: QgsProcessingContext созданный в main thread
                                (ОБЯЗАТЕЛЬНО для thread-safe работы processing.run())
+            enable_gap_check: Включить анализ покрытия (зазоры). По умолчанию False.
         """
         super().__init__(f"Проверка топологии: {layer_name}", can_cancel=True)
 
@@ -58,6 +60,7 @@ class Fsm_0_4_10_TopologyCheckTask(BaseAsyncTask):
         self.layer_name = layer_name
         self.check_types = check_types
         self.processing_context = processing_context
+        self.enable_gap_check = enable_gap_check
 
     def execute(self):
         """
@@ -87,7 +90,8 @@ class Fsm_0_4_10_TopologyCheckTask(BaseAsyncTask):
 
         # Создаем координатор с processing_context для thread-safe операций
         coordinator = Fsm_0_4_5_TopologyCoordinator(
-            processing_context=self.processing_context
+            processing_context=self.processing_context,
+            enable_gap_check=self.enable_gap_check
         )
 
         # Callback для прогресса

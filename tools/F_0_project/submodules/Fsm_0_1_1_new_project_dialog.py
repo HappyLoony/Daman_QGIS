@@ -9,13 +9,14 @@ from qgis.PyQt.QtWidgets import (
     QLineEdit, QComboBox, QPushButton, QLabel,
     QDialogButtonBox, QFileDialog, QMessageBox
 )
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, QSettings, QStandardPaths
+from qgis.PyQt.QtGui import QIntValidator  # Используется для zone_code_edit
 from qgis.gui import QgsProjectionSelectionDialog
 from qgis.core import QgsCoordinateReferenceSystem
-from Daman_QGIS.core.crs_utils import extract_crs_short_name
 from Daman_QGIS.utils import log_info, log_warning
 from Daman_QGIS.managers import DataCleanupManager
 from Daman_QGIS.tools.F_0_project.submodules.base_metadata_dialog import BaseMetadataDialog
+from Daman_QGIS.constants import FIXED_ZONE_REGIONS, SPECIAL_REGION_NAMES
 
 
 class NewProjectDialog(BaseMetadataDialog):
@@ -30,9 +31,8 @@ class NewProjectDialog(BaseMetadataDialog):
             reference_db: Справочная БД для получения типов объектов
         """
         super().__init__(parent, reference_db)  # BaseMetadataDialog инициализирует validator
+        self.MODULE_ID = "Fsm_0_1_1"
         self.project_path = ""
-        self.crs_short_name = ""  # Для хранения короткого названия СК
-        self.crs_from_database = False  # Флаг: CRS выбрана из базы данных (True) или нативно (False)
 
         self.setup_ui()
         
@@ -120,62 +120,74 @@ class NewProjectDialog(BaseMetadataDialog):
 
         form_layout.addRow("Система координат:", crs_layout)
 
-        # 1_4_1 Код региона (ОБЯЗАТЕЛЬНОЕ поле)
+        # 1_4_1 Код региона (ОБЯЗАТЕЛЬНОЕ поле, выбор из списка)
         self.region_code_combo = QComboBox()
-        self.region_code_combo.setEditable(True)
-        self.region_code_combo.setPlaceholderText("Например: 05")
+        # Заполняем значениями 01-91 (максимальный код региона РФ)
+        self.region_code_combo.addItem("")  # Пустой элемент для "не выбрано"
+        for i in range(1, 92):
+            code = f"{i:02d}"  # Форматируем как 01, 02, ... 91
+            self.region_code_combo.addItem(code, code)
+
+        # Ограничиваем высоту выпадающего списка
+        # ВАЖНО: combobox-popup: 0 необходим для работы setMaxVisibleItems на Windows
+        # без этого стиля dropdown открывается на весь экран
+        self.region_code_combo.setStyleSheet("QComboBox { combobox-popup: 0; }")
+        self.region_code_combo.setMaxVisibleItems(12)
+
         self.region_code_combo.currentTextChanged.connect(self.on_region_changed)
-        self.load_region_codes()
         form_layout.addRow("Код региона:", self.region_code_combo)
 
-        # 1_4_2 Код района (УСЛОВНОЕ поле - активируется если у региона есть районы)
-        self.district_code_combo = QComboBox()
-        self.district_code_combo.setEnabled(False)
-        self.district_code_combo.setPlaceholderText("Не требуется")
-        self.district_code_combo.currentTextChanged.connect(self.on_district_changed)
-        form_layout.addRow("Код района:", self.district_code_combo)
+        # 1_4_2 Код зоны (УСЛОВНОЕ поле, ручной ввод)
+        self.zone_code_edit = QLineEdit()
+        self.zone_code_edit.setPlaceholderText("Например: 1")
+        self.zone_code_edit.setMaxLength(1)
+        self.zone_code_edit.setValidator(QIntValidator(1, 9, self))
+        form_layout.addRow("Код зоны:", self.zone_code_edit)
 
-        # Информационная метка о найденной CRS
-        self.crs_match_label = QLabel()
-        self.crs_match_label.setStyleSheet("color: gray; font-style: italic;")
-        form_layout.addRow("", self.crs_match_label)
+        # Информационная метка о типе региона
+        self.region_hint_label = QLabel()
+        self.region_hint_label.setStyleSheet("color: gray; font-style: italic;")
+        form_layout.addRow("", self.region_hint_label)
 
-        # Разделитель для дополнительных полей
-        separator_label = QLabel("<b>Дополнительные метаданные:</b>")
+        # Разделитель для сведений оформления
+        separator_label = QLabel("<b>Сведения для оформления:</b>")
         form_layout.addRow("", separator_label)
 
-        # 2_1 Шифр (дополнительно)
+        # 2_1 Шифр
         self.code_edit = QLineEdit()
-        self.code_edit.setPlaceholderText("Дополнительно")
+        self.code_edit.setPlaceholderText("Заполнить позже")
         form_layout.addRow("Шифр:", self.code_edit)
 
-        # 2_2 Дата выпуска (дополнительно)
+        # 2_2 Дата выпуска
         self.release_date_edit = QLineEdit()
-        self.release_date_edit.setPlaceholderText("Дополнительно (например: 01.2025)")
+        self.release_date_edit.setPlaceholderText("Например: 01.2025")
         form_layout.addRow("Дата выпуска:", self.release_date_edit)
 
-        # 2_3 Компания (дополнительно)
+        # 2_3 Компания
         self.company_combo = QComboBox()
         self.populate_enum_combo(self.company_combo, '2_3_company', editable=True)
         form_layout.addRow("Компания:", self.company_combo)
 
-        # 2_4 Город (дополнительно)
+        # 2_4 Город разработки
         self.city_combo = QComboBox()
         self.populate_enum_combo(self.city_combo, '2_4_city', editable=True)
-        form_layout.addRow("Город:", self.city_combo)
+        form_layout.addRow("Город разработки:", self.city_combo)
 
-        # 2_5 Заказчик (дополнительно)
+        # Зависимость: БТИиК -> всегда Санкт-Петербург
+        self.setup_company_city_dependency()
+
+        # 2_5 Заказчик
         self.customer_edit = QLineEdit()
-        self.customer_edit.setPlaceholderText("Дополнительно")
+        self.customer_edit.setPlaceholderText("Заполнить позже")
         form_layout.addRow("Заказчик:", self.customer_edit)
 
-        # 2_6 Генеральный директор (дополнительно, скрыто)
+        # 2_6 Генеральный директор (скрыто, редко меняется)
         self.general_director_combo = QComboBox()
         self.populate_enum_combo(self.general_director_combo, '2_6_general_director', editable=True)
         # Скрываем поле из GUI (редко меняется)
         # form_layout.addRow("Генеральный директор:", self.general_director_combo)
 
-        # 2_7 Технический директор (дополнительно, скрыто)
+        # 2_7 Технический директор (скрыто, редко меняется)
         self.technical_director_combo = QComboBox()
         self.populate_enum_combo(self.technical_director_combo, '2_7_technical_director', editable=True)
         # Скрываем поле из GUI (редко меняется)
@@ -187,15 +199,15 @@ class NewProjectDialog(BaseMetadataDialog):
         self.quality_control_edit.setStyleSheet("background-color: #f0f0f0;")  # Серый фон для read-only
         form_layout.addRow("Н.Контроль:", self.quality_control_edit)
 
-        # 2_8 Обложка (дополнительно)
+        # 2_8 Обложка
         self.cover_combo = QComboBox()
         self.populate_enum_combo(self.cover_combo, '2_8_cover')
         self.cover_combo.currentTextChanged.connect(self.on_cover_changed)
         form_layout.addRow("Обложка:", self.cover_combo)
 
-        # 2_9 С какого листа начинается наш титул (дополнительно)
+        # 2_9 С какого листа начинается наш титул
         self.title_start_edit = QLineEdit()
-        self.title_start_edit.setPlaceholderText("Дополнительно (номер листа)")
+        self.title_start_edit.setPlaceholderText("Номер листа")
         form_layout.addRow("С какого листа начинается наш титул:", self.title_start_edit)
 
         # 2_10 Основной масштаб (дополнительно)
@@ -205,7 +217,18 @@ class NewProjectDialog(BaseMetadataDialog):
         index = self.main_scale_combo.findData("1000")
         if index >= 0:
             self.main_scale_combo.setCurrentIndex(index)
+        self.main_scale_combo.currentIndexChanged.connect(self.on_scale_changed)
         form_layout.addRow("Основной масштаб:", self.main_scale_combo)
+
+        # 2_10_1 Высота текста в DXF (readonly, автоматически по масштабу)
+        self.dxf_text_height_edit = QLineEdit()
+        self.dxf_text_height_edit.setReadOnly(True)
+        self.dxf_text_height_edit.setStyleSheet("background-color: #f0f0f0;")
+        self.dxf_text_height_edit.setPlaceholderText("Определяется масштабом")
+        form_layout.addRow("Высота текста DXF:", self.dxf_text_height_edit)
+
+        # Инициализируем высоту текста по текущему масштабу
+        self.on_scale_changed()
 
         # 2_11 Разработчик (дополнительно)
         self.developer_combo = QComboBox()
@@ -222,6 +245,10 @@ class NewProjectDialog(BaseMetadataDialog):
         # 2_13 Формат листа (дополнительно)
         self.sheet_format_combo = QComboBox()
         self.populate_enum_combo(self.sheet_format_combo, '2_13_sheet_format')
+        # Устанавливаем A4 по умолчанию
+        index = self.sheet_format_combo.findText("A4")
+        if index >= 0:
+            self.sheet_format_combo.setCurrentIndex(index)
         form_layout.addRow("Формат листа:", self.sheet_format_combo)
 
         # 2_14 Ориентация листа (дополнительно)
@@ -233,7 +260,7 @@ class NewProjectDialog(BaseMetadataDialog):
         
         # Кнопки
         self.button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         self.button_box.accepted.connect(self.validate_and_accept)
         self.button_box.rejected.connect(self.reject)
@@ -242,8 +269,9 @@ class NewProjectDialog(BaseMetadataDialog):
 
         self.setLayout(main_layout)
 
-        # Инициализируем значение "Н.Контроль" для типа объекта по умолчанию
+        # Инициализируем значения по умолчанию
         self.update_quality_control()
+        self.on_cover_changed()  # Устанавливаем начальное состояние для поля "титул"
     def load_object_types(self):
         """Загрузка типов объектов из справочной БД"""
         if self.reference_db:
@@ -257,185 +285,51 @@ class NewProjectDialog(BaseMetadataDialog):
             # Fallback если ReferenceManager не инициализирован
             self.object_type_combo.addItem("Площадной", "area")
             self.object_type_combo.addItem("Линейный", "linear")
-    def load_developers(self):
-        """Загрузка разработчиков из справочной БД"""
-        # Добавляем пустой элемент по умолчанию
-        self.developer_combo.addItem("")
-
-        if self.reference_db:
-            try:
-                # Получаем сотрудников с ролью 'developed'
-                developers = self.reference_db.employee.get_employees_by_role('developed')
-
-                # Извлекаем только фамилии и сортируем по алфавиту
-                last_names = sorted([emp.get('last_name', '') for emp in developers if emp.get('last_name')])
-
-                # Добавляем каждую фамилию
-                for last_name in last_names:
-                    self.developer_combo.addItem(last_name)
-            except Exception as e:
-                log_warning(f"Fsm_0_1_1: Не удалось загрузить разработчиков: {e}")
-        else:
-            log_warning("Fsm_0_1_1: Справочная БД недоступна для загрузки разработчиков")
-    def load_examiners(self):
-        """Загрузка проверяющих из справочной БД"""
-        # Добавляем пустой элемент по умолчанию
-        self.examiner_combo.addItem("")
-
-        if self.reference_db:
-            try:
-                # Получаем сотрудников с ролью 'verified'
-                examiners = self.reference_db.employee.get_employees_by_role('verified')
-
-                # Извлекаем только фамилии и сортируем по алфавиту
-                last_names = sorted([emp.get('last_name', '') for emp in examiners if emp.get('last_name')])
-
-                # Добавляем каждую фамилию
-                for last_name in last_names:
-                    self.examiner_combo.addItem(last_name)
-            except Exception as e:
-                log_warning(f"Fsm_0_1_1: Не удалось загрузить проверяющих: {e}")
-        else:
-            log_warning("Fsm_0_1_1: Справочная БД недоступна для загрузки проверяющих")
-
-    def update_quality_control(self):
+    def on_region_changed(self):
         """
-        Автоматическое обновление поля "Н.Контроль" на основе типа объекта
+        Обработчик изменения кода региона.
 
         Логика:
-        - "Площадной" → Евдокимова
-        - "Линейный" → Косынкина
+        - Фиксированные регионы (FIXED_ZONE_REGIONS): блокируем поле зоны
+        - Особые регионы (77, 78): показываем кастомное название
+        - Обычные регионы: разблокируем поле зоны
         """
-        object_type = self.object_type_combo.currentText()
-
-        if "Площадной" in object_type:
-            self.quality_control_edit.setText("Евдокимова")
-        elif "Линейный" in object_type:
-            self.quality_control_edit.setText("Косынкина")
-        else:
-            # Если тип объекта неизвестен, оставляем пустым
-            self.quality_control_edit.clear()
-
-    def on_cover_changed(self):
-        """Обработчик изменения типа обложки"""
-        cover_type = self.cover_combo.currentText()
-
-        if cover_type == "Наша":
-            # Если обложка наша, титул начинается со 2 страницы
-            self.title_start_edit.setText("2")
-            self.title_start_edit.setReadOnly(True)
-            self.title_start_edit.setStyleSheet("background-color: #f0f0f0;")  # Серый фон для визуальной индикации
-        else:
-            # Если обложка заказчика, разблокируем поле
-            self.title_start_edit.setReadOnly(False)
-            self.title_start_edit.setStyleSheet("")  # Сбрасываем стиль
-            # Очищаем поле, если там было автоматическое значение "2"
-            if self.title_start_edit.text() == "2":
-                self.title_start_edit.clear()
-
-    def load_region_codes(self):
-        """Загрузка списка кодов регионов из Base_CRS.json"""
-        if self.reference_db and hasattr(self.reference_db, 'crs'):
-            try:
-                regions = self.reference_db.crs.get_regions_list()
-                self.region_code_combo.addItem("")  # Пустой элемент
-                for region in regions:
-                    self.region_code_combo.addItem(region)
-            except Exception as e:
-                log_warning(f"Fsm_0_1_1: Не удалось загрузить коды регионов: {e}")
-
-    def on_region_changed(self):
-        """Обработчик изменения кода региона"""
         region_code = self.region_code_combo.currentText().strip()
 
         if not region_code:
-            self.district_code_combo.setEnabled(False)
-            self.district_code_combo.clear()
-            self.crs_match_label.clear()
+            # Регион не выбран - сбрасываем состояние
+            self.zone_code_edit.setEnabled(True)
+            self.zone_code_edit.clear()
+            self.zone_code_edit.setPlaceholderText("Например: 1")
+            self.region_hint_label.clear()
             return
 
-        if not self.reference_db or not hasattr(self.reference_db, 'crs'):
-            return
+        if region_code in FIXED_ZONE_REGIONS:
+            # Фиксированная зона - блокируем поле
+            self.zone_code_edit.setEnabled(False)
+            self.zone_code_edit.clear()
 
-        # Проверяем есть ли у региона районы
-        if self.reference_db.crs.has_districts(region_code):
-            # Активируем выбор района
-            self.district_code_combo.setEnabled(True)
-            districts = self.reference_db.crs.get_districts_for_region(region_code)
-            self.district_code_combo.clear()
-            self.district_code_combo.addItem("")  # Пустой элемент
-            for district in districts:
-                self.district_code_combo.addItem(district)
-            self.crs_match_label.setText("Выберите код района")
-            self.crs_match_label.setStyleSheet("color: orange; font-style: italic;")
+            if region_code in SPECIAL_REGION_NAMES:
+                # Особый регион с кастомным названием
+                special_name = SPECIAL_REGION_NAMES[region_code]
+                self.zone_code_edit.setPlaceholderText("Не требуется")
+                self.region_hint_label.setText(f"Особый регион: {special_name}")
+                self.region_hint_label.setStyleSheet("color: blue; font-style: italic;")
+            else:
+                # Обычный фиксированный регион
+                self.zone_code_edit.setPlaceholderText("Не требуется")
+                self.region_hint_label.setText("Единственная зона в регионе")
+                self.region_hint_label.setStyleSheet("color: gray; font-style: italic;")
+
+            log_info(f"Fsm_0_1_1: Регион {region_code} - фиксированная зона")
         else:
-            # Район не нужен - ищем CRS по региону
-            self.district_code_combo.setEnabled(False)
-            self.district_code_combo.clear()
-            self.district_code_combo.setPlaceholderText("Не требуется")
-            self._try_load_crs(region_code)
+            # Обычный регион - разблокируем поле зоны
+            self.zone_code_edit.setEnabled(True)
+            self.zone_code_edit.setPlaceholderText("Обязательно")
+            self.region_hint_label.setText("Укажите номер зоны (1-9)")
+            self.region_hint_label.setStyleSheet("color: orange; font-style: italic;")
 
-    def on_district_changed(self):
-        """Обработчик изменения кода района"""
-        region_code = self.region_code_combo.currentText().strip()
-        district_code = self.district_code_combo.currentText().strip()
-
-        if district_code:
-            full_code = f"{region_code}:{district_code}"
-            self._try_load_crs(full_code)
-        else:
-            self.crs_match_label.setText("Выберите код района")
-            self.crs_match_label.setStyleSheet("color: orange; font-style: italic;")
-
-    def _try_load_crs(self, code: str):
-        """Попытка загрузить CRS по коду"""
-        if not self.reference_db or not hasattr(self.reference_db, 'crs'):
-            return
-
-        crs_data = self.reference_db.crs.get_crs_by_code(code)
-
-        if crs_data:
-            # CRS найдена в базе
-            short_name = crs_data.get('full_name', '')
-            self.crs_match_label.setText(f"Найдено: {short_name}")
-            self.crs_match_label.setStyleSheet("color: green; font-style: italic;")
-
-            # Предлагаем автоматически установить CRS
-            self._suggest_crs(crs_data)
-        else:
-            # CRS не найдена
-            self.crs_match_label.setText("CRS не найдена в базе")
-            self.crs_match_label.setStyleSheet("color: orange; font-style: italic;")
-
-    def _suggest_crs(self, crs_data: dict):
-        """Предложить установить найденную CRS из базы данных"""
-        if not self.reference_db or not hasattr(self.reference_db, 'crs'):
-            return
-
-        # Получаем или создаем CRS
-        crs = self.reference_db.crs.get_or_create_crs(crs_data)
-
-        if crs and crs.isValid():
-            self.selected_crs = crs
-            self.crs_label.setText(crs.description())
-            self.crs_from_database = True  # CRS из базы данных
-            self.on_crs_changed()
-            log_info(f"Fsm_0_1_1: CRS автоматически установлена из базы: {crs.authid()}")
-
-    def _get_full_region_district_code(self):
-        """
-        Получить полный код региона:района
-
-        Returns:
-            "РР:РР" если район указан, None если только регион
-        """
-        region_code = self.region_code_combo.currentText().strip()
-        district_code = self.district_code_combo.currentText().strip()
-
-        if district_code:
-            return f"{region_code}:{district_code}"
-
-        return None
+            log_info(f"Fsm_0_1_1: Регион {region_code} - требуется указать зону")
 
     def select_crs(self):
         """Открыть диалог выбора системы координат (упрощённый)"""
@@ -457,50 +351,35 @@ class NewProjectDialog(BaseMetadataDialog):
         if self.selected_crs.isValid():
             dialog.setCrs(self.selected_crs)
 
-        if dialog.exec_():
+        if dialog.exec():
             crs = dialog.crs()
             if crs and crs.isValid():
                 self.selected_crs = crs
                 self.crs_label.setText(crs.description())
-                self.crs_from_database = False  # CRS выбрана нативно (не из базы)
-                self.on_crs_changed()
-                log_info(f"Fsm_0_1_1: CRS выбрана нативно: {crs.authid()}")
-
-    def on_crs_changed(self):
-        """Обработчик изменения системы координат"""
-        if self.selected_crs and self.selected_crs.isValid():
-            crs_desc = self.selected_crs.description()
-            log_info(f"Fsm_0_1_1: Описание СК для извлечения: '{crs_desc}'")
-            # Извлекаем короткое название из описания СК и сохраняем в переменной
-            short_name = extract_crs_short_name(crs_desc)
-            if short_name:
-                self.crs_short_name = short_name
-                log_info(f"Fsm_0_1_1: Короткое название СК определено автоматически: {short_name}")
-            else:
-                # Если не удалось извлечь, используем пустую строку
-                self.crs_short_name = ""
-                log_warning(f"Fsm_0_1_1: Не удалось автоматически определить короткое название СК из '{crs_desc}'")
-        else:
-            self.crs_short_name = ""
+                log_info(f"Fsm_0_1_1: CRS выбрана: {crs.authid()}")
     
     def select_folder(self):
         """Выбор папки для проекта"""
-        # По умолчанию открываем рабочий стол
-        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-        if not os.path.exists(desktop_path):
-            # Fallback на домашнюю директорию если рабочий стол не найден
-            desktop_path = os.path.expanduser("~")
+        # Начальная директория: последняя использованная или рабочий стол
+        settings = QSettings()
+        saved_dir = settings.value("Daman_QGIS/last_project_folder", "")
+        if not saved_dir or not os.path.isdir(saved_dir):
+            saved_dir = QStandardPaths.writableLocation(
+                QStandardPaths.StandardLocation.DesktopLocation
+            )
 
         folder = QFileDialog.getExistingDirectory(
             self,
             "Выберите папку для проекта",
-            desktop_path,
-            QFileDialog.ShowDirsOnly
+            saved_dir,
+            QFileDialog.Option.ShowDirsOnly
         )
-        
+
         if folder:
             self.folder_edit.setText(folder)
             self.project_path = folder
+            # Сохраняем для следующего использования
+            settings.setValue("Daman_QGIS/last_project_folder", folder)
     
     def validate_and_accept(self):
         """Валидация и принятие диалога"""
@@ -524,7 +403,7 @@ class NewProjectDialog(BaseMetadataDialog):
         working_name = project_data['working_name']
         safe_name = DataCleanupManager().sanitize_filename(working_name)
         project_full_path = os.path.join(self.project_path, safe_name)
-        
+
         if os.path.exists(project_full_path):
             QMessageBox.warning(
                 self,
@@ -534,7 +413,7 @@ class NewProjectDialog(BaseMetadataDialog):
             )
             self.working_name_edit.setFocus()
             return
-        
+
         # Проверка системы координат
         if not self.selected_crs or not self.selected_crs.isValid():
             QMessageBox.warning(
@@ -544,85 +423,44 @@ class NewProjectDialog(BaseMetadataDialog):
             )
             return
 
-        # Гибридная логика валидации CRS:
-        # - Если CRS из базы (crs_from_database=True) - код региона обязателен, валидация по базе
-        # - Если CRS нативная (crs_from_database=False) - код региона опционален, без валидации по базе
+        # Валидация кода региона (обязательное поле)
         region_code = self.region_code_combo.currentText().strip()
-        district_code = self.district_code_combo.currentText().strip()
+        if not region_code:
+            QMessageBox.warning(
+                self,
+                "Внимание",
+                "Выберите код региона"
+            )
+            self.region_code_combo.setFocus()
+            return
 
-        if self.crs_from_database:
-            # CRS из базы данных - код региона обязателен
-            if not region_code:
+        # Валидация кода зоны (обязательно для обычных регионов)
+        zone_code = self.zone_code_edit.text().strip()
+
+        if region_code not in FIXED_ZONE_REGIONS:
+            # Обычный регион - зона обязательна
+            if not zone_code:
                 QMessageBox.warning(
                     self,
                     "Внимание",
-                    "Укажите код региона (например: 05)"
+                    "Укажите код зоны (например: 1)"
                 )
-                self.region_code_combo.setFocus()
+                self.zone_code_edit.setFocus()
                 return
-
-            # Формируем полный код для валидации
-            full_code = f"{region_code}:{district_code}" if district_code else region_code
-
-            # Проверяем соответствие CRS базе данных
-            if self.reference_db and hasattr(self.reference_db, 'crs'):
-                crs_data = self.reference_db.crs.get_crs_by_code(full_code)
-
-                if crs_data:
-                    # Валидируем что выбранная CRS соответствует базе
-                    if not self.reference_db.crs.validate_crs_match(self.selected_crs, full_code):
-                        reply = QMessageBox.question(
-                            self,
-                            "Несоответствие CRS",
-                            f"Выбранная CRS не соответствует базе данных.\n\n"
-                            f"Ожидается: {crs_data.get('full_name', '')}\n"
-                            f"Выбрано: {self.selected_crs.description()}\n\n"
-                            f"Использовать CRS из базы данных?",
-                            QMessageBox.Yes | QMessageBox.No
-                        )
-                        if reply == QMessageBox.Yes:
-                            self._suggest_crs(crs_data)
-                else:
-                    # CRS не найдена в базе - предупреждение
-                    reply = QMessageBox.warning(
-                        self,
-                        "CRS не найдена",
-                        f"Для кода '{full_code}' не найдена CRS в базе данных.\n\n"
-                        f"Проверьте правильность кода региона/района.\n\n"
-                        f"Продолжить с текущей CRS?",
-                        QMessageBox.Yes | QMessageBox.No
-                    )
-                    if reply == QMessageBox.No:
-                        return
-        else:
-            # CRS выбрана нативно - код региона опционален, без валидации по базе
-            log_info(f"Fsm_0_1_1: CRS выбрана нативно, валидация по базе пропущена")
-
-        # Автоматическое извлечение короткого названия СК (если еще не извлечено)
-        if not self.crs_short_name:
-            if self.selected_crs and self.selected_crs.isValid():
-                short_name = extract_crs_short_name(self.selected_crs.description())
-                if short_name:
-                    self.crs_short_name = short_name
-                    log_info(f"Fsm_0_1_1: Короткое название СК определено при валидации: {short_name}")
-                else:
-                    # Если не удалось извлечь, используем описание СК
-                    self.crs_short_name = ""
-                    log_warning("Fsm_0_1_1: Короткое название СК не определено, будет использовано пустое значение")
 
         # Проверка что выбрана МСК (по описанию)
         crs_desc = self.selected_crs.description()
-        if not any(keyword in crs_desc.upper() for keyword in ["МСК", "MSK", "МЕСТНАЯ"]):
+        if not any(keyword in crs_desc.upper() for keyword in ["МСК", "MSK", "МЕСТНАЯ", "МГГТ", "1964"]):
             reply = QMessageBox.question(
                 self,
                 "Подтверждение",
                 f"Выбранная система координат:\n{crs_desc}\n\n"
                 "Это не похоже на МСК региона. Продолжить?",
-                QMessageBox.Yes | QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
-            if reply == QMessageBox.No:
+            if reply == QMessageBox.StandardButton.No:
                 return
-        
+
         self.accept()
     
     def get_project_data(self):
@@ -641,6 +479,12 @@ class NewProjectDialog(BaseMetadataDialog):
             object_type_value = self.object_type_value_combo.currentData()
             object_type_value_name = self.object_type_value_combo.currentText()
 
+        # Код региона (уже в формате 01-99 из ComboBox)
+        region_code = self.region_code_combo.currentText().strip()
+
+        # Код зоны (пустой для фиксированных регионов)
+        zone_code = self.zone_code_edit.text().strip() if self.zone_code_edit.isEnabled() else ""
+
         return {
             'working_name': self.working_name_edit.text().strip(),
             'full_name': self.full_name_edit.text().strip(),
@@ -657,9 +501,8 @@ class NewProjectDialog(BaseMetadataDialog):
             'crs': crs,
             'crs_epsg': crs.postgisSrid() if crs else 0,
             'crs_description': crs.description() if crs else "",
-            'crs_short_name': self.crs_short_name,  # Короткое название СК (автоматически определенное)
-            'code_region': self.region_code_combo.currentText().strip(),  # Обязательное поле 1_4_1
-            'code_region_district': self._get_full_region_district_code(),  # Условное поле 1_4_2
+            'code_region': region_code,  # Обязательное поле 1_4_1 (ручной ввод)
+            'code_zone': zone_code,  # Условное поле 1_4_2 (пустое для фиксированных регионов)
             'code': self.code_edit.text().strip(),  # Дополнительное поле 2_1
             'release_date': self.release_date_edit.text().strip(),  # Дополнительное поле 2_2
             'company': self.company_combo.currentText().strip(),  # Дополнительное поле 2_3
@@ -670,6 +513,7 @@ class NewProjectDialog(BaseMetadataDialog):
             'cover': self.cover_combo.currentText().strip(),  # Дополнительное поле 2_8
             'title_start': self.title_start_edit.text().strip(),  # Дополнительное поле 2_9
             'main_scale': self.main_scale_combo.currentData(),  # Дополнительное поле 2_10
+            'dxf_text_height': self.dxf_text_height_edit.text().strip(),  # Дополнительное поле 2_10_1 (авто по масштабу)
             'developer': self.developer_combo.currentText().strip(),  # Дополнительное поле 2_11
             'examiner': self.examiner_combo.currentText().strip(),  # Дополнительное поле 2_12
             'quality_control': self.quality_control_edit.text().strip(),  # Дополнительное поле 2_13 (авто)

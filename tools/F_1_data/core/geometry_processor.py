@@ -63,11 +63,11 @@ class GeometryProcessor:
         geom_type = layer.wkbType()
 
         # Если уже полигоны - возвращаем как есть
-        if QgsWkbTypes.geometryType(geom_type) == QgsWkbTypes.PolygonGeometry:
+        if QgsWkbTypes.geometryType(geom_type) == Qgis.GeometryType.Polygon:
             return layer
 
         # Если не линии - возвращаем None
-        if QgsWkbTypes.geometryType(geom_type) != QgsWkbTypes.LineGeometry:
+        if QgsWkbTypes.geometryType(geom_type) != Qgis.GeometryType.Line:
             log_warning(
                 f"Слой не содержит линейную геометрию для преобразования"
             )
@@ -304,9 +304,9 @@ class GeometryProcessor:
             
             # Вычисляем площадь/длину в зависимости от типа
             geom_type = QgsWkbTypes.geometryType(geom.wkbType())
-            if geom_type == QgsWkbTypes.PolygonGeometry:
+            if geom_type == Qgis.GeometryType.Polygon:
                 metrics['total_area'] += geom.area()
-            elif geom_type == QgsWkbTypes.LineGeometry:
+            elif geom_type == Qgis.GeometryType.Line:
                 metrics['total_length'] += geom.length()
         
         return metrics

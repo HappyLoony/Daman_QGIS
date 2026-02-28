@@ -24,6 +24,15 @@ from .Fsm_0_5_4_7_projestions_api import Fsm_0_5_4_7_ProjectionsApi
 # Остальные субмодули F_0
 from .Fsm_0_5_refine_dialog import RefineProjectionDialog
 
+# F_0_6 Coordinate Transform
+from .Fsm_0_6_1_transform_dialog import CoordinateTransformDialog
+from .Fsm_0_6_2_transform_methods import (
+    BaseTransformMethod, TransformResult,
+    OffsetMethod, Helmert2DMethod, AffineMethod,
+    auto_select_method,
+)
+from .Fsm_0_6_3_transform_applicator import TransformApplicator
+
 __all__ = [
     # Native QGIS topology modules
     'Fsm_0_4_1_GeometryValidityChecker',
@@ -45,5 +54,15 @@ __all__ = [
     'Fsm_0_5_4_7_ProjectionsApi',
 
     # Other F_0 submodules
-    'RefineProjectionDialog'
+    'RefineProjectionDialog',
+
+    # F_0_6 Coordinate Transform
+    'CoordinateTransformDialog',
+    'BaseTransformMethod',
+    'TransformResult',
+    'OffsetMethod',
+    'Helmert2DMethod',
+    'AffineMethod',
+    'auto_select_method',
+    'TransformApplicator',
 ]

@@ -25,6 +25,7 @@ from .Fsm_0_4_9_point_checker import Fsm_0_4_9_PointChecker
 from .Fsm_0_4_10_cross_feature_checker import Fsm_0_4_10_CrossFeatureChecker
 from .Fsm_0_4_12_sliver_checker import Fsm_0_4_12_SliverChecker
 from .Fsm_0_4_13_sliver_native_checker import Fsm_0_4_13_SliverNativeChecker
+from .Fsm_0_4_14_gap_checker import Fsm_0_4_14_GapChecker
 from Daman_QGIS.constants import PLUGIN_NAME
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
 
@@ -57,8 +58,8 @@ class Fsm_0_4_5_TopologyCoordinator:
         'overlap': 'Наложение',
         'spike': 'Острый угол',
         'precision': 'Неокругленные координаты',
-        'sliver_polsby_popper': 'Sliver-полигон (Polsby-Popper)',
-        'sliver_qgis_native': 'Sliver-полигон (QGIS thinness)',
+        'sliver_polsby_popper': 'Тонкий полигон (Polsby-Popper)',
+        'sliver_qgis_native': 'Тонкий полигон (QGIS thinness)',
         # Линии
         'line_self_intersection': 'Самопересечение линии',
         'line_overlap': 'Наложение линий',
@@ -67,7 +68,10 @@ class Fsm_0_4_5_TopologyCoordinator:
         'duplicate_point': 'Дубликат точки',
         'point_proximity': 'Близкие точки',
         # Cross-layer
-        'cross_layer_overlap': 'Наложение между слоями'
+        'cross_layer_overlap': 'Наложение между слоями',
+        # Покрытие (зазоры)
+        'gap': 'Зазор покрытия',
+        'gap_spike': 'Пиковый узел покрытия'
     }
 
     # Типы ошибок, которые могут быть автоматически исправлены
@@ -81,7 +85,8 @@ class Fsm_0_4_5_TopologyCoordinator:
         'duplicate_point'
     }
 
-    def __init__(self, processing_context: Optional[QgsProcessingContext] = None):
+    def __init__(self, processing_context: Optional[QgsProcessingContext] = None,
+                 enable_gap_check: bool = False):
         """
         Инициализация координатора
 
@@ -108,6 +113,10 @@ class Fsm_0_4_5_TopologyCoordinator:
         self.sliver_native_checker = Fsm_0_4_13_SliverNativeChecker(
             processing_context=processing_context
         )
+
+        # Инициализируем gap checker (по запросу, ресурсоемкая операция)
+        self.enable_gap_check = enable_gap_check
+        self.gap_checker = Fsm_0_4_14_GapChecker() if enable_gap_check else None
 
         # Инициализируем checker'ы для линий и точек
         self.line_checker = Fsm_0_4_8_LineChecker()
@@ -150,11 +159,11 @@ class Fsm_0_4_5_TopologyCoordinator:
         # Определяем тип геометрии
         geom_type = layer.geometryType()
 
-        if geom_type == QgsWkbTypes.PolygonGeometry:
+        if geom_type == Qgis.GeometryType.Polygon:
             return self._check_polygon_layer(layer, check_types, progress_callback)
-        elif geom_type == QgsWkbTypes.LineGeometry:
+        elif geom_type == Qgis.GeometryType.Line:
             return self._check_line_layer(layer, check_types, progress_callback)
-        elif geom_type == QgsWkbTypes.PointGeometry:
+        elif geom_type == Qgis.GeometryType.Point:
             return self._check_point_layer(layer, check_types, progress_callback)
         else:
             log_warning(
@@ -186,7 +195,9 @@ class Fsm_0_4_5_TopologyCoordinator:
                 'duplicate_geometries', 'duplicate_vertices', 'close_points',
                 'cross_feature_close_points',  # Близкие точки между объектами
                 'overlaps', 'spikes', 'precision',
-                'slivers_polsby_popper', 'slivers_qgis_native'  # Sliver detection
+                # ОТКЛЮЧЕНО: Sliver-проверки дают ложные срабатывания на узких,
+                # но корректных объектах (охранные зоны, полосы отвода и т.п.)
+                # 'slivers_polsby_popper', 'slivers_qgis_native'
             ]
 
         # Инициализация статистики
@@ -303,32 +314,55 @@ class Fsm_0_4_5_TopologyCoordinator:
             if progress_callback:
                 progress_callback(85)
 
-        # 6. Проверка sliver-полигонов (Polsby-Popper)
-        if 'slivers_polsby_popper' in check_types:
-            log_info("Fsm_0_4_5: Проверка sliver-полигонов (Polsby-Popper)...")
-
-            try:
-                sliver_pp_errors = self.sliver_checker.check(layer)
-
-                errors_by_type['sliver_polsby_popper'] = sliver_pp_errors
-                all_errors.extend(sliver_pp_errors)
-            except Exception as e:
-                log_error(f"Fsm_0_4_5: Ошибка проверки slivers (Polsby-Popper): {e}")
+        # 6-7. Проверка sliver-полигонов ОТКЛЮЧЕНА
+        # Причина: Ложные срабатывания на узких, но корректных объектах
+        # (охранные зоны, санитарно-защитные зоны, полосы отвода и т.п.)
+        # Формула Polsby-Popper (4*pi*area/perimeter^2) даёт низкие значения
+        # для любых вытянутых полигонов, независимо от их корректности.
+        #
+        # if 'slivers_polsby_popper' in check_types:
+        #     log_info("Fsm_0_4_5: Проверка sliver-полигонов (Polsby-Popper)...")
+        #     try:
+        #         sliver_pp_errors = self.sliver_checker.check(layer)
+        #         errors_by_type['sliver_polsby_popper'] = sliver_pp_errors
+        #         all_errors.extend(sliver_pp_errors)
+        #     except Exception as e:
+        #         log_error(f"Fsm_0_4_5: Ошибка проверки slivers (Polsby-Popper): {e}")
+        #     if progress_callback:
+        #         progress_callback(90)
+        #
+        # if 'slivers_qgis_native' in check_types:
+        #     log_info("Fsm_0_4_5: Проверка sliver-полигонов (QGIS native)...")
+        #     try:
+        #         sliver_native_errors = self.sliver_native_checker.check(layer)
+        #         errors_by_type['sliver_qgis_native'] = sliver_native_errors
+        #         all_errors.extend(sliver_native_errors)
+        #     except Exception as e:
+        #         log_error(f"Fsm_0_4_5: Ошибка проверки slivers (QGIS native): {e}")
 
             if progress_callback:
                 progress_callback(90)
 
-        # 7. Проверка sliver-полигонов (QGIS native thinness)
-        if 'slivers_qgis_native' in check_types:
-            log_info("Fsm_0_4_5: Проверка sliver-полигонов (QGIS native)...")
+        # 8. Анализ покрытия (зазоры) - по запросу
+        if self.enable_gap_check and self.gap_checker:
+            log_info("Fsm_0_4_5: Анализ покрытия (зазоры)...")
 
             try:
-                sliver_native_errors = self.sliver_native_checker.check(layer)
+                gap_errors = self.gap_checker.check(layer)
 
-                errors_by_type['sliver_qgis_native'] = sliver_native_errors
-                all_errors.extend(sliver_native_errors)
+                # Разделяем на gap и gap_spike ошибки
+                gap_only = [e for e in gap_errors if e['type'] == 'gap']
+                gap_spike_only = [e for e in gap_errors if e['type'] == 'gap_spike']
+
+                if gap_only:
+                    errors_by_type['gap'] = gap_only
+                    all_errors.extend(gap_only)
+
+                if gap_spike_only:
+                    errors_by_type['gap_spike'] = gap_spike_only
+                    all_errors.extend(gap_spike_only)
             except Exception as e:
-                log_error(f"Fsm_0_4_5: Ошибка проверки slivers (QGIS native): {e}")
+                log_error(f"Fsm_0_4_5: Ошибка анализа покрытия: {e}")
 
             if progress_callback:
                 progress_callback(95)
@@ -540,15 +574,16 @@ class Fsm_0_4_5_TopologyCoordinator:
             geom = error['geometry']
 
             # Преобразуем в точку если нужно
-            if geom.type() != QgsWkbTypes.PointGeometry:
+            if geom.type() != Qgis.GeometryType.Point:
                 geom = geom.centroid()
 
             feat.setGeometry(geom)
+            error_type_ru = self.ERROR_TYPES.get(error['type'], error['type'])
             feat.setAttributes([
-                error['type'],
+                error_type_ru,
                 error.get('feature_id', -1),
                 error.get('description', ''),
-                self.ERROR_TYPES.get(error['type'], error['type'])
+                error_type_ru
             ])
             features.append(feat)
 
@@ -582,7 +617,9 @@ class Fsm_0_4_5_TopologyCoordinator:
             QColor(255, 0, 0, 200),  # Красный цвет с прозрачностью
             4.0  # Размер 4 мм
         )
-        # ВАЖНО: triggerRepaint() не вызываем - может вызвать краш
+        # Безопасный отложенный refresh через QTimer
+        from Daman_QGIS.utils import safe_refresh_layer
+        safe_refresh_layer(layer)
 
     def _extract_layer_prefix(self, layer_name: str) -> str:
         """

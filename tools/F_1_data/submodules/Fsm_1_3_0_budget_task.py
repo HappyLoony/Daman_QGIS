@@ -11,7 +11,7 @@ IMPORTANT: Некоторые операции (показ диалога рез
 
 from typing import Any, Dict, Optional, TYPE_CHECKING
 from qgis.core import QgsProject
-from Daman_QGIS.managers.submodules.Msm_17_1_base_task import BaseAsyncTask
+from Daman_QGIS.managers import BaseAsyncTask
 from Daman_QGIS.utils import log_info, log_error, log_warning
 
 if TYPE_CHECKING:
@@ -39,7 +39,7 @@ class Fsm_1_3_0_BudgetTask(BaseAsyncTask):
     ВАЖНО: Показ диалога результатов выполняется в main thread через on_completed callback.
 
     Использование:
-        from Daman_QGIS.managers import get_async_manager
+        from Daman_QGIS.managers import registry
 
         task = Fsm_1_3_0_BudgetTask(
             boundaries_layer_id=boundaries_layer.id(),
@@ -47,7 +47,7 @@ class Fsm_1_3_0_BudgetTask(BaseAsyncTask):
             project_manager=project_manager,
             layer_manager=layer_manager
         )
-        manager = get_async_manager(iface)
+        manager = registry.get('M_17')
         manager.run(task, on_completed=show_results_dialog)
     """
 
@@ -56,7 +56,8 @@ class Fsm_1_3_0_BudgetTask(BaseAsyncTask):
                  temp_folder: str,
                  iface,
                  project_manager,
-                 layer_manager):
+                 layer_manager,
+                 is_linear: bool = False):
         """
         Args:
             boundaries_layer_id: ID слоя границ работ (НЕ layer object!)
@@ -64,6 +65,7 @@ class Fsm_1_3_0_BudgetTask(BaseAsyncTask):
             iface: QgisInterface
             project_manager: ProjectManager instance
             layer_manager: LayerManager instance
+            is_linear: True если тип объекта линейный (пересечения считаются только для линейных)
         """
         super().__init__("Расчёт бюджета", can_cancel=True)
 
@@ -72,6 +74,7 @@ class Fsm_1_3_0_BudgetTask(BaseAsyncTask):
         self.iface = iface
         self.project_manager = project_manager
         self.layer_manager = layer_manager
+        self.is_linear = is_linear
 
         # Субмодули инициализируются в execute() (типизированы для Pylance)
         self.boundaries_processor: Optional['BoundariesProcessor'] = None
@@ -185,14 +188,17 @@ class Fsm_1_3_0_BudgetTask(BaseAsyncTask):
         analysis_results = self.spatial_analyzer.analyze_intersections(processed_boundaries)
         results.update(analysis_results)
 
-        # Шаг 8: Подсчёт пересечений линий (95%)
-        if self.is_cancelled():
-            return {'results': results, 'temp_folder': self.temp_folder, 'success': False, 'cancelled': True}
+        # Шаг 8: Подсчёт пересечений линий (95%) - только для линейных объектов
+        if self.is_linear:
+            if self.is_cancelled():
+                return {'results': results, 'temp_folder': self.temp_folder, 'success': False, 'cancelled': True}
 
-        self.report_progress(90, "Подсчёт пересечений линий АД и ЖД...")
-        log_info("Fsm_1_3_0: Шаг 8 - Подсчёт пересечений")
-        intersections = self.intersections_calculator.calculate_intersections(processed_boundaries)
-        results.update(intersections)
+            self.report_progress(90, "Подсчёт пересечений линий АД и ЖД...")
+            log_info("Fsm_1_3_0: Шаг 8 - Подсчёт пересечений")
+            intersections = self.intersections_calculator.calculate_intersections(processed_boundaries)
+            results.update(intersections)
+        else:
+            log_info("Fsm_1_3_0: Шаг 8 пропущен - пересечения не применимы для площадных объектов")
 
         self.report_progress(100, "Расчёт завершён")
         log_info(f"Fsm_1_3_0: Расчёт бюджета завершён. Результаты: {results}")
@@ -201,7 +207,8 @@ class Fsm_1_3_0_BudgetTask(BaseAsyncTask):
             'results': results,
             'temp_folder': self.temp_folder,
             'success': True,
-            'cancelled': False
+            'cancelled': False,
+            'is_linear': self.is_linear
         }
 
     def _init_submodules(self):

@@ -1,213 +1,72 @@
 # -*- coding: utf-8 -*-
+# pyright: reportUnsupportedDunderAll=false
 """
-Managers - Централизованная система менеджеров Daman_QGIS
+Managers - Централизованная система менеджеров Daman_QGIS.
 
-Структура:
-- M_1: ProjectManager - управление проектами
-- M_2: LayerManager - управление слоями
-- M_3: VersionManager - управление версиями
-- M_4: ReferenceManager - фабрика справочных менеджеров
-- M_5: StyleManager - управление стилями
-- M_6: CoordinatePrecisionManager - точность координат
-- M_7: ExpressionManager - QGIS выражения
-- M_8: LayerReplacementManager - замена слоёв
-- M_10: LayerCleanupManager - очистка слоёв
-- M_12: LabelManager - управление подписями
-- M_13: DataCleanupManager - очистка и санитизация данных (включает FieldCleanup)
-- M_14: APIManager - управление API endpoints
-- M_15: FeatureSortManager - сортировка объектов по КН
-- M_16: CadnumSearchManager - поиск объектов по кадастровому номеру (ПКМ)
-- M_17: AsyncTaskManager - асинхронные фоновые задачи (QgsTask)
-- M_18: ExtentManager - управление экстентами карт в макетах
-- M_19: ProjectStructureManager - координатор структуры папок проекта
-- M_20: PointNumberingManager - нумерация характерных точек контуров
-- M_21: VRIAssignmentManager - присвоение и валидация ВРИ
-- M_22: WorkTypeAssignmentManager - присвоение Вид_Работ и План_ВРИ
-- M_23: OksZuAnalysisManager - анализ связей ОКС-ЗУ (авто-заполнение)
-- M_24: SyncManager - синхронизация выписок с выборкой (авто-синхронизация)
-- M_25: FillsManager - распределение по категориям и правам (авто-заполнение)
-- M_26: CuttingManager - нарезка ЗПР по границам ЗУ (Facade для F_3_1/F_3_2)
-- M_27: MinAreaValidator - валидация минимальных площадей по ВРИ
-- M_28: LayerSchemaValidator - валидация структуры слоёв (обязательные поля)
-- M_29: LicenseManager - управление лицензиями и Hardware ID
-- M_30: NetworkManager - HTTP клиент с JWT авторизацией
-- M_31: MaskManager - маскирование карты по границам работ
+Домены обнаруживаются автоматически по наличию папок с __init__.py.
+Список менеджеров: registry.list_registered()
+Группировка: registry.list_by_domain()
+
+Структура доменов:
+- core: Жизненный цикл проекта (M_1, M_2, M_3, M_8, M_10, M_19)
+- reference: Справочники (M_4 + Msm_4_*)
+- geometry: Геометрия и координаты (M_6, M_18, M_20, M_26)
+- styling: Визуализация (M_5, M_7, M_12, M_31, M_34)
+- processing: Обработка данных (M_13, M_15, M_23, M_24, M_25)
+- validation: Валидаторы (M_21, M_22, M_27, M_28)
+- export: Экспорт (M_33, M_35)
+- infrastructure: Техническая инфраструктура (M_14, M_16, M_17, M_29, M_30, M_32, M_40)
 """
+import importlib
+from pathlib import Path
 
-# Основные менеджеры
-from .M_1_project_manager import ProjectManager
-from .M_2_layer_manager import LayerManager
-from .M_3_version_manager import VersionManager
-from .M_4_reference_manager import (
-    ReferenceManagers,
-    get_reference_managers,
-    create_reference_managers,
-    reload_reference_managers
-)
-from .M_5_style_manager import StyleManager
-from .M_6_coordinate_precision import CoordinatePrecisionManager
-from .M_7_expression_manager import ExpressionManager
-from .M_8_layer_replacement_manager import LayerReplacementManager
-from .M_10_layer_cleanup_manager import LayerCleanupManager
-from .M_12_label_manager import LabelManager
-from .M_13_data_cleanup_manager import DataCleanupManager
-from .M_14_api_manager import APIManager
-from .M_15_feature_sort_manager import FeatureSortManager
-from .M_16_cadnum_search_manager import CadnumSearchManager
-from .M_17_async_task_manager import AsyncTaskManager, get_async_manager, reset_async_manager
-from .M_18_extent_manager import ExtentManager, get_extent_manager, reset_extent_manager
-from .M_19_project_structure_manager import (
-    ProjectStructureManager,
-    FolderType,
-    get_project_structure_manager,
-    reset_project_structure_manager
-)
-from .M_20_point_numbering_manager import (
-    PointNumberingManager,
-    number_layer_points
-)
-from .M_21_vri_assignment_manager import VRIAssignmentManager
-from .M_22_work_type_assignment_manager import (
-    WorkTypeAssignmentManager,
-    LayerType,
-    StageType
-)
-from .M_23_oks_zu_analysis_manager import OksZuAnalysisManager
-from .M_24_sync_manager import SyncManager
-from .M_25_fills_manager import FillsManager, get_fills_manager, reset_fills_manager
-from .M_26_cutting_manager import CuttingManager, get_cutting_manager, reset_cutting_manager
-from .M_27_min_area_validator import MinAreaValidator
-from .M_28_layer_schema_validator import LayerSchemaValidator
-from .M_29_license_manager import (
-    LicenseManager,
-    LicenseStatus,
-    get_license_manager,
-    reset_license_manager
-)
-from .M_30_network_manager import (
-    NetworkManager,
-    NetworkStatus,
-    get_network_manager,
-    reset_network_manager
-)
-from .M_31_mask_manager import (
-    MaskManager,
-    MaskSource,
-    get_mask_manager,
-    reset_mask_manager
-)
+# Registry (импортируется первым)
+from ._registry import registry, ManagerRegistry
 
-__all__ = [
-    # M_1: Управление проектами
-    'ProjectManager',
+# M_4 ReferenceManagers — фабрика (не синглтон, вне registry)
+from ._registry import get_reference_managers, reset_reference_managers
 
-    # M_2: Управление слоями
-    'LayerManager',
+# Direct export of track_function (decorator for telemetry) and track_exception
+from .infrastructure.M_32_telemetry_manager import track_function, track_exception
 
-    # M_3: Управление версиями
-    'VersionManager',
-
-    # M_4: Справочные менеджеры
-    'ReferenceManagers',
-    'get_reference_managers',
-    'create_reference_managers',
-    'reload_reference_managers',
-
-    # M_5: Стили
-    'StyleManager',
-
-    # M_6: Точность координат
-    'CoordinatePrecisionManager',
-
-    # M_7: Выражения
-    'ExpressionManager',
-
-    # M_8: Замена слоёв
-    'LayerReplacementManager',
-
-    # M_10: Очистка слоёв
-    'LayerCleanupManager',
-
-    # M_12: Подписи
-    'LabelManager',
-
-    # M_13: Очистка и санитизация данных
-    'DataCleanupManager',
-
-    # M_14: API endpoints
-    'APIManager',
-
-    # M_15: Сортировка по КН
-    'FeatureSortManager',
-
-    # M_16: Поиск по кадастровому номеру
-    'CadnumSearchManager',
-
-    # M_17: Асинхронные задачи
-    'AsyncTaskManager',
-    'get_async_manager',
-    'reset_async_manager',
-
-    # M_18: Управление экстентами карт
-    'ExtentManager',
-    'get_extent_manager',
-    'reset_extent_manager',
-
-    # M_19: Структура папок проекта
-    'ProjectStructureManager',
-    'FolderType',
-    'get_project_structure_manager',
-    'reset_project_structure_manager',
-
-    # M_20: Нумерация точек контуров
-    'PointNumberingManager',
-    'number_layer_points',
-
-    # M_21: Присвоение и валидация ВРИ
-    'VRIAssignmentManager',
-
-    # M_22: Присвоение Вид_Работ
-    'WorkTypeAssignmentManager',
-    'LayerType',
-    'StageType',
-
-    # M_23: Анализ связей ОКС-ЗУ
-    'OksZuAnalysisManager',
-
-    # M_24: Синхронизация выписок с выборкой
-    'SyncManager',
-
-    # M_25: Распределение по категориям и правам
-    'FillsManager',
-    'get_fills_manager',
-    'reset_fills_manager',
-
-    # M_26: Нарезка ЗПР по границам ЗУ
-    'CuttingManager',
-    'get_cutting_manager',
-    'reset_cutting_manager',
-
-    # M_27: Валидация минимальных площадей по ВРИ
-    'MinAreaValidator',
-
-    # M_28: Валидация структуры слоёв
-    'LayerSchemaValidator',
-
-    # M_29: Лицензирование
-    'LicenseManager',
-    'LicenseStatus',
-    'get_license_manager',
-    'reset_license_manager',
-
-    # M_30: Сетевой менеджер
-    'NetworkManager',
-    'NetworkStatus',
-    'get_network_manager',
-    'reset_network_manager',
-
-    # M_31: Маскирование карты
-    'MaskManager',
-    'MaskSource',
-    'get_mask_manager',
-    'reset_mask_manager',
+_current_dir = Path(__file__).parent
+_all_exports = [
+    'registry', 'ManagerRegistry',
+    # M_4 ReferenceManagers (фабрика, не синглтон)
+    'get_reference_managers', 'reset_reference_managers',
+    # Telemetry decorator and exception tracker
+    'track_function',
+    'track_exception',
 ]
+
+# Автообнаружение доменов: все папки с __init__.py (кроме __pycache__ и submodules)
+_domains = [
+    d.name for d in _current_dir.iterdir()
+    if d.is_dir()
+    and not d.name.startswith('_')
+    and d.name != 'submodules'  # Исключаем старую папку на время миграции
+    and (d / '__init__.py').exists()
+]
+
+# Динамический импорт из всех доменов
+for _domain in sorted(_domains):
+    try:
+        _module = importlib.import_module(f".{_domain}", package=__name__)
+
+        # Реэкспорт всего из домена
+        if hasattr(_module, '__all__'):
+            for _name in _module.__all__:
+                if _name not in _all_exports:  # Защита от дублей
+                    globals()[_name] = getattr(_module, _name)
+                    _all_exports.append(_name)
+    except Exception as _e:
+        # Логируем ошибку импорта домена (критично для диагностики!)
+        import traceback
+        _tb = traceback.format_exc()
+        try:
+            from Daman_QGIS.utils import log_error
+            log_error(f"managers/__init__: Ошибка импорта домена '{_domain}': {_e}\n{_tb}")
+        except ImportError:
+            print(f"managers/__init__: Ошибка импорта домена '{_domain}': {_e}\n{_tb}")
+
+__all__ = sorted(set(_all_exports))

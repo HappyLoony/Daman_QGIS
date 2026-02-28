@@ -31,7 +31,7 @@ urllib3.disable_warnings(InsecureRequestWarning)
 from qgis.core import (
     QgsVectorLayer, QgsProject, QgsFeature, QgsGeometry, QgsField, QgsFields,
     QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsPointXY,
-    QgsRectangle, QgsWkbTypes
+    QgsRectangle, QgsWkbTypes, Qgis
 )
 from qgis.PyQt.QtCore import QMetaType
 
@@ -111,7 +111,7 @@ class Fsm_1_2_4_FgislkLoader:
     # TODO: После анализа данных обновить названия слоёв-заглушек (Le_1_7_*)
     LAYER_MAPPING = {
         # Основные слои (уже в базе)
-        "FORESTRY_TAXATION_DATE": "Le_1_7_1_2_ФГИС_ЛК_Лесничества",
+        "FORESTRY_TAXATION_DATE": "L_1_7_1_ФГИС_ЛК_ЛЕС_Лесничества",
         "DISTRICT_FORESTRY_TAXATION_DATE": "L_1_7_2_ФГИС_ЛК_Уч_Лесничества",
         "QUARTER": "L_1_7_3_ФГИС_ЛК_Кварталы",
         "TAXATION_PIECE": "L_1_7_4_ФГИС_ЛК_Выделы",
@@ -123,7 +123,7 @@ class Fsm_1_2_4_FgislkLoader:
         "SPECIAL_PROTECT_STEAD": "Le_1_7_9_ФГИС_ЛК_ОЗУ",                  # Особо защитные участки лесов
         "CLEARCUT": "Le_1_7_10_ФГИС_ЛК_Лесосеки",                         # Лесосека
         "PROCESSING_OBJECT": "Le_1_7_11_ФГИС_ЛК_Лесопереработка",         # Пункт лесопереработки
-        "TIMBER_YARD": "Le_1_7_12_ФГИС_ЛК_Склады_древесины",              # Складирование древесины
+        # TIMBER_YARD (Склады древесины) - ОТКЛЮЧЁН: слой всегда пустой, данные отсутствуют в API
     }
 
     # Слои, для которых уже существуют полигональные определения в Base_layers.json
@@ -159,7 +159,7 @@ class Fsm_1_2_4_FgislkLoader:
         "SPECIAL_PROTECT_STEAD": set(),
         "CLEARCUT": set(),
         "PROCESSING_OBJECT": set(),
-        "TIMBER_YARD": set(),
+        # TIMBER_YARD - ОТКЛЮЧЁН (см. LAYER_MAPPING)
     }
 
     # Параметры тайловой сетки
@@ -308,19 +308,19 @@ class Fsm_1_2_4_FgislkLoader:
 
         gtype = QgsWkbTypes.geometryType(geom.wkbType())
 
-        if gtype == QgsWkbTypes.PolygonGeometry:
+        if gtype == Qgis.GeometryType.Polygon:
             # МИГРАЦИЯ POLYGON → MULTIPOLYGON: упрощённый паттерн
             parts = [[[to_global(pt) for pt in ring] for ring in part]
                     for part in (geom.asMultiPolygon() if geom.isMultipart() else [geom.asPolygon()])]
             return QgsGeometry.fromMultiPolygonXY(parts)
 
-        elif gtype == QgsWkbTypes.LineGeometry:
+        elif gtype == Qgis.GeometryType.Line:
             # МИГРАЦИЯ LINESTRING → MULTILINESTRING: упрощённый паттерн
             lines = [[to_global(pt) for pt in line]
                      for line in (geom.asMultiPolyline() if geom.isMultipart() else [geom.asPolyline()])]
             return QgsGeometry.fromMultiPolylineXY(lines)
 
-        elif gtype == QgsWkbTypes.PointGeometry:
+        elif gtype == Qgis.GeometryType.Point:
             if geom.isMultipart():
                 points = [to_global(pt) for pt in geom.asMultiPoint()]
                 return QgsGeometry.fromMultiPointXY(points)
@@ -392,21 +392,10 @@ class Fsm_1_2_4_FgislkLoader:
 
             return pbf_path
 
-        except requests.exceptions.SSLError as e:
-            # SSL ошибки - логируем отдельно (российские сертификаты)
-            log_warning(f"Fsm_1_2_4: SSL ошибка загрузки тайла {x}/{y}: {str(e)}")
-            return None
-
-        except requests.exceptions.Timeout as e:
-            log_warning(f"Fsm_1_2_4: Timeout загрузки тайла {x}/{y}: {str(e)}")
-            return None
-
-        except requests.exceptions.ConnectionError as e:
-            log_warning(f"Fsm_1_2_4: Ошибка соединения при загрузке тайла {x}/{y}: {str(e)}")
-            return None
-
-        except Exception as e:
-            log_warning(f"Fsm_1_2_4: Ошибка загрузки тайла {x}/{y}: {str(e)}")
+        except (requests.exceptions.SSLError,
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
+                Exception):
             return None
 
     def parse_tile(self, pbf_path: str, x: int, y: int,
@@ -432,9 +421,24 @@ class Fsm_1_2_4_FgislkLoader:
             xmax = (x + 1) * res * self.TILE_SIZE_PIXELS - 20037508.34
             ymax = (y + 1) * res * self.TILE_SIZE_PIXELS - 20037508.34
 
-            # Парсим тайл
+            # Получаем список слоёв в PBF через OGR напрямую
+            # (не все слои присутствуют в каждом тайле - это нормально)
+            from osgeo import ogr
+            available_layers = set()
+            ds = ogr.Open(pbf_path)
+            if ds:
+                for i in range(ds.GetLayerCount()):
+                    ol = ds.GetLayerByIndex(i)
+                    if ol:
+                        available_layers.add(ol.GetName())
+                ds = None
+
+            # Парсим тайл — открываем только существующие слои
             tile_data = defaultdict(list)
             for lname in required_layers:
+                if lname not in available_layers:
+                    continue
+
                 uri = f"{pbf_path}|layername={lname}"
                 lyr = QgsVectorLayer(uri, lname, "ogr")
 
@@ -568,6 +572,9 @@ class Fsm_1_2_4_FgislkLoader:
         # Загружаем файлы параллельно (только HTTP, thread-safe)
         downloaded_tiles = []  # List[(x, y, pbf_path)]
 
+        failed_tiles = 0
+        timeout_tiles = 0
+
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {
                 executor.submit(self.download_tile_file, x, y, temp_dir): (x, y)
@@ -581,10 +588,24 @@ class Fsm_1_2_4_FgislkLoader:
                     pbf_path = future.result(timeout=TILE_DOWNLOAD_TIMEOUT)
                     if pbf_path:
                         downloaded_tiles.append((x, y, pbf_path))
+                    else:
+                        failed_tiles += 1
                 except TimeoutError:
-                    log_error(f"Fsm_1_2_4: TIMEOUT ({TILE_DOWNLOAD_TIMEOUT}s) загрузки тайла {x}/{y} - пропускаем")
-                except Exception as e:
-                    log_error(f"Fsm_1_2_4: Ошибка загрузки тайла {x}/{y}: {str(e)}")
+                    timeout_tiles += 1
+                except Exception:
+                    failed_tiles += 1
+
+        # Сводка по загрузке тайлов
+        if failed_tiles or timeout_tiles:
+            parts = []
+            if failed_tiles:
+                parts.append(f"ошибки: {failed_tiles}")
+            if timeout_tiles:
+                parts.append(f"timeout: {timeout_tiles}")
+            log_warning(
+                f"Fsm_1_2_4: Загружено {len(downloaded_tiles)}/{total_tiles} тайлов "
+                f"({', '.join(parts)})"
+            )
 
         # Диагностика первого тайла - проверяем наличие новых неизвестных слоёв
         if downloaded_tiles:
@@ -642,7 +663,7 @@ class Fsm_1_2_4_FgislkLoader:
                             base_data[eid]["attrs"][n] = feat.attribute(n)
 
             if not base_data:
-                log_warning(f"Fsm_1_2_4: Нет данных для слоя {target_layer_name}")
+                log_info(f"Fsm_1_2_4: Нет данных для слоя {target_layer_name}")
                 continue
 
             # Создаём поля
@@ -654,13 +675,13 @@ class Fsm_1_2_4_FgislkLoader:
             any_geom = next(iter(base_data.values()))["geom"][0]
             gtype = QgsWkbTypes.geometryType(any_geom.wkbType())
 
-            if gtype == QgsWkbTypes.PolygonGeometry:
+            if gtype == Qgis.GeometryType.Polygon:
                 geom_type = "MultiPolygon"
                 geom_type_ru = "полигон"
-            elif gtype == QgsWkbTypes.LineGeometry:
+            elif gtype == Qgis.GeometryType.Line:
                 geom_type = "MultiLineString"
                 geom_type_ru = "линия"
-            elif gtype == QgsWkbTypes.PointGeometry:
+            elif gtype == Qgis.GeometryType.Point:
                 geom_type = "MultiPoint"
                 geom_type_ru = "точка"
             else:
@@ -671,7 +692,7 @@ class Fsm_1_2_4_FgislkLoader:
             # - Полигоны из POLYGON_LAYERS_IN_DB -> используем target_layer_name из LAYER_MAPPING
             # - Всё остальное (линии, точки, новые полигоны) -> временное название
             is_known_polygon = (
-                gtype == QgsWkbTypes.PolygonGeometry and
+                gtype == Qgis.GeometryType.Polygon and
                 base_layer_key in self.POLYGON_LAYERS_IN_DB
             )
 
@@ -719,11 +740,11 @@ class Fsm_1_2_4_FgislkLoader:
 
                 # Фильтрация GeometryCollection: извлекаем только полигоны
                 # (PBF-тайлы могут содержать обрезки линий границ соседних кварталов)
-                if gtype == QgsWkbTypes.PolygonGeometry and QgsWkbTypes.geometryType(uni.wkbType()) == QgsWkbTypes.UnknownGeometry:
+                if gtype == Qgis.GeometryType.Polygon and QgsWkbTypes.geometryType(uni.wkbType()) == Qgis.GeometryType.Unknown:
                     parts_collection = uni.asGeometryCollection()
                     poly_parts = []
                     for p in parts_collection:
-                        if QgsWkbTypes.geometryType(p.wkbType()) == QgsWkbTypes.PolygonGeometry:
+                        if QgsWkbTypes.geometryType(p.wkbType()) == Qgis.GeometryType.Polygon:
                             poly_parts.append(p)
                     if poly_parts:
                         uni = QgsGeometry.unaryUnion(poly_parts)

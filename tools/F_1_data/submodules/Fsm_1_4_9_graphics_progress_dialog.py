@@ -49,7 +49,7 @@ class GraphicsProgressDialog(QDialog):
         # Кнопки диалога
         self.button_box = QDialogButtonBox()
         self.close_button = self.button_box.addButton(
-            QDialogButtonBox.Close
+            QDialogButtonBox.StandardButton.Close
         )
         self.close_button.setEnabled(False)  # Отключена до завершения
         self.button_box.rejected.connect(self.reject)

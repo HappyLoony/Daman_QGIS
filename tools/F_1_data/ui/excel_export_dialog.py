@@ -12,7 +12,7 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtCore import Qt, QSettings
 from qgis.PyQt.QtGui import QIcon
-from qgis.core import QgsProject, QgsVectorLayer, QgsWkbTypes
+from qgis.core import Qgis, QgsProject, QgsVectorLayer
 
 
 class ExcelExportDialog(QDialog):
@@ -118,13 +118,13 @@ class ExcelExportDialog(QDialog):
         
         # === Кнопки ===
         button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         
         # Переименовываем кнопку OK
-        button_box.button(QDialogButtonBox.Ok).setText("Экспорт")
+        button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Экспорт")
         
         layout.addWidget(button_box)
         
@@ -173,17 +173,17 @@ class ExcelExportDialog(QDialog):
             geom_type = layer.geometryType()
             feature_count = layer.featureCount()
             
-            if geom_type == QgsWkbTypes.PointGeometry:
+            if geom_type == Qgis.GeometryType.Point:
                 geom_type_str = "точки"
                 # Отключаем площадь для точек
                 self.area_checkbox.setEnabled(False)
                 self.area_checkbox.setChecked(False)
-            elif geom_type == QgsWkbTypes.LineGeometry:
+            elif geom_type == Qgis.GeometryType.Line:
                 geom_type_str = "линии"
                 # Отключаем площадь для линий
                 self.area_checkbox.setEnabled(False)
                 self.area_checkbox.setChecked(False)
-            elif geom_type == QgsWkbTypes.PolygonGeometry:
+            elif geom_type == Qgis.GeometryType.Polygon:
                 geom_type_str = "полигоны"
                 # Включаем площадь для полигонов
                 self.area_checkbox.setEnabled(True)

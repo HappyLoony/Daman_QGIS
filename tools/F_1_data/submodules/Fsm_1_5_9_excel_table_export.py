@@ -16,9 +16,9 @@ from qgis.PyQt.QtCore import Qt
 from Daman_QGIS.constants import PLUGIN_NAME
 from Daman_QGIS.managers import DataCleanupManager
 from Daman_QGIS.utils import log_info, log_warning, log_error
-from Daman_QGIS.managers.submodules.Msm_13_2_attribute_processor import AttributeProcessor
-from Daman_QGIS.managers.M_19_project_structure_manager import (
-    get_project_structure_manager, FolderType
+from Daman_QGIS.managers import AttributeProcessor
+from Daman_QGIS.managers import (
+    registry, FolderType
 )
 
 
@@ -92,7 +92,7 @@ class ExcelTableExportSubmodule:
                     "Сначала сохраните проект QGIS"
                 )
                 return {}
-            structure_manager = get_project_structure_manager()
+            structure_manager = registry.get('M_19')
             structure_manager.project_root = project_path
             output_folder = structure_manager.get_folder(FolderType.TABLES, create=True)
             
@@ -110,7 +110,7 @@ class ExcelTableExportSubmodule:
                 len(layers),
                 self.iface.mainWindow()
             )
-            progress.setWindowModality(Qt.WindowModal)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
             progress.setAutoClose(True)
             progress.show()
         else:
@@ -162,28 +162,28 @@ class ExcelTableExportSubmodule:
         for layer in QgsProject.instance().mapLayers().values():
             if isinstance(layer, QgsVectorLayer) and layer.featureCount() > 0:
                 item = QListWidgetItem(layer.name())
-                item.setData(Qt.UserRole, layer)
-                item.setCheckState(Qt.Unchecked)
+                item.setData(Qt.ItemDataRole.UserRole, layer)
+                item.setCheckState(Qt.CheckState.Unchecked)
                 list_widget.addItem(item)
                 
-        list_widget.setSelectionMode(QListWidget.MultiSelection)
+        list_widget.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         layout.addWidget(list_widget)
         
         # Кнопки
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
         
         dialog.setLayout(layout)
         
-        if dialog.exec_():
+        if dialog.exec():
             # Собираем выбранные слои
             selected_layers = []
             for i in range(list_widget.count()):
                 item = list_widget.item(i)
-                if item.checkState() == Qt.Checked:
-                    layer = item.data(Qt.UserRole)
+                if item.checkState() == Qt.CheckState.Checked:
+                    layer = item.data(Qt.ItemDataRole.UserRole)
                     selected_layers.append(layer)
             return selected_layers
         
@@ -203,9 +203,6 @@ class ExcelTableExportSubmodule:
         import xlsxwriter
 
         # Формируем имя файла
-        # DEPRECATED: 2025-10-28 - Заменено на централизованную функцию sanitize_filename()
-        # Старая реализация заменяла недопустимые символы, но без проверки зарезервированных имен Windows
-        # safe_name = "".join(c if c.isalnum() or c in "_- " else "_" for c in layer.name())
         safe_name = self.data_cleanup_manager.sanitize_filename(layer.name())
         filename = f"{safe_name}.xlsx"
         filepath = os.path.join(output_folder, filename)

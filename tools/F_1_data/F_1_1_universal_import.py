@@ -19,17 +19,19 @@ from .submodules.Fsm_1_1_1_xml import XmlImportSubmodule
 from .submodules.Fsm_1_1_1_dxf_importer import DxfImporter
 from .submodules.Fsm_1_1_2_tab_importer import TabImporter
 from .submodules.Fsm_1_1_4_vypiska_importer import Fsm_1_1_4_VypiskaImporter
+from .submodules.Fsm_1_1_5_shp_importer import ShpImporter
 from .submodules.Fsm_1_1_xml_detector import XmlTypeDetector
 
 
 class F_1_1_UniversalImport(BaseTool):
     """Универсальный контроллер импорта - точка входа для всех форматов"""
-    
+
     # Маппинг форматов на сабмодули
     FORMAT_SUBMODULES = {
     'XML': XmlImportSubmodule,
     'DXF': DxfImporter,
-    'TAB': TabImporter
+    'TAB': TabImporter,
+    'SHP': ShpImporter
     }
     
     def __init__(self, iface):
@@ -61,16 +63,6 @@ class F_1_1_UniversalImport(BaseTool):
         return "F_1_1_Импорт"
     def run(self):
         """Запуск инструмента с диалогом"""
-        # DEPRECATED: 2025-10-28
-        # Reason: Устаревшая реализация автоочистки слоев при универсальном импорте.
-        # Удаляет все слои с creating_function="F_1_1_Импорт" без учета типа импорта.
-        # Проблема: для накопительных операций (выписки, несколько КПТ) это неправильно.
-        # TODO: Продумать грамотный механизм замены слоев:
-        #   - Опция в диалоге "Заменить существующие слои" (чекбокс)
-        #   - Или специфичная очистка по типу импорта (КПТ заменяет, выписки накапливаются)
-        #   - Или очистка только целевого слоя, а не всех слоев функции
-        # self.auto_cleanup_layers()
-
         # Проверяем открыт ли проект
         if not self._check_project():
             return
@@ -83,7 +75,7 @@ class F_1_1_UniversalImport(BaseTool):
         assert self.plugin_dir is not None  # для type checker
         dialog = UniversalImportDialog(self.plugin_dir, self.iface.mainWindow())
 
-        if dialog.exec_():
+        if dialog.exec():
             options = dialog.get_import_options()
             if options:
                 self.import_with_options(options)
@@ -207,6 +199,10 @@ class F_1_1_UniversalImport(BaseTool):
             self.layer_manager.sort_all_layers()
             log_info("F_1_1: Применена сортировка слоёв по order_layers (direct import)")
 
+            # Авто-ребилд ГПМТ если импортирован слой ЗПР
+            if layer_id and (layer_id.startswith('L_2_4_') or layer_id.startswith('L_2_5_')):
+                self._rebuild_gpmt_after_zpr_import()
+
         return result
     
     def _check_project(self) -> bool:
@@ -283,7 +279,7 @@ class F_1_1_UniversalImport(BaseTool):
         submodule = submodule_class(self.iface)
         submodule.set_project_manager(self.project_manager)
         submodule.set_layer_manager(self.layer_manager)
-        
+
         # Для каждого выбранного слоя
         results = {
             'success': True,
@@ -291,7 +287,10 @@ class F_1_1_UniversalImport(BaseTool):
             'message': '',
             'errors': []
         }
-        
+
+        # Флаг: был ли импортирован хотя бы один слой ЗПР
+        zpr_imported = False
+
         for layer_id, layer_data in layers.items():
             # Формируем параметры для слоя
             layer_params = options.copy()
@@ -305,11 +304,18 @@ class F_1_1_UniversalImport(BaseTool):
             # Объединяем результаты
             if result.get('success'):
                 results['layers'].extend(result.get('layers', []))
+                # Проверяем, является ли слой слоем ЗПР
+                if layer_id.startswith('L_2_4_') or layer_id.startswith('L_2_5_'):
+                    zpr_imported = True
             else:
                 results['success'] = False
                 results['errors'].extend(result.get('errors', []))
                 log_warning(f"F_1_1: Ошибки импорта: {result.get('errors', [])}")
-        
+
+        # Автоматический ребилд ГПМТ после импорта слоёв ЗПР
+        if zpr_imported and results['success']:
+            self._rebuild_gpmt_after_zpr_import()
+
         return results
     
     def _create_progress_dialog(self, total_files: int, format_name: str) -> Optional[QProgressDialog]:
@@ -324,7 +330,7 @@ class F_1_1_UniversalImport(BaseTool):
             total_files,
             self.iface.mainWindow()
         )
-        progress.setWindowModality(Qt.WindowModal)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setAutoClose(True)
         progress.show()
         return progress
@@ -419,7 +425,8 @@ class F_1_1_UniversalImport(BaseTool):
         Вызывает:
         1. M_24 SyncManager - синхронизация выписок с выборкой
         2. M_23 OksZuAnalysisManager - анализ связей ОКС-ЗУ
-        3. M_25 FillsManager - распределение по категориям и правам
+        3. Финальная санитизация слоёв выборки (simplify_rent_individuals, капитализация)
+        4. M_25 FillsManager - распределение по категориям и правам
         """
         try:
             # ШАГ 1: Синхронизация выписок с выборкой (M_24)
@@ -436,7 +443,7 @@ class F_1_1_UniversalImport(BaseTool):
 
             # ШАГ 2: Анализ ОКС-ЗУ (M_23)
             from Daman_QGIS.managers import OksZuAnalysisManager
-            oks_zu_manager = OksZuAnalysisManager(self.iface)
+            oks_zu_manager = OksZuAnalysisManager()
             oks_zu_result = oks_zu_manager.auto_analyze()
 
             if oks_zu_result.get('oks_updated', 0) > 0 or oks_zu_result.get('zu_updated', 0) > 0:
@@ -445,9 +452,18 @@ class F_1_1_UniversalImport(BaseTool):
                     f"{oks_zu_result.get('zu_updated', 0)} ЗУ"
                 )
 
-            # ШАГ 3: Распределение по категориям и правам (M_25)
-            from Daman_QGIS.managers import get_fills_manager
-            fills_manager = get_fills_manager(self.iface, self.layer_manager)
+            if oks_zu_result.get('zu_vypiska_filled'):
+                log_info("F_1_1: Заполнено ОКС_на_ЗУ_выписка (из выписок ЗУ)")
+
+            # ШАГ 3: Финальная санитизация слоёв выборки
+            # ПОСЛЕ M_24/M_23, ДО M_25 - аналогично F_2_1._finalize_selection_layers()
+            # Применяет simplify_rent_individuals, сокращения юрлиц, капитализацию
+            self._finalize_selection_layers_after_sync()
+
+            # ШАГ 4: Распределение по категориям и правам (M_25)
+            from Daman_QGIS.managers import registry
+            fills_manager = registry.get('M_25')
+            fills_manager.set_layer_manager(self.layer_manager)
             fills_result = fills_manager.auto_fill()
 
             if fills_result:
@@ -461,6 +477,61 @@ class F_1_1_UniversalImport(BaseTool):
 
         except Exception as e:
             log_warning(f"F_1_1: Ошибка автоматической синхронизации/анализа: {e}")
+
+    def _finalize_selection_layers_after_sync(self) -> None:
+        """
+        Финальная санитизация слоёв выборки после синхронизации M_24/M_23
+
+        Аналог F_2_1._finalize_selection_layers().
+        Применяет simplify_rent_individuals, дедупликацию, капитализацию и т.д.
+        Выполняется ПОСЛЕ M_24, M_23, но ДО M_25.
+        """
+        try:
+            from Daman_QGIS.managers.processing.M_13_data_cleanup_manager import DataCleanupManager
+            from Daman_QGIS.constants import (
+                LAYER_SELECTION_ZU, LAYER_SELECTION_ZU_10M, LAYER_SELECTION_ZU_500M
+            )
+
+            cleanup_manager = DataCleanupManager()
+            selection_layers = [LAYER_SELECTION_ZU, LAYER_SELECTION_ZU_10M, LAYER_SELECTION_ZU_500M]
+
+            sanitized_count = 0
+            for layer_name in selection_layers:
+                layers = QgsProject.instance().mapLayersByName(layer_name)
+                if layers and layers[0].featureCount() > 0:
+                    cleanup_manager.finalize_layer(layers[0], layer_name)
+                    sanitized_count += 1
+
+            if sanitized_count > 0:
+                log_info(f"F_1_1: Финальная санитизация выборки завершена ({sanitized_count} слоёв)")
+
+        except Exception as e:
+            log_warning(f"F_1_1: Ошибка финальной санитизации выборки: {e}")
+
+    def _rebuild_gpmt_after_zpr_import(self) -> None:
+        """
+        Автоматический ребилд ГПМТ после импорта слоёв ЗПР
+
+        Вызывается когда импортирован слой L_2_4_* или L_2_5_*.
+        Удаляет старый ГПМТ и создаёт новый из всех текущих слоёв ЗПР.
+        """
+        try:
+            from Daman_QGIS.managers import registry
+
+            gpmt_manager = registry.get('M_35')
+            result = gpmt_manager.rebuild_gpmt()
+
+            if result['success']:
+                log_info(
+                    f"F_1_1: Авто-ребилд ГПМТ: площадь {result['area_sqm']} кв.м "
+                    f"(из {result['zpr_count']} слоёв ЗПР, {result.get('points_count', 0)} точек)"
+                )
+            else:
+                # Не критично - ребилд произойдёт при следующем импорте ЗПР
+                log_warning(f"F_1_1: Авто-ребилд ГПМТ не выполнен: {result.get('error', 'unknown')}")
+
+        except Exception as e:
+            log_warning(f"F_1_1: Ошибка авто-ребилда ГПМТ: {e}")
 
     def _handle_error(self, exception: Exception, context: str):
         """Обработка ошибок"""

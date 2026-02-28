@@ -50,7 +50,7 @@ class ZouitClassifierDialog(QDialog):
         # Заголовок
         title_label = QLabel(f"Неопознанный объект ЗОУИТ ({self.current_index} из {self.total_count})")
         title_label.setStyleSheet("font-size: 14px; font-weight: bold; padding: 10px;")
-        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title_label)
 
         # Инструкция
@@ -78,19 +78,19 @@ class ZouitClassifierDialog(QDialog):
         for row, (key, value) in enumerate(properties.items()):
             # Колонка 1: название атрибута
             key_item = QTableWidgetItem(str(key))
-            key_item.setFlags(key_item.flags() & ~Qt.ItemIsEditable)  # Только чтение
+            key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # Только чтение
             self.attributes_table.setItem(row, 0, key_item)
 
             # Колонка 2: значение
             value_str = str(value) if value is not None else ""
             value_item = QTableWidgetItem(value_str)
-            value_item.setFlags(value_item.flags() & ~Qt.ItemIsEditable)  # Только чтение
+            value_item.setFlags(value_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # Только чтение
             self.attributes_table.setItem(row, 1, value_item)
 
         # Настройка ширины колонок
         header = self.attributes_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
         # Настройка высоты строк
         self.attributes_table.verticalHeader().setDefaultSectionSize(25)

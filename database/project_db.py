@@ -180,7 +180,7 @@ class ProjectDB:
         return layers
     
     # Паттерн для валидации имен слоев (только буквы, цифры, подчеркивания, кириллица)
-    # Разрешены: L_1_1_1_Границы_работ, Le_2_1_1_1_Выборка_ЗУ
+    # Разрешены: L_1_1_1_Границы_работ, Le_1_9_1_1_Выборка_ЗУ
     _VALID_LAYER_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\u0400-\u04FF]+$')
 
     def _validate_layer_name(self, layer_name: str) -> bool:

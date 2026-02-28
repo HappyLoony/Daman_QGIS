@@ -18,7 +18,7 @@
 
 from typing import List, Dict, Any, Optional
 from qgis.core import (
-    QgsVectorLayer, QgsGeometry, QgsWkbTypes,
+    Qgis, QgsVectorLayer, QgsGeometry,
     QgsProcessingContext, QgsProcessingFeedback
 )
 from Daman_QGIS.utils import log_info, log_warning, log_error
@@ -71,7 +71,7 @@ class Fsm_0_4_13_SliverNativeChecker:
         errors = []
 
         # Проверяем что слой полигональный
-        if layer.geometryType() != QgsWkbTypes.PolygonGeometry:
+        if layer.geometryType() != Qgis.GeometryType.Polygon:
             log_info(f"Fsm_0_4_13: Слой '{layer.name()}' не полигональный, пропуск")
             return errors
 
@@ -154,10 +154,11 @@ class Fsm_0_4_13_SliverNativeChecker:
                             'geometry': centroid if centroid and not centroid.isEmpty() else geom,
                             'feature_id': fid,
                             'description': (
-                                f'Sliver-полигон (QGIS native): thinness={thinness:.2f} '
+                                f'Тонкий полигон (QGIS native): '
+                                f'коэфф. тонкости={thinness:.2f} '
                                 f'(порог {self.thinness_threshold}), '
-                                f'площадь={area:.2f} м², '
-                                f'MBR={mbr_area:.2f} м², '
+                                f'площадь={area:.2f} м2, '
+                                f'МОП={mbr_area:.2f} м2, '
                                 f'соотношение сторон={aspect_ratio:.1f}:1'
                             ),
                             'thinness_ratio': thinness,

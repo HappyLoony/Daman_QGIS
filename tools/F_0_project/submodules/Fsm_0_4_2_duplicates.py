@@ -136,7 +136,7 @@ class Fsm_0_4_2_DuplicatesChecker:
         errors = []
 
         try:
-            from qgis.core import QgsWkbTypes, QgsPointXY
+            from qgis.core import Qgis, QgsPointXY
 
             for feature in layer.getFeatures():
                 fid = feature.id()
@@ -149,7 +149,7 @@ class Fsm_0_4_2_DuplicatesChecker:
                 geom_type = geom.type()
 
                 # Извлекаем вершины в зависимости от типа геометрии
-                if geom_type == QgsWkbTypes.PolygonGeometry:
+                if geom_type == Qgis.GeometryType.Polygon:
                     # Полигон: проверяем каждое кольцо
                     polygons = geom.asMultiPolygon() if geom.isMultipart() else [geom.asPolygon()]
                     for poly_idx, polygon in enumerate(polygons):
@@ -160,7 +160,7 @@ class Fsm_0_4_2_DuplicatesChecker:
                                 ring, fid, poly_idx, ring_idx, errors
                             )
 
-                elif geom_type == QgsWkbTypes.LineGeometry:
+                elif geom_type == Qgis.GeometryType.Line:
                     # Линия: проверяем каждую часть
                     lines = geom.asMultiPolyline() if geom.isMultipart() else [geom.asPolyline()]
                     for line_idx, line in enumerate(lines):
@@ -247,7 +247,7 @@ class Fsm_0_4_2_DuplicatesChecker:
         errors = []
 
         try:
-            from qgis.core import QgsWkbTypes, QgsPointXY, QgsGeometry
+            from qgis.core import Qgis, QgsPointXY, QgsGeometry
 
             for feature in layer.getFeatures():
                 fid = feature.id()
@@ -258,7 +258,7 @@ class Fsm_0_4_2_DuplicatesChecker:
 
                 geom_type = geom.type()
 
-                if geom_type == QgsWkbTypes.PolygonGeometry:
+                if geom_type == Qgis.GeometryType.Polygon:
                     polygons = geom.asMultiPolygon() if geom.isMultipart() else [geom.asPolygon()]
                     for poly_idx, polygon in enumerate(polygons):
                         if not polygon:
@@ -268,7 +268,7 @@ class Fsm_0_4_2_DuplicatesChecker:
                                 ring, fid, poly_idx, ring_idx, errors
                             )
 
-                elif geom_type == QgsWkbTypes.LineGeometry:
+                elif geom_type == Qgis.GeometryType.Line:
                     lines = geom.asMultiPolyline() if geom.isMultipart() else [geom.asPolyline()]
                     for line_idx, line in enumerate(lines):
                         if not line:
@@ -396,9 +396,13 @@ class Fsm_0_4_2_DuplicatesChecker:
         n = len(vertices)
 
         # Строим пространственный индекс
+        # ВАЖНО: QgsFeature должен быть корректно инициализирован
+        # QgsFeature(id) устанавливает id, но feature может быть невалидным
+        # Правильно: создать feature, установить геометрию, затем setId()
         spatial_index = QgsSpatialIndex()
         for i, point in enumerate(vertices):
-            feat = QgsFeature(i)
+            feat = QgsFeature()
+            feat.setId(i)
             feat.setGeometry(QgsGeometry.fromPointXY(point))
             spatial_index.addFeature(feat)
 

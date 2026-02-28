@@ -30,6 +30,7 @@ class SpatialAnalyzer:
             dict: Результаты анализа
         """
         results = {
+            'boundaries_area_ha': None,  # Площадь границ работ в га
             'cadastral_quarters': 0,
             'land_plots': 0,
             'land_plots_forest_fund': 0,  # ЗУ в лесном фонде
@@ -126,7 +127,7 @@ class SpatialAnalyzer:
             log_warning("Fsm_1_3_4: Слой Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ не найден")
 
         # 7. Лесные кварталы
-        layer = self._get_layer_by_name('L_1_1_3_ФГИС_ЛК_Кварталы')
+        layer = self._get_layer_by_name('L_1_7_3_ФГИС_ЛК_Кварталы')
         if layer:
             total = layer.featureCount()
             count = self._count_intersecting_features(layer, boundaries_geom)
@@ -134,12 +135,15 @@ class SpatialAnalyzer:
             log_info(f"Fsm_1_3_4: Лесные кварталы - {count} из {total}")
 
         # 8. Лесоустроительные выделы
-        layer = self._get_layer_by_name('L_1_1_4_ФГИС_ЛК_Выделы')
+        layer = self._get_layer_by_name('L_1_7_4_ФГИС_ЛК_Выделы')
         if layer:
             total = layer.featureCount()
             count = self._count_intersecting_features(layer, boundaries_geom)
             results['forest_subdivisions'] = count
             log_info(f"Fsm_1_3_4: Лесоустроительные выделы - {count} из {total}")
+
+        # Площадь границ работ в га (из поля 'area' в кв.м)
+        results['boundaries_area_ha'] = self._get_boundaries_area_ha(boundaries_layer)
 
         log_info("Fsm_1_3_4: Анализ завершен успешно")
 
@@ -176,9 +180,46 @@ class SpatialAnalyzer:
             log_warning(f"Fsm_1_3_4: Ошибка получения геометрии границ - {str(e)}")
             return None
     
+    def _get_boundaries_area_ha(self, boundaries_layer):
+        """Получить площадь границ работ в гектарах
+
+        Берёт значение поля 'area' (кв.м) и делит на 10000.
+
+        Args:
+            boundaries_layer: Слой границ L_1_1_1
+
+        Returns:
+            float: Площадь в га или None если не удалось получить
+        """
+        try:
+            if not boundaries_layer or not boundaries_layer.isValid():
+                return None
+
+            field_names = [field.name() for field in boundaries_layer.fields()]
+            if 'area' not in field_names:
+                log_warning("Fsm_1_3_4: Поле 'area' не найдено в слое границ")
+                return None
+
+            total_area_sqm = 0.0
+            for feature in boundaries_layer.getFeatures():
+                area_val = feature['area']
+                if area_val is not None:
+                    total_area_sqm += float(area_val)
+
+            if total_area_sqm <= 0:
+                return None
+
+            area_ha = total_area_sqm / 10000.0
+            log_info(f"Fsm_1_3_4: Площадь границ работ: {area_ha:.2f} га ({total_area_sqm:.0f} кв.м)")
+            return area_ha
+
+        except Exception as e:
+            log_warning(f"Fsm_1_3_4: Ошибка получения площади границ: {str(e)}")
+            return None
+
     def _get_layer_by_name(self, layer_name):
         """Получение слоя по имени
-        
+
         Args:
             layer_name: Имя слоя
             
@@ -212,18 +253,17 @@ class SpatialAnalyzer:
 
             # Определяем поле с кадастровым номером
             cad_field = None
-            for field_name in ['cad_num', 'cadastral_number', 'cn', 'cadnum']:
+            count = 0  # Резервный счётчик (используется если нет поля с КН)
+            for field_name in ['КН', 'cad_num', 'cadastral_number', 'cn', 'cadnum']:
                 if layer.fields().indexFromName(field_name) >= 0:
                     cad_field = field_name
                     break
 
             if not cad_field:
                 log_warning(f"Fsm_1_3_4: Поле с кадастровым номером не найдено в {layer.name()}, подсчёт всех объектов")
-                # Если нет поля cad_num - считаем как раньше (все объекты)
-                count = 0
             else:
                 log_info(f"Fsm_1_3_4: Используется поле '{cad_field}' для уникальности")
-            
+
             # Проверяем CRS слоев (используем L_1_1_1 для F_1_3)
             boundaries_layer = self._get_layer_by_name('L_1_1_1_Границы_работ')
             if boundaries_layer:
@@ -293,7 +333,7 @@ class SpatialAnalyzer:
             # Возвращаем количество уникальных номеров или обычный счётчик
             result = len(unique_cadnums) if cad_field else count
             if cad_field and len(unique_cadnums) != total_features:
-                log_info(f"Fsm_1_3_4: {layer.name()} - {result} уникальных из {count if not cad_field else len(unique_cadnums)} объектов")
+                log_info(f"Fsm_1_3_4: {layer.name()} - {result} уникальных из {total_features} объектов")
             return result
             
         except Exception as e:
@@ -519,14 +559,14 @@ class SpatialAnalyzer:
 
             # Определяем поле с кадастровым номером
             cad_field = None
-            for cad_field_name in ['cad_num', 'cadastral_number', 'cn', 'cadnum']:
+            count = 0  # Резервный счётчик (используется если нет поля с КН)
+            for cad_field_name in ['КН', 'cad_num', 'cadastral_number', 'cn', 'cadnum']:
                 if layer.fields().indexFromName(cad_field_name) >= 0:
                     cad_field = cad_field_name
                     break
 
             if not cad_field:
                 log_warning(f"Fsm_1_3_4: Поле с кадастровым номером не найдено в {layer.name()}, подсчёт всех объектов")
-                count = 0  # Резервный счётчик
             else:
                 log_info(f"Fsm_1_3_4: Используется поле '{cad_field}' для уникальности лесных ЗУ")
 

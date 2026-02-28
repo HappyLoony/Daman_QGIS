@@ -122,11 +122,11 @@ class TitleGenerator:
             object_text += f" {value_text} значения"
 
         # Формируем полный текст
-        # ВАЖНО: full_name НЕ оборачиваем в кавычки - они уже включены в значение от пользователя
+        # full_name оборачиваем в кавычки-ёлочки «»
         title = (
             f"Схема границ территории, применительно к которой осуществляется "
             f"{stage_text} {doc_text} {object_text} "
-            f"{full_name}"
+            f"«{full_name}»"
         )
 
         return title
@@ -137,10 +137,12 @@ class TitleGenerator:
 
         Шаблон:
         Границы территории, применительно к которой осуществляется
-        {stage_text} {doc_text}
+        {stage_text} {doc_text} {object_text}
 
         Args:
             metadata: Словарь метаданных проекта с ключами:
+                - 1_2_object_type: "Линейный" или "Площадной"
+                - 1_2_1_object_type_value: "Федеральный"/"Региональный"/"Местный" (для линейных)
                 - 1_5_doc_type: "ДПТ" или "Мастер-план"
                 - 1_6_stage: "Первичная" или "Внесение изменений"
 
@@ -149,21 +151,26 @@ class TitleGenerator:
 
         Examples:
             >>> metadata = {
+            ...     "1_2_object_type": "Площадной",
             ...     "1_5_doc_type": "ДПТ",
             ...     "1_6_stage": "Первичная"
             ... }
             >>> generator = TitleGenerator()
             >>> generator.generate_boundary_layer_title(metadata)
-            'Границы территории, применительно к которой осуществляется разработка документации по планировке территории'
+            'Границы территории, применительно к которой осуществляется разработка документации по планировке территории с целью размещения объекта'
 
             >>> metadata = {
-            ...     "1_5_doc_type": "Мастер-план",
-            ...     "1_6_stage": "Внесение изменений"
+            ...     "1_2_object_type": "Линейный",
+            ...     "1_2_1_object_type_value": "Федеральный",
+            ...     "1_5_doc_type": "ДПТ",
+            ...     "1_6_stage": "Первичная"
             ... }
             >>> generator.generate_boundary_layer_title(metadata)
-            'Границы территории, применительно к которой осуществляется внесение изменения в мастер-план'
+            'Границы территории, применительно к которой осуществляется разработка документации по планировке территории для размещения линейного объекта федерального значения'
         """
         # Извлекаем значения из метаданных
+        object_type = metadata.get("1_2_object_type", "Площадной")
+        object_type_value = metadata.get("1_2_1_object_type_value", "-")
         doc_type = metadata.get("1_5_doc_type", "ДПТ")
         stage = metadata.get("1_6_stage", "Первичная")
 
@@ -181,10 +188,18 @@ class TitleGenerator:
         if stage == "Внесение изменений" and doc_type == "Мастер-план":
             stage_text = "внесение изменения в"
 
+        # 3. Тип объекта
+        object_text = self.OBJECT_TYPE_MAP.get(object_type, self.OBJECT_TYPE_MAP["Площадной"])
+
+        # 4. Для линейных добавляем значение (федерального/регионального/местного значения)
+        if object_type == "Линейный" and object_type_value and object_type_value != "-":
+            value_text = self.OBJECT_VALUE_MAP.get(object_type_value, object_type_value.lower())
+            object_text += f" {value_text} значения"
+
         # Формируем полный текст
         title = (
             f"Границы территории, применительно к которой осуществляется "
-            f"{stage_text} {doc_text}"
+            f"{stage_text} {doc_text} {object_text}"
         )
 
         return title

@@ -7,11 +7,10 @@
 from typing import Dict, List, Tuple, Optional
 from qgis.core import (
     QgsProject, QgsGeometry, QgsFeature,
-    QgsVectorLayer, QgsWkbTypes, QgsPoint,
+    QgsVectorLayer, QgsWkbTypes, Qgis, QgsPoint,
     QgsSpatialIndex, QgsFeatureRequest
 )
 from Daman_QGIS.utils import log_info, log_warning, log_error
-import processing
 
 
 class IntersectionsCalculator:
@@ -257,7 +256,7 @@ class IntersectionsCalculator:
                                 # Может получиться MultiLineString или LineString
                                 geom_type = clipped.wkbType()
 
-                                if QgsWkbTypes.geometryType(geom_type) == QgsWkbTypes.LineGeometry:
+                                if QgsWkbTypes.geometryType(geom_type) == Qgis.GeometryType.Line:
                                     # Если MultiLineString, разбиваем на части
                                     # МИГРАЦИЯ LINESTRING → MULTILINESTRING: упрощённый паттерн
                                     parts = clipped.asMultiPolyline() if clipped.isMultipart() else [clipped.asPolyline()]
@@ -335,13 +334,13 @@ class IntersectionsCalculator:
             geom_type = intersection_geom.wkbType()
             geometry_type = QgsWkbTypes.geometryType(geom_type)
 
-            if geometry_type == QgsWkbTypes.PointGeometry:
+            if geometry_type == Qgis.GeometryType.Point:
                 # Точка или MultiPoint
                 if intersection_geom.isMultipart():
                     return len(intersection_geom.asMultiPoint())
                 else:
                     return 1
-            elif geometry_type == QgsWkbTypes.LineGeometry:
+            elif geometry_type == Qgis.GeometryType.Line:
                 # Если получилась линия - это наложение, считаем как 1 пересечение
                 # (линии идут параллельно на каком-то участке)
                 return 1
