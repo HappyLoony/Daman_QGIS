@@ -159,6 +159,9 @@ class DamanQGIS:
         # Режим "только активация" -- при отсутствии лицензии
         self._activation_only_mode = False
 
+        # Флаг отказа от EULA -- плагин не инициализируется
+        self._eula_rejected = False
+
         # Реестр подключенных Qt сигналов для корректного отключения
         self._signal_connections = []
 
@@ -327,6 +330,14 @@ class DamanQGIS:
                 self._show_activation_only_toolbar()
                 return
             # Активация успешна -- продолжаем нормальный запуск
+
+        # --- EULA GATE: принятие лицензионного соглашения ---
+        if not self._check_eula_accepted():
+            eula_accepted = self._show_eula_dialog()
+            if not eula_accepted:
+                self._eula_rejected = True
+                log_info("Daman_QGIS: EULA rejected by user")
+                return
 
         # --- Полная инициализация тулбара ---
         self._build_full_toolbar()
@@ -497,6 +508,148 @@ class DamanQGIS:
 
         return activated
 
+    # === EULA Gate ===
+
+    EULA_SETTINGS_KEY = "daman_qgis/eula_accepted"
+    EULA_VERSION = "1.0"
+
+    def _check_eula_accepted(self) -> bool:
+        """Проверка, было ли принято EULA ранее.
+
+        Returns:
+            True если EULA уже принято (версия совпадает), False если нет
+        """
+        from qgis.PyQt.QtCore import QSettings
+        accepted_version = QSettings().value(self.EULA_SETTINGS_KEY, "")
+        return accepted_version == self.EULA_VERSION
+
+    def _show_eula_dialog(self) -> bool:
+        """Показать диалог лицензионного соглашения (EULA).
+
+        Загружает текст из data/EULA_ru.txt и показывает модальный диалог.
+        При принятии сохраняет версию EULA в QSettings.
+
+        Returns:
+            True если пользователь принял EULA, False если отказался
+        """
+        from Daman_QGIS.ui.eula_dialog import EulaDialog
+        from qgis.PyQt.QtCore import QSettings
+
+        # Загрузка текста EULA
+        eula_path = os.path.join(self.plugin_dir, 'data', 'EULA_ru.txt')
+        try:
+            with open(eula_path, 'r', encoding='utf-8') as f:
+                eula_text = f.read()
+        except FileNotFoundError:
+            log_error(f"Daman_QGIS: EULA file not found: {eula_path}")
+            # Без EULA файла нельзя показать диалог -- пропускаем проверку
+            return True
+        except Exception as e:
+            log_error(f"Daman_QGIS: Failed to read EULA: {e}")
+            return True
+
+        dialog = EulaDialog(eula_text, self.iface.mainWindow())
+        dialog.exec()
+
+        if dialog.is_accepted():
+            # Сохраняем версию принятого EULA
+            QSettings().setValue(self.EULA_SETTINGS_KEY, self.EULA_VERSION)
+            log_info(f"Daman_QGIS: EULA v{self.EULA_VERSION} accepted")
+            return True
+
+        return False
+
+    # === Integrity Verification ===
+
+    # Критические файлы для проверки целостности (ключ -> относительный путь от plugin_dir)
+    INTEGRITY_FILES = {
+        'main_plugin': 'main_plugin.py',
+        'msm_29_3': os.path.join('managers', 'infrastructure', 'submodules', 'Msm_29_3_license_validator.py'),
+        'msm_29_4': os.path.join('managers', 'infrastructure', 'submodules', 'Msm_29_4_token_manager.py'),
+        'base_ref': os.path.join('database', 'base_reference_loader.py'),
+    }
+
+    def _verify_integrity(self) -> None:
+        """Проверка целостности критических файлов плагина.
+
+        Сравнивает SHA-256 хеши локальных файлов с эталонными из JWT claims.
+        При несовпадении: log_warning + telemetry event (мониторинг).
+        НЕ блокирует работу плагина (мягкая проверка).
+        """
+        import hashlib
+        import base64
+        import json
+
+        try:
+            # Получаем access token из TokenManager
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_4_token_manager import TokenManager
+            token_mgr = TokenManager.get_instance()
+            access_token = token_mgr._access_token if token_mgr else None
+
+            if not access_token:
+                return  # Нет токена -- пропускаем проверку
+
+            # Декодируем JWT payload (без верификации подписи)
+            parts = access_token.split('.')
+            if len(parts) != 3:
+                return
+
+            payload_b64 = parts[1]
+            # Добавляем padding для base64
+            payload_b64 += '=' * (4 - len(payload_b64) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+
+            expected_hashes = payload.get('integrity')
+            if not expected_hashes or not isinstance(expected_hashes, dict):
+                return  # Сервер не включил integrity claim
+
+            # Вычисляем локальные хеши и сравниваем
+            mismatches = []
+            for key, rel_path in self.INTEGRITY_FILES.items():
+                expected = expected_hashes.get(key)
+                if not expected:
+                    continue
+
+                # Валидация типа хеша из JWT
+                if not isinstance(expected, str):
+                    mismatches.append(f"{key}: invalid hash format")
+                    continue
+
+                filepath = os.path.join(self.plugin_dir, rel_path)
+                if not os.path.exists(filepath):
+                    mismatches.append(f"{key}: file missing")
+                    continue
+
+                with open(filepath, 'rb') as f:
+                    actual = hashlib.sha256(f.read()).hexdigest()
+
+                if actual != expected:
+                    mismatches.append(key)
+
+            if mismatches:
+                log_warning(f"Daman_QGIS: Integrity check failed for: {', '.join(mismatches)}")
+                # Отправляем в телеметрию для мониторинга
+                try:
+                    track_exception(
+                        "main_plugin",
+                        RuntimeError(f"Integrity mismatch: {', '.join(mismatches)}"),
+                        {"phase": "integrity_check", "files": mismatches}
+                    )
+                except Exception:
+                    pass
+            else:
+                log_info("Daman_QGIS: Integrity check passed")
+
+        except json.JSONDecodeError as e:
+            log_warning(f"Daman_QGIS: Invalid JWT payload in integrity check: {e}")
+            try:
+                track_exception("main_plugin", e, {"phase": "integrity_jwt_decode"})
+            except Exception:
+                pass
+        except Exception as e:
+            # Ошибка проверки не должна блокировать работу
+            log_warning(f"Daman_QGIS: Integrity check error: {e}")
+
     def _show_activation_only_toolbar(self) -> None:
         """Показать минимальную панель с одной кнопкой активации.
 
@@ -569,6 +722,9 @@ class DamanQGIS:
             log_warning("Daman_QGIS: TOOLS_CONFIG empty, showing emergency toolbar")
             self._show_emergency_toolbar()
             return
+
+        # Проверка целостности критических файлов (anti-tampering)
+        self._verify_integrity()
 
         # Инициализация общих инструментов (контекстное меню)
         self._init_common_tools()
@@ -878,6 +1034,10 @@ class DamanQGIS:
         if getattr(self, '_profile_only_mode', False):
             from Daman_QGIS.managers._registry import registry
             registry.reset('M_37')
+            return
+
+        # EULA rejected: ничего не было инициализировано
+        if getattr(self, '_eula_rejected', False):
             return
 
         # Activation-only mode: только минимальная панель с кнопкой

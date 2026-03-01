@@ -145,9 +145,10 @@ class Fsm_1_2_9_ZouitLoader:
                 # Дедупликация Le_1_2_5_21 по геометрии (между всеми 3 источниками)
                 oopt_layer_name = "Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ"
                 if oopt_layer_name in zouit_layers:
-                    dedup_count = oopt_minprirody_loader.deduplicate_by_geometry(
-                        zouit_layers[oopt_layer_name]
-                    )
+                    from .Fsm_1_2_16_deduplicator import Fsm_1_2_16_Deduplicator
+                    deduplicator = Fsm_1_2_16_Deduplicator(caller_id="Fsm_1_2_9")
+                    dedup_result = deduplicator.deduplicate(zouit_layers[oopt_layer_name])
+                    dedup_count = dedup_result['total_removed']
                     if dedup_count > 0:
                         zouit_total -= dedup_count
 

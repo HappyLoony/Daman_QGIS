@@ -4,8 +4,8 @@ M_41: IsochroneTransportManager - Универсальный менеджер т
 
 Три основных функции:
 1. shortest_route()      - кратчайший маршрут A -> B
-2. isochrone()           - зона доступности от точки (Этап 2)
-3. batch_isochrones()    - зоны доступности от множества точек (Этап 4)
+2. isochrone()           - зона доступности от точки
+3. batch_isochrones()    - зоны доступности от множества точек
 
 Субмодули:
 - Msm_41_1_NetworkPreparer  - подготовка сети (speed, direction, CRS)
@@ -13,6 +13,7 @@ M_41: IsochroneTransportManager - Универсальный менеджер т
 - Msm_41_3_IsochroneBuilder - изохроны (Dijkstra+TIN / servicearea fallback)
 - Msm_41_4_SpeedProfiles    - профили скоростей + пресеты
 - Msm_41_5_ResultLayerWriter - экспорт в GPKG / memory layers + стили
+- Msm_41_7_ORSBackend       - ORS API backend (опциональный, с fallback)
 
 Домен: processing (аналитические вычисления над данными)
 """
@@ -60,6 +61,10 @@ from .submodules.Msm_41_6_batch_isochrone_task import (
     Msm_41_6_BatchIsochroneTask,
     _DijkstraTinResult,
 )
+from .submodules.Msm_41_7_ors_backend import (
+    Msm_41_7_ORSBackend,
+    ORSError,
+)
 
 __all__ = ['IsochroneTransportManager']
 
@@ -81,18 +86,23 @@ class IsochroneTransportManager(QObject):
         super().__init__()
         self._iface = iface
 
-        # Субмодули
+        # Субмодули (локальный pipeline)
         self._profiles = Msm_41_4_SpeedProfiles()
         self._preparer = Msm_41_1_NetworkPreparer()
         self._route_solver = Msm_41_2_RouteSolver(self._preparer)
         self._isochrone_builder = Msm_41_3_IsochroneBuilder(self._preparer)
         self._result_writer = Msm_41_5_ResultLayerWriter()
 
+        # ORS backend (опциональный)
+        self._ors_backend: Optional[Msm_41_7_ORSBackend] = None
+        self._backend: str = 'local'
+        self._init_ors_backend()
+
         # Текущее состояние
         self._last_prepared: Optional[_PreparedNetwork] = None
         self._last_graph: Optional[GraphBuildResult] = None
 
-        log_info("M_41: IsochroneTransportManager инициализирован")
+        log_info(f"M_41: IsochroneTransportManager инициализирован (backend={self._backend})")
 
     # ==================================================================
     # Маршруты
@@ -116,9 +126,26 @@ class IsochroneTransportManager(QObject):
         Returns:
             RouteResult с геометрией, расстоянием, временем
         """
-        log_info(f"M_41: shortest_route, профиль='{profile}'")
+        log_info(f"M_41: shortest_route, профиль='{profile}', backend={self._backend}")
 
-        # Валидация
+        # --- ORS backend ---
+        if self._should_use_ors():
+            try:
+                project_crs = self._get_project_crs()
+                result = self._ors_backend.shortest_route(
+                    origin, destination, profile, project_crs
+                )
+                if result.success:
+                    self.route_calculated.emit(result)
+                    log_success(
+                        f"M_41 [ORS]: Маршрут найден: {result.distance_m:.0f}м, "
+                        f"{result.duration_s / 60:.1f} мин"
+                    )
+                return result
+            except ORSError as e:
+                log_warning(f"M_41: ORS fallback -> local: {e}")
+
+        # --- Local backend ---
         layer = self._resolve_road_layer(road_layer)
         self._validate_road_layer(layer)
         self._validate_point_in_extent(origin, layer)
@@ -252,17 +279,34 @@ class IsochroneTransportManager(QObject):
         """
         log_info(
             f"M_41: isochrone, профиль='{profile}', "
-            f"intervals={intervals}, unit={unit}"
+            f"intervals={intervals}, unit={unit}, backend={self._backend}"
         )
 
-        # Валидация
+        if unit not in ('time', 'distance'):
+            raise ValueError(f"M_41: unit должен быть 'time' или 'distance', получен '{unit}'")
+
+        # --- ORS backend ---
+        if self._should_use_ors():
+            try:
+                project_crs = self._get_project_crs()
+                results = self._ors_backend.isochrone(
+                    center, intervals, profile, unit, project_crs
+                )
+                for result in results:
+                    if result.geometry and not result.geometry.isEmpty():
+                        self.isochrone_generated.emit(result)
+                log_success(
+                    f"M_41 [ORS]: Построено {len(results)} изохрон"
+                )
+                return results
+            except ORSError as e:
+                log_warning(f"M_41: ORS fallback -> local: {e}")
+
+        # --- Local backend ---
         layer = self._resolve_road_layer(road_layer)
         self._validate_road_layer(layer)
         self._validate_point_in_extent(center, layer)
         speed_profile = self._profiles.get_profile(profile)
-
-        if unit not in ('time', 'distance'):
-            raise ValueError(f"M_41: unit должен быть 'time' или 'distance', получен '{unit}'")
 
         # Подготовка сети
         project_crs = self._get_project_crs()
@@ -660,15 +704,73 @@ class IsochroneTransportManager(QObject):
         return self._profiles.get_all_presets()
 
     def get_active_backend(self) -> str:
-        """Текущий бэкенд анализа."""
-        return 'local'  # Этап 5: ORS API
+        """Текущий бэкенд анализа: 'local' или 'ors'."""
+        return self._backend
+
+    def set_backend(self, backend: str) -> None:
+        """Переключить бэкенд: 'local' или 'ors'.
+
+        Args:
+            backend: 'local' (Dijkstra+TIN) или 'ors' (ORS API)
+
+        Raises:
+            ValueError: Неизвестный бэкенд или ORS недоступен
+        """
+        if backend not in ('local', 'ors'):
+            raise ValueError(f"M_41: Неизвестный бэкенд '{backend}', допустимо: local, ors")
+
+        if backend == 'ors':
+            if not self._ors_backend or not self._ors_backend.is_available():
+                raise ValueError(
+                    "M_41: ORS бэкенд недоступен. "
+                    "Установите API ключ: set_ors_api_key(key)"
+                )
+
+        self._backend = backend
+        log_info(f"M_41: Бэкенд переключен на '{backend}'")
+
+    def set_ors_api_key(self, key: str) -> None:
+        """Установить ORS API ключ и активировать ORS бэкенд.
+
+        Args:
+            key: API ключ OpenRouteService
+        """
+        if not self._ors_backend:
+            self._ors_backend = Msm_41_7_ORSBackend()
+        self._ors_backend.set_api_key(key)
+        log_info("M_41: ORS API ключ установлен")
 
     def invalidate_cache(self) -> None:
         """Очистить кэш подготовленных сетей и графов."""
         self._preparer.invalidate_cache()
         self._last_prepared = None
         self._last_graph = None
+        if self._ors_backend:
+            self._ors_backend.clear_cache()
         log_info("M_41: Кэш очищен")
+
+    # ==================================================================
+    # ORS backend
+    # ==================================================================
+
+    def _init_ors_backend(self) -> None:
+        """Попытка инициализации ORS backend из QSettings."""
+        try:
+            self._ors_backend = Msm_41_7_ORSBackend()
+            key = self._ors_backend.load_api_key()
+            if key:
+                log_info("M_41: ORS API ключ загружен из QSettings")
+        except Exception as e:
+            log_info(f"M_41: ORS backend не инициализирован: {e}")
+            self._ors_backend = None
+
+    def _should_use_ors(self) -> bool:
+        """Проверка: следует ли использовать ORS backend."""
+        return (
+            self._backend == 'ors'
+            and self._ors_backend is not None
+            and self._ors_backend.is_available()
+        )
 
     # ==================================================================
     # Валидация входных данных

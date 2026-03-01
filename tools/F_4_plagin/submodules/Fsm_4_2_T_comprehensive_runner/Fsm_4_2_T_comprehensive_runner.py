@@ -219,6 +219,47 @@ class ComprehensiveTestRunner:
         # Итоговый отчёт
         self._generate_summary()
 
+    def run_all_tests_stepped(self):
+        """Генератор: yields после каждого теста для кооперативного планирования.
+
+        Используется TestTabWidget для неблокирующего запуска через QTimer.
+        Между yield'ами event loop полностью обрабатывает события (окно
+        остаётся отзывчивым).
+        """
+        self.logger.log_lines.append("КОМПЛЕКСНОЕ ТЕСТИРОВАНИЕ ПЛАГИНА")
+        self.logger.log_lines.append("")
+
+        self._cleanup_before_start()
+
+        test_files = self.discover_tests()
+
+        if not test_files:
+            self.logger.error("Тестовые модули не найдены!")
+            return
+
+        self.logger.log_lines.append(f"Запуск {len(test_files)} тестовых модулей...")
+        if self.skip_network_tests:
+            self.logger.log_lines.append("(сетевые тесты пропущены)")
+        self.logger.log_lines.append("")
+
+        total = len(test_files)
+        for i, test_path in enumerate(test_files):
+            test_name = os.path.basename(test_path)
+
+            if self._progress_callback:
+                self._progress_callback(i, total, test_name)
+
+            result = self._run_single_test(test_path, test_name)
+            self.test_results.append(result)
+
+            yield  # Возвращаем управление event loop
+
+        if self._progress_callback:
+            self._progress_callback(total, total, "")
+
+        self._cleanup_after_finish()
+        self._generate_summary()
+
     def _run_single_test(self, test_path: str, test_name: str) -> Dict[str, Any]:
         """
         Запуск одного тестового модуля (тихий режим - вывод только при ошибках)

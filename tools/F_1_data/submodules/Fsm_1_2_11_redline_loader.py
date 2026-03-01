@@ -148,6 +148,12 @@ class Fsm_1_2_11_RedlineLoader:
 
             total_count = merged_layer.featureCount()
 
+            # Дедупликация геометрий (multi-endpoint слой)
+            from .Fsm_1_2_16_deduplicator import Fsm_1_2_16_Deduplicator
+            deduplicator = Fsm_1_2_16_Deduplicator(caller_id="Fsm_1_2_11")
+            dedup_result = deduplicator.deduplicate(merged_layer)
+            total_count = dedup_result['remaining']
+
             # Сохранение в GeoPackage
             clean_name = self.TARGET_LAYER_NAME
             merged_layer.setName(clean_name)

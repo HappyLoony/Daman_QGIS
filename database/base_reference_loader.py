@@ -104,7 +104,9 @@ class BaseReferenceLoader:
                     response = requests.get(url, headers=auth_headers, timeout=DEFAULT_REQUEST_TIMEOUT)
 
             if response.status_code == 200:
-                data = response.json()
+                response_json = response.json()
+                # Сервер оборачивает данные в {'data': ..., 'copyright': ...}
+                data = response_json.get('data', response_json) if isinstance(response_json, dict) else response_json
                 return data
             elif response.status_code == 401:
                 log_warning(f"BaseReferenceLoader: Авторизация отклонена для {filename}")

@@ -6,8 +6,8 @@
 Данные объединяются в Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ вместе с другими
 источниками (36940 classified + 36948 OOPT).
 
-Содержит логику дедупликации по точному совпадению геометрий (WKB),
-применяемую ко всему слою Le_1_2_5_21 после объединения всех источников.
+Дедупликация выполняется через Fsm_1_2_16_Deduplicator в Fsm_1_2_9
+после объединения всех источников.
 """
 
 from typing import Optional, Tuple
@@ -76,45 +76,6 @@ class Fsm_1_2_15_OoptLoader:
         except Exception as e:
             log_error(f"Fsm_1_2_15: Ошибка загрузки {ep_name}: {str(e)}")
             return None, 0
-
-    def deduplicate_by_geometry(self, layer: QgsVectorLayer) -> int:
-        """
-        Удалить дубликаты по точному совпадению геометрий (WKB match)
-
-        Применяется к итоговому слою Le_1_2_5_21 после объединения
-        всех источников (36940 + 36948 + 36507).
-
-        Args:
-            layer: Слой для дедупликации (memory layer, editing supported)
-
-        Returns:
-            int: Количество удалённых дубликатов
-        """
-        seen_wkb = set()
-        duplicate_ids = []
-
-        for feature in layer.getFeatures():
-            if not feature.hasGeometry():
-                continue
-            wkb = bytes(feature.geometry().asWkb())
-            if wkb in seen_wkb:
-                duplicate_ids.append(feature.id())
-            else:
-                seen_wkb.add(wkb)
-
-        if not duplicate_ids:
-            log_info("Fsm_1_2_15: Дубликатов геометрий не обнаружено")
-            return 0
-
-        layer.startEditing()
-        layer.deleteFeatures(duplicate_ids)
-        layer.commitChanges()
-
-        log_info(
-            f"Fsm_1_2_15: Удалено {len(duplicate_ids)} дубликатов геометрий, "
-            f"осталось {layer.featureCount()} объектов"
-        )
-        return len(duplicate_ids)
 
     def _find_endpoint(self, target_layer_name: str) -> Optional[dict]:
         """

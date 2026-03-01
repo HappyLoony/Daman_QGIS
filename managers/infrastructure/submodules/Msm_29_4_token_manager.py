@@ -152,7 +152,11 @@ class TokenManager:
         Если токенов нет -- возвращает пустой словарь (обратная совместимость).
 
         Returns:
-            {"Authorization": "Bearer eyJ...", "X-Hardware-Id": "abc..."} или {}
+            {"X-Auth-Token": "Bearer eyJ...", "X-Hardware-Id": "abc..."} или {}
+
+        Note:
+            Используем X-Auth-Token вместо Authorization, т.к. Yandex Cloud Functions
+            перехватывает Authorization заголовок для IAM-авторизации.
         """
         if not self._access_token:
             return {}
@@ -170,7 +174,7 @@ class TokenManager:
                 return {}
 
         if self._access_token:
-            result = {'Authorization': f'Bearer {self._access_token}'}
+            result = {'X-Auth-Token': f'Bearer {self._access_token}'}
             if self._hardware_id:
                 result['X-Hardware-Id'] = self._hardware_id
             return result

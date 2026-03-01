@@ -5,12 +5,18 @@ Fsm_4_1_13_TestTabWidget - Вкладка тестирования для Diagno
 Извлечение из F_4_2_test.py.
 Автономная вкладка - не получает результатов от проверки зависимостей,
 но требует iface для ComprehensiveTestRunner.
+
+Использует QTimer stepping через генератор run_all_tests_stepped()
+для неблокирующего выполнения тестов (окно остаётся отзывчивым).
 """
+
+from typing import Optional
 
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
     QPushButton, QLabel, QProgressBar, QApplication
 )
+from qgis.PyQt.QtCore import QTimer
 
 from Daman_QGIS.utils import log_info, log_error
 from Daman_QGIS.managers import track_exception
@@ -22,6 +28,8 @@ class TestTabWidget(QWidget):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
         self.iface = iface
+        self._test_gen = None  # Генератор тестов
+        self._runner = None  # ComprehensiveTestRunner
         self._setup_ui()
 
     def _setup_ui(self):
@@ -76,10 +84,8 @@ class TestTabWidget(QWidget):
         else:
             self.progress_label.setText("Завершено")
 
-        QApplication.processEvents()
-
     def _run_tests(self):
-        """Запуск комплексного теста"""
+        """Запуск комплексного теста через QTimer stepping"""
         self.output.clear()
 
         self.btn_run.setEnabled(False)
@@ -97,17 +103,16 @@ class TestTabWidget(QWidget):
                 ComprehensiveTestRunner, TestLogger
             )
 
-            runner = ComprehensiveTestRunner(
+            self._runner = ComprehensiveTestRunner(
                 self.iface,
                 log_level=TestLogger.LOG_LEVEL_ERROR,
                 skip_network_tests=False,
                 progress_callback=self._on_test_progress
             )
 
-            runner.run_all_tests()
-
-            for line in runner.logger.get_log():
-                self.output.append(line)
+            # Запускаем генератор — каждый шаг = один тест
+            self._test_gen = self._runner.run_all_tests_stepped()
+            QTimer.singleShot(0, self._step_test)
 
         except Exception as e:
             self.output.append(f"КРИТИЧЕСКАЯ ОШИБКА: {str(e)}")
@@ -115,9 +120,38 @@ class TestTabWidget(QWidget):
             import traceback
             self.output.append(traceback.format_exc())
             track_exception("Fsm_4_1_13", e)
+            self._finish_tests()
 
-        finally:
-            self.progress_bar.setVisible(False)
-            self.progress_label.setVisible(False)
-            self.btn_run.setEnabled(True)
-            self.btn_run.setText("Запустить тестирование")
+    def _step_test(self) -> None:
+        """Выполнение одного шага генератора, затем возврат в event loop"""
+        try:
+            next(self._test_gen)
+            # Планируем следующий шаг — event loop полностью обрабатывает
+            # события между вызовами (окно остаётся отзывчивым)
+            QTimer.singleShot(0, self._step_test)
+        except StopIteration:
+            # Все тесты завершены
+            self._on_tests_finished()
+        except Exception as e:
+            self.output.append(f"КРИТИЧЕСКАЯ ОШИБКА: {str(e)}")
+            log_error(f"Fsm_4_1_13: Критическая ошибка: {str(e)}")
+            import traceback
+            self.output.append(traceback.format_exc())
+            track_exception("Fsm_4_1_13", e)
+            self._finish_tests()
+
+    def _on_tests_finished(self) -> None:
+        """Обработка завершения всех тестов"""
+        if self._runner:
+            for line in self._runner.logger.get_log():
+                self.output.append(line)
+        self._finish_tests()
+
+    def _finish_tests(self) -> None:
+        """Сброс UI после завершения/ошибки"""
+        self._test_gen = None
+        self._runner = None
+        self.progress_bar.setVisible(False)
+        self.progress_label.setVisible(False)
+        self.btn_run.setEnabled(True)
+        self.btn_run.setText("Запустить тестирование")

@@ -675,6 +675,23 @@ TOKEN_RETRY_DELAY_SECONDS = 2  # Задержка между попытками
 API_KEY_FORMAT = "DAMAN-XXXX-XXXX-XXXX"
 
 # ============================================================================
+# КОНСТАНТЫ ORS API (M_41, Msm_41_7)
+# ============================================================================
+
+# OpenRouteService API
+ORS_API_URL = "https://api.openrouteservice.org"
+ORS_TIMEOUT = 30  # секунд
+ORS_SETTINGS_KEY = "daman_qgis/ors_api_key"
+ORS_RATE_LIMIT_DELAY = 0.5  # секунд между запросами
+
+# Маппинг профилей M_41 -> ORS API
+ORS_PROFILE_MAP: dict[str, str] = {
+    'walk': 'foot-walking',
+    'drive': 'driving-car',
+    'fire_truck': 'driving-car',
+}
+
+# ============================================================================
 # КОНСТАНТЫ ПРОФИЛЯ (M_37)
 # ============================================================================
 
