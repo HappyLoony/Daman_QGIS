@@ -5,10 +5,9 @@
                                  A QGIS plugin
  Комплексный инструмент для работы с данными в QGIS
                               -------------------
-        begin                : 2025-09-29
-        git sha              : $Format:%H$
-        copyright            : (C) 2025 by Author
-        email                : email@example.com
+        begin                : 2024
+        copyright            : (C) 2024-2026 Alexander Plahotnyuk
+        email                : damanQGIS@gmail.com
  ***************************************************************************/
 
 /***************************************************************************
@@ -17,6 +16,11 @@
  *   it under the terms of the GNU General Public License as published by  *
  *   the Free Software Foundation; either version 2 of the License, or     *
  *   (at your option) any later version.                                   *
+ *                                                                         *
+ *   The plugin code is GPL-licensed. However, the server API, reference   *
+ *   data, and the "Daman QGIS" trademark are proprietary. Access to the  *
+ *   API requires a valid license key. Modified versions must not use the  *
+ *   "Daman QGIS" name or trademarks.                                     *
  *                                                                         *
  ***************************************************************************/
 """
@@ -158,9 +162,6 @@ class DamanQGIS:
 
         # Режим "только активация" -- при отсутствии лицензии
         self._activation_only_mode = False
-
-        # Флаг отказа от EULA -- плагин не инициализируется
-        self._eula_rejected = False
 
         # Реестр подключенных Qt сигналов для корректного отключения
         self._signal_connections = []
@@ -331,14 +332,6 @@ class DamanQGIS:
                 return
             # Активация успешна -- продолжаем нормальный запуск
 
-        # --- EULA GATE: принятие лицензионного соглашения ---
-        if not self._check_eula_accepted():
-            eula_accepted = self._show_eula_dialog()
-            if not eula_accepted:
-                self._eula_rejected = True
-                log_info("Daman_QGIS: EULA rejected by user")
-                return
-
         # --- Полная инициализация тулбара ---
         self._build_full_toolbar()
 
@@ -507,57 +500,6 @@ class DamanQGIS:
             log_info("Daman_QGIS: License activated via forced dialog")
 
         return activated
-
-    # === EULA Gate ===
-
-    EULA_SETTINGS_KEY = "daman_qgis/eula_accepted"
-    EULA_VERSION = "1.0"
-
-    def _check_eula_accepted(self) -> bool:
-        """Проверка, было ли принято EULA ранее.
-
-        Returns:
-            True если EULA уже принято (версия совпадает), False если нет
-        """
-        from qgis.PyQt.QtCore import QSettings
-        accepted_version = QSettings().value(self.EULA_SETTINGS_KEY, "")
-        return accepted_version == self.EULA_VERSION
-
-    def _show_eula_dialog(self) -> bool:
-        """Показать диалог лицензионного соглашения (EULA).
-
-        Загружает текст из data/EULA_ru.txt и показывает модальный диалог.
-        При принятии сохраняет версию EULA в QSettings.
-
-        Returns:
-            True если пользователь принял EULA, False если отказался
-        """
-        from Daman_QGIS.ui.eula_dialog import EulaDialog
-        from qgis.PyQt.QtCore import QSettings
-
-        # Загрузка текста EULA
-        eula_path = os.path.join(self.plugin_dir, 'data', 'EULA_ru.txt')
-        try:
-            with open(eula_path, 'r', encoding='utf-8') as f:
-                eula_text = f.read()
-        except FileNotFoundError:
-            log_error(f"Daman_QGIS: EULA file not found: {eula_path}")
-            # Без EULA файла нельзя показать диалог -- пропускаем проверку
-            return True
-        except Exception as e:
-            log_error(f"Daman_QGIS: Failed to read EULA: {e}")
-            return True
-
-        dialog = EulaDialog(eula_text, self.iface.mainWindow())
-        dialog.exec()
-
-        if dialog.is_accepted():
-            # Сохраняем версию принятого EULA
-            QSettings().setValue(self.EULA_SETTINGS_KEY, self.EULA_VERSION)
-            log_info(f"Daman_QGIS: EULA v{self.EULA_VERSION} accepted")
-            return True
-
-        return False
 
     # === Integrity Verification ===
 
@@ -1034,10 +976,6 @@ class DamanQGIS:
         if getattr(self, '_profile_only_mode', False):
             from Daman_QGIS.managers._registry import registry
             registry.reset('M_37')
-            return
-
-        # EULA rejected: ничего не было инициализировано
-        if getattr(self, '_eula_rejected', False):
             return
 
         # Activation-only mode: только минимальная панель с кнопкой
