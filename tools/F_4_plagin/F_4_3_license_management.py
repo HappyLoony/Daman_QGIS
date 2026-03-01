@@ -13,8 +13,6 @@ from qgis.PyQt.QtGui import QIcon
 from Daman_QGIS.core.base_tool import BaseTool
 from Daman_QGIS.utils import log_info
 
-from .submodules.Fsm_4_3_1_license_dialog import LicenseDialog
-
 
 class F_4_3_LicenseManagement(BaseTool):
     """Инструмент управления лицензией"""
@@ -35,14 +33,9 @@ class F_4_3_LicenseManagement(BaseTool):
     def run(self) -> None:
         """Запуск инструмента управления лицензией"""
         log_info("F_4_3: Запущен инструмент управления лицензией")
-
-        # Очищаем кэш лицензий при каждом открытии диалога (для отладки)
-        from Daman_QGIS.managers import LicenseValidator
-        LicenseValidator.clear_cache()
-        log_info("F_4_3: Кэш лицензий очищен")
-
         super().run()
 
     def create_dialog(self):
         """Создание диалога управления лицензией"""
+        from .submodules.Fsm_4_3_1_license_dialog import LicenseDialog
         return LicenseDialog(self.iface)

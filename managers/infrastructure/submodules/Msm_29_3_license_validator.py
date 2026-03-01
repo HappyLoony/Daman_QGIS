@@ -46,12 +46,32 @@ class LicenseValidator:
     def _get_session(self):
         """Ленивая инициализация requests session."""
         if self._session is None:
-            try:
-                import requests
-                self._session = requests.Session()
-            except ImportError:
-                log_warning("Msm_29_3: requests library not available")
+            self._create_session()
         return self._session
+
+    def _create_session(self):
+        """Создание новой requests session.
+
+        Connection: close отключает keep-alive. Yandex Cloud Functions
+        (serverless) агрессивно закрывает idle-соединения, что приводит к
+        [CRYPTO] unknown error при SSL resumption на мёртвом TCP.
+        """
+        try:
+            import requests
+            self._session = requests.Session()
+            self._session.headers.update({"Connection": "close"})
+        except ImportError:
+            log_warning("Msm_29_3: requests library not available")
+
+    def _reset_session(self):
+        """Пересоздание session (при SSL ошибках на протухшем соединении)."""
+        if self._session is not None:
+            try:
+                self._session.close()
+            except Exception:
+                pass
+            self._session = None
+        self._create_session()
 
     def _generate_hmac_signature(self, api_key: str, hardware_id: str, timestamp: int) -> str:
         """
@@ -176,12 +196,43 @@ class LicenseValidator:
                 return {"status": "error", "message": message}
 
         except Exception as e:
+            if self._is_ssl_error(e):
+                log_warning(f"Msm_29_3: SSL error during activation, retrying with new session")
+                self._reset_session()
+                try:
+                    session = self._get_session()
+                    if session:
+                        response = session.post(
+                            f"{self.base_url}?action=validate",
+                            json=self._build_signed_payload(api_key, hardware_id, mode="activate"),
+                            timeout=API_TIMEOUT
+                        )
+                        data = response.json()
+                        if response.status_code == 200 and data.get("status") == "success":
+                            log_info("Msm_29_3: Активация успешна (после retry)")
+                            result = {
+                                "status": "success",
+                                "license_info": data.get("license_info", {})
+                            }
+                            if "tokens" in data:
+                                result["tokens"] = data["tokens"]
+                            return result
+                except Exception as retry_err:
+                    log_error(f"Msm_29_3: Activation retry also failed: {retry_err}")
             log_error(f"Msm_29_3: Activation request failed: {e}")
             return {"status": "error", "message": f"Ошибка сети: {e}"}
+
+    def _is_ssl_error(self, error: Exception) -> bool:
+        """Проверка что ошибка связана с SSL (протухшее соединение)."""
+        error_str = str(error).lower()
+        return 'ssl' in error_str or 'crypto' in error_str
 
     def verify(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
         """
         Проверка лицензии через Yandex Cloud API.
+
+        При SSL ошибке (типично для OSGeo4W + протухшее соединение)
+        пересоздаёт session и делает одну повторную попытку.
 
         Args:
             api_key: API ключ
@@ -190,6 +241,19 @@ class LicenseValidator:
         Returns:
             Результат проверки
         """
+        result = self._verify_request(api_key, hardware_id)
+
+        # Retry с новой session при SSL ошибке
+        if result.get("_ssl_retry"):
+            log_info("Msm_29_3: SSL ошибка, пересоздание session и повтор")
+            self._reset_session()
+            result = self._verify_request(api_key, hardware_id)
+
+        result.pop("_ssl_retry", None)
+        return result
+
+    def _verify_request(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
+        """Один запрос верификации."""
         try:
             session = self._get_session()
             if not session:
@@ -237,6 +301,9 @@ class LicenseValidator:
                 return {"status": "error", "message": message}
 
         except Exception as e:
+            if self._is_ssl_error(e):
+                log_warning(f"Msm_29_3: SSL error (will retry): {e}")
+                return {"status": "error", "message": str(e), "_ssl_retry": True}
             log_error(f"Msm_29_3: Verification request failed: {e}")
             return {"status": "error", "message": f"Ошибка сети: {e}"}
 

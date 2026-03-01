@@ -31,7 +31,7 @@ import os
 import glob
 import importlib
 import importlib.util
-from typing import List, Dict, Any
+from typing import Callable, List, Dict, Any, Optional
 
 from .Fsm_4_2_1_test_logger import TestLogger
 from Daman_QGIS.utils import log_info, log_error
@@ -72,7 +72,9 @@ class ComprehensiveTestRunner:
         'Fsm_4_2_T_nspd.py',             # NSPD API stability monitoring
     }
 
-    def __init__(self, iface, log_level: int = TestLogger.LOG_LEVEL_ERROR, skip_network_tests: bool = False):
+    def __init__(self, iface, log_level: int = TestLogger.LOG_LEVEL_ERROR,
+                 skip_network_tests: bool = False,
+                 progress_callback: Optional[Callable[[int, int, str], None]] = None):
         """
         Инициализация comprehensive runner
 
@@ -80,10 +82,12 @@ class ComprehensiveTestRunner:
             iface: QGIS interface
             log_level: Уровень логирования (по умолчанию ERROR - только ошибки)
             skip_network_tests: Пропустить тесты, требующие сетевого подключения (по умолчанию False)
+            progress_callback: Callback прогресса (current_index, total_count, test_name)
         """
         self.iface = iface
         self.logger = TestLogger(log_level=log_level)
         self.skip_network_tests = skip_network_tests
+        self._progress_callback = progress_callback
 
         # Результаты тестов
         self.test_results = []  # List[Dict] - результаты каждого теста
@@ -186,8 +190,14 @@ class ComprehensiveTestRunner:
         self.logger.log_lines.append("")
 
         # Запуск тестов последовательно (без вывода каждого)
-        for test_path in test_files:
+        total = len(test_files)
+        for i, test_path in enumerate(test_files):
             test_name = os.path.basename(test_path)
+
+            # Уведомляем UI о текущем тесте
+            if self._progress_callback:
+                self._progress_callback(i, total, test_name)
+
             result = self._run_single_test(test_path, test_name)
             self.test_results.append(result)
 
@@ -197,6 +207,10 @@ class ComprehensiveTestRunner:
                 QApplication.processEvents()
             except Exception:
                 pass
+
+        # Финальный callback — все тесты завершены
+        if self._progress_callback:
+            self._progress_callback(total, total, "")
 
         # КРИТИЧНО: Очистка после завершения всех тестов
         # Без этого QGIS спросит о сохранении изменений при закрытии

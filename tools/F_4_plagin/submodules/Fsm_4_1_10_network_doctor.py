@@ -61,19 +61,24 @@ class FixResult:
 # Constants
 # ---------------------------------------------------------------------------
 
-# Паттерны подозрительных корневых сертификатов (от VPN/прокси/антивирусов)
-SUSPICIOUS_CERT_PATTERNS = [
-    "adguard",
-    "kaspersky",
-    "eset ssl filter",
-    "avast",
-    "avg",
+# Паттерны ВСЕГДА подозрительных сертификатов (MITM/отладочные прокси)
+ALWAYS_SUSPICIOUS_CERT_PATTERNS = [
     "do_not_trust_fiddlerroot",
     "fiddler",
     "charles proxy",
     "mitmproxy",
     "proxyman",
     "burp suite",
+]
+
+# Антивирусы/VPN — подозрительны ТОЛЬКО если ПО не запущено (осиротевший сертификат)
+# Формат: (паттерн_сертификата, [имена_процессов_с_.exe])
+ANTIVIRUS_CERT_PATTERNS: list = [
+    ("kaspersky", ["avp.exe", "avpui.exe"]),
+    ("adguard", ["adguard.exe", "adguardsvc.exe"]),
+    ("eset ssl filter", ["ekrn.exe", "egui.exe"]),
+    ("avast", ["avastsvc.exe", "avastui.exe"]),
+    ("avg", ["avgsvc.exe", "avgui.exe"]),
 ]
 
 # Подозрительные файлы драйверов в system32/drivers
@@ -457,7 +462,12 @@ class NetworkDoctor:
             )
 
     def check_suspicious_certs(self) -> DiagResult:
-        """Проверка подозрительных корневых сертификатов (от VPN/прокси/антивирусов)"""
+        """Проверка подозрительных корневых сертификатов (от VPN/прокси/антивирусов).
+
+        Различает:
+        - MITM-инструменты (Fiddler, Burp и т.д.) — всегда подозрительны
+        - Антивирусы (Kaspersky, ESET и т.д.) — подозрительны только если ПО не запущено
+        """
         try:
             result = _run_powershell(
                 "Get-ChildItem Cert:\\LocalMachine\\Root, Cert:\\CurrentUser\\Root "
@@ -477,37 +487,70 @@ class NetworkDoctor:
             if isinstance(all_certs, dict):
                 all_certs = [all_certs]
 
-            # Ищем подозрительные
-            suspicious: List[Dict[str, Any]] = []
+            running = _get_running_processes()
+
+            # Классифицируем сертификаты
+            suspicious: List[Dict[str, Any]] = []  # Для удаления
+            active_sw: List[str] = []  # Активное ПО (информационно)
+
             for cert in all_certs:
                 subject = (cert.get("Subject") or "").lower()
                 issuer = (cert.get("Issuer") or "").lower()
                 combined = subject + " " + issuer
-                for pattern in SUSPICIOUS_CERT_PATTERNS:
-                    if pattern in combined:
-                        is_machine = "LocalMachine" in (cert.get("PSParentPath") or "")
-                        suspicious.append({
-                            "subject": cert.get("Subject", ""),
-                            "thumbprint": cert.get("Thumbprint", ""),
-                            "expired": cert.get("Expired", False),
-                            "store": "LocalMachine" if is_machine else "CurrentUser",
-                            "matched_pattern": pattern,
-                        })
-                        break
+                is_machine = "LocalMachine" in (cert.get("PSParentPath") or "")
 
-            if not suspicious:
+                cert_info = {
+                    "subject": cert.get("Subject", ""),
+                    "thumbprint": cert.get("Thumbprint", ""),
+                    "expired": cert.get("Expired", False),
+                    "store": "LocalMachine" if is_machine else "CurrentUser",
+                }
+
+                # 1) MITM-инструменты — всегда подозрительны
+                for pattern in ALWAYS_SUSPICIOUS_CERT_PATTERNS:
+                    if pattern in combined:
+                        cert_info["matched_pattern"] = pattern
+                        suspicious.append(cert_info)
+                        break
+                else:
+                    # 2) Антивирусы — проверяем запущен ли процесс
+                    for av_pattern, av_processes in ANTIVIRUS_CERT_PATTERNS:
+                        if av_pattern in combined:
+                            sw_running = any(p in running for p in av_processes)
+                            if sw_running:
+                                active_sw.append(av_pattern.capitalize())
+                            else:
+                                cert_info["matched_pattern"] = av_pattern
+                                suspicious.append(cert_info)
+                            break
+
+            # Формируем результат
+            if not suspicious and not active_sw:
                 return DiagResult(
                     name="Сертификаты", status="ok",
                     message="Подозрительных корневых сертификатов не найдено"
                 )
 
+            if not suspicious:
+                # Только активное ПО — не проблема
+                sw_names = ", ".join(sorted(set(active_sw)))
+                return DiagResult(
+                    name="Сертификаты", status="ok",
+                    message=f"Сертификаты активного ПО ({sw_names}) - норма"
+                )
+
+            # Есть осиротевшие/MITM сертификаты
             names = [s["subject"][:60] for s in suspicious[:5]]
             has_machine = any(s["store"] == "LocalMachine" for s in suspicious)
+            msg = (f"Найдено {len(suspicious)} подозрительных сертификатов: "
+                   f"{'; '.join(names)}")
+            if active_sw:
+                sw_names = ", ".join(sorted(set(active_sw)))
+                msg += f" (+ {sw_names} активны, норма)"
             return DiagResult(
                 name="Сертификаты",
                 status="issue",
-                message=f"Найдено {len(suspicious)} подозрительных сертификатов: "
-                        f"{'; '.join(names)}",
+                message=msg,
                 details={"certificates": suspicious},
                 fixable=True,
                 needs_admin=has_machine

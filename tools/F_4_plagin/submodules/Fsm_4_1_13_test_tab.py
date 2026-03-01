@@ -9,7 +9,7 @@ Fsm_4_1_13_TestTabWidget - Вкладка тестирования для Diagno
 
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
-    QPushButton, QLabel
+    QPushButton, QLabel, QProgressBar, QApplication
 )
 
 from Daman_QGIS.utils import log_info, log_error
@@ -36,6 +36,18 @@ class TestTabWidget(QWidget):
         desc.setStyleSheet("color: #666; margin-bottom: 10px;")
         layout.addWidget(desc)
 
+        # Прогресс (скрыт по умолчанию)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("%v / %m")
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+
+        self.progress_label = QLabel()
+        self.progress_label.setStyleSheet("color: #666; font-style: italic;")
+        self.progress_label.setVisible(False)
+        layout.addWidget(self.progress_label)
+
         # Текстовое поле для вывода
         self.output = QTextEdit()
         self.output.setReadOnly(True)
@@ -53,12 +65,32 @@ class TestTabWidget(QWidget):
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
+    def _on_test_progress(self, current: int, total: int, test_name: str) -> None:
+        """Callback прогресса от ComprehensiveTestRunner"""
+        self.progress_bar.setRange(0, total)
+        self.progress_bar.setValue(current)
+
+        if test_name:
+            display_name = test_name.replace('Fsm_4_2_T_', '').replace('.py', '')
+            self.progress_label.setText(f"Тест {current + 1}/{total}: {display_name}")
+        else:
+            self.progress_label.setText("Завершено")
+
+        QApplication.processEvents()
+
     def _run_tests(self):
         """Запуск комплексного теста"""
         self.output.clear()
 
         self.btn_run.setEnabled(False)
         self.btn_run.setText("Тестирование...")
+
+        # Показываем прогресс
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setVisible(True)
+        self.progress_label.setText("Обнаружение тестов...")
+        self.progress_label.setVisible(True)
+        QApplication.processEvents()
 
         try:
             from Daman_QGIS.tools.F_4_plagin.submodules.Fsm_4_2_T_comprehensive_runner import (
@@ -68,7 +100,8 @@ class TestTabWidget(QWidget):
             runner = ComprehensiveTestRunner(
                 self.iface,
                 log_level=TestLogger.LOG_LEVEL_ERROR,
-                skip_network_tests=False
+                skip_network_tests=False,
+                progress_callback=self._on_test_progress
             )
 
             runner.run_all_tests()
@@ -84,5 +117,7 @@ class TestTabWidget(QWidget):
             track_exception("Fsm_4_1_13", e)
 
         finally:
+            self.progress_bar.setVisible(False)
+            self.progress_label.setVisible(False)
             self.btn_run.setEnabled(True)
             self.btn_run.setText("Запустить тестирование")

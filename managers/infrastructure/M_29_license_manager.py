@@ -306,6 +306,29 @@ class LicenseManager(QObject):
             # FAIL-CLOSED: при ошибке сервера -- запрещаем доступ (интернет обязателен)
             return False
 
+    def verify_for_display(self) -> tuple:
+        """Проверка лицензии для отображения в UI без мутации сессии.
+
+        F_4_3 использует этот метод чтобы показать актуальный статус
+        без порчи _session_verified / _status работающей сессии.
+
+        Returns:
+            (is_valid: bool, display_status: LicenseStatus)
+        """
+        saved_verified = self._session_verified
+        saved_status = self._status
+
+        result = self.verify()
+        display_status = self._status
+
+        # Восстанавливаем состояние сессии если она была валидна,
+        # а verify упал из-за транзиентной ошибки (SSL, сеть)
+        if saved_verified and saved_status == LicenseStatus.VALID and not result:
+            self._session_verified = saved_verified
+            self._status = saved_status
+
+        return result, display_status
+
     def get_status(self) -> LicenseStatus:
         """Текущий статус лицензии."""
         return self._status

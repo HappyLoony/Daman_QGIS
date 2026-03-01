@@ -443,8 +443,8 @@ class DamanQGIS:
         и сохраняет JWT токены в TokenManager.
 
         Returns:
-            True если лицензия активирована (есть api_key в storage)
-            False если лицензия отсутствует
+            True если лицензия активирована И верификация прошла успешно
+            False если лицензия отсутствует или верификация не прошла
         """
         license_mgr = registry.get('M_29')
         license_mgr.initialize()
@@ -454,7 +454,11 @@ class DamanQGIS:
             return False
 
         # Лицензия есть -- verify() получит JWT токены
-        license_mgr.verify()
+        verified = license_mgr.verify()
+        if not verified:
+            log_warning("Daman_QGIS: License verification failed")
+            return False
+
         return True
 
     def _show_forced_activation(self) -> bool:

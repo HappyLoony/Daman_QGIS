@@ -228,9 +228,9 @@ class LicenseDialog(QDialog):
             self._show_not_activated()
             return
 
-        # Проверяем лицензию
-        is_valid = self.license_manager.verify()
-        status = self.license_manager.get_status()
+        # Проверяем лицензию (без мутации сессии -- транзиентная SSL ошибка
+        # не должна ломать работающую сессию)
+        is_valid, status = self.license_manager.verify_for_display()
 
         if status == LicenseStatus.VALID:
             self._show_valid_license()
