@@ -2,10 +2,12 @@
 M_41: IsochroneTransportManager - Универсальный менеджер транспортной
 и пешей доступности.
 
-Три основных функции:
-1. shortest_route()      - кратчайший маршрут A -> B
-2. isochrone()           - зона доступности от точки
-3. batch_isochrones()    - зоны доступности от множества точек
+Основные функции:
+1. shortest_route()              - кратчайший маршрут A -> B
+2. isochrone()                   - зона доступности от точки
+3. batch_isochrones()            - зоны доступности от множества точек
+4. shortest_route_to_boundary()  - эвакуация из зоны (ГОЧС)
+5. nearest_facility_route()      - маршрут до ближайшего объекта (ГОЧС)
 
 Субмодули:
 - Msm_41_1_NetworkPreparer  - подготовка сети (speed, direction, CRS)
@@ -37,7 +39,7 @@ from qgis.core import (
 )
 from qgis.PyQt.QtCore import QObject, pyqtSignal
 
-from Daman_QGIS.constants import LAYER_OSM_ROADS_LINE
+from Daman_QGIS.constants import LAYER_OSM_PEDESTRIAN_LINE, LAYER_OSM_ROADS_LINE
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
 
 from .submodules.Msm_41_1_network_preparer import (
@@ -146,7 +148,7 @@ class IsochroneTransportManager(QObject):
                 log_warning(f"M_41: ORS fallback -> local: {e}")
 
         # --- Local backend ---
-        layer = self._resolve_road_layer(road_layer)
+        layer = self._resolve_road_layer(road_layer, profile)
         self._validate_road_layer(layer)
         self._validate_point_in_extent(origin, layer)
         self._validate_point_in_extent(destination, layer)
@@ -202,7 +204,7 @@ class IsochroneTransportManager(QObject):
         )
 
         # Валидация
-        layer = self._resolve_road_layer(road_layer)
+        layer = self._resolve_road_layer(road_layer, profile)
         self._validate_road_layer(layer)
         self._validate_point_in_extent(origin, layer)
         speed_profile = self._profiles.get_profile(profile)
@@ -248,6 +250,163 @@ class IsochroneTransportManager(QObject):
         log_success(f"M_41: Найдено {found}/{len(results)} маршрутов")
 
         return results
+
+    # ==================================================================
+    # ГОЧС сценарии
+    # ==================================================================
+
+    def shortest_route_to_boundary(
+        self,
+        origin: QgsPointXY,
+        boundary: QgsGeometry,
+        profile: str = 'walk',
+        road_layer: Optional[QgsVectorLayer] = None,
+    ) -> RouteResult:
+        """Кратчайший маршрут от точки до выхода за пределы зоны.
+
+        Используется для эвакуации: находит ближайший выход из зоны
+        опасности по дорожной сети.
+
+        Args:
+            origin: Точка внутри зоны (начало эвакуации)
+            boundary: Полигон зоны опасности (Polygon/MultiPolygon)
+            profile: 'walk' (пешком), 'drive' (авто), 'fire_truck'
+            road_layer: Слой дорог (None = default OSM)
+
+        Returns:
+            RouteResult с маршрутом до ближайшей точки выхода
+        """
+        log_info(
+            f"M_41: shortest_route_to_boundary, профиль='{profile}'"
+        )
+
+        # Валидация boundary
+        if boundary.isNull() or boundary.isEmpty():
+            raise ValueError("M_41: Boundary пуст или невалиден")
+
+        geom_type = boundary.type()
+        if geom_type != QgsWkbTypes.GeometryType.PolygonGeometry:
+            raise ValueError(
+                f"M_41: Boundary должен быть Polygon, получен "
+                f"{QgsWkbTypes.geometryDisplayString(geom_type)}"
+            )
+
+        # Подготовка
+        layer = self._resolve_road_layer(road_layer, profile)
+        self._validate_road_layer(layer)
+        speed_profile = self._profiles.get_profile(profile)
+
+        project_crs = self._get_project_crs()
+        prepared = self._preparer.prepare_network(
+            road_layer=layer,
+            profile=speed_profile,
+            project_crs=project_crs,
+        )
+
+        origin_t = self._transform_point(origin, layer.crs(), prepared.crs)
+
+        # Построить граф с origin
+        graph_result = self._preparer.build_graph(
+            prepared, additional_points=[origin_t]
+        )
+
+        # Dijkstra из origin
+        start_id = graph_result.graph.findVertex(graph_result.tied_points[0])
+        entry_cost_s = Msm_41_2_RouteSolver._compute_entry_cost(
+            origin_t, graph_result.tied_points[0], speed_profile.default_speed
+        )
+        tree, costs = self._route_solver.dijkstra_from_point(
+            graph_result.graph, start_id
+        )
+
+        # Поиск выхода за пределы boundary
+        result = self._route_solver.route_to_boundary(
+            origin_vertex_id=start_id,
+            graph=graph_result.graph,
+            tree=tree,
+            costs=costs,
+            boundary=boundary,
+            profile=speed_profile,
+            origin=origin_t,
+            entry_cost_s=entry_cost_s,
+        )
+
+        if result.success:
+            self.route_calculated.emit(result)
+            log_success(
+                f"M_41: Маршрут эвакуации: {result.distance_m:.0f}м, "
+                f"{result.duration_s / 60:.1f} мин"
+            )
+
+        return result
+
+    def nearest_facility_route(
+        self,
+        origin: QgsPointXY,
+        facilities_layer: QgsVectorLayer,
+        profile: str = 'drive',
+        road_layer: Optional[QgsVectorLayer] = None,
+    ) -> RouteResult:
+        """Кратчайший маршрут до ближайшего объекта из слоя.
+
+        Обертка над routes_from_point_to_layer() - возвращает
+        только кратчайший маршрут (по времени).
+
+        Args:
+            origin: Начальная точка
+            facilities_layer: Точечный слой объектов (пожарные станции и т.п.)
+            profile: 'drive', 'walk', 'fire_truck'
+            road_layer: Слой дорог (None = default OSM)
+
+        Returns:
+            RouteResult до ближайшего объекта
+        """
+        log_info(
+            f"M_41: nearest_facility_route, профиль='{profile}', "
+            f"объектов={facilities_layer.featureCount()}"
+        )
+
+        if facilities_layer.featureCount() == 0:
+            return RouteResult(
+                geometry=QgsGeometry(),
+                distance_m=0.0,
+                duration_s=0.0,
+                profile=profile,
+                origin=origin,
+                destination=origin,
+                success=False,
+                error_message="Слой объектов пуст",
+            )
+
+        routes = self.routes_from_point_to_layer(
+            origin=origin,
+            destinations=facilities_layer,
+            profile=profile,
+            road_layer=road_layer,
+        )
+
+        # Найти кратчайший успешный маршрут
+        successful = [r for r in routes if r.success]
+        if not successful:
+            log_warning("M_41: Ни один объект не достижим по сети")
+            return RouteResult(
+                geometry=QgsGeometry(),
+                distance_m=0.0,
+                duration_s=0.0,
+                profile=profile,
+                origin=origin,
+                destination=origin,
+                success=False,
+                error_message="Ни один объект не достижим по дорожной сети",
+            )
+
+        nearest = min(successful, key=lambda r: r.duration_s)
+        log_success(
+            f"M_41: Ближайший объект: {nearest.distance_m:.0f}м, "
+            f"{nearest.duration_s / 60:.1f} мин"
+        )
+
+        return nearest
 
     # ==================================================================
     # Изохроны
@@ -303,7 +462,7 @@ class IsochroneTransportManager(QObject):
                 log_warning(f"M_41: ORS fallback -> local: {e}")
 
         # --- Local backend ---
-        layer = self._resolve_road_layer(road_layer)
+        layer = self._resolve_road_layer(road_layer, profile)
         self._validate_road_layer(layer)
         self._validate_point_in_extent(center, layer)
         speed_profile = self._profiles.get_profile(profile)
@@ -391,7 +550,7 @@ class IsochroneTransportManager(QObject):
         )
 
         # Валидация
-        layer = self._resolve_road_layer(road_layer)
+        layer = self._resolve_road_layer(road_layer, profile)
         self._validate_road_layer(layer)
         speed_profile = self._profiles.get_profile(profile)
 
@@ -779,13 +938,33 @@ class IsochroneTransportManager(QObject):
     def _resolve_road_layer(
         self,
         road_layer: Optional[QgsVectorLayer],
+        profile: str = 'drive',
     ) -> QgsVectorLayer:
-        """Определить слой дорог: переданный или default OSM."""
+        """Определить слой дорог: переданный или default OSM.
+
+        Для walk-профиля пытается найти пешеходный слой
+        (LAYER_OSM_PEDESTRIAN_LINE), при отсутствии fallback на дорожный.
+        """
         if road_layer is not None:
             return road_layer
 
-        # Поиск дефолтного слоя OSM в проекте
         project = QgsProject.instance()
+
+        # Walk-профиль: приоритет пешеходного слоя
+        if profile == 'walk':
+            for layer in project.mapLayers().values():
+                if layer.name() == LAYER_OSM_PEDESTRIAN_LINE:
+                    log_info(
+                        f"M_41: Используется пешеходный слой "
+                        f"'{layer.name()}'"
+                    )
+                    return layer
+            log_info(
+                f"M_41: Пешеходный слой '{LAYER_OSM_PEDESTRIAN_LINE}' "
+                f"не найден, fallback на '{LAYER_OSM_ROADS_LINE}'"
+            )
+
+        # Drive/fire_truck или walk fallback: дорожный слой
         for layer in project.mapLayers().values():
             if layer.name() == LAYER_OSM_ROADS_LINE:
                 log_info(f"M_41: Используется дефолтный слой '{layer.name()}'")

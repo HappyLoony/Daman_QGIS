@@ -231,6 +231,112 @@ class Msm_41_2_RouteSolver:
         log_info(f"Msm_41_2: Batch routes: {found}/{len(results)} найдено")
         return results
 
+    # ------------------------------------------------------------------
+    # C) Route to boundary exit (ГОЧС evacuation)
+    # ------------------------------------------------------------------
+
+    def route_to_boundary(
+        self,
+        origin_vertex_id: int,
+        graph: QgsGraph,
+        tree: list[int],
+        costs: list[float],
+        boundary: QgsGeometry,
+        profile: SpeedProfile,
+        origin: QgsPointXY,
+        entry_cost_s: float = 0.0,
+    ) -> RouteResult:
+        """Кратчайший маршрут от точки до выхода за пределы boundary.
+
+        Линейный скан O(V) по результатам Dijkstra: ищет ближайшую
+        по стоимости вершину графа, лежащую ВНЕ полигона boundary.
+
+        Args:
+            origin_vertex_id: ID стартовой вершины в графе
+            graph: QgsGraph (построенный)
+            tree: Дерево Dijkstra (результат dijkstra_from_point)
+            costs: Стоимости Dijkstra
+            boundary: Полигон зоны опасности (Polygon/MultiPolygon)
+            profile: Профиль скоростей
+            origin: Оригинальная точка пользователя (для RouteResult)
+            entry_cost_s: Стоимость привязки origin к графу
+
+        Returns:
+            RouteResult с маршрутом до ближайшей точки выхода
+        """
+        # Edge case: origin уже вне boundary
+        origin_geom = QgsGeometry.fromPointXY(origin)
+        if not boundary.contains(origin_geom):
+            log_info("Msm_41_2: Origin уже за пределами зоны")
+            return RouteResult(
+                geometry=QgsGeometry(),
+                distance_m=0.0,
+                duration_s=0.0,
+                profile=profile.name,
+                origin=origin,
+                destination=origin,
+            )
+
+        vertex_count = graph.vertexCount()
+        best_cost = float('inf')
+        best_vertex_id = -1
+
+        log_info(
+            f"Msm_41_2: route_to_boundary, скан {vertex_count} вершин"
+        )
+
+        for vid in range(vertex_count):
+            cost = costs[vid]
+            # Пропуск недостижимых и дорогих
+            if cost < 0 or cost >= best_cost:
+                continue
+            point = graph.vertex(vid).point()
+            point_geom = QgsGeometry.fromPointXY(point)
+            if not boundary.contains(point_geom):
+                best_cost = cost
+                best_vertex_id = vid
+
+        if best_vertex_id == -1:
+            log_warning(
+                "Msm_41_2: Не найден выход за пределы зоны по сети"
+            )
+            return RouteResult(
+                geometry=QgsGeometry(),
+                distance_m=0.0,
+                duration_s=0.0,
+                profile=profile.name,
+                origin=origin,
+                destination=origin,
+                success=False,
+                error_message="Выход за пределы зоны не найден по дорожной сети",
+            )
+
+        route_geom = self._extract_route(
+            graph, tree, origin_vertex_id, best_vertex_id
+        )
+        exit_point = graph.vertex(best_vertex_id).point()
+        distance_m = route_geom.length() if route_geom else 0.0
+        total_duration_s = entry_cost_s + best_cost
+
+        log_info(
+            f"Msm_41_2: Выход найден: {distance_m:.0f}м, "
+            f"{total_duration_s:.0f}с ({total_duration_s / 60:.1f} мин)"
+        )
+
+        return RouteResult(
+            geometry=route_geom if route_geom else QgsGeometry(),
+            distance_m=distance_m,
+            duration_s=total_duration_s,
+            profile=profile.name,
+            origin=origin,
+            destination=exit_point,
+            entry_cost_s=entry_cost_s,
+        )
+
+    # ------------------------------------------------------------------
+    # D) Low-level Dijkstra API
+    # ------------------------------------------------------------------
+
     def dijkstra_from_point(
         self,
         graph: QgsGraph,

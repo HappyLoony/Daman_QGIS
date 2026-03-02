@@ -73,7 +73,7 @@ from Daman_QGIS.ui.main_toolbar import MainToolbar
 # Import constants
 from Daman_QGIS.constants import (
     PLUGIN_NAME, MESSAGE_SHORT_DURATION, MESSAGE_SUCCESS_DURATION,
-    PLUGIN_VERSION
+    PLUGIN_VERSION, HEARTBEAT_INTERVAL_MS
 )
 
 # Import logging utilities
@@ -162,6 +162,9 @@ class DamanQGIS:
 
         # Режим "только активация" -- при отсутствии лицензии
         self._activation_only_mode = False
+
+        # Heartbeat таймер для периодической проверки лицензии
+        self._heartbeat_timer = None
 
         # Реестр подключенных Qt сигналов для корректного отключения
         self._signal_connections = []
@@ -402,6 +405,90 @@ class DamanQGIS:
 
         except Exception as e:
             log_warning(f"Daman_QGIS: Telemetry init failed: {e}")
+
+    # === Heartbeat: периодическая проверка статуса лицензии ===
+
+    def _start_heartbeat(self) -> None:
+        """Запустить периодическую проверку лицензии на сервере."""
+        self._heartbeat_timer = QTimer()
+        self._heartbeat_timer.timeout.connect(self._heartbeat_check)
+        self._heartbeat_timer.start(HEARTBEAT_INTERVAL_MS)
+        log_info("Main: Heartbeat запущен")
+
+    def _heartbeat_check(self) -> None:
+        """Проверить статус лицензии на сервере (вызывается по таймеру)."""
+        try:
+            license_mgr = registry.get('M_29')
+            api_key = license_mgr.get_api_key()
+            hardware_id = license_mgr.get_hardware_id()
+
+            if not api_key or not hardware_id:
+                return
+
+            import time as _time
+            import hmac
+            import hashlib
+            import requests
+            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+
+            timestamp = int(_time.time())
+            signature = hmac.new(
+                api_key.encode('utf-8'),
+                f"{hardware_id}|{timestamp}".encode('utf-8'),
+                hashlib.sha256
+            ).hexdigest()
+
+            response = requests.post(
+                f"{API_BASE_URL}?action=heartbeat",
+                json={
+                    "api_key": api_key,
+                    "hardware_id": hardware_id,
+                    "timestamp": timestamp,
+                    "signature": signature
+                },
+                timeout=API_TIMEOUT
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 'revoked':
+                    reason = data.get('reason', 'unknown')
+                    log_warning(f"Main: Лицензия отозвана сервером ({reason})")
+                    self._on_license_revoked()
+
+        except Exception as e:
+            # Graceful degradation: сетевые ошибки не блокируют работу
+            log_info(f"Main: Heartbeat пропущен: {e}")
+
+    def _on_license_revoked(self) -> None:
+        """Обработка отзыва лицензии сервером."""
+        # 1. Остановить heartbeat
+        if self._heartbeat_timer:
+            self._heartbeat_timer.stop()
+
+        # 2. Очистить токены
+        from Daman_QGIS.managers.infrastructure.submodules.Msm_29_4_token_manager import TokenManager
+        TokenManager.get_instance().clear_tokens()
+
+        # 3. Очистить кэш данных
+        from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
+        BaseReferenceLoader.clear_cache()
+
+        # 4. Удалить текущую панель инструментов
+        if self.toolbar:
+            main_window = self.iface.mainWindow()
+            if main_window and hasattr(main_window, 'removeToolBar'):
+                main_window.removeToolBar(self.toolbar)
+            self.toolbar.deleteLater()
+            self.toolbar = None
+
+        # 5. Показать сообщение и переключить на activation toolbar
+        self._show_activation_only_toolbar()
+        self.iface.messageBar().pushMessage(
+            "Daman QGIS",
+            "Лицензия деактивирована. Обратитесь к администратору.",
+            level=Qgis.Warning, duration=0
+        )
 
     def _check_native_project(self) -> None:
         """Проверка и инициализация нативно открытого проекта плагина"""
@@ -699,6 +786,9 @@ class DamanQGIS:
         # Инициализация телеметрии
         self._init_telemetry()
 
+        # Heartbeat: периодическая проверка статуса лицензии
+        self._start_heartbeat()
+
         # Deferred profile reference download
         profile_mgr = registry.get('M_37')
         profile_mgr.ensure_reference_profile_applied()
@@ -987,6 +1077,11 @@ class DamanQGIS:
                 self.toolbar.deleteLater()
                 self.toolbar = None
             return
+
+        # Остановить heartbeat таймер
+        if self._heartbeat_timer:
+            self._heartbeat_timer.stop()
+            self._heartbeat_timer = None
 
         # Flush телеметрии перед выгрузкой (синхронно, до 2 сек)
         try:

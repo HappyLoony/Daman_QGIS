@@ -125,7 +125,7 @@ class TestF11:
             self.logger.success("ProjectManager установлен в F_1_1")
 
             from Daman_QGIS.managers import LayerManager
-            self.layer_manager = LayerManager(self.iface, self.project_manager)
+            self.layer_manager = LayerManager(self.iface)
             self.logger.success("LayerManager доступен")
 
             self.module.set_layer_manager(self.layer_manager)
@@ -161,30 +161,30 @@ class TestF11:
             self.logger.warning(f"XmlImportSubmodule недоступен: {str(e)}")
 
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_2_dxf import DxfImportSubmodule
-            self.logger.success("DxfImportSubmodule доступен")
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_1_dxf_importer import DxfImporter
+            self.logger.success("DxfImporter доступен")
 
             self.logger.check(
-                hasattr(DxfImportSubmodule, 'import_file'),
-                "DxfImportSubmodule имеет метод import_file",
-                "Метод import_file отсутствует в DxfImportSubmodule!"
+                hasattr(DxfImporter, 'import_file'),
+                "DxfImporter имеет метод import_file",
+                "Метод import_file отсутствует в DxfImporter!"
             )
 
         except Exception as e:
-            self.logger.warning(f"DxfImportSubmodule недоступен: {str(e)}")
+            self.logger.warning(f"DxfImporter недоступен: {str(e)}")
 
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_3_tab import TabImportSubmodule
-            self.logger.success("TabImportSubmodule доступен")
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_2_tab_importer import TabImporter
+            self.logger.success("TabImporter доступен")
 
             self.logger.check(
-                hasattr(TabImportSubmodule, 'import_file'),
-                "TabImportSubmodule имеет метод import_file",
-                "Метод import_file отсутствует в TabImportSubmodule!"
+                hasattr(TabImporter, 'import_file'),
+                "TabImporter имеет метод import_file",
+                "Метод import_file отсутствует в TabImporter!"
             )
 
         except Exception as e:
-            self.logger.warning(f"TabImportSubmodule недоступен: {str(e)}")
+            self.logger.warning(f"TabImporter недоступен: {str(e)}")
 
     def test_04_format_validation(self):
         """ТЕСТ 4: Валидация форматов"""
@@ -241,13 +241,13 @@ class TestF11:
 
     def test_06_dxf_submodule(self):
         """ТЕСТ 6: Тест DXF сабмодуля"""
-        self.logger.section("6. Тест DxfImportSubmodule")
+        self.logger.section("6. Тест DxfImporter")
 
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_2_dxf import DxfImportSubmodule
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_1_dxf_importer import DxfImporter
 
-            dxf_module = DxfImportSubmodule(self.iface)
-            self.logger.success("DxfImportSubmodule инициализирован")
+            dxf_module = DxfImporter(self.iface)
+            self.logger.success("DxfImporter инициализирован")
 
             required_methods = ['import_file', 'validate_import', 'supports_format']
             for method_name in required_methods:
@@ -261,13 +261,13 @@ class TestF11:
 
     def test_07_tab_submodule(self):
         """ТЕСТ 7: Тест TAB сабмодуля"""
-        self.logger.section("7. Тест TabImportSubmodule")
+        self.logger.section("7. Тест TabImporter")
 
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_3_tab import TabImportSubmodule
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_2_tab_importer import TabImporter
 
-            tab_module = TabImportSubmodule(self.iface)
-            self.logger.success("TabImportSubmodule инициализирован")
+            tab_module = TabImporter(self.iface)
+            self.logger.success("TabImporter инициализирован")
 
             required_methods = ['import_file', 'validate_import', 'supports_format']
             for method_name in required_methods:

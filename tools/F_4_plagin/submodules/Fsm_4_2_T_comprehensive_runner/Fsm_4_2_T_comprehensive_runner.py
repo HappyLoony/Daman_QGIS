@@ -28,6 +28,7 @@ STRUCTURE:
 """
 
 import os
+import sys
 import glob
 import importlib
 import importlib.util
@@ -70,6 +71,7 @@ class ComprehensiveTestRunner:
         'Fsm_4_2_T_telemetry.py',        # Телеметрия (API endpoint)
         'Fsm_4_2_T_dadata.py',           # DaData API (M_39)
         'Fsm_4_2_T_nspd.py',             # NSPD API stability monitoring
+        'Fsm_4_2_T_heartbeat.py',        # Heartbeat (License Revocation)
     }
 
     def __init__(self, iface, log_level: int = TestLogger.LOG_LEVEL_ERROR,
@@ -278,14 +280,20 @@ class ComprehensiveTestRunner:
         }
 
         try:
-            # Импорт модуля
+            # Импорт модуля с полным qualified name для поддержки relative imports
             module_name = test_name.replace('.py', '')
-            spec = importlib.util.spec_from_file_location(module_name, test_path)
+            package_name = self.__class__.__module__.rsplit('.', 1)[0]
+            qualified_name = f'{package_name}.{module_name}'
+
+            spec = importlib.util.spec_from_file_location(qualified_name, test_path)
             if spec is None or spec.loader is None:
                 result['status'] = 'error'
                 result['error_message'] = f"Не удалось загрузить спецификацию модуля: {test_path}"
                 return result
             module = importlib.util.module_from_spec(spec)
+            module.__package__ = package_name
+            sys.modules[qualified_name] = module
+
             spec.loader.exec_module(module)
 
             # Поиск тестового класса

@@ -88,13 +88,13 @@ def _send_error_to_telemetry(message: str) -> None:
         # Извлекаем текст ошибки (после MODULE_ID)
         error_msg = message.split(': ', 1)[1] if ': ' in message else message
 
-        # Отправляем в телеметрию
-        telemetry.track_error(
-            func_id=module_id,
-            error_type="LogError",
-            error_msg=error_msg,
-            stack=None  # Стек не доступен из log_error
-        )
+        # Отправляем в телеметрию (track_event, не track_error - нет Exception объекта)
+        telemetry.track_event('error', {
+            'func': module_id,
+            'error_type': 'LogError',
+            'error_msg': error_msg,
+            'stack': []
+        })
     except Exception:
         # Игнорируем ошибки телеметрии - не должны ломать основной код
         pass

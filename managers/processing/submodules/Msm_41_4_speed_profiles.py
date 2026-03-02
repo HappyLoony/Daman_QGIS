@@ -77,7 +77,7 @@ BUILTIN_PROFILES: dict[str, SpeedProfile] = {
         default_speed=4.0,
         speeds={
             'footway': 4.5, 'pedestrian': 4.5, 'path': 3.5,
-            'steps': 2.0, 'living_street': 4.0, 'residential': 4.0,
+            'steps': 2.0, 'cycleway': 4.0, 'living_street': 4.0, 'residential': 4.0,
             'service': 4.0, 'tertiary': 4.0, 'secondary': 4.0,
             'primary': 3.5,
             'trunk': 0,       # запрещено для пешеходов

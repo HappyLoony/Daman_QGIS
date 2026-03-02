@@ -76,16 +76,24 @@ class TestNetwork:
         except ImportError as e:
             self.logger.error(f"Ошибка импорта: {str(e)}")
 
+    def _get_auth_headers(self) -> Dict[str, str]:
+        """Получить JWT заголовки для аутентифицированных запросов"""
+        try:
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_4_token_manager import TokenManager
+            return TokenManager.get_instance().get_auth_headers()
+        except Exception:
+            return {}
+
     def test_10_api_availability(self):
-        """ТЕСТ 10: Доступность API"""
+        """ТЕСТ 10: Доступность API (health check)"""
         self.logger.section("10. Проверка доступности API")
 
         try:
             import requests
             from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
 
-            # Простой GET запрос к API
-            url = f"{API_BASE_URL}?action=list"
+            # Health check -- не требует JWT
+            url = API_BASE_URL
             start = time.time()
 
             response = requests.get(url, timeout=API_TIMEOUT)
@@ -108,6 +116,15 @@ class TestNetwork:
                 f"Неожиданный Content-Type: {content_type}"
             )
 
+            # Проверяем формат health check
+            if response.status_code == 200:
+                data = response.json()
+                self.logger.check(
+                    isinstance(data, dict) and data.get('status') == 'ok',
+                    "Health check: status=ok",
+                    f"Неожиданный ответ: {data}"
+                )
+
         except requests.exceptions.Timeout:
             self.logger.fail("API timeout - сервер не отвечает")
         except requests.exceptions.ConnectionError:
@@ -116,16 +133,20 @@ class TestNetwork:
             self.logger.error(f"Ошибка проверки доступности: {str(e)}")
 
     def test_11_api_response_format(self):
-        """ТЕСТ 11: Формат ответа API"""
+        """ТЕСТ 11: Формат ответа API (action=list с JWT)"""
         self.logger.section("11. Формат ответа API")
 
         try:
             import requests
             from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
 
-            # Запрос списка файлов
+            headers = self._get_auth_headers()
+            if not headers:
+                self.logger.warning("JWT токен отсутствует -- тест пропущен (требуется лицензия)")
+                return
+
             url = f"{API_BASE_URL}?action=list"
-            response = requests.get(url, timeout=API_TIMEOUT)
+            response = requests.get(url, headers=headers, timeout=API_TIMEOUT)
 
             if response.status_code == 200:
                 try:
@@ -137,7 +158,6 @@ class TestNetwork:
                         f"Ответ не является объектом: {type(data)}"
                     )
 
-                    # Проверяем наличие поля files
                     if isinstance(data, dict):
                         self.logger.check(
                             'files' in data,
@@ -149,7 +169,6 @@ class TestNetwork:
                             files = data['files']
                             self.logger.info(f"Доступно файлов: {len(files)}")
 
-                            # Проверяем что есть ключевые файлы
                             expected = ['Base_layers', 'Base_Functions', 'Base_managers']
                             for exp in expected:
                                 found = any(exp in f for f in files)
@@ -161,25 +180,31 @@ class TestNetwork:
 
                 except ValueError as e:
                     self.logger.fail(f"Ответ не является валидным JSON: {e}")
+            else:
+                self.logger.fail(f"API вернул {response.status_code} (ожидался 200)")
 
         except Exception as e:
             self.logger.error(f"Ошибка проверки формата: {str(e)}")
 
     def test_12_api_action_list(self):
-        """ТЕСТ 12: Действие list"""
+        """ТЕСТ 12: Действие list (проверка скрытия Base_licenses)"""
         self.logger.section("12. API action=list")
 
         try:
             import requests
             from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
 
+            headers = self._get_auth_headers()
+            if not headers:
+                self.logger.warning("JWT токен отсутствует -- тест пропущен (требуется лицензия)")
+                return
+
             url = f"{API_BASE_URL}?action=list"
-            response = requests.get(url, timeout=API_TIMEOUT)
+            response = requests.get(url, headers=headers, timeout=API_TIMEOUT)
 
             if response.status_code == 200:
                 data = response.json()
 
-                # Проверяем что Base_licenses НЕ в списке (защищён)
                 if 'files' in data:
                     files = data['files']
                     has_licenses = any('licenses' in f.lower() for f in files)
@@ -189,75 +214,85 @@ class TestNetwork:
                         "Base_licenses скрыт из списка (безопасность)",
                         "ВНИМАНИЕ: Base_licenses виден в списке!"
                     )
+            else:
+                self.logger.fail(f"API вернул {response.status_code}")
 
         except Exception as e:
             self.logger.error(f"Ошибка теста action=list: {str(e)}")
 
     def test_20_http_404_handling(self):
-        """ТЕСТ 20: Обработка 404"""
+        """ТЕСТ 20: Обработка 404 (с JWT)"""
         self.logger.section("20. Обработка HTTP 404")
 
         try:
             import requests
             from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
 
+            headers = self._get_auth_headers()
+            if not headers:
+                self.logger.warning("JWT токен отсутствует -- тест пропущен (требуется лицензия)")
+                return
+
             # Запрос несуществующего файла
             url = f"{API_BASE_URL}?action=data&file=NonExistentFile123456"
-            response = requests.get(url, timeout=API_TIMEOUT)
+            response = requests.get(url, headers=headers, timeout=API_TIMEOUT)
 
             self.logger.info(f"HTTP статус для несуществующего файла: {response.status_code}")
 
             self.logger.check(
-                response.status_code in [404, 200],  # 200 с error в теле тоже допустим
+                response.status_code in [404, 200],
                 f"Корректный статус: {response.status_code}",
                 f"Неожиданный статус: {response.status_code}"
             )
 
-            # Если 200, проверяем тело ответа
             if response.status_code == 200:
                 try:
                     data = response.json()
                     if isinstance(data, dict) and 'error' in data:
                         self.logger.success("Ошибка в теле ответа (корректно)")
-                except:
+                except Exception:
                     pass
 
         except Exception as e:
             self.logger.error(f"Ошибка теста 404: {str(e)}")
 
     def test_21_http_403_handling(self):
-        """ТЕСТ 21: Обработка 403 (защищённые файлы)"""
+        """ТЕСТ 21: Обработка 403 (защищённые файлы, с JWT)"""
         self.logger.section("21. Обработка HTTP 403")
 
         try:
             import requests
             from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
 
-            # Запрос защищённого файла
+            headers = self._get_auth_headers()
+            if not headers:
+                self.logger.warning("JWT токен отсутствует -- тест пропущен (требуется лицензия)")
+                return
+
+            # Запрос защищённого файла (с JWT -- должен получить 403, а не 401)
             url = f"{API_BASE_URL}?action=data&file=Base_licenses"
-            response = requests.get(url, timeout=API_TIMEOUT)
+            response = requests.get(url, headers=headers, timeout=API_TIMEOUT)
 
             self.logger.info(f"HTTP статус для Base_licenses: {response.status_code}")
 
             self.logger.check(
-                response.status_code in [403, 404, 200],
+                response.status_code in [403, 404],
                 f"Защищённый файл обработан: {response.status_code}",
                 f"Неожиданный статус: {response.status_code}"
             )
 
-            # Если 200, проверяем что данные не раскрыты
+            # Если 200 (не должно быть), проверяем что данные не раскрыты
             if response.status_code == 200:
                 try:
                     data = response.json()
                     if isinstance(data, dict):
-                        # Не должно быть api_key в ответе
                         has_api_key = 'api_key' in str(data)
                         self.logger.check(
                             not has_api_key,
                             "Ключи API не раскрыты",
                             "УЯЗВИМОСТЬ: api_key виден в ответе!"
                         )
-                except:
+                except Exception:
                     pass
 
         except Exception as e:
@@ -296,24 +331,24 @@ class TestNetwork:
             self.logger.error(f"Ошибка проверки session: {str(e)}")
 
     def test_31_requests_headers(self):
-        """ТЕСТ 31: HTTP заголовки"""
+        """ТЕСТ 31: HTTP заголовки (health check endpoint)"""
         self.logger.section("31. HTTP заголовки")
 
         try:
             import requests
             from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
 
-            url = f"{API_BASE_URL}?action=list"
+            # Health check -- не требует JWT
+            url = API_BASE_URL
             response = requests.get(url, timeout=API_TIMEOUT)
 
             # Проверяем заголовки ответа
-            headers = response.headers
+            resp_headers = response.headers
 
-            self.logger.info(f"Server: {headers.get('Server', 'N/A')}")
-            self.logger.info(f"Content-Type: {headers.get('Content-Type', 'N/A')}")
+            self.logger.info(f"Server: {resp_headers.get('Server', 'N/A')}")
+            self.logger.info(f"Content-Type: {resp_headers.get('Content-Type', 'N/A')}")
 
-            # Проверяем CORS (если есть)
-            cors = headers.get('Access-Control-Allow-Origin', 'N/A')
+            cors = resp_headers.get('Access-Control-Allow-Origin', 'N/A')
             self.logger.info(f"CORS: {cors}")
 
         except Exception as e:
