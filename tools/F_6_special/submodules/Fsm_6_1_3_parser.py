@@ -19,9 +19,10 @@ from Daman_QGIS.utils import log_info, log_warning, log_error
 
 # Подавляем предупреждения от openpyxl (совместимость с numpy 1.24+ и Python 3.12+)
 # - DeprecationWarning: datetime.utcfromtimestamp() deprecated в Python 3.12
-# - ResourceWarning: unclosed file в read_only режиме openpyxl
+# - UserWarning: "Data Validation extension is not supported" (безопасно игнорировать)
 # - FutureWarning: np.bool/np.int/np.float deprecated в numpy 1.24+
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="openpyxl")
+warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*np\\.bool.*")
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*np\\.int.*")
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*np\\.float.*")
