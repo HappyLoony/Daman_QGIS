@@ -1156,9 +1156,17 @@ class DamanQGIS:
             self.toolbar.deleteLater()
             self.toolbar = None
 
+        # Сброс JWT токенов (предотвращает stale tokens при hot reload)
+        try:
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_4_token_manager import TokenManager
+            TokenManager.reset_instance()
+        except Exception:
+            pass
+
         # Сброс синглтонов менеджеров для освобождения ресурсов
         # Это предотвращает утечки памяти и проблемы с Qt при закрытии
         try:
+            registry.reset('M_29')
             registry.reset('M_17')
             registry.reset('M_18')
             registry.reset('M_19')
