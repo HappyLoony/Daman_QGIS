@@ -608,10 +608,13 @@ class UniversalImportDialog(QDialog):
             enabled = bool(self.selected_file)
         else:
             # Для DXF/TAB требуется выбрать и файл, и слой
+            # Если есть подслои — нужно выбрать конкретный подслой
+            sublayer_required = self.sublayer_combo.isEnabled() and not self.selected_sublayer
             enabled = bool(
                 self.selected_file and
                 self.selected_format and
-                self.selected_full_name
+                self.selected_full_name and
+                not sublayer_required
             )
         self.import_button.setEnabled(enabled)
     

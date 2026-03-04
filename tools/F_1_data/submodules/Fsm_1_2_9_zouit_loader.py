@@ -155,6 +155,22 @@ class Fsm_1_2_9_ZouitLoader:
             except Exception as e:
                 log_warning(f"Fsm_1_2_9: Ошибка загрузки ООПТ Минприроды: {str(e)}")
 
+            # Исключаем слои, которые загружаются через dedicated loaders
+            # Le_1_2_6_2_WFS_ПС загружается через Fsm_1_2_14_ServitudeLoader (EP 29 + EP 30)
+            # Объекты ПС из EP 11 (cat=36940) дублируют EP 30, поэтому безопасно исключаем
+            from .Fsm_1_2_14_servitude_loader import Fsm_1_2_14_ServitudeLoader
+            dedicated_layers = {Fsm_1_2_14_ServitudeLoader.TARGET_LAYER_NAME}
+
+            excluded = {name for name in zouit_layers if name in dedicated_layers}
+            if excluded:
+                for name in excluded:
+                    count = zouit_layers[name].featureCount()
+                    log_info(
+                        f"Fsm_1_2_9: Пропуск слоя {name} ({count} obj) - "
+                        f"загружается через dedicated loader"
+                    )
+                zouit_layers = {k: v for k, v in zouit_layers.items() if k not in dedicated_layers}
+
             # Сохраняем каждый слой в GeoPackage и добавляем через layer_manager
             for layer_name, layer in zouit_layers.items():
                 try:
