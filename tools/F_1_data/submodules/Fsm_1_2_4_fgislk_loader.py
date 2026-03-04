@@ -209,6 +209,10 @@ class Fsm_1_2_4_FgislkLoader:
         self.max_retries = endpoint['max_retries']
         self.max_workers = endpoint['max_workers']
 
+        # Referer URL (требуется для доступа к ФГИС ЛК с марта 2026)
+        referer = endpoint.get('referer_url')
+        self.referer_url = referer if referer and referer not in (None, '', '-', 'null') else None
+
     def get_boundary_geometry(self) -> Optional[QgsGeometry]:
         """
         Получить геометрию границ из слоя L_1_1_1_Границы_работ
@@ -370,6 +374,8 @@ class Fsm_1_2_4_FgislkLoader:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Accept': '*/*'
             }
+            if self.referer_url:
+                headers['Referer'] = self.referer_url
 
             # ФГИС ЛК использует российские сертификаты Минцифры
             # verify=False - отключаем проверку SSL (безопасно для публичных тайлов)
