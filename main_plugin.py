@@ -598,12 +598,14 @@ class DamanQGIS:
         'base_ref': os.path.join('database', 'base_reference_loader.py'),
     }
 
-    def _verify_integrity(self) -> None:
+    def _verify_integrity(self) -> bool:
         """Проверка целостности критических файлов плагина.
 
         Сравнивает SHA-256 хеши локальных файлов с эталонными из JWT claims.
-        При несовпадении: log_warning + telemetry event (мониторинг).
-        НЕ блокирует работу плагина (мягкая проверка).
+        При несовпадении: блокирует работу плагина.
+
+        Returns:
+            True если проверка пройдена, False если файлы модифицированы.
         """
         import hashlib
         import base64
@@ -616,12 +618,12 @@ class DamanQGIS:
             access_token = token_mgr._access_token if token_mgr else None
 
             if not access_token:
-                return  # Нет токена -- пропускаем проверку
+                return True  # Нет токена -- пропускаем проверку
 
             # Декодируем JWT payload (без верификации подписи)
             parts = access_token.split('.')
             if len(parts) != 3:
-                return
+                return True
 
             payload_b64 = parts[1]
             # Добавляем padding для base64
@@ -630,7 +632,7 @@ class DamanQGIS:
 
             expected_hashes = payload.get('integrity')
             if not expected_hashes or not isinstance(expected_hashes, dict):
-                return  # Сервер не включил integrity claim
+                return True  # Сервер не включил integrity claim
 
             # Вычисляем локальные хеши и сравниваем
             mismatches = []
@@ -656,8 +658,7 @@ class DamanQGIS:
                     mismatches.append(key)
 
             if mismatches:
-                log_warning(f"Daman_QGIS: Integrity check failed for: {', '.join(mismatches)}")
-                # Отправляем в телеметрию для мониторинга
+                log_error(f"Daman_QGIS: Integrity check failed: {', '.join(mismatches)}")
                 try:
                     track_exception(
                         "main_plugin",
@@ -666,18 +667,21 @@ class DamanQGIS:
                     )
                 except Exception:
                     pass
-            else:
-                log_info("Daman_QGIS: Integrity check passed")
+                return False
+
+            log_info("Daman_QGIS: Integrity check passed")
+            return True
 
         except json.JSONDecodeError as e:
-            log_warning(f"Daman_QGIS: Invalid JWT payload in integrity check: {e}")
+            log_error(f"Daman_QGIS: Invalid JWT payload in integrity check: {e}")
             try:
                 track_exception("main_plugin", e, {"phase": "integrity_jwt_decode"})
             except Exception:
                 pass
+            return False
         except Exception as e:
-            # Ошибка проверки не должна блокировать работу
-            log_warning(f"Daman_QGIS: Integrity check error: {e}")
+            log_error(f"Daman_QGIS: Integrity check error: {e}")
+            return False
 
     def _show_activation_only_toolbar(self) -> None:
         """Показать минимальную панель с одной кнопкой активации.
@@ -753,7 +757,17 @@ class DamanQGIS:
             return
 
         # Проверка целостности критических файлов (anti-tampering)
-        self._verify_integrity()
+        if not self._verify_integrity():
+            from qgis.PyQt.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self.iface.mainWindow(),
+                "Daman QGIS",
+                "Обнаружена модификация критических файлов плагина.\n"
+                "Работа плагина заблокирована.\n\n"
+                "Переустановите плагин из официального источника."
+            )
+            log_error("Daman_QGIS: Plugin blocked due to integrity check failure")
+            return
 
         # Инициализация общих инструментов (контекстное меню)
         self._init_common_tools()
