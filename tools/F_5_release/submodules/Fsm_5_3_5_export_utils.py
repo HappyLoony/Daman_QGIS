@@ -459,23 +459,13 @@ class ExportUtils:
         if layer_info:
             variables.update(layer_info)
 
-        # CRS: СК_63_5 -> "СК 63 зона 5", МСК_50 -> "МСК-50"
-        if '1_4_crs_short' in variables:
-            crs_short = variables['1_4_crs_short']
-            if '_' in crs_short:
-                parts = crs_short.split('_')
-                if len(parts) == 3 and 'СК' in parts[0]:
-                    variables['crs_name'] = f"{parts[0]} {parts[1]} зона {parts[2]}"
-                elif len(parts) == 2:
-                    variables['crs_name'] = f"{parts[0]}-{parts[1]}"
-                else:
-                    variables['crs_name'] = crs_short.replace('_', ' ')
-            else:
-                variables['crs_name'] = crs_short
+        # CRS: используем 1_4_crs_description (человекочитаемое название СК)
+        if '1_4_crs_description' in variables:
+            variables['crs_name'] = variables['1_4_crs_description']
 
         # object_type из метаданных
-        if '1_3_object_type' in variables:
-            variables['object_type'] = variables['1_3_object_type']
+        if '1_2_object_type' in variables:
+            variables['object_type'] = variables['1_2_object_type']
 
         # Площадь: округление + форматирование с пробелами
         if 'area' in variables:

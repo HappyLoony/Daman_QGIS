@@ -459,9 +459,9 @@ class TimesheetValidator:
         """
         Валидация переработок по дням.
 
-        Выявляет дни с превышением нормы:
-        - Обычные рабочие дни: >8 часов
-        - Предпраздничные дни: >7 часов
+        Выявляет дни с превышением нормы с учётом ставки сотрудника:
+        - Обычные рабочие дни: >8*ставка часов
+        - Предпраздничные дни: >7*ставка часов
         - Выходные/праздники: любые часы (>0)
 
         Args:
@@ -477,6 +477,9 @@ class TimesheetValidator:
 
         year = timesheet.year
         month = timesheet.month
+
+        # Ставка сотрудника (0.5, 1.0 и т.д.)
+        rate = self.get_employee_rate(timesheet.fio)
 
         # Используем end_day из настроек валидатора
         check_until_day = self.get_end_day(year, month)
@@ -506,13 +509,15 @@ class TimesheetValidator:
                 # Выходной/праздник - любые часы = переработка
                 overtime_days.append((day, hours, "выходной", 0))
             elif self.calendar_manager.is_shortened_day(check_date):
-                # Предпраздничный день - норма 7 часов
-                if hours > 7:
-                    overtime_days.append((day, hours, "предпраздничный", 7))
+                # Предпраздничный день - норма 7 * ставка
+                day_norm = 7 * rate
+                if hours > day_norm:
+                    overtime_days.append((day, hours, "предпраздничный", day_norm))
             else:
-                # Обычный рабочий день - норма 8 часов
-                if hours > 8:
-                    overtime_days.append((day, hours, "рабочий", 8))
+                # Обычный рабочий день - норма 8 * ставка
+                day_norm = 8 * rate
+                if hours > day_norm:
+                    overtime_days.append((day, hours, "рабочий", day_norm))
 
         # Формируем предупреждения
         for day, hours, day_type, norm in overtime_days[:10]:  # Ограничиваем количество

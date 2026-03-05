@@ -549,6 +549,9 @@ class MergedTimesheetGenerator:
                 cell.border = self._thick_border
                 cell.fill = self._stripe_fill_15
 
+            # Удаляем пустые колонки E, F, G (договор, дата, заказчик) со сдвигом влево
+            ws.delete_cols(5, 3)
+
             # Закрепляем первые 2 колонки (A, B - ФИО) и 7 строк заголовка
             ws.freeze_panes = 'C8'
 

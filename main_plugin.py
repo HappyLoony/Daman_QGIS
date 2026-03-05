@@ -623,7 +623,8 @@ class DamanQGIS:
             # Декодируем JWT payload (без верификации подписи)
             parts = access_token.split('.')
             if len(parts) != 3:
-                return True
+                log_error("Daman_QGIS: Integrity check: invalid token format")
+                return False
 
             payload_b64 = parts[1]
             # Добавляем padding для base64
@@ -631,19 +632,18 @@ class DamanQGIS:
             payload = json.loads(base64.urlsafe_b64decode(payload_b64))
 
             expected_hashes = payload.get('integrity')
-            if not expected_hashes or not isinstance(expected_hashes, dict):
-                return True  # Сервер не включил integrity claim
+            if not isinstance(expected_hashes, dict) or not expected_hashes:
+                log_error("Daman_QGIS: Integrity check: missing or invalid integrity claim")
+                return False
 
             # Вычисляем локальные хеши и сравниваем
             mismatches = []
             for key, rel_path in self.INTEGRITY_FILES.items():
                 expected = expected_hashes.get(key)
-                if not expected:
-                    continue
 
-                # Валидация типа хеша из JWT
-                if not isinstance(expected, str):
-                    mismatches.append(f"{key}: invalid hash format")
+                # Пустой, отсутствующий или невалидный хеш = mismatch
+                if not isinstance(expected, str) or len(expected) != 64:
+                    mismatches.append(f"{key}: invalid or missing hash")
                     continue
 
                 filepath = os.path.join(self.plugin_dir, rel_path)

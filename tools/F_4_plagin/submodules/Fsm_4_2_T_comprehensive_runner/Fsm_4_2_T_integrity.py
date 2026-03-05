@@ -2,22 +2,19 @@
 """
 Fsm_4_2_T_integrity - Тесты integrity check (anti-tampering)
 
-Проверяет устойчивость _verify_integrity() к методам обхода:
-- JWT manipulation (no token, forged payload, missing claims)
-- File tampering (modification, deletion, .pyc substitution)
-- Runtime manipulation (monkey-patching hashlib, method override)
-- Edge cases (empty hashes, non-dict claims, malformed JWT)
+Проверяет fail-closed поведение _verify_integrity():
+- Fail-closed: malformed JWT, missing claims, empty/invalid hashes, partial hashes
+- Positive: correct hashes pass, wrong hashes block, file tampering detected
+- Runtime attacks (unfixable): monkey-patching hashlib/method/token, .pyc bypass
+- JWT forgery (unfixable client-side): forged JWT with computed hashes
 
 Основано на исследовании OWASP, HackTricks JWT, Python bytecode attacks.
 """
 
 import os
-import sys
 import hashlib
 import json
 import base64
-import shutil
-import tempfile
 
 
 class TestIntegrity:
@@ -49,7 +46,7 @@ class TestIntegrity:
             self.test_11_file_missing_detected()
             self.test_12_monkey_patch_hashlib()
             self.test_13_monkey_patch_method()
-            self.test_14_monkey_patch_token()
+            self.test_14_partial_hashes()
             self.test_15_pyc_bypass()
             self.test_16_json_decode_error()
             self.test_17_exception_does_not_pass()
@@ -124,7 +121,8 @@ class TestIntegrity:
     def _backup_file(self, filepath):
         """Сделать бэкап файла"""
         if os.path.exists(filepath) and filepath not in self.backup_files:
-            self.backup_files[filepath] = open(filepath, 'rb').read()
+            with open(filepath, 'rb') as f:
+                self.backup_files[filepath] = f.read()
 
     def _restore_file(self, filepath):
         """Восстановить файл из бэкапа"""
@@ -222,59 +220,54 @@ class TestIntegrity:
         )
 
     def test_04_malformed_jwt(self):
-        """ТЕСТ 4: Malformed JWT (не 3 части)
+        """ТЕСТ 4: Malformed JWT -> fail-closed
 
-        Атака: подставить невалидный JWT чтобы вызвать ранний return.
+        Все невалидные токены (кроме пустого/None) должны блокировать плагин.
+        Пустая строка falsy = как None -> return True (нет лицензии).
         """
-        self.logger.section("4. JWT bypass: malformed token")
+        self.logger.section("4. Fail-closed: malformed token")
 
         if not self.plugin_instance or not self.token_mgr:
             self.logger.skip("Plugin или TokenManager недоступен")
             return
 
+        # Пустая строка -- falsy, обрабатывается как отсутствие токена
+        self._set_token("")
+        result = self.plugin_instance._verify_integrity()
+        self.logger.check(
+            result is True,
+            "Пустая строка: return True (falsy = нет токена)",
+            "Пустая строка: неожиданный результат"
+        )
+
+        # Все остальные malformed токены должны вернуть False
         malformed_tokens = [
-            ("пустая строка", ""),
             ("одна часть", "header_only"),
             ("две части", "header.payload"),
             ("четыре части", "a.b.c.d"),
             ("мусорные данные", "!@#$%^&*()"),
+            ("невалидный base64", "eyJhbGciOiJIUzI1NiJ9.!!!invalid!!!.fakesig"),
         ]
 
         for name, token in malformed_tokens:
             self._set_token(token)
             result = self.plugin_instance._verify_integrity()
 
-            if token == "":
-                # Пустая строка -- falsy, как None
-                self.logger.check(
-                    result is True,
-                    f"Malformed ({name}): return True (falsy token = нет проверки)",
-                    f"Malformed ({name}): неожиданный результат"
-                )
-            elif token.count('.') != 2:
-                # Не 3 части
-                self.logger.check(
-                    result is True,
-                    f"Malformed ({name}): return True (не JWT формат)",
-                    f"Malformed ({name}): неожиданный результат"
-                )
-            else:
-                # Невалидный base64 payload -> JSONDecodeError -> return False
-                self.logger.check(
-                    result is False,
-                    f"Malformed ({name}): return False (fail-closed)",
-                    f"Malformed ({name}): return True -- BYPASS!"
-                )
+            self.logger.check(
+                result is False,
+                f"Malformed ({name}): return False (fail-closed)",
+                f"Malformed ({name}): return True -- BYPASS!"
+            )
 
         self._restore_token()
 
     def test_05_no_integrity_claim(self):
-        """ТЕСТ 5: JWT без integrity claim
+        """ТЕСТ 5: JWT без integrity claim -> fail-closed
 
         Атака: подставить JWT с валидным payload но без 'integrity'.
-        Текущее поведение: return True (сервер не включил claim).
+        Ожидание: return False (токен есть = integrity обязателен).
         """
-        self.logger.section("5. JWT bypass: нет integrity claim")
+        self.logger.section("5. Fail-closed: нет integrity claim")
 
         if not self.plugin_instance or not self.token_mgr:
             self.logger.skip("Plugin или TokenManager недоступен")
@@ -286,21 +279,18 @@ class TestIntegrity:
         self._restore_token()
 
         self.logger.check(
-            result is True,
-            "Без integrity claim: return True (ожидаемо -- нечего сравнивать)",
-            "Без integrity claim: неожиданный результат"
-        )
-        self.logger.warning(
-            "ВЕКТОР АТАКИ: forged JWT без integrity claim обходит проверку. "
-            "Рекомендация: требовать integrity claim если токен присутствует."
+            result is False,
+            "Без integrity claim: return False (fail-closed)",
+            "Без integrity claim: return True -- BYPASS!"
         )
 
     def test_06_non_dict_integrity_claim(self):
-        """ТЕСТ 6: integrity claim не dict (list, string, number, null)
+        """ТЕСТ 6: integrity claim не dict -> fail-closed
 
-        Атака: подставить integrity = [] или "string" чтобы пройти isinstance check.
+        Атака: подставить integrity = [], "string", 42, None.
+        Ожидание: return False для всех невалидных типов.
         """
-        self.logger.section("6. JWT bypass: невалидный тип integrity claim")
+        self.logger.section("6. Fail-closed: невалидный тип integrity claim")
 
         if not self.plugin_instance or not self.token_mgr:
             self.logger.skip("Plugin или TokenManager недоступен")
@@ -313,6 +303,7 @@ class TestIntegrity:
             ("number", {"integrity": 42}),
             ("true", {"integrity": True}),
             ("empty string", {"integrity": ""}),
+            ("empty dict", {"integrity": {}}),
         ]
 
         for name, payload in invalid_claims:
@@ -320,44 +311,46 @@ class TestIntegrity:
             self._set_token(fake_jwt)
             result = self.plugin_instance._verify_integrity()
 
-            # Все non-dict должны вернуть True (isinstance check)
             self.logger.check(
-                result is True,
-                f"integrity={name}: return True (не dict = пропуск)",
-                f"integrity={name}: неожиданный результат"
+                result is False,
+                f"integrity={name}: return False (fail-closed)",
+                f"integrity={name}: return True -- BYPASS!"
             )
 
         self._restore_token()
 
     def test_07_empty_hash_values(self):
-        """ТЕСТ 7: integrity claim с пустыми значениями хешей
+        """ТЕСТ 7: integrity claim с пустыми/невалидными хешами -> fail-closed
 
         Атака: {"integrity": {"main_plugin": "", "msm_29_3": null}}
-        Строка 640-642: if not expected: continue -- пропускает файл.
+        Ожидание: return False (пустой/короткий/нечисловой хеш = mismatch).
         """
-        self.logger.section("7. JWT bypass: пустые значения хешей")
+        self.logger.section("7. Fail-closed: пустые и невалидные хеши")
 
         if not self.plugin_instance or not self.token_mgr:
             self.logger.skip("Plugin или TokenManager недоступен")
             return
 
-        # Все ключи с пустыми значениями
-        empty_hashes = {key: "" for key in self.plugin_instance.INTEGRITY_FILES}
-        fake_jwt = self._build_jwt({"integrity": empty_hashes})
-        self._set_token(fake_jwt)
-        result = self.plugin_instance._verify_integrity()
-        self._restore_token()
+        test_cases = [
+            ("пустые строки", {key: "" for key in self.plugin_instance.INTEGRITY_FILES}),
+            ("короткие хеши", {key: "abc123" for key in self.plugin_instance.INTEGRITY_FILES}),
+            ("числа", {key: 12345 for key in self.plugin_instance.INTEGRITY_FILES}),
+            ("null", {key: None for key in self.plugin_instance.INTEGRITY_FILES}),
+            ("длинные хеши", {key: "a" * 128 for key in self.plugin_instance.INTEGRITY_FILES}),
+        ]
 
-        # Пустые значения = continue для всех файлов = нет mismatches = True
-        self.logger.check(
-            result is True,
-            "Пустые хеши: return True (все файлы пропущены через continue)",
-            "Пустые хеши: неожиданный результат"
-        )
-        self.logger.warning(
-            "ВЕКТОР АТАКИ: JWT с пустыми хешами обходит все проверки. "
-            "Рекомендация: считать пустой хеш = mismatch."
-        )
+        for name, hashes in test_cases:
+            fake_jwt = self._build_jwt({"integrity": hashes})
+            self._set_token(fake_jwt)
+            result = self.plugin_instance._verify_integrity()
+
+            self.logger.check(
+                result is False,
+                f"{name}: return False (fail-closed)",
+                f"{name}: return True -- BYPASS!"
+            )
+
+        self._restore_token()
 
     def test_08_forged_jwt_matching_hashes(self):
         """ТЕСТ 8: Forged JWT с правильными хешами
@@ -499,7 +492,8 @@ class TestIntegrity:
         """ТЕСТ 12: Monkey-patching hashlib.sha256
 
         Атака: подменить hashlib.sha256 на функцию возвращающую нужный хеш.
-        Проверяем что после патча integrity check всё равно работает корректно.
+        ВНИМАНИЕ: тест модифицирует глобальный hashlib -- небезопасно
+        если другие потоки используют hashlib одновременно.
         """
         self.logger.section("12. Runtime attack: monkey-patch hashlib")
 
@@ -577,12 +571,13 @@ class TestIntegrity:
         finally:
             self.plugin_instance.__class__._verify_integrity = original_method
 
-    def test_14_monkey_patch_token(self):
-        """ТЕСТ 14: Подмена access_token в TokenManager
+    def test_14_partial_hashes(self):
+        """ТЕСТ 14: JWT с неполным набором хешей -> fail-closed
 
-        Атака: заменить _access_token на forged JWT с правильными хешами.
+        Атака: включить хеш только для одного файла, остальные отсутствуют.
+        Ожидание: return False (отсутствующие ключи = invalid hash).
         """
-        self.logger.section("14. Runtime attack: подмена access_token")
+        self.logger.section("14. Fail-closed: неполный набор хешей")
 
         if not self.plugin_instance or not self.token_mgr:
             self.logger.skip("Plugin или TokenManager недоступен")
@@ -593,19 +588,19 @@ class TestIntegrity:
             self.logger.fail("Не удалось вычислить реальные хеши")
             return
 
-        forged_jwt = self._build_jwt({"integrity": real_hashes})
-        self._set_token(forged_jwt)
+        # Берём только первый ключ, остальные отсутствуют в JWT
+        keys = list(self.plugin_instance.INTEGRITY_FILES.keys())
+        partial = {keys[0]: real_hashes.get(keys[0], "")}
+
+        fake_jwt = self._build_jwt({"integrity": partial})
+        self._set_token(fake_jwt)
         result = self.plugin_instance._verify_integrity()
         self._restore_token()
 
         self.logger.check(
-            result is True,
-            "Forged token с real hashes: return True (обход)",
-            "Forged token с real hashes: return False"
-        )
-        self.logger.warning(
-            "ВЕКТОР АТАКИ: замена _access_token на forged JWT обходит проверку, "
-            "т.к. подпись JWT не верифицируется на клиенте."
+            result is False,
+            "Неполные хеши: return False (отсутствующие ключи = mismatch)",
+            "Неполные хеши: return True -- частичный обход!"
         )
 
     def test_15_pyc_bypass(self):
