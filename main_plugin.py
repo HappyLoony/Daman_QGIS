@@ -809,15 +809,34 @@ class DamanQGIS:
 
         # Проверка целостности критических файлов (anti-tampering)
         if not self._verify_integrity():
+            log_warning("Daman_QGIS: Integrity check failed, attempting auto-reinstall...")
+            try:
+                auto_update = registry.get('M_42')
+                if auto_update.force_reinstall():
+                    self._update_pending = True
+                    log_info("Daman_QGIS: Reinstall successful, scheduling QGIS restart...")
+                    from qgis.PyQt.QtWidgets import QMessageBox
+                    QMessageBox.information(
+                        self.iface.mainWindow(),
+                        "Daman QGIS",
+                        "Версия плагина неактуальна.\n"
+                        "Обновление установлено, QGIS будет перезапущен."
+                    )
+                    QTimer.singleShot(0, self._restart_qgis_after_update)
+                    return
+            except Exception as e:
+                log_error(f"Daman_QGIS: Auto-reinstall failed: {e}")
+
+            # Переустановка не удалась -- показать сообщение
             from qgis.PyQt.QtWidgets import QMessageBox
-            QMessageBox.critical(
+            QMessageBox.warning(
                 self.iface.mainWindow(),
                 "Daman QGIS",
-                "Обнаружена модификация критических файлов плагина.\n"
-                "Работа плагина заблокирована.\n\n"
+                "Версия плагина неактуальна.\n"
+                "Автоматическое обновление не удалось.\n\n"
                 "Переустановите плагин из официального источника."
             )
-            log_error("Daman_QGIS: Plugin blocked due to integrity check failure")
+            log_error("Daman_QGIS: Plugin blocked - integrity check failed, auto-reinstall failed")
             return
 
         # Инициализация общих инструментов (контекстное меню)

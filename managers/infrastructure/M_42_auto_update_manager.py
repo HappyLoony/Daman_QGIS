@@ -90,6 +90,43 @@ class AutoUpdateManager:
         )
         return True
 
+    def force_reinstall(self) -> bool:
+        """Принудительная переустановка текущей версии с сервера.
+
+        Используется при провале integrity check -- файлы повреждены
+        или модифицированы, но версия актуальна. Скачивает и устанавливает
+        текущую версию без проверки номера версии.
+
+        Returns:
+            True  -- переустановка выполнена, нужен перезапуск QGIS.
+            False -- переустановка не удалась.
+        """
+        channel = self._get_channel()
+        result = self._fetch_remote_version(channel)
+        if result is None:
+            log_warning("M_42: Не удалось получить версию для переустановки")
+            return False
+
+        remote_version, download_url = result
+
+        log_info(
+            f"M_42: Принудительная переустановка {remote_version} "
+            f"(integrity fix)"
+        )
+
+        zip_data = self._download_zip(download_url)
+        if zip_data is None:
+            return False
+
+        if not self._validate_zip(zip_data):
+            return False
+
+        if not self._install(zip_data):
+            return False
+
+        log_info(f"M_42: Переустановка {remote_version} завершена успешно")
+        return True
+
     # ------------------------------------------------------------------
     # Внутренние методы
     # ------------------------------------------------------------------
