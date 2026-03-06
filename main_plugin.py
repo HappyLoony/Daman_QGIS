@@ -818,7 +818,7 @@ class DamanQGIS:
         # Проверка целостности критических файлов (anti-tampering)
         if not self._verify_integrity():
             # Защита от бесконечного цикла reinstall -> restart -> integrity fail
-            settings = QgsSettings()
+            settings = QSettings()
             reinstall_key = "Daman_QGIS/last_reinstall_version"
             last_reinstall = settings.value(reinstall_key, "", type=str)
 
@@ -860,7 +860,7 @@ class DamanQGIS:
             return
         else:
             # Integrity OK -- очистить флаг предыдущего reinstall
-            QgsSettings().remove("Daman_QGIS/last_reinstall_version")
+            QSettings().remove("Daman_QGIS/last_reinstall_version")
 
         # Инициализация общих инструментов (контекстное меню)
         self._init_common_tools()
