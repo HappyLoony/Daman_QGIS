@@ -434,6 +434,7 @@ class DamanQGIS:
         На этапе обновления QGIS только запустился, пользователь ещё
         не работал -- перезапуск безопасен.
         """
+        import os
         import subprocess
         import sys
         from qgis.PyQt.QtCore import QCoreApplication
@@ -451,10 +452,11 @@ class DamanQGIS:
                 close_fds=True,
             )
 
-            # Завершение текущего QGIS. mainWindow().close() ненадёжен --
-            # может быть отклонён другими плагинами или диалогами.
-            # QCoreApplication.quit() корректно завершает Qt event loop.
-            QCoreApplication.quit()
+            # Принудительное завершение текущего процесса.
+            # QCoreApplication.quit() не работает во время initGui() --
+            # Qt event loop ещё не запущен полностью.
+            # os._exit(0) безопасен: QGIS только запустился, проект не открыт.
+            os._exit(0)
 
         except Exception as e:
             log_error(f"Daman_QGIS: QGIS restart failed: {e}")
