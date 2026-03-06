@@ -318,6 +318,12 @@ class DamanQGIS:
             log_warning(f"Daman_QGIS: Auto-update check failed: {e}")
         # --- End Auto-Update ---
 
+        # Лог предыдущего обновления (передан через QSettings из прошлого экземпляра)
+        _update_log = QSettings().value("Daman_QGIS/update_log", "", type=str)
+        if _update_log:
+            log_info(f"Daman_QGIS: Предыдущее обновление: {_update_log}")
+            QSettings().remove("Daman_QGIS/update_log")
+
         # Быстрая проверка зависимостей при запуске (краткий лог)
         log_info("Daman_QGIS: Запуск плагина, проверка зависимостей...")
         deps_ok = True

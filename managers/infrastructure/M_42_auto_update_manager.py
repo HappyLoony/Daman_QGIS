@@ -39,6 +39,7 @@ class AutoUpdateManager:
     _SETTINGS_IN_PROGRESS = "Daman_QGIS/update_in_progress"
     _SETTINGS_PREV_VERSION = "Daman_QGIS/update_previous_version"
     _SETTINGS_LAST_CHECK = "Daman_QGIS/update_last_check"
+    _SETTINGS_UPDATE_LOG = "Daman_QGIS/update_log"
 
     def check_and_update(self) -> bool:
         """Проверить наличие обновления и установить.
@@ -78,12 +79,16 @@ class AutoUpdateManager:
         if not self._install(zip_data):
             return False
 
-        # Записать время последней проверки
+        # Записать метаданные обновления для следующего экземпляра
         from datetime import datetime
         settings = QgsSettings()
         settings.setValue(
             self._SETTINGS_LAST_CHECK,
             datetime.now().isoformat()
+        )
+        settings.setValue(
+            self._SETTINGS_UPDATE_LOG,
+            f"{PLUGIN_VERSION} -> {remote_version} ({channel})"
         )
 
         log_info(
