@@ -717,6 +717,10 @@ class DamanQGIS:
 
                 if actual != expected:
                     mismatches.append(key)
+                    log_error(
+                        f"Daman_QGIS: Integrity mismatch {key}: "
+                        f"expected={expected[:16]}..., actual={actual[:16]}..."
+                    )
 
             if mismatches:
                 log_error(f"Daman_QGIS: Integrity check failed: {', '.join(mismatches)}")
