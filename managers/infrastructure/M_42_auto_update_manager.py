@@ -28,7 +28,6 @@ from Daman_QGIS.constants import (
     UPDATE_PLUGINS_XML_URL,
     UPDATE_VERSION_CHECK_TIMEOUT,
     UPDATE_DOWNLOAD_TIMEOUT,
-    UPDATE_DEFAULT_CHANNEL,
 )
 
 __all__ = ['AutoUpdateManager']
@@ -37,7 +36,6 @@ __all__ = ['AutoUpdateManager']
 class AutoUpdateManager:
     """Автоматическое обновление плагина при запуске QGIS."""
 
-    _SETTINGS_CHANNEL = "Daman_QGIS/update_channel"
     _SETTINGS_IN_PROGRESS = "Daman_QGIS/update_in_progress"
     _SETTINGS_PREV_VERSION = "Daman_QGIS/update_previous_version"
     _SETTINGS_LAST_CHECK = "Daman_QGIS/update_last_check"
@@ -53,6 +51,9 @@ class AutoUpdateManager:
             return False
 
         channel = self._get_channel()
+        if channel is None:
+            return False
+
         result = self._fetch_remote_version(channel)
         if result is None:
             return False
@@ -102,6 +103,10 @@ class AutoUpdateManager:
             False -- переустановка не удалась.
         """
         channel = self._get_channel()
+        if channel is None:
+            log_warning("M_42: Не удалось определить канал для переустановки")
+            return False
+
         result = self._fetch_remote_version(channel)
         if result is None:
             log_warning("M_42: Не удалось получить версию для переустановки")
@@ -147,17 +152,48 @@ class AutoUpdateManager:
             return True
         return False
 
-    def _get_channel(self) -> str:
-        """Получить канал обновления из QgsSettings."""
-        settings = QgsSettings()
-        channel = settings.value(
-            self._SETTINGS_CHANNEL,
-            UPDATE_DEFAULT_CHANNEL,
-            type=str
+    def _get_channel(self) -> Optional[str]:
+        """Получить канал обновления из URL репозитория QGIS.
+
+        Returns:
+            "beta" или "stable", None если репозиторий не найден.
+        """
+        detected = self._detect_channel_from_repo_url()
+        if detected:
+            return detected
+
+        log_warning(
+            f"M_42: Репозиторий {PLUGIN_NAME} не найден в настройках QGIS"
         )
-        if channel not in ("stable", "beta"):
-            channel = UPDATE_DEFAULT_CHANNEL
-        return channel
+        return None
+
+    def _detect_channel_from_repo_url(self) -> Optional[str]:
+        """Определить канал из URL репозитория в настройках QGIS.
+
+        M_37 записывает URL репозитория при настройке профиля.
+        URL содержит канал: .../beta/plugins.xml или .../stable/plugins.xml
+        """
+        settings = QgsSettings()
+        settings.beginGroup("app/plugin_repositories")
+
+        try:
+            for repo_name in settings.childGroups():
+                settings.beginGroup(repo_name)
+                url = settings.value("url", "", type=str)
+                enabled = settings.value("enabled", True, type=bool)
+                settings.endGroup()
+
+                if not enabled or PLUGIN_NAME not in url:
+                    continue
+
+                if "/beta/" in url:
+                    return "beta"
+                if "/stable/" in url:
+                    return "stable"
+        finally:
+            settings.endGroup()
+
+        return None
 
     def _fetch_remote_version(
         self, channel: str
