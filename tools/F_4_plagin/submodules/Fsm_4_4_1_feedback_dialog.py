@@ -16,7 +16,7 @@ from typing import Optional, Dict, Any
 
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTextEdit, QLineEdit, QGroupBox, QMessageBox, QCheckBox
+    QTextEdit, QLineEdit, QGroupBox, QMessageBox
 )
 from qgis.PyQt.QtGui import QFont
 from qgis.PyQt.QtCore import Qt
@@ -61,10 +61,7 @@ class FeedbackDialog(QDialog):
         layout.addWidget(title_label)
 
         # Описание
-        desc_label = QLabel(
-            "Опишите проблему или предложение. "
-            "Логи сессий помогут разработчику быстрее разобраться в ситуации."
-        )
+        desc_label = QLabel("Опишите проблему или предложение.")
         desc_label.setWordWrap(True)
         desc_label.setStyleSheet("color: #666;")
         layout.addWidget(desc_label)
@@ -76,10 +73,6 @@ class FeedbackDialog(QDialog):
         # Группа контактной информации
         contact_group = self._create_contact_group()
         layout.addWidget(contact_group)
-
-        # Группа логов
-        logs_group = self._create_logs_group()
-        layout.addWidget(logs_group)
 
         # Разделитель
         layout.addStretch()
@@ -134,52 +127,14 @@ class FeedbackDialog(QDialog):
 
         return group
 
-    def _create_logs_group(self) -> QGroupBox:
-        """Создание группы прикреплённых логов"""
-        group = QGroupBox("Логи сессий")
-        layout = QVBoxLayout(group)
 
-        info_label = QLabel(
-            "Логи последних сессий QGIS помогут разработчику "
-            "понять контекст проблемы. Логи не содержат персональных данных."
-        )
-        info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #666; font-size: 11px;")
-        layout.addWidget(info_label)
-
-        self.attach_logs_checkbox = QCheckBox("Прикрепить логи сессий")
-        self.attach_logs_checkbox.setChecked(True)
-        layout.addWidget(self.attach_logs_checkbox)
-
-        # Показываем информацию о доступных логах
-        self.logs_info_label = QLabel("")
-        self.logs_info_label.setStyleSheet("color: #888; font-size: 10px;")
-        layout.addWidget(self.logs_info_label)
-
-        self._update_logs_info()
-
-        return group
-
-    def _update_logs_info(self):
-        """Обновить информацию о доступных логах"""
-        try:
-            from Daman_QGIS.managers._registry import registry
-            session_log = registry.get('M_38')
-            log_dir = session_log.get_log_dir()
-
-            if log_dir and log_dir.exists():
-                session_files = list(log_dir.glob("session_*.log"))
-                total_size = sum(f.stat().st_size for f in session_files)
-                size_kb = total_size / 1024
-
-                self.logs_info_label.setText(
-                    f"Доступно сессий: {len(session_files)}, "
-                    f"общий размер: {size_kb:.0f} КБ"
-                )
-            else:
-                self.logs_info_label.setText("Логи сессий не найдены")
-        except Exception:
-            self.logs_info_label.setText("Логи сессий недоступны")
+    def showEvent(self, event):
+        """Очистка при каждом открытии диалога."""
+        super().showEvent(event)
+        self.description_edit.clear()
+        self.status_label.setText("")
+        self.send_btn.setEnabled(True)
+        self.send_btn.setText("Отправить")
 
     def _prefill_email(self):
         """Подставить email из лицензии (если есть)."""
@@ -207,9 +162,8 @@ class FeedbackDialog(QDialog):
 
         # Собираем ВСЕ данные из GUI до запуска потока (thread safety)
         email = self.email_input.text().strip()
-        attach_logs = self.attach_logs_checkbox.isChecked()
         log_info(f"Fsm_4_4_1: GUI данные собраны: desc={len(description)} chars, "
-                 f"email={'yes' if email else 'no'}, attach_logs={attach_logs}")
+                 f"email={'yes' if email else 'no'}")
 
         # Блокируем кнопку
         self.send_btn.setEnabled(False)
@@ -221,17 +175,17 @@ class FeedbackDialog(QDialog):
         log_info("Fsm_4_4_1: Запуск фонового потока отправки")
         thread = threading.Thread(
             target=self._send_feedback_thread,
-            args=(description, email, attach_logs),
+            args=(description, email),
             daemon=True
         )
         thread.start()
         log_info(f"Fsm_4_4_1: Поток запущен: {thread.name}")
 
-    def _send_feedback_thread(self, description: str, email: str, attach_logs: bool):
+    def _send_feedback_thread(self, description: str, email: str):
         """Отправка feedback в отдельном потоке."""
         log_info(f"Fsm_4_4_1: _send_feedback_thread НАЧАЛО (thread={threading.current_thread().name})")
         try:
-            success, message = self._send_feedback(description, email, attach_logs)
+            success, message = self._send_feedback(description, email)
             log_info(f"Fsm_4_4_1: _send_feedback вернул: success={success}, message={message[:100]}")
 
             from qgis.PyQt.QtCore import QTimer
@@ -253,25 +207,15 @@ class FeedbackDialog(QDialog):
     def _on_send_success(self, message: str):
         """Обработка успешной отправки (в основном потоке)."""
         log_info(f"Fsm_4_4_1: _on_send_success вызван (thread={threading.current_thread().name})")
-        self.send_btn.setEnabled(True)
-        self.send_btn.setText("Отправить")
-
-        self.status_label.setText("Отправлено!")
-        self.status_label.setStyleSheet("color: green;")
 
         QMessageBox.information(
             self,
             "Обратная связь",
-            "Спасибо! Ваше сообщение отправлено разработчику.\n\n"
-            f"{message}"
+            "Сообщение отправлено."
         )
 
-        # Очищаем поля
-        self.description_edit.clear()
-        self.email_input.clear()
-        self.status_label.setText("")
-
-        log_info("Fsm_4_4_1: Feedback отправлен")
+        log_info("Fsm_4_4_1: Feedback отправлен, закрытие диалога")
+        self.accept()
 
     def _on_send_error(self, error_message: str):
         """Обработка ошибки отправки (в основном потоке)."""
@@ -291,14 +235,13 @@ class FeedbackDialog(QDialog):
 
         log_error(f"Fsm_4_4_1: Ошибка отправки feedback: {error_message}")
 
-    def _send_feedback(self, description: str, email: str, attach_logs: bool) -> tuple:
+    def _send_feedback(self, description: str, email: str) -> tuple:
         """
         Формирование и отправка payload.
 
         Args:
             description: Текст описания от пользователя
             email: Email пользователя (прочитан из GUI в main thread)
-            attach_logs: Флаг прикрепления логов (прочитан из GUI в main thread)
 
         Returns:
             (success: bool, message: str)
@@ -342,21 +285,18 @@ class FeedbackDialog(QDialog):
         t1 = _time.time()
         log_info(f"Fsm_4_4_1: Сбор system_info + uid: {t1 - t0:.2f}s")
 
-        # Собираем логи сессий
+        # Логи сессий прикрепляются всегда
         session_logs = []
-        if attach_logs:
-            log_info("Fsm_4_4_1: Сбор логов сессий (attach_logs=True)...")
-            try:
-                from Daman_QGIS.managers._registry import registry
-                session_log = registry.get('M_38')
-                log_info(f"Fsm_4_4_1: M_38 получен, initialized={session_log._initialized}, "
-                         f"вызов get_session_logs(max_lines={self.MAX_LOG_LINES})...")
-                session_logs = session_log.get_session_logs(max_lines=self.MAX_LOG_LINES)
-                log_info(f"Fsm_4_4_1: get_session_logs вернул {len(session_logs)} записей")
-            except Exception as e:
-                log_warning(f"Fsm_4_4_1: Не удалось собрать логи: {type(e).__name__}: {e}")
-        else:
-            log_info("Fsm_4_4_1: Логи НЕ прикрепляются (attach_logs=False)")
+        log_info("Fsm_4_4_1: Сбор логов сессий...")
+        try:
+            from Daman_QGIS.managers._registry import registry
+            session_log = registry.get('M_38')
+            log_info(f"Fsm_4_4_1: M_38 получен, initialized={session_log._initialized}, "
+                     f"вызов get_session_logs(max_lines={self.MAX_LOG_LINES})...")
+            session_logs = session_log.get_session_logs(max_lines=self.MAX_LOG_LINES)
+            log_info(f"Fsm_4_4_1: get_session_logs вернул {len(session_logs)} записей")
+        except Exception as e:
+            log_warning(f"Fsm_4_4_1: Не удалось собрать логи: {type(e).__name__}: {e}")
 
         t2 = _time.time()
         logs_size = sum(len(l.get("content", "")) for l in session_logs)

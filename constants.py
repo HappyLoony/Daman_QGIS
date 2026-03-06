@@ -718,6 +718,26 @@ PROFILE_INFO_ENDPOINT = f"{API_BASE_URL}?action=profile&info=1"
 PROFILE_COPY_IGNORE = ['__pycache__', '*.pyc', '.git', '.gitignore']
 
 # ============================================================================
+# КОНСТАНТЫ АВТООБНОВЛЕНИЯ (M_42)
+# ============================================================================
+
+# URL plugins.xml (Public репозиторий, raw.githubusercontent)
+# {channel} заменяется на 'stable' или 'beta'
+UPDATE_PLUGINS_XML_URL = (
+    "https://raw.githubusercontent.com/HappyLoony/"
+    "Daman_QGIS/main/{channel}/plugins.xml"
+)
+
+# Таймаут проверки версии (секунды, UI thread при запуске)
+UPDATE_VERSION_CHECK_TIMEOUT = 5
+
+# Таймаут скачивания ZIP (секунды)
+UPDATE_DOWNLOAD_TIMEOUT = 60
+
+# Канал обновления по умолчанию
+UPDATE_DEFAULT_CHANNEL = "stable"
+
+# ============================================================================
 # КОНСТАНТЫ РЕГИОНАЛЬНЫХ ЗОН CRS (МСК)
 # ============================================================================
 

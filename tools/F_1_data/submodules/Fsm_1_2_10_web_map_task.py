@@ -69,7 +69,8 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
                  iface,
                  project_manager,
                  layer_manager,
-                 load_groups: Optional[List[str]] = None):
+                 load_groups: Optional[List[str]] = None,
+                 boundary_extents: Optional[Dict[str, Any]] = None):
         """
         Args:
             boundary_layer_id: ID слоя границ работ (L_1_1_2_Границы_работ_10_м)
@@ -79,6 +80,8 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
             layer_manager: LayerManager instance
             load_groups: Список групп для загрузки (None = все)
                          ['egrn', 'fgislk', 'osm', 'zouit', 'wms']
+            boundary_extents: Предвычисленные boundary extents из main thread
+                              {'default': ..., '500m': ..., 'no_buffer': ...}
         """
         super().__init__("Загрузка Web карт", can_cancel=True)
 
@@ -88,6 +91,7 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
         self.project_manager = project_manager
         self.layer_manager = layer_manager
         self.load_groups = load_groups or ['egrn', 'fgislk', 'osm', 'zouit', 'wms']
+        self.boundary_extents = boundary_extents or {}
 
         # Инициализируем менеджеры
         self.api_manager: Optional[APIManager] = None
@@ -207,6 +211,10 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
         if not self.egrn_loader:
             from .Fsm_1_2_1_egrn_loader import Fsm_1_2_1_EgrnLoader
             self.egrn_loader = Fsm_1_2_1_EgrnLoader(self.iface, self.api_manager)
+            # Предзаполняем boundary cache из main thread данных
+            # Это предотвращает обращения к QgsProject из background thread
+            if self.boundary_extents:
+                self.egrn_loader.set_boundary_cache(self.boundary_extents)
 
         # Geometry processor
         if not self.geometry_processor:
@@ -253,8 +261,9 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
             layers_config = self.config_builder.get_layers_config_from_database()
 
             # Извлекаем АТД слои для параллельной загрузки
+            # Определяем по полю 'layer' == 'WFS_АТД' из Base_layers.json
             atd_configs = [cfg for cfg in layers_config
-                          if cfg['enabled'] and isinstance(cfg.get('category_id'), dict)]
+                          if cfg['enabled'] and cfg.get('layer') == 'WFS_АТД']
 
             atd_results = {}
 
@@ -266,7 +275,7 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
 
                     with ThreadPoolExecutor(max_workers=atd_max_workers) as executor:
                         futures = {
-                            executor.submit(self.atd_loader.load_single_atd_layer, config, None): config['layer_name']
+                            executor.submit(self.atd_loader.load_single_atd_layer, config): config['layer_name']
                             for config in atd_configs
                         }
 
@@ -279,6 +288,9 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
                                 result = future.result(timeout=180)
                                 layer_name = result['config']['layer_name']
                                 atd_results[layer_name] = result
+                            except TimeoutError:
+                                layer_name = futures[future]
+                                log_error(f"Fsm_1_2_10: TIMEOUT (180 сек) загрузки АТД {layer_name} - пропускаем слой")
                             except Exception as e:
                                 layer_name = futures[future]
                                 log_error(f"Fsm_1_2_10: Ошибка загрузки АТД {layer_name}: {str(e)}")
@@ -295,7 +307,7 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
                     layer_name = config['layer_name']
 
                     # АТД слои (используем предзагруженные данные)
-                    if isinstance(config['category_id'], dict):
+                    if config.get('layer') == 'WFS_АТД':
                         if layer_name not in atd_results:
                             continue
 

@@ -144,13 +144,25 @@ class F_1_2_LoadWMS(BaseTool):
         # Получаем путь к GeoPackage
         gpkg_path = self.project_manager.project_db.gpkg_path
 
+        # Предвычисляем boundary extents на main thread (thread-safe)
+        # Background thread использует только кэшированные данные
+        from .submodules.Fsm_1_2_1_egrn_loader import Fsm_1_2_1_EgrnLoader
+        temp_egrn_loader = Fsm_1_2_1_EgrnLoader(self.iface, APIManager())
+        boundary_extents = {
+            'default': temp_egrn_loader.get_boundary_extent(),
+            '500m': temp_egrn_loader.get_boundary_extent(use_500m_buffer=True),
+            'no_buffer': temp_egrn_loader.get_boundary_extent(use_no_buffer=True),
+        }
+        log_info(f"F_1_2: Boundary extents предвычислены на main thread")
+
         # Создаём task (передаём layer_id, НЕ layer!)
         task = Fsm_1_2_10_WebMapLoadTask(
             boundary_layer_id=boundary_layer.id(),
             gpkg_path=gpkg_path,
             iface=self.iface,
             project_manager=self.project_manager,
-            layer_manager=self.layer_manager
+            layer_manager=self.layer_manager,
+            boundary_extents=boundary_extents
         )
 
         # Запускаем через AsyncTaskManager
@@ -513,8 +525,14 @@ class F_1_2_LoadWMS(BaseTool):
             from concurrent.futures import ThreadPoolExecutor, as_completed
             import time
 
+            # Предзаполняем boundary cache на main thread перед запуском ThreadPoolExecutor
+            # Это предотвращает обращения к QgsProject из worker threads
+            self.egrn_loader.get_boundary_extent()  # default (10м)
+            self.egrn_loader.get_boundary_extent(use_500m_buffer=True)  # 500м (для АТД)
+
             # Извлекаем все АТД слои из конфигурации
-            atd_configs = [cfg for cfg in layers_config if cfg['enabled'] and isinstance(cfg.get('category_id'), dict)]
+            # Определяем АТД слои по полю 'layer' == 'WFS_АТД' из Base_layers.json
+            atd_configs = [cfg for cfg in layers_config if cfg['enabled'] and cfg.get('layer') == 'WFS_АТД']
 
             atd_results = {}  # {layer_name: result_dict}
 
@@ -531,7 +549,7 @@ class F_1_2_LoadWMS(BaseTool):
                 with ThreadPoolExecutor(max_workers=atd_max_workers) as executor:
                     # Отправляем все задачи
                     futures = {
-                        executor.submit(self.atd_loader.load_single_atd_layer, config, None): config['layer_name']
+                        executor.submit(self.atd_loader.load_single_atd_layer, config): config['layer_name']
                         for config in atd_configs
                     }
 
@@ -576,7 +594,7 @@ class F_1_2_LoadWMS(BaseTool):
 
                     # АТД слои (административно-территориальное деление)
                     # Используем ПРЕДЗАГРУЖЕННЫЕ данные из параллельной загрузки
-                    if isinstance(config['category_id'], dict):
+                    if config.get('layer') == 'WFS_АТД':
                         log_info(f"F_1_2: Обработка АТД слоя: {layer_name} (из параллельной загрузки)")
 
                         # Получаем результат из параллельной загрузки
@@ -616,8 +634,8 @@ class F_1_2_LoadWMS(BaseTool):
                         log_info(f"F_1_2: Пропуск {config['layer_name']}: загружается через load_servitude_layers()")
                         continue
                     # ПРИМЕЧАНИЕ: Старая обработка НП (L_1_2_3_WFS_НП) удалена
-                    # Теперь все АТД слои (включая НП как Le_1_2_3_5_АТД_НП_poly) обрабатываются
-                    # через специальную логику выше (isinstance(config['category_id'], dict))
+                    # Теперь все АТД слои (включая НП) обрабатываются
+                    # через специальную логику выше (config.get('layer') == 'WFS_АТД')
 
                     # ВСЕ ОСТАЛЬНЫЕ - унифицированная загрузка
                     else:

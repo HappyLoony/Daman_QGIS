@@ -219,6 +219,27 @@ class Fsm_1_2_1_EgrnLoader:
             # Сбрасываем счетчики после вывода статистики
             self._http_error_counts = {'403': 0, '429': 0, 'connection': 0, 'other': 0}
 
+    def set_boundary_cache(self, extents: Dict[str, Any]) -> None:
+        """
+        Предзаполнить кэш boundary extents из main thread.
+
+        Вызывается ДО запуска background thread, чтобы get_boundary_extent()
+        всегда возвращал данные из кэша без обращения к QgsProject.
+
+        Args:
+            extents: Словарь с предвычисленными extents:
+                - 'default': L_1_1_2 (буфер 10м)
+                - '500m': L_1_1_3 (буфер 500м)
+                - 'no_buffer': L_1_1_1 (без буфера)
+        """
+        if 'default' in extents:
+            self._boundary_cache[(False, False)] = extents['default']
+        if '500m' in extents:
+            self._boundary_cache[(True, False)] = extents['500m']
+        if 'no_buffer' in extents:
+            self._boundary_cache[(False, True)] = extents['no_buffer']
+        log_info(f"Fsm_1_2_1: Boundary cache предзаполнен ({len(extents)} вариантов)")
+
     def get_boundary_extent(self, use_500m_buffer: bool = False, use_no_buffer: bool = False) -> Optional[Dict[str, Any]]:
         """
         Получить геометрию границ в формате GeoJSON (WGS84)

@@ -8,7 +8,7 @@ doc_type из DocumentTemplate (Fsm_5_3_8_template_registry).
 Шаблоны: Fsm_5_3_8_template_registry.py (DocumentTemplate, TemplateRegistry)
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 from qgis.core import QgsVectorLayer
 
@@ -47,6 +47,7 @@ class DocumentFactory:
         output_folder: str,
         create_wgs84: bool = False,
         appendix_num: str = 'X',
+        extra_context: Optional[dict] = None,
         **kwargs: Any
     ) -> bool:
         """
@@ -58,6 +59,7 @@ class DocumentFactory:
             output_folder: Папка для сохранения
             create_wgs84: Создать версию в WGS-84
             appendix_num: Номер приложения для перечней координат
+            extra_context: Дополнительный контекст от региональных модификаторов
             **kwargs: Дополнительные параметры
 
         Returns:
@@ -70,7 +72,8 @@ class DocumentFactory:
             return exporter.export_layer(
                 layer, template, output_folder,
                 create_wgs84=create_wgs84,
-                appendix_num=appendix_num
+                appendix_num=appendix_num,
+                extra_context=extra_context or {},
             )
 
         elif doc_type == 'attribute_list':

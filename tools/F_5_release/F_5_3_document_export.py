@@ -26,6 +26,7 @@ from Daman_QGIS.utils import log_info, log_error, log_warning
 
 from .ui.document_export_dialog import DocumentExportDialog
 from .submodules.Fsm_5_3_3_document_factory import DocumentFactory
+from .submodules.Fsm_5_3_5_export_utils import ExportUtils
 
 
 class F_5_3_DocumentExport(BaseTool):
@@ -126,6 +127,19 @@ class F_5_3_DocumentExport(BaseTool):
         """
         log_info(f"F_5_3: Экспорт {len(selected_items)} документов")
 
+        # Получаем ref_managers для передачи в фабрику (нужны для column_source)
+        ref_managers = get_reference_managers()
+
+        # Применяем региональные модификаторы (M_37)
+        try:
+            regional_mgr = registry.get('M_37')
+            metadata = ExportUtils.get_project_metadata()
+            selected_items = regional_mgr.apply_export_modifiers(
+                selected_items, metadata
+            )
+        except KeyError:
+            pass  # M_37 не зарегистрирован
+
         # Создаём прогресс-диалог
         progress = QProgressDialog(
             "Экспорт документов...",
@@ -137,9 +151,6 @@ class F_5_3_DocumentExport(BaseTool):
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setAutoClose(True)
         progress.show()
-
-        # Получаем ref_managers для передачи в фабрику (нужны для column_source)
-        ref_managers = get_reference_managers()
 
         # Создаём фабрику
         factory = DocumentFactory(self.iface, ref_managers)
@@ -167,12 +178,14 @@ class F_5_3_DocumentExport(BaseTool):
                 appendix_counter += 1
 
             # Экспорт через фабрику
+            extra_context = item.get('extra_context', {})
             success = factory.export(
                 layer=layer,
                 template=template,
                 output_folder=output_folder,
                 create_wgs84=create_wgs84,
-                appendix_num=appendix_num
+                appendix_num=appendix_num,
+                extra_context=extra_context,
             )
 
             results[f"{layer.name()} ({doc_type_name})"] = success

@@ -166,6 +166,9 @@ class DamanQGIS:
         # Heartbeat таймер для периодической проверки лицензии
         self._heartbeat_timer = None
 
+        # Auto-update: флаг ожидания перезагрузки (M_42)
+        self._update_pending = False
+
         # Реестр подключенных Qt сигналов для корректного отключения
         self._signal_connections = []
 
@@ -303,6 +306,18 @@ class DamanQGIS:
         self._profile_only_mode = False
         # --- Конец Profile Setup ---
 
+        # --- Auto-Update Check (M_42) ---
+        try:
+            auto_update = registry.get('M_42')
+            if auto_update.check_and_update():
+                self._update_pending = True
+                log_info("Daman_QGIS: Update installed, scheduling QGIS restart...")
+                QTimer.singleShot(0, self._restart_qgis_after_update)
+                return
+        except Exception as e:
+            log_warning(f"Daman_QGIS: Auto-update check failed: {e}")
+        # --- End Auto-Update ---
+
         # Быстрая проверка зависимостей при запуске (краткий лог)
         log_info("Daman_QGIS: Запуск плагина, проверка зависимостей...")
         deps_ok = True
@@ -405,6 +420,42 @@ class DamanQGIS:
 
         except Exception as e:
             log_warning(f"Daman_QGIS: Telemetry init failed: {e}")
+
+    # === Auto-Update: перезапуск QGIS после обновления (M_42) ===
+
+    def _restart_qgis_after_update(self) -> None:
+        """Перезапуск QGIS после автообновления.
+
+        Вызывается через QTimer.singleShot(0, ...) ПОСЛЕ завершения initGui(),
+        когда управление возвращается в Qt event loop.
+
+        Перезапуск QGIS вместо reloadPlugin() -- reloadPlugin() ненадёжен
+        при сложных изменениях (singleton-ы, sys.modules, Qt-сигналы).
+        На этапе обновления QGIS только запустился, пользователь ещё
+        не работал -- перезапуск безопасен.
+        """
+        import subprocess
+        from qgis.core import QCoreApplication
+
+        try:
+            qgis_exe = QCoreApplication.applicationFilePath()
+            log_info(f"Daman_QGIS: Restarting QGIS after auto-update ({qgis_exe})...")
+
+            # Запуск нового процесса QGIS с тем же профилем
+            subprocess.Popen([qgis_exe, '--profile', 'Daman_QGIS'])
+
+            # Закрытие текущего QGIS (initGui ещё не завершён полностью,
+            # проект не открыт, данные не загружены -- потерь нет)
+            self.iface.mainWindow().close()
+
+        except Exception as e:
+            log_error(f"Daman_QGIS: QGIS restart failed: {e}")
+            # Fallback: показать сообщение пользователю
+            self.iface.messageBar().pushMessage(
+                "Daman QGIS",
+                "Обновление установлено. Перезапустите QGIS для применения.",
+                level=Qgis.Warning, duration=0
+            )
 
     # === Heartbeat: периодическая проверка статуса лицензии ===
 
@@ -1079,6 +1130,14 @@ class DamanQGIS:
         # Profile-only mode: ничего не было инициализировано
         if getattr(self, '_profile_only_mode', False):
             from Daman_QGIS.managers._registry import registry
+            registry.reset('M_37')
+            return
+
+        # Update-pending mode: initGui() прервался после установки обновления
+        if getattr(self, '_update_pending', False):
+            from Daman_QGIS.managers._registry import registry
+            registry.reset('M_42')
+            registry.reset('M_38')
             registry.reset('M_37')
             return
 

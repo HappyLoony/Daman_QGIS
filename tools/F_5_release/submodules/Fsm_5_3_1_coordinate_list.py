@@ -196,7 +196,8 @@ class Fsm_5_3_1_CoordinateList:
         template: DocumentTemplate,
         output_folder: str,
         create_wgs84: bool = False,
-        appendix_num: str = 'X'
+        appendix_num: str = 'X',
+        extra_context: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Экспорт слоя в Excel (перечень координат)
@@ -207,6 +208,7 @@ class Fsm_5_3_1_CoordinateList:
             output_folder: Папка для сохранения
             create_wgs84: Создавать версию WGS-84
             appendix_num: Номер приложения
+            extra_context: Дополнительный контекст от региональных модификаторов
 
         Returns:
             bool: Успешность экспорта
@@ -217,10 +219,16 @@ class Fsm_5_3_1_CoordinateList:
             log_error("Fsm_5_3_1: Библиотека xlsxwriter не установлена")
             return False
 
-        success = self._export_to_excel(layer, template, output_folder, False, appendix_num)
+        extra_context = extra_context or {}
+
+        success = self._export_to_excel(
+            layer, template, output_folder, False, appendix_num, extra_context
+        )
 
         if success and create_wgs84 and template.supports_wgs84:
-            self._export_to_excel(layer, template, output_folder, True, appendix_num)
+            self._export_to_excel(
+                layer, template, output_folder, True, appendix_num, extra_context
+            )
 
         return success
 
@@ -230,7 +238,8 @@ class Fsm_5_3_1_CoordinateList:
         template: DocumentTemplate,
         output_folder: str,
         is_wgs84: bool = False,
-        appendix_num: str = 'X'
+        appendix_num: str = 'X',
+        extra_context: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Экспорт одного слоя в Excel
@@ -241,22 +250,31 @@ class Fsm_5_3_1_CoordinateList:
             output_folder: Папка для сохранения
             is_wgs84: Экспортировать в WGS-84
             appendix_num: Номер приложения
+            extra_context: Дополнительный контекст от региональных модификаторов
 
         Returns:
             bool: Успешность экспорта
         """
         import xlsxwriter
 
+        extra_context = extra_context or {}
         metadata = ExportUtils.get_project_metadata()
 
         # Формируем имя файла из шаблона
         layer_info = {'layer_name': layer.name(), 'appendix': appendix_num}
+        layer_info.update(extra_context)
+
         if template.filename_template:
             filename_base = ExportUtils.format_template_text(
                 template.filename_template, metadata, layer_info
             )
         else:
             filename_base = f"Приложение_{appendix_num}_координаты"
+
+        # Суффикс от региональных модификаторов (например, ЗУ_1)
+        feature_name = extra_context.get('feature_name')
+        if feature_name:
+            filename_base += f'_{feature_name}'
 
         if is_wgs84:
             filename_base += '_WGS84'
