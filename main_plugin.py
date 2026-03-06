@@ -435,7 +435,7 @@ class DamanQGIS:
         не работал -- перезапуск безопасен.
         """
         import subprocess
-        from qgis.core import QCoreApplication
+        from qgis.PyQt.QtCore import QCoreApplication
 
         try:
             qgis_exe = QCoreApplication.applicationFilePath()
