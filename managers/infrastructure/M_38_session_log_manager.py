@@ -391,22 +391,23 @@ class SessionLogManager:
         """
         Обработчик сигнала QgsMessageLog.messageReceived.
 
-        Перехватывает ВСЕ сообщения QGIS (включая другие плагины, GDAL и т.д.).
-        Сообщения от Daman_QGIS пропускаются — они уже записаны через utils.py.
+        Логирует только:
+        - Python warnings/errors (tag="Python", level >= Warning)
+        - Сообщения от Daman_QGIS уже записаны через utils.py
 
         Args:
             message: Текст сообщения
             tag: Источник (имя плагина)
             level: Qgis.MessageLevel
         """
-        # Пропускаем сообщения от нашего плагина — они уже записаны
-        # через _write_to_session_log в utils.py
         from Daman_QGIS.constants import PLUGIN_NAME
         if tag == PLUGIN_NAME:
             return
 
-        level_str = self._LEVEL_MAP.get(level, "UNKNOWN")
-        self.write(message, tag=tag, level=level_str)
+        # Только Python warnings и ошибки
+        if tag == "Python" and level in (Qgis.Warning, Qgis.Critical):
+            level_str = self._LEVEL_MAP.get(level, "UNKNOWN")
+            self.write(message, tag=tag, level=level_str)
 
     def _read_last_lines(self, file_path: Path, max_lines: int) -> str:
         """
