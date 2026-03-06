@@ -94,6 +94,12 @@ class BaseReferenceLoader:
         # Получаем JWT заголовки если доступны
         auth_headers = self._get_jwt_auth_headers()
 
+        if not auth_headers:
+            log_warning(
+                f"BaseReferenceLoader: JWT headers пусты для {filename} "
+                f"(возможен module identity mismatch после hot-reload)"
+            )
+
         try:
             response = requests.get(url, headers=auth_headers, timeout=DEFAULT_REQUEST_TIMEOUT)
 

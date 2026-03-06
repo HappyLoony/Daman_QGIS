@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 from qgis.PyQt.QtCore import pyqtSignal, QObject
 from qgis.core import QgsTask
 
-from Daman_QGIS.utils import log_info, log_error
+from Daman_QGIS.utils import log_info, log_error, format_file_size
 
 from .Fsm_6_4_2_matcher import MatchedFile
 
@@ -192,7 +192,7 @@ class FileSelectionTask(QgsTask):
             f"Успешно: {r['success']}",
             f"Пропущено (существуют): {r['skipped']}",
             f"Ошибок: {len(r['errors'])}",
-            f"Общий размер: {self._format_size(r['total_size'])}",
+            f"Общий размер: {format_file_size(r['total_size'])}",
         ]
 
         if r['errors']:
@@ -233,14 +233,3 @@ class FileSelectionTask(QgsTask):
         """Отправка сообщения в UI через сигнал."""
         self.signals.log_message.emit(message)
 
-    @staticmethod
-    def _format_size(size_bytes: int) -> str:
-        """Форматирование размера файла."""
-        if size_bytes < 1024:
-            return f"{size_bytes} Б"
-        elif size_bytes < 1024 * 1024:
-            return f"{size_bytes / 1024:.1f} КБ"
-        elif size_bytes < 1024 * 1024 * 1024:
-            return f"{size_bytes / (1024 * 1024):.1f} МБ"
-        else:
-            return f"{size_bytes / (1024 * 1024 * 1024):.1f} ГБ"

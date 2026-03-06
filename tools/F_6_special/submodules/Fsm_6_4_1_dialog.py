@@ -40,7 +40,7 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.core import QgsApplication, QgsProject
 
-from Daman_QGIS.utils import log_info, log_error
+from Daman_QGIS.utils import log_info, log_error, format_file_size
 
 from .Fsm_6_4_2_matcher import FileMatcher, MatchResult
 from .Fsm_6_4_3_task import (
@@ -416,8 +416,10 @@ class Fsm_6_4_1_Dialog(QDialog):
         ext_count = len(self._matcher.extensions)
         file_count = self._matcher.file_count
 
+        skipped = self._matcher.skipped_count
+        skip_text = f" (пропущено: {skipped})" if skipped > 0 else ""
         self._lbl_folder_status.setText(
-            f"Найдено: {file_count} файлов, {ext_count} расширений"
+            f"Найдено: {file_count} файлов, {ext_count} расширений{skip_text}"
         )
         self._lbl_folder_status.setStyleSheet(
             "color: #2e7d32;" if file_count > 0 else "color: #c62828;"
@@ -460,7 +462,7 @@ class Fsm_6_4_1_Dialog(QDialog):
             self._tbl_preview.setItem(row, 0, QTableWidgetItem(mf.name))
             self._tbl_preview.setItem(row, 1, QTableWidgetItem(mf.extension))
             self._tbl_preview.setItem(row, 2, QTableWidgetItem(
-                self._format_size(mf.size)
+                format_file_size(mf.size)
             ))
 
         self._tbl_preview.resizeColumnsToContents()
@@ -606,7 +608,7 @@ class Fsm_6_4_1_Dialog(QDialog):
         mode = "скопировано" if self._cmb_mode.currentIndex() == 0 else "перемещено"
         self._lbl_settings_summary.setText(
             f"Будет {mode}: {file_count} файлов "
-            f"({self._format_size(total_size)})"
+            f"({format_file_size(total_size)})"
         )
 
     # ------------------------------------------------------------------
@@ -697,7 +699,7 @@ class Fsm_6_4_1_Dialog(QDialog):
             f"Успешно: {results.get('success', 0)}\n"
             f"Пропущено: {results.get('skipped', 0)}\n"
             f"Ошибок: {len(results.get('errors', []))}\n"
-            f"Размер: {FileSelectionTask._format_size(results.get('total_size', 0))}"
+            f"Размер: {format_file_size(results.get('total_size', 0))}"
         )
 
         report_path = results.get('report_path', '')
@@ -760,18 +762,6 @@ class Fsm_6_4_1_Dialog(QDialog):
 
         ext_folders = self._settings.value(_SK_EXT_FOLDERS, False, type=bool)
         self._chk_ext_folders.setChecked(ext_folders)
-
-    @staticmethod
-    def _format_size(size_bytes: int) -> str:
-        """Форматирование размера файла."""
-        if size_bytes < 1024:
-            return f"{size_bytes} Б"
-        elif size_bytes < 1024 * 1024:
-            return f"{size_bytes / 1024:.1f} КБ"
-        elif size_bytes < 1024 * 1024 * 1024:
-            return f"{size_bytes / (1024 * 1024):.1f} МБ"
-        else:
-            return f"{size_bytes / (1024 * 1024 * 1024):.1f} ГБ"
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         """Обработка закрытия окна."""

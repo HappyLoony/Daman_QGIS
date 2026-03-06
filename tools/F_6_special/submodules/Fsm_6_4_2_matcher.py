@@ -63,6 +63,7 @@ class FileMatcher:
         self._include_subdirs = include_subdirs
         self._files: List[FileEntry] = []
         self._extensions: Dict[str, int] = {}  # ext -> count
+        self._skipped_count: int = 0
         self._scanned = False
 
     @property
@@ -74,6 +75,11 @@ class FileMatcher:
     def file_count(self) -> int:
         """Общее количество файлов."""
         return len(self._files)
+
+    @property
+    def skipped_count(self) -> int:
+        """Количество файлов, пропущенных из-за ошибок доступа."""
+        return self._skipped_count
 
     @property
     def folder(self) -> str:
@@ -88,6 +94,7 @@ class FileMatcher:
         """
         self._files.clear()
         self._extensions.clear()
+        self._skipped_count = 0
         self._scanned = False
 
         if not os.path.isdir(self._folder):
@@ -101,9 +108,10 @@ class FileMatcher:
                 self._scan_flat(self._folder)
 
             self._scanned = True
+            skip_info = f", пропущено: {self._skipped_count}" if self._skipped_count > 0 else ""
             log_info(
                 f"Fsm_6_4_2: Просканировано {len(self._files)} файлов, "
-                f"{len(self._extensions)} расширений в {self._folder}"
+                f"{len(self._extensions)} расширений{skip_info} в {self._folder}"
             )
 
         except PermissionError as e:
@@ -123,14 +131,15 @@ class FileMatcher:
 
     def _scan_recursive(self, folder: str) -> None:
         """Рекурсивное сканирование с подпапками."""
-        for root, _dirs, files in os.walk(folder):
-            try:
-                with os.scandir(root) as entries:
-                    for entry in entries:
-                        if entry.is_file(follow_symlinks=False):
-                            self._add_file_entry(entry)
-            except PermissionError:
-                log_error(f"Fsm_6_4_2: Нет доступа: {root}")
+        try:
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    if entry.is_file(follow_symlinks=False):
+                        self._add_file_entry(entry)
+                    elif entry.is_dir(follow_symlinks=False):
+                        self._scan_recursive(entry.path)
+        except PermissionError:
+            log_error(f"Fsm_6_4_2: Нет доступа: {folder}")
 
     def _add_file_entry(self, entry: os.DirEntry) -> None:  # type: ignore[type-arg]
         """Добавление файла в коллекцию."""
@@ -163,7 +172,7 @@ class FileMatcher:
                 self._extensions[ext] = self._extensions.get(ext, 0) + 1
 
         except OSError:
-            pass  # Пропуск недоступных файлов
+            self._skipped_count += 1
 
     def find_matches(
         self,

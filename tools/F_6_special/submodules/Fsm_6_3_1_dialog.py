@@ -24,7 +24,7 @@ from qgis.PyQt.QtCore import Qt, QSettings, QModelIndex, QDir
 from qgis.PyQt.QtWidgets import QFileSystemModel
 from qgis.core import QgsProject, Qgis
 
-from Daman_QGIS.utils import log_info, log_error
+from Daman_QGIS.utils import log_info, log_error, format_file_size
 from Daman_QGIS.constants import MESSAGE_INFO_DURATION
 
 
@@ -217,6 +217,10 @@ class Fsm_6_3_1_Dialog(QDialog):
         if not self._current_folder or not os.path.isdir(self._current_folder):
             return
 
+        # Cleanup old model to release file watcher threads
+        if self._fs_model is not None:
+            self._fs_model.deleteLater()
+
         self._fs_model = QFileSystemModel()
         self._fs_model.setReadOnly(True)
         self._fs_model.setRootPath(self._current_folder)
@@ -293,7 +297,7 @@ class Fsm_6_3_1_Dialog(QDialog):
                 file_count += 1
                 total_size += self._fs_model.size(child)
 
-        size_str = self._format_size(total_size)
+        size_str = format_file_size(total_size)
         filter_text = self.filter_edit.text().strip()
         filter_info = f", фильтр: {filter_text}" if filter_text else ""
 
@@ -353,7 +357,7 @@ class Fsm_6_3_1_Dialog(QDialog):
             if is_dir:
                 lines.append(f"[Папка] {name}")
             else:
-                lines.append(f"{name}\t{self._format_size(size)}")
+                lines.append(f"{name}\t{format_file_size(size)}")
 
         text = "\n".join(lines)
 
@@ -390,7 +394,8 @@ class Fsm_6_3_1_Dialog(QDialog):
 
         try:
             username = getpass.getuser()
-        except Exception:
+        except Exception as e:
+            log_error(f"Fsm_6_3_1: Ошибка getpass: {e}")
             username = "Unknown"
 
         # Формирование отчёта
@@ -410,7 +415,7 @@ class Fsm_6_3_1_Dialog(QDialog):
                     "%d.%m.%Y %H:%M"
                 ) if mtime > 0 else ""
                 file_lines.append(
-                    f"{name}\t{self._format_size(size)}\t{mtime_str}"
+                    f"{name}\t{format_file_size(size)}\t{mtime_str}"
                 )
 
         filter_text = self.filter_edit.text().strip()
@@ -428,7 +433,7 @@ class Fsm_6_3_1_Dialog(QDialog):
         report_lines.extend([
             "---",
             f"Файлов: {file_count}, папок: {dir_count}",
-            f"Общий размер: {self._format_size(total_size)}",
+            f"Общий размер: {format_file_size(total_size)}",
         ])
 
         report_text = "\n".join(report_lines) + "\n"
@@ -448,20 +453,6 @@ class Fsm_6_3_1_Dialog(QDialog):
             self.status_label.setStyleSheet(
                 "font-weight: bold; color: #CC0000;"
             )
-
-    # --- Utilities ---
-
-    @staticmethod
-    def _format_size(size_bytes: int) -> str:
-        """Форматировать размер файла."""
-        if size_bytes < 1024:
-            return f"{size_bytes} Б"
-        elif size_bytes < 1024 * 1024:
-            return f"{size_bytes / 1024:.1f} КБ"
-        elif size_bytes < 1024 * 1024 * 1024:
-            return f"{size_bytes / (1024 * 1024):.1f} МБ"
-        else:
-            return f"{size_bytes / (1024 * 1024 * 1024):.1f} ГБ"
 
     def closeEvent(self, event) -> None:
         """Сохранить настройки при закрытии."""

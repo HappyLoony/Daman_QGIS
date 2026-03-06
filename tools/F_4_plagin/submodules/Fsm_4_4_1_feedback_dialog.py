@@ -19,7 +19,7 @@ from qgis.PyQt.QtWidgets import (
     QTextEdit, QLineEdit, QGroupBox, QMessageBox
 )
 from qgis.PyQt.QtGui import QFont
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.core import Qgis
 
 from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT, PLUGIN_VERSION
@@ -28,6 +28,10 @@ from Daman_QGIS.utils import log_info, log_error, log_warning
 
 class FeedbackDialog(QDialog):
     """Диалог обратной связи"""
+
+    # Сигналы для thread-safe callback из фонового потока в GUI
+    _signal_success = pyqtSignal(str)
+    _signal_error = pyqtSignal(str)
 
     # Минимальная длина описания
     MIN_DESCRIPTION_LENGTH = 10
@@ -42,6 +46,9 @@ class FeedbackDialog(QDialog):
         self.setWindowTitle("Daman_QGIS - Обратная связь")
         self.setMinimumWidth(550)
         self.setMinimumHeight(450)
+
+        self._signal_success.connect(self._on_send_success)
+        self._signal_error.connect(self._on_send_error)
 
         self.setup_ui()
         self._prefill_email()
@@ -188,21 +195,18 @@ class FeedbackDialog(QDialog):
             success, message = self._send_feedback(description, email)
             log_info(f"Fsm_4_4_1: _send_feedback вернул: success={success}, message={message[:100]}")
 
-            from qgis.PyQt.QtCore import QTimer
-
             if success:
-                log_info("Fsm_4_4_1: Планируем QTimer.singleShot -> _on_send_success")
-                QTimer.singleShot(0, lambda: self._on_send_success(message))
+                log_info("Fsm_4_4_1: emit _signal_success")
+                self._signal_success.emit(message)
             else:
-                log_info("Fsm_4_4_1: Планируем QTimer.singleShot -> _on_send_error")
-                QTimer.singleShot(0, lambda: self._on_send_error(message))
+                log_info("Fsm_4_4_1: emit _signal_error")
+                self._signal_error.emit(message)
 
-            log_info("Fsm_4_4_1: _send_feedback_thread КОНЕЦ (QTimer запланирован)")
+            log_info("Fsm_4_4_1: _send_feedback_thread КОНЕЦ")
 
         except Exception as e:
             log_error(f"Fsm_4_4_1: _send_feedback_thread ИСКЛЮЧЕНИЕ: {type(e).__name__}: {e}")
-            from qgis.PyQt.QtCore import QTimer
-            QTimer.singleShot(0, lambda: self._on_send_error(str(e)))
+            self._signal_error.emit(str(e))
 
     def _on_send_success(self, message: str):
         """Обработка успешной отправки (в основном потоке)."""

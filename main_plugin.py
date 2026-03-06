@@ -1255,6 +1255,19 @@ class DamanQGIS:
         except Exception:
             pass
 
+        # Очистка кэшей данных (предотвращает stale data при hot reload)
+        try:
+            from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
+            BaseReferenceLoader.clear_cache()
+        except Exception:
+            pass
+
+        try:
+            from Daman_QGIS.managers._registry import reset_reference_managers
+            reset_reference_managers()
+        except Exception:
+            pass
+
         # Сброс синглтонов менеджеров для освобождения ресурсов
         # Это предотвращает утечки памяти и проблемы с Qt при закрытии
         try:
@@ -1275,3 +1288,22 @@ class DamanQGIS:
             QCoreApplication.processEvents()
         except Exception:
             pass
+
+        # Полная очистка sys.modules от модулей плагина.
+        # При hot-reload QGIS удаляет только отслеживаемые модули
+        # (импортированные через import Daman_QGIS.X). Модули загруженные
+        # через importlib.import_module() (managers/__init__.py) не отслеживаются
+        # и остаются в sys.modules, создавая module identity mismatch --
+        # разные объекты класса для одного и того же имени, что ломает
+        # singleton-паттерны (TokenManager._instance на старом классе).
+        # Паттерн из Plugin Reloader (borysiasty/plugin_reloader).
+        import sys as _sys
+        for mod_name in list(_sys.modules.keys()):
+            if mod_name == 'Daman_QGIS' or mod_name.startswith('Daman_QGIS.'):
+                try:
+                    mod = _sys.modules[mod_name]
+                    if hasattr(mod, 'qCleanupResources'):
+                        mod.qCleanupResources()
+                    del _sys.modules[mod_name]
+                except Exception:
+                    pass
