@@ -435,18 +435,26 @@ class DamanQGIS:
         не работал -- перезапуск безопасен.
         """
         import subprocess
+        import sys
         from qgis.PyQt.QtCore import QCoreApplication
 
         try:
             qgis_exe = QCoreApplication.applicationFilePath()
             log_info(f"Daman_QGIS: Restarting QGIS after auto-update ({qgis_exe})...")
 
-            # Запуск нового процесса QGIS с тем же профилем
-            subprocess.Popen([qgis_exe, '--profile', 'Daman_QGIS'])
+            # Запуск нового процесса QGIS (CREATE_NEW_PROCESS_GROUP чтобы
+            # дочерний процесс не зависел от текущего и не вызывал ResourceWarning)
+            creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
+            subprocess.Popen(
+                [qgis_exe, '--profile', 'Daman_QGIS'],
+                creationflags=creation_flags,
+                close_fds=True,
+            )
 
-            # Закрытие текущего QGIS (initGui ещё не завершён полностью,
-            # проект не открыт, данные не загружены -- потерь нет)
-            self.iface.mainWindow().close()
+            # Завершение текущего QGIS. mainWindow().close() ненадёжен --
+            # может быть отклонён другими плагинами или диалогами.
+            # QCoreApplication.quit() корректно завершает Qt event loop.
+            QCoreApplication.quit()
 
         except Exception as e:
             log_error(f"Daman_QGIS: QGIS restart failed: {e}")
