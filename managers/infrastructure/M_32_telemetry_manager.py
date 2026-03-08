@@ -128,10 +128,8 @@ class TelemetryManager:
         """
         if api_key:
             self._uid = self._derive_telemetry_id(api_key)
-            log_info(f"M_32: Telemetry UID set: {self._uid}")
         if hardware_id:
             self._hardware_id = hardware_id
-            log_info(f"M_32: Telemetry Hardware ID set: {self._hardware_id[:16]}...")
 
         # Auto-flush накопленных событий при установке UID
         if api_key and self._events:

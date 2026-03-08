@@ -451,7 +451,6 @@ class LicenseManager(QObject):
             # Устанавливаем callback для полного отказа аутентификации
             token_mgr.set_on_auth_failure(self._on_jwt_auth_failure)
 
-            log_info("M_29: JWT tokens stored in TokenManager")
         except Exception as e:
             log_warning(f"M_29: Failed to store JWT tokens: {e}")
 

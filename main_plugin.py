@@ -420,7 +420,6 @@ class DamanQGIS:
 
                 # Отправляем событие startup
                 telemetry.track_event('startup')
-                log_info("Daman_QGIS: Telemetry initialized with global exception hook")
             else:
                 log_info("Daman_QGIS: Telemetry skipped (no license)")
 
@@ -740,7 +739,6 @@ class DamanQGIS:
                     pass
                 return False
 
-            log_info("Daman_QGIS: Integrity check passed")
             return True
 
         except json.JSONDecodeError as e:

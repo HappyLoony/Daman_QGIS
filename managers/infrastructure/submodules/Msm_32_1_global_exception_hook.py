@@ -64,13 +64,6 @@ def install_global_exception_hook() -> bool:
 
         _hooks_installed = True
 
-        # Логируем только если utils доступен
-        try:
-            from Daman_QGIS.utils import log_info
-            log_info("Msm_32_1: Global exception hooks installed")
-        except ImportError:
-            pass
-
         return True
 
     except Exception as e:

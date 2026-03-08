@@ -260,7 +260,6 @@ class PipInstaller:
         # Добавляем в sys.path (в начало для приоритета)
         if dependencies_path not in sys.path:
             sys.path.insert(0, dependencies_path)
-            log_info(f"F_4_1: Добавлен путь dependencies в sys.path: {dependencies_path}")
 
         # Добавляем в PYTHONPATH для subprocess
         pythonpath = os.environ.get("PYTHONPATH", "")

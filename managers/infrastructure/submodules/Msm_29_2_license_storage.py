@@ -65,7 +65,6 @@ class LicenseStorage:
 
             self._load()
 
-            log_info("Msm_29_2: Storage initialized (AES-256-GCM)")
             return True
 
         except Exception as e:

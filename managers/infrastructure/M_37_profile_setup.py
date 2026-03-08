@@ -131,7 +131,6 @@ class ProfileSetupManager:
         """
         try:
             current = Path(QgsApplication.qgisSettingsDirPath())
-            log_info(f"M_37: Current profile: {current.name}")
 
             if self._is_default_profile():
                 return self._handle_default_profile()
@@ -649,7 +648,6 @@ class ProfileSetupManager:
         Returns:
             Словарь со статистикой {duplicates_removed, custom, reference, total}.
         """
-        log_info("M_37: sync_crs_registry -- начало очистки CRS")
         try:
             from Daman_QGIS.core.crs_utils import cleanup_user_crs
             stats = cleanup_user_crs()

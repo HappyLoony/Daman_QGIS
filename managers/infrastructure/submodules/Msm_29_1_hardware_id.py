@@ -17,7 +17,7 @@ import subprocess
 import platform
 from typing import Optional, Dict, Any
 
-from Daman_QGIS.utils import log_info, log_error, log_warning
+from Daman_QGIS.utils import log_error, log_warning
 
 
 class HardwareIDGenerator:
@@ -66,7 +66,6 @@ class HardwareIDGenerator:
             # SHA256 хэш
             self._hardware_id = hashlib.sha256(component_string.encode()).hexdigest()
 
-            log_info(f"Msm_29_1: Generated Hardware ID from {len(self._components)} components")
             return self._hardware_id
 
         except Exception as e:
