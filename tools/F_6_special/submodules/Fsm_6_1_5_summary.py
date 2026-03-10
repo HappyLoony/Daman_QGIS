@@ -157,6 +157,10 @@ class SummaryTimesheetGenerator:
                 if project.code and project.name:
                     if project.code not in names:
                         names[project.code] = project.name
+                        log_info(
+                            f"Fsm_6_1_5: Шифр '{project.code}' -> "
+                            f"название '{project.name}' (из {ts.filename})"
+                        )
 
         return names
 

@@ -409,6 +409,26 @@ def _parse_daily_hours(ws: 'Worksheet', row: int, days_in_month: int) -> Dict[in
     return daily_hours
 
 
+def _is_excel_error(value) -> bool:
+    """
+    Проверить, является ли значение ошибкой Excel (#N/A, #VALUE!, #Н/Д и т.д.).
+
+    openpyxl с data_only=True возвращает кэшированные ошибки формул как строки.
+
+    Args:
+        value: Значение ячейки
+
+    Returns:
+        True если это ошибка Excel
+    """
+    if not isinstance(value, str):
+        return False
+    v = value.strip()
+    # Все ошибки Excel начинаются с '#': #N/A, #VALUE!, #REF!, #NAME?, #NUM!, #NULL!, #DIV/0!
+    # Русские варианты: #Н/Д, #ЗНАЧ!, #ССЫЛКА!, #ИМЯ?, #ЧИСЛО!, #ПУСТО!, #ДЕЛ/0!
+    return v.startswith('#') and len(v) >= 3
+
+
 def normalize_project_code(code: str) -> str:
     """
     Нормализовать шифр проекта к верхнему регистру.
@@ -420,7 +440,7 @@ def normalize_project_code(code: str) -> str:
         code: Исходный шифр проекта
 
     Returns:
-        Шифр в верхнем регистре
+        Шифр в верхнему регистре
     """
     return code.upper() if code else ""
 
@@ -429,15 +449,23 @@ def _parse_row(ws: 'Worksheet', row: int, days_in_month: int) -> Tuple[str, Opti
     """
     Извлечь данные из строки табеля.
 
+    Фильтрует ошибки Excel (#N/A, #Н/Д и т.д.) в шифре и названии.
+
     Returns:
         Tuple (code, name, total_hours, daily_hours)
     """
     code = ws.cell(row, COL_CODE).value
+    if _is_excel_error(code):
+        log_warning(f"Fsm_6_1_3: Ошибка Excel в шифре (строка {row}): '{code}' -> пропущено")
+        code = None
     code_str = str(code).strip() if code else ""
     # Нормализуем шифр к верхнему регистру
     code_str = normalize_project_code(code_str)
 
     name = ws.cell(row, COL_NAME).value
+    if _is_excel_error(name):
+        log_warning(f"Fsm_6_1_3: Ошибка Excel в названии (строка {row}, шифр '{code_str}'): '{name}' -> пропущено")
+        name = None
     name_str = str(name).strip() if name else None
 
     total_value = ws.cell(row, COL_TOTAL).value
