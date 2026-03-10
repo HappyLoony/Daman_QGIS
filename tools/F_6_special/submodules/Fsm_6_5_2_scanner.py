@@ -28,6 +28,8 @@ CHECKED_EXTENSIONS: Set[str] = {
     ".mdb", ".accdb",
     ".vsd", ".vsdx",
     ".gpkg", ".shp", ".qgs", ".qgz", ".tab", ".mxd", ".aprx",
+    ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp",
+    ".md", ".txt", ".csv",
 }
 
 
@@ -149,7 +151,10 @@ class FileLockScanner:
             norm = os.path.normpath(entry_path).lower()
             if norm in lock_targets:
                 continue  # уже найден через lock-файл
-            if self._test_exclusive_open(entry_path):
+
+            is_locked = self._test_exclusive_open(entry_path)
+
+            if is_locked:
                 try:
                     size = os.path.getsize(entry_path)
                 except OSError:
@@ -181,6 +186,20 @@ class FileLockScanner:
                         file_size=size,
                     )
                 )
+
+        # Фаза 4: поиск файлов открытых в программах (по заголовкам окон)
+        # Ловит файлы загруженные в память без OS-блокировки (Notepad, Photos)
+        already_found = {
+            os.path.normpath(lf.file_path).lower()
+            for lf in result.locked_files
+        }
+        phase4_found = self._scan_window_titles(all_entries, already_found)
+        if phase4_found:
+            result.locked_files.extend(phase4_found)
+            log_info(
+                f"Fsm_6_5_2: Phase4 (окна): найдено {len(phase4_found)} "
+                f"файлов открытых в программах"
+            )
 
         if progress_callback:
             progress_callback(total * 2, total * 2)
@@ -597,7 +616,19 @@ class FileLockScanner:
     # Exclusive open test (fallback)
     # ------------------------------------------------------------------
     def _test_exclusive_open(self, file_path: str) -> bool:
-        """Попытка эксклюзивного открытия файла. True = заблокирован."""
+        """Проверка: файл открыт другим процессом? True = заблокирован.
+
+        На Windows использует CreateFileW с нулевым sharing mode --
+        если любой процесс держит файл открытым (даже shared read),
+        CreateFileW вернёт ERROR_SHARING_VIOLATION (32).
+
+        Python open('r+b') не ловит shared access (просмотрщики
+        изображений, текстовые редакторы и т.д.).
+        """
+        if sys.platform == "win32":
+            return self._test_exclusive_open_win32(file_path)
+
+        # Fallback для не-Windows
         try:
             with open(file_path, "r+b"):
                 pass
@@ -605,8 +636,110 @@ class FileLockScanner:
         except PermissionError:
             return True
         except OSError:
-            # Другие ошибки (файл не найден и т.д.) -- не считаем блокировкой
             return False
+
+    @staticmethod
+    def _test_exclusive_open_win32(file_path: str) -> bool:
+        """Windows: CreateFileW с dwShareMode=0 (эксклюзивный доступ).
+
+        Без restype CreateFileW возвращает c_int (32-bit signed).
+        INVALID_HANDLE_VALUE = -1 как c_int. Сравниваем напрямую с -1.
+        """
+        try:
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        except OSError:
+            return False
+
+        ERROR_SHARING_VIOLATION = 32
+
+        h = kernel32.CreateFileW(
+            file_path,
+            ctypes.wintypes.DWORD(0x80000000),  # GENERIC_READ
+            ctypes.wintypes.DWORD(0),            # dwShareMode = 0
+            None,                                 # lpSecurityAttributes
+            ctypes.wintypes.DWORD(3),            # OPEN_EXISTING
+            ctypes.wintypes.DWORD(0x80),         # FILE_ATTRIBUTE_NORMAL
+            None,                                 # hTemplateFile
+        )
+
+        # c_int default restype: INVALID_HANDLE_VALUE = -1
+        if h == -1:
+            error_code = kernel32.GetLastError()
+            return error_code == ERROR_SHARING_VIOLATION
+
+        kernel32.CloseHandle(h)
+        return False
+
+    # ------------------------------------------------------------------
+    # Phase 4: Window title scan
+    # ------------------------------------------------------------------
+    def _scan_window_titles(
+        self,
+        all_entries: List[Tuple[str, str]],
+        already_found: Set[str],
+    ) -> List[LockedFile]:
+        """Поиск файлов открытых в программах по заголовкам окон.
+
+        Программы вроде Notepad, Photos, VS Code загружают файл в память
+        и отпускают handle. CreateFileW их не видит, но заголовок окна
+        содержит имя файла.
+        """
+        if sys.platform != "win32":
+            return []
+
+        # Собрать имена файлов -> полный путь (для матчинга)
+        name_to_entries: Dict[str, List[Tuple[str, str]]] = {}
+        for entry_path, entry_name in all_entries:
+            key = entry_name.lower()
+            if key not in name_to_entries:
+                name_to_entries[key] = []
+            name_to_entries[key].append((entry_path, entry_name))
+
+        # Получить файлы из заголовков окон
+        window_files = _get_open_filenames_from_windows()
+        results: List[LockedFile] = []
+
+        for wf_name, proc_name, wf_pid in window_files:
+            wf_lower = wf_name.lower()
+            if wf_lower not in name_to_entries:
+                continue
+
+            for entry_path, entry_name in name_to_entries[wf_lower]:
+                norm = os.path.normpath(entry_path).lower()
+                if norm in already_found:
+                    continue
+                already_found.add(norm)
+
+                try:
+                    size = os.path.getsize(entry_path)
+                except OSError:
+                    size = 0
+
+                # Определить пользователя-владельца процесса
+                user = _get_process_owner(wf_pid) or ""
+                friendly = _FRIENDLY_PROCESS_NAMES.get(
+                    proc_name.lower(), proc_name
+                )
+
+                rel = os.path.relpath(
+                    os.path.dirname(entry_path), self._root
+                )
+                results.append(
+                    LockedFile(
+                        file_path=entry_path,
+                        file_name=entry_name,
+                        relative_path=(
+                            rel if rel != "." else self._root_name
+                        ),
+                        locked_by_user=user,
+                        locked_by_host=os.environ.get("COMPUTERNAME", ""),
+                        lock_source="Открыт в программе",
+                        lock_program=friendly,
+                        file_size=size,
+                    )
+                )
+
+        return results
 
 
 # ---------------------------------------------------------------------------
@@ -622,6 +755,166 @@ _OFFICE_EXT_TO_PROGRAM: Dict[str, str] = {
     ".vsd": "Visio",
     ".vsdx": "Visio",
 }
+
+# ---------------------------------------------------------------------------
+# Friendly names для процессов (Phase 4 -- window title scan)
+# ---------------------------------------------------------------------------
+_FRIENDLY_PROCESS_NAMES: Dict[str, str] = {
+    # Просмотрщики изображений
+    "dllhost.exe": "Просмотр фото",
+    "microsoft.photos.exe": "Фотографии",
+    "photoviewer.dll": "Просмотр фото",
+    "irfanview.exe": "IrfanView",
+    "i_view64.exe": "IrfanView",
+    "xnview.exe": "XnView",
+    "xnviewmp.exe": "XnView MP",
+    "mspaint.exe": "Paint",
+    "paintdotnet.exe": "Paint.NET",
+    # Текстовые редакторы
+    "notepad.exe": "Блокнот",
+    "notepad++.exe": "Notepad++",
+    "code.exe": "VS Code",
+    "sublime_text.exe": "Sublime Text",
+    "wordpad.exe": "WordPad",
+    # Office
+    "winword.exe": "Word",
+    "excel.exe": "Excel",
+    "powerpnt.exe": "PowerPoint",
+    "visio.exe": "Visio",
+    "onenote.exe": "OneNote",
+    "outlook.exe": "Outlook",
+    # PDF
+    "acrobat.exe": "Acrobat",
+    "acrord32.exe": "Acrobat Reader",
+    "foxitreader.exe": "Foxit Reader",
+    "foxitpdfeditor.exe": "Foxit Editor",
+    "sumatrapdf.exe": "SumatraPDF",
+    "msedge.exe": "Edge",
+    # CAD / GIS
+    "acad.exe": "AutoCAD",
+    "revit.exe": "Revit",
+    "qgis.exe": "QGIS",
+    "qgis-bin.exe": "QGIS",
+    "explorer.exe": "Проводник",
+    # LibreOffice
+    "soffice.bin": "LibreOffice",
+    "soffice.exe": "LibreOffice",
+}
+
+
+# ---------------------------------------------------------------------------
+# EnumWindows: извлечение имён файлов из заголовков окон
+# ---------------------------------------------------------------------------
+# Разделители заголовков: " - " (большинство), " \u2014 " (em-dash, Notepad RU),
+# " | " (некоторые приложения)
+_TITLE_SEPARATORS = (" - ", " \u2014 ", " | ")
+
+# Процессы, чьи окна игнорируются (не содержат пользовательских файлов)
+_IGNORED_PROCESSES = {
+    "explorer.exe", "searchui.exe", "searchhost.exe",
+    "shellexperiencehost.exe", "startmenuexperiencehost.exe",
+    "textinputhost.exe", "applicationframehost.exe",
+    "systemsettings.exe", "taskmgr.exe",
+}
+
+
+def _get_open_filenames_from_windows() -> List[Tuple[str, str, int]]:
+    """Извлечь имена файлов из заголовков видимых окон.
+
+    Returns:
+        Список кортежей (filename, process_name, pid).
+        filename -- только имя файла с расширением (без пути).
+    """
+    if sys.platform != "win32":
+        return []
+
+    try:
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    except OSError:
+        return []
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    EnumWindowsProc = ctypes.WINFUNCTYPE(
+        ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM
+    )
+
+    results: List[Tuple[str, str, int]] = []
+
+    def _callback(hwnd: int, _lparam: int) -> bool:
+        # Только видимые окна
+        if not user32.IsWindowVisible(hwnd):
+            return True
+
+        # Читаем заголовок окна
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length <= 0:
+            return True
+
+        buf = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buf, length + 1)
+        title = buf.value
+
+        # Извлечь имя файла из заголовка
+        filename = _extract_filename_from_title(title)
+        if not filename:
+            return True
+
+        # Определить процесс
+        pid = ctypes.wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        proc_name = _get_process_name(kernel32, pid.value)
+
+        # Фильтрация системных процессов
+        if proc_name.lower() in _IGNORED_PROCESSES:
+            return True
+
+        results.append((filename, proc_name, pid.value))
+        return True
+
+    try:
+        user32.EnumWindows(EnumWindowsProc(_callback), 0)
+    except OSError:
+        log_warning("Fsm_6_5_2: EnumWindows failed")
+
+    return results
+
+
+def _extract_filename_from_title(title: str) -> str:
+    """Извлечь имя файла из заголовка окна.
+
+    Паттерн: 'filename.ext - Program Name' или 'filename.ext | App'.
+    Возвращает пустую строку если имя файла не найдено.
+    """
+    for sep in _TITLE_SEPARATORS:
+        if sep in title:
+            before = title.split(sep)[0].strip()
+            # Убрать индикаторы несохранённых изменений
+            clean = before.lstrip("*\u25cf ").strip()
+            # Должно содержать точку (расширение) и быть похоже на имя файла
+            if "." in clean and len(clean) < 260 and "/" not in clean:
+                # Убедиться что после последней точки есть расширение (1-10 символов)
+                ext_part = clean.rsplit(".", 1)[-1]
+                if 1 <= len(ext_part) <= 10 and ext_part.isalnum():
+                    return clean
+            break
+    return ""
+
+
+def _get_process_name(kernel32: ctypes.WinDLL, pid: int) -> str:  # type: ignore[name-defined]
+    """Получить имя процесса по PID через QueryFullProcessImageNameW."""
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not h:
+        return ""
+    try:
+        name_buf = ctypes.create_unicode_buffer(260)
+        size = ctypes.wintypes.DWORD(260)
+        if kernel32.QueryFullProcessImageNameW(h, 0, name_buf, ctypes.byref(size)):
+            return os.path.basename(name_buf.value)
+    finally:
+        kernel32.CloseHandle(h)
+    return ""
 
 
 # ---------------------------------------------------------------------------

@@ -326,17 +326,19 @@ class ExportUtils:
                 return {}
 
             conn = sqlite3.connect(gpkg_path)
-            cursor = conn.cursor()
+            try:
+                cursor = conn.cursor()
 
-            cursor.execute("SELECT key, value FROM _metadata")
-            rows = cursor.fetchall()
+                cursor.execute("SELECT key, value FROM _metadata")
+                rows = cursor.fetchall()
 
-            metadata = {}
-            for key, value in rows:
-                metadata[key] = value
+                metadata = {}
+                for key, value in rows:
+                    metadata[key] = value
 
-            conn.close()
-            return metadata
+                return metadata
+            finally:
+                conn.close()
 
         except Exception as e:
             log_warning(f"Fsm_5_3_5: Ошибка чтения метаданных: {str(e)}")

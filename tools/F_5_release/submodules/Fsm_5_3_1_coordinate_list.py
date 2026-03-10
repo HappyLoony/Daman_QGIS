@@ -283,97 +283,99 @@ class Fsm_5_3_1_CoordinateList:
         filepath = os.path.join(output_folder, filename)
 
         workbook = xlsxwriter.Workbook(filepath)
-        worksheet = workbook.add_worksheet('Координаты')
-        fmt = ExcelFormatManager(workbook)
+        try:
+            worksheet = workbook.add_worksheet('Координаты')
+            fmt = ExcelFormatManager(workbook)
 
-        # Настройка ширины колонок
-        fmt.set_smart_column_widths(worksheet, ['', '№ Точки', 'X', 'Y', ''])
+            # Настройка ширины колонок
+            fmt.set_smart_column_widths(worksheet, ['', '№ Точки', 'X', 'Y', ''])
 
-        # Строка 1: Номер приложения (колонка E)
-        appendix_text = f"Приложение {appendix_num}"
-        worksheet.write('E1', appendix_text, fmt.get_appendix_format())  # type: ignore[arg-type]
+            # Строка 1: Номер приложения (колонка E)
+            appendix_text = f"Приложение {appendix_num}"
+            worksheet.write('E1', appendix_text, fmt.get_appendix_format())  # type: ignore[arg-type]
 
-        # Строка 2: Заголовок (объединение A2:E2)
-        title_text = ExportUtils.format_template_text(
-            template.title_template, metadata, layer_info
-        )
-        worksheet.merge_range('A2:E2', title_text, fmt.get_title_format())  # type: ignore[call-arg]
+            # Строка 2: Заголовок (объединение A2:E2)
+            title_text = ExportUtils.format_template_text(
+                template.title_template, metadata, layer_info
+            )
+            worksheet.merge_range('A2:E2', title_text, fmt.get_title_format())  # type: ignore[call-arg]
 
-        # Строка 4: Система координат (объединение D4:E4)
-        if is_wgs84:
-            crs_text = "Система координат: WGS-84"
-        else:
-            crs_name = ExportUtils.format_template_text("{crs_name}", metadata)
-            crs_text = f"Система координат: {crs_name}"
-        worksheet.merge_range('D4:E4', crs_text, fmt.get_crs_format())  # type: ignore[call-arg]
+            # Строка 4: Система координат (объединение D4:E4)
+            if is_wgs84:
+                crs_text = "Система координат: WGS-84"
+            else:
+                crs_name = ExportUtils.format_template_text("{crs_name}", metadata)
+                crs_text = f"Система координат: {crs_name}"
+            worksheet.merge_range('D4:E4', crs_text, fmt.get_crs_format())  # type: ignore[call-arg]
 
-        # Заголовки колонок координат
-        headers = COORD_HEADERS_WGS84 if is_wgs84 else COORD_HEADERS_LOCAL
+            # Заголовки колонок координат
+            headers = COORD_HEADERS_WGS84 if is_wgs84 else COORD_HEADERS_LOCAL
 
-        # Получаем координаты и контуры
-        contours_data = self._collect_contours_with_coordinates(layer, is_wgs84)
+            # Получаем координаты и контуры
+            contours_data = self._collect_contours_with_coordinates(layer, is_wgs84)
 
-        # Начинаем с 6 строки (индекс 5)
-        current_row = 5
-        contour_number = 0
-        data_format = fmt.get_data_format(with_border=False)
+            # Начинаем с 6 строки (индекс 5)
+            current_row = 5
+            contour_number = 0
+            data_format = fmt.get_data_format(with_border=False)
 
-        for contour_info in contours_data:
-            contour_type = contour_info['type']
-            coordinates = contour_info['coordinates']
-            area = contour_info.get('area', 0)
-            ring_index = contour_info.get('ring_index', 0)
+            for contour_info in contours_data:
+                contour_type = contour_info['type']
+                coordinates = contour_info['coordinates']
+                area = contour_info.get('area', 0)
+                ring_index = contour_info.get('ring_index', 0)
 
-            if contour_type == 'exterior':
-                contour_number += 1
-                if template.contour_format:
-                    contour_title = ExportUtils.format_template_text(
-                        template.contour_format, metadata,
-                        {'area': area, 'layer_name': layer.name(), '№': contour_number}
-                    )
+                if contour_type == 'exterior':
+                    contour_number += 1
+                    if template.contour_format:
+                        contour_title = ExportUtils.format_template_text(
+                            template.contour_format, metadata,
+                            {'area': area, 'layer_name': layer.name(), '№': contour_number}
+                        )
+                        worksheet.merge_range(
+                            current_row, 1, current_row, 3,
+                            contour_title, fmt.get_subtitle_format()
+                        )
+                    current_row += 1
+                    current_row += 1  # Пустая строка
+
+                    # Заголовки колонок
+                    worksheet.write(current_row, 1, headers['point_num'], data_format)
+                    worksheet.write(current_row, 2, headers['x'], data_format)
+                    worksheet.write(current_row, 3, headers['y'], data_format)
+                    current_row += 1
+                else:
+                    current_row += 1
+                    hole_title = f"Внутренний контур {ring_index}"
                     worksheet.merge_range(
                         current_row, 1, current_row, 3,
-                        contour_title, fmt.get_subtitle_format()
+                        hole_title, fmt.get_subtitle_format()
                     )
-                current_row += 1
-                current_row += 1  # Пустая строка
+                    current_row += 1
 
-                # Заголовки колонок
-                worksheet.write(current_row, 1, headers['point_num'], data_format)
-                worksheet.write(current_row, 2, headers['x'], data_format)
-                worksheet.write(current_row, 3, headers['y'], data_format)
-                current_row += 1
-            else:
-                current_row += 1
-                hole_title = f"Внутренний контур {ring_index}"
-                worksheet.merge_range(
-                    current_row, 1, current_row, 3,
-                    hole_title, fmt.get_subtitle_format()
-                )
-                current_row += 1
+                    worksheet.write(current_row, 1, headers['point_num'], data_format)
+                    worksheet.write(current_row, 2, headers['x'], data_format)
+                    worksheet.write(current_row, 3, headers['y'], data_format)
+                    current_row += 1
 
-                worksheet.write(current_row, 1, headers['point_num'], data_format)
-                worksheet.write(current_row, 2, headers['x'], data_format)
-                worksheet.write(current_row, 3, headers['y'], data_format)
-                current_row += 1
+                # Выводим координаты точек
+                precision = PRECISION_DECIMALS_WGS84 if is_wgs84 else PRECISION_DECIMALS
+                coord_format = fmt.get_coordinate_format(is_wgs84)
 
-            # Выводим координаты точек
-            precision = PRECISION_DECIMALS_WGS84 if is_wgs84 else PRECISION_DECIMALS
-            coord_format = fmt.get_coordinate_format(is_wgs84)
+                for coord in coordinates:
+                    worksheet.write(current_row, 1, coord[0], data_format)
+                    # Геодезический порядок: X=север, Y=восток
+                    worksheet.write(current_row, 2, coord[2], coord_format)
+                    worksheet.write(current_row, 3, coord[1], coord_format)
+                    current_row += 1
 
-            for coord in coordinates:
-                worksheet.write(current_row, 1, coord[0], data_format)
-                # Геодезический порядок: X=север, Y=восток
-                worksheet.write(current_row, 2, coord[2], coord_format)
-                worksheet.write(current_row, 3, coord[1], coord_format)
-                current_row += 1
+                current_row += 1  # Пустая строка после контура
 
-            current_row += 1  # Пустая строка после контура
+            # Настройка области печати
+            worksheet.print_area(0, 0, current_row - 1, 4)
+        finally:
+            workbook.close()
 
-        # Настройка области печати
-        worksheet.print_area(0, 0, current_row - 1, 4)
-
-        workbook.close()
         log_info(f"Fsm_5_3_1: Экспорт завершён: {filepath}")
         return True
 

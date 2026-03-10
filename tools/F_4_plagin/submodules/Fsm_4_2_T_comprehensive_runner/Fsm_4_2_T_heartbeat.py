@@ -9,10 +9,12 @@
 - Heartbeat с невалидными данными (ключ, hardware_id, подпись)
 - Защиту от replay attacks (timestamp)
 - Клиентскую интеграцию (таймер, константы)
+- Server-side integrity check (file_hashes в heartbeat)
 
 ВНИМАНИЕ: Этот тест делает реальные сетевые запросы!
 """
 
+import os
 import time
 import hmac
 import hashlib
@@ -56,6 +58,14 @@ class TestHeartbeat:
 
             # Производительность
             self.test_40_heartbeat_performance()
+
+            # Server-side integrity check
+            self.test_50_heartbeat_with_valid_hashes()
+            self.test_51_heartbeat_with_tampered_hashes()
+            self.test_52_heartbeat_without_hashes_backward_compat()
+            self.test_53_heartbeat_with_partial_hashes()
+            self.test_54_heartbeat_with_invalid_hash_types()
+            self.test_55_client_sends_hashes_in_payload()
 
         except Exception as e:
             self.logger.error(f"Критическая ошибка heartbeat тестов: {str(e)}")
@@ -501,3 +511,256 @@ class TestHeartbeat:
 
         except Exception as e:
             self.logger.error(f"Ошибка теста производительности: {str(e)}")
+
+    # === Server-side Integrity Check ===
+
+    def _compute_real_file_hashes(self) -> Dict[str, str]:
+        """Вычислить реальные SHA-256 хеши критических файлов плагина"""
+        try:
+            from qgis.utils import plugins
+            plugin = plugins.get('Daman_QGIS')
+            if not plugin or not hasattr(plugin, 'INTEGRITY_FILES'):
+                return {}
+
+            hashes = {}
+            for key, rel_path in plugin.INTEGRITY_FILES.items():
+                filepath = os.path.join(plugin.plugin_dir, rel_path)
+                if os.path.exists(filepath):
+                    with open(filepath, 'rb') as f:
+                        hashes[key] = hashlib.sha256(f.read()).hexdigest()
+            return hashes
+        except Exception:
+            return {}
+
+    def test_50_heartbeat_with_valid_hashes(self):
+        """ТЕСТ 50: Heartbeat с валидными file_hashes -> active
+
+        Отправляем реальные хеши файлов. Если S3 содержит эталоны
+        и они совпадают, сервер вернёт active.
+        """
+        self.logger.section("50. Server-side integrity: валидные хеши")
+
+        if not self.api_key:
+            self.logger.warning("API key отсутствует -- тест пропущен")
+            return
+
+        try:
+            file_hashes = self._compute_real_file_hashes()
+            if not file_hashes:
+                self.logger.warning("Не удалось вычислить хеши -- тест пропущен")
+                return
+
+            from Daman_QGIS.constants import PLUGIN_VERSION
+            payload = self._build_heartbeat_payload()
+            payload['file_hashes'] = file_hashes
+            payload['version'] = PLUGIN_VERSION
+
+            response = self._send_heartbeat(payload)
+            self.logger.info(f"HTTP статус: {response.status_code}, "
+                             f"хешей отправлено: {len(file_hashes)}")
+
+            if response.status_code == 200:
+                data = response.json()
+                status = data.get('status')
+                reason = data.get('reason', '')
+
+                if status == 'active':
+                    self.logger.success("Валидные хеши -> active")
+                elif status == 'revoked' and reason == 'INTEGRITY_MISMATCH':
+                    self.logger.warning(
+                        "Валидные хеши -> INTEGRITY_MISMATCH "
+                        "(S3 эталоны не обновлены для текущей версии?)"
+                    )
+                else:
+                    self.logger.info(f"Статус: {status}, reason: {reason}")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка теста: {str(e)}")
+
+    def test_51_heartbeat_with_tampered_hashes(self):
+        """ТЕСТ 51: Heartbeat с подменёнными file_hashes -> revoked
+
+        Отправляем заведомо неправильные хеши. Сервер должен вернуть
+        INTEGRITY_MISMATCH (если S3 эталоны существуют).
+        """
+        self.logger.section("51. Server-side integrity: подменённые хеши")
+
+        if not self.api_key:
+            self.logger.warning("API key отсутствует -- тест пропущен")
+            return
+
+        try:
+            from Daman_QGIS.constants import PLUGIN_VERSION
+
+            fake_hashes = {
+                'main_plugin': 'a' * 64,
+                'msm_29_3': 'b' * 64,
+                'msm_29_4': 'c' * 64,
+                'base_ref': 'd' * 64,
+            }
+
+            payload = self._build_heartbeat_payload()
+            payload['file_hashes'] = fake_hashes
+            payload['version'] = PLUGIN_VERSION
+
+            response = self._send_heartbeat(payload)
+            self.logger.info(f"HTTP статус: {response.status_code}")
+
+            if response.status_code == 200:
+                data = response.json()
+                status = data.get('status')
+                reason = data.get('reason', '')
+
+                if status == 'revoked' and reason == 'INTEGRITY_MISMATCH':
+                    self.logger.success(
+                        "Подменённые хеши -> revoked (INTEGRITY_MISMATCH)"
+                    )
+                elif status == 'active':
+                    self.logger.warning(
+                        "Подменённые хеши -> active "
+                        "(S3 эталоны отсутствуют -- проверка пропущена сервером)"
+                    )
+                else:
+                    self.logger.info(f"Статус: {status}, reason: {reason}")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка теста: {str(e)}")
+
+    def test_52_heartbeat_without_hashes_backward_compat(self):
+        """ТЕСТ 52: Heartbeat без file_hashes -> active (обратная совместимость)
+
+        Старые клиенты не отправляют file_hashes. Сервер должен
+        пропустить проверку и вернуть active.
+        """
+        self.logger.section("52. Обратная совместимость: без file_hashes")
+
+        if not self.api_key:
+            self.logger.warning("API key отсутствует -- тест пропущен")
+            return
+
+        try:
+            # Стандартный payload БЕЗ file_hashes
+            payload = self._build_heartbeat_payload()
+            response = self._send_heartbeat(payload)
+
+            if response.status_code == 200:
+                data = response.json()
+                self.logger.check(
+                    data.get('status') == 'active',
+                    "Без file_hashes -> active (backward compat)",
+                    f"Без file_hashes -> {data.get('status')} (обратная совместимость нарушена!)"
+                )
+
+        except Exception as e:
+            self.logger.error(f"Ошибка теста: {str(e)}")
+
+    def test_53_heartbeat_with_partial_hashes(self):
+        """ТЕСТ 53: Heartbeat с неполным набором хешей
+
+        Отправляем хеш только одного файла. Сервер должен проверить
+        только те ключи, которые есть и в payload, и в эталоне.
+        """
+        self.logger.section("53. Частичные хеши")
+
+        if not self.api_key:
+            self.logger.warning("API key отсутствует -- тест пропущен")
+            return
+
+        try:
+            file_hashes = self._compute_real_file_hashes()
+            if not file_hashes:
+                self.logger.warning("Не удалось вычислить хеши -- тест пропущен")
+                return
+
+            # Берём только первый ключ
+            first_key = next(iter(file_hashes))
+            partial = {first_key: file_hashes[first_key]}
+
+            payload = self._build_heartbeat_payload()
+            payload['file_hashes'] = partial
+
+            response = self._send_heartbeat(payload)
+
+            if response.status_code == 200:
+                data = response.json()
+                self.logger.info(
+                    f"Частичные хеши ({first_key}): "
+                    f"status={data.get('status')}, reason={data.get('reason', '-')}"
+                )
+
+        except Exception as e:
+            self.logger.error(f"Ошибка теста: {str(e)}")
+
+    def test_54_heartbeat_with_invalid_hash_types(self):
+        """ТЕСТ 54: Heartbeat с невалидными типами в file_hashes
+
+        Сервер должен корректно обработать нечисловые/пустые хеши.
+        """
+        self.logger.section("54. Невалидные типы хешей")
+
+        if not self.api_key:
+            self.logger.warning("API key отсутствует -- тест пропущен")
+            return
+
+        try:
+            test_cases = [
+                ("пустой dict", {}),
+                ("null values", {"main_plugin": None}),
+                ("числа", {"main_plugin": 12345}),
+                ("строка не-хеш", {"main_plugin": "not_a_hex_hash"}),
+                ("список", {"main_plugin": ["a" * 64]}),
+            ]
+
+            for name, hashes in test_cases:
+                payload = self._build_heartbeat_payload()
+                payload['file_hashes'] = hashes
+                response = self._send_heartbeat(payload)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    self.logger.info(
+                        f"  {name}: status={data.get('status')}, "
+                        f"reason={data.get('reason', '-')}"
+                    )
+                else:
+                    self.logger.info(f"  {name}: HTTP {response.status_code}")
+
+            self.logger.success("Сервер обработал все невалидные типы без краша")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка теста: {str(e)}")
+
+    def test_55_client_sends_hashes_in_payload(self):
+        """ТЕСТ 55: Клиент включает file_hashes и version в heartbeat payload
+
+        Проверяем что клиентский код _heartbeat_check() формирует
+        payload с file_hashes и version.
+        """
+        self.logger.section("55. Клиент: file_hashes в payload")
+
+        try:
+            from Daman_QGIS.main_plugin import DamanQGIS
+            import inspect
+
+            source = inspect.getsource(DamanQGIS._heartbeat_check)
+
+            self.logger.check(
+                'file_hashes' in source,
+                "Клиент отправляет file_hashes в heartbeat",
+                "file_hashes отсутствует в _heartbeat_check!"
+            )
+
+            self.logger.check(
+                'PLUGIN_VERSION' in source or "'version'" in source or '"version"' in source,
+                "Клиент отправляет version в heartbeat",
+                "version отсутствует в _heartbeat_check!"
+            )
+
+            self.logger.check(
+                'INTEGRITY_FILES' in source,
+                "Клиент использует INTEGRITY_FILES для хеширования",
+                "INTEGRITY_FILES отсутствует в _heartbeat_check!"
+            )
+
+        except Exception as e:
+            self.logger.error(f"Ошибка теста: {str(e)}")

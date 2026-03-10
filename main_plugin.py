@@ -160,11 +160,12 @@ class DamanQGIS:
         # Общие инструменты (контекстное меню)
         self.cadnum_search = None
 
-        # Режим "только активация" -- при отсутствии лицензии
-        self._activation_only_mode = False
-
         # Heartbeat таймер для периодической проверки лицензии
         self._heartbeat_timer = None
+
+        # Менеджер резервных панелей (M_43)
+        from Daman_QGIS.managers.infrastructure.M_43_fallback_toolbar_manager import FallbackToolbarManager
+        self._fallback_mgr = FallbackToolbarManager(self.iface)
 
         # Auto-update: флаг ожидания перезагрузки (M_42)
         self._update_pending = False
@@ -304,6 +305,15 @@ class DamanQGIS:
             return  # НЕ инициализировать основной плагин
 
         self._profile_only_mode = False
+
+        # Настройка M_43 (до первого использования fallback тулбаров)
+        self._fallback_mgr.configure(
+            show_forced_activation=self._show_forced_activation,
+            build_full_toolbar=self._build_full_toolbar,
+            stop_heartbeat=lambda: self._heartbeat_timer.stop() if self._heartbeat_timer else None,
+            register_signal=self._register_signal,
+            init_telemetry=self._init_telemetry,
+        )
         # --- Конец Profile Setup ---
 
         # --- Auto-Update Check (M_42) ---
@@ -504,13 +514,23 @@ class DamanQGIS:
                 hashlib.sha256
             ).hexdigest()
 
+            # Хеши критических файлов для server-side integrity check
+            file_hashes = {}
+            for key, rel_path in self.INTEGRITY_FILES.items():
+                filepath = os.path.join(self.plugin_dir, rel_path)
+                if os.path.exists(filepath):
+                    with open(filepath, 'rb') as f:
+                        file_hashes[key] = hashlib.sha256(f.read()).hexdigest()
+
             response = requests.post(
                 f"{API_BASE_URL}?action=heartbeat",
                 json={
                     "api_key": api_key,
                     "hardware_id": hardware_id,
                     "timestamp": timestamp,
-                    "signature": signature
+                    "signature": signature,
+                    "file_hashes": file_hashes,
+                    "version": PLUGIN_VERSION,
                 },
                 timeout=API_TIMEOUT
             )
@@ -527,34 +547,15 @@ class DamanQGIS:
             log_info(f"Main: Heartbeat пропущен: {e}")
 
     def _on_license_revoked(self) -> None:
-        """Обработка отзыва лицензии сервером."""
-        # 1. Остановить heartbeat
-        if self._heartbeat_timer:
-            self._heartbeat_timer.stop()
+        """Обработка отзыва лицензии сервером (делегирует M_43).
 
-        # 2. Очистить токены
-        from Daman_QGIS.managers.infrastructure.submodules.Msm_29_4_token_manager import TokenManager
-        TokenManager.get_instance().clear_tokens()
-
-        # 3. Очистить кэш данных
-        from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
-        BaseReferenceLoader.clear_cache()
-
-        # 4. Удалить текущую панель инструментов
-        if self.toolbar:
-            main_window = self.iface.mainWindow()
-            if main_window and hasattr(main_window, 'removeToolBar'):
-                main_window.removeToolBar(self.toolbar)
-            self.toolbar.deleteLater()
-            self.toolbar = None
-
-        # 5. Показать сообщение и переключить на activation toolbar
-        self._show_activation_only_toolbar()
-        self.iface.messageBar().pushMessage(
-            "Daman QGIS",
-            "Лицензия деактивирована. Обратитесь к администратору.",
-            level=Qgis.Warning, duration=0
-        )
+        M_43 также удалит текущую панель main_plugin.toolbar,
+        поэтому обнуляем ссылку после вызова.
+        """
+        # Передаём текущую панель в M_43 для удаления
+        self._fallback_mgr.toolbar = self.toolbar
+        self._fallback_mgr.on_license_revoked()
+        self.toolbar = None
 
     def _check_native_project(self) -> None:
         """Проверка и инициализация нативно открытого проекта плагина"""
@@ -753,50 +754,8 @@ class DamanQGIS:
             return False
 
     def _show_activation_only_toolbar(self) -> None:
-        """Показать минимальную панель с одной кнопкой активации.
-
-        Используется когда пользователь закрыл диалог активации без ввода ключа.
-        Кнопка позволяет повторно открыть диалог.
-        """
-        from qgis.PyQt.QtWidgets import QToolButton
-
-        self._activation_only_mode = True
-
-        self.toolbar = self.iface.addToolBar(PLUGIN_NAME)
-        self.toolbar.setObjectName(PLUGIN_NAME)
-
-        btn = QToolButton()
-        btn.setText("  Активация лицензии Daman QGIS")
-        btn.setIcon(QIcon(':/images/themes/default/mIconCertificate.svg'))
-        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self._register_signal(btn.clicked, self._on_activation_button_clicked)
-        self.toolbar.addWidget(btn)
-
-        self.iface.messageBar().pushMessage(
-            "Daman QGIS",
-            "Для работы плагина необходимо активировать лицензию",
-            level=Qgis.Warning, duration=0
-        )
-
-    def _on_activation_button_clicked(self) -> None:
-        """Обработка клика на кнопку активации в минимальной панели."""
-        activated = self._show_forced_activation()
-        if activated:
-            # Удаляем минимальную панель
-            if self.toolbar:
-                main_window = self.iface.mainWindow()
-                if main_window and hasattr(main_window, 'removeToolBar'):
-                    main_window.removeToolBar(self.toolbar)  # type: ignore[union-attr]
-                self.toolbar.deleteLater()
-                self.toolbar = None
-
-            # Убираем предупреждение
-            self.iface.messageBar().clearWidgets()
-
-            self._activation_only_mode = False
-
-            # Строим полную панель
-            self._build_full_toolbar()
+        """Показать минимальную панель с кнопкой активации (делегирует M_43)."""
+        self._fallback_mgr.show_activation_only()
 
     def _build_full_toolbar(self) -> None:
         """Построение полной панели инструментов.
@@ -924,73 +883,8 @@ class DamanQGIS:
             QTimer.singleShot(2000, profile_mgr.show_first_run_welcome)
 
     def _show_emergency_toolbar(self) -> None:
-        """Аварийная панель с F_4_1 (диагностика) и F_4_3 (лицензия).
-
-        Показывается когда Base_Functions.json не загрузился.
-        F_4_1 и F_4_3 НЕ зависят от Base_Functions.json и имеют
-        requires_license = False.
-        """
-        from qgis.PyQt.QtWidgets import QToolButton
-
-        self._activation_only_mode = True
-
-        self.toolbar = self.iface.addToolBar(PLUGIN_NAME)
-        self.toolbar.setObjectName(PLUGIN_NAME)
-
-        # Кнопка F_4_1 -- Диагностика / Установка зависимостей
-        btn_diag = QToolButton()
-        btn_diag.setText("  Диагностика плагина")
-        btn_diag.setIcon(QIcon(':/images/themes/default/mActionOptions.svg'))
-        btn_diag.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self._register_signal(btn_diag.clicked, self._on_emergency_diagnostics)
-        self.toolbar.addWidget(btn_diag)
-
-        # Кнопка F_4_3 -- Управление лицензией
-        btn_license = QToolButton()
-        btn_license.setText("  Управление лицензией")
-        btn_license.setIcon(QIcon(':/images/themes/default/mIconCertificate.svg'))
-        btn_license.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self._register_signal(btn_license.clicked, self._on_emergency_license)
-        self.toolbar.addWidget(btn_license)
-
-        # Инициализация телеметрии (лицензия уже есть)
-        self._init_telemetry()
-
-        self.iface.messageBar().pushMessage(
-            "Daman QGIS",
-            "Не удалось загрузить конфигурацию с сервера. "
-            "Используйте 'Диагностика плагина' для установки зависимостей. "
-            "После установки перезапустите QGIS.",
-            level=Qgis.Warning, duration=0
-        )
-
-    def _on_emergency_diagnostics(self) -> None:
-        """Запуск F_4_1 напрямую (без тулбара)."""
-        try:
-            from Daman_QGIS.tools.F_4_plagin.submodules.Fsm_4_1_11_diagnostics_dialog import DiagnosticsDialog
-            dialog = DiagnosticsDialog(self.iface)
-            dialog.exec()
-        except Exception as e:
-            log_error(f"Daman_QGIS: Failed to open diagnostics dialog: {e}")
-            QMessageBox.critical(
-                self.iface.mainWindow(),
-                "Daman QGIS",
-                f"Не удалось открыть диагностику: {e}"
-            )
-
-    def _on_emergency_license(self) -> None:
-        """Запуск F_4_3 напрямую (без тулбара)."""
-        try:
-            from Daman_QGIS.tools.F_4_plagin.submodules.Fsm_4_3_1_license_dialog import LicenseDialog
-            dialog = LicenseDialog(self.iface, self.iface.mainWindow())
-            dialog.exec()
-        except Exception as e:
-            log_error(f"Daman_QGIS: Failed to open license dialog: {e}")
-            QMessageBox.critical(
-                self.iface.mainWindow(),
-                "Daman QGIS",
-                f"Не удалось открыть управление лицензией: {e}"
-            )
+        """Аварийная панель (делегирует M_43)."""
+        self._fallback_mgr.show_emergency()
 
     def register_tool(self, F_id: str, F_class: type) -> None:
         """Регистрация инструмента в нумерованном меню
@@ -1193,14 +1087,9 @@ class DamanQGIS:
             registry.reset('M_37')
             return
 
-        # Activation-only mode: только минимальная панель с кнопкой
-        if getattr(self, '_activation_only_mode', False):
-            if self.toolbar:
-                main_window = self.iface.mainWindow()
-                if main_window and hasattr(main_window, 'removeToolBar'):
-                    main_window.removeToolBar(self.toolbar)  # type: ignore[union-attr]
-                self.toolbar.deleteLater()
-                self.toolbar = None
+        # Fallback mode: только резервная панель (M_43)
+        if self._fallback_mgr.is_fallback_mode:
+            self._fallback_mgr.remove_toolbar()
             return
 
         # Остановить heartbeat таймер

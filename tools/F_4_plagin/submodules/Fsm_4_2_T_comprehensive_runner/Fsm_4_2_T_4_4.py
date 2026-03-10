@@ -392,8 +392,8 @@ class FeedbackTests:
                 f"Message was NOT skipped! Size grew: {initial_size} -> {new_size}"
             )
 
-            # Теперь с другим тегом -- должен быть записан
-            mgr._on_message_received("DEDUP_OTHER_TAG_TEST", "OtherPlugin", Qgis.Info)
+            # Теперь с тегом Python + Warning -- должен быть записан
+            mgr._on_message_received("DEDUP_OTHER_TAG_TEST", "Python", Qgis.Warning)
 
             if mgr._file_handler:
                 mgr._file_handler.flush()

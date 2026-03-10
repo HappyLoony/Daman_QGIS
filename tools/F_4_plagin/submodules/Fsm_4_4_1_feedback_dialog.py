@@ -148,11 +148,13 @@ class FeedbackDialog(QDialog):
         try:
             from Daman_QGIS.managers import registry
             license_mgr = registry.get('M_29')
+            if license_mgr is None:
+                return
             email = license_mgr.get_user_email()
             if email:
                 self.email_input.setText(email)
-        except Exception:
-            pass
+        except Exception as e:
+            log_warning(f"Fsm_4_4_1 (_prefill_email): {type(e).__name__}: {e}")
 
     def on_send(self):
         """Обработка нажатия кнопки Отправить"""

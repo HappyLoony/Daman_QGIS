@@ -28,7 +28,6 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
 )
 from qgis.PyQt.QtCore import QSettings
-from qgis.PyQt.QtGui import QColor
 from qgis.core import QgsProject
 
 from Daman_QGIS.utils import log_error, log_info
@@ -39,8 +38,6 @@ from .Fsm_6_5_2_scanner import FileLockScanner, ScanResult
 # ---------------------------------------------------------------------------
 # Константы
 # ---------------------------------------------------------------------------
-_COLOR_LOCK_KNOWN = QColor(255, 224, 224)     # Красноватый: известный пользователь
-_COLOR_LOCK_UNKNOWN = QColor(255, 240, 224)   # Оранжеватый: неизвестный пользователь
 _COLOR_OK = "#006600"
 _COLOR_WARN = "#CC6600"
 _COLOR_ERR = "#CC0000"
@@ -234,23 +231,23 @@ class Fsm_6_5_1_Dialog(QDialog):
         self._table.setRowCount(len(result.locked_files))
 
         for row, lf in enumerate(result.locked_files):
-            # Определить цвет строки
-            bg = (
-                _COLOR_LOCK_KNOWN
-                if lf.locked_by_user != "Неизвестно"
-                else _COLOR_LOCK_UNKNOWN
-            )
+            # Для soft lock: "Пользователь (Программа)" или просто программу
+            user_display = lf.locked_by_user
+            if lf.lock_source == "Открыт в программе":
+                if lf.locked_by_user and lf.lock_program:
+                    user_display = f"{lf.locked_by_user} ({lf.lock_program})"
+                elif lf.lock_program:
+                    user_display = lf.lock_program
 
             items = [
                 lf.file_name,
                 lf.relative_path,
-                lf.locked_by_user,
+                user_display,
                 lf.locked_by_host,
             ]
 
             for col, text in enumerate(items):
                 item = QTableWidgetItem(text)
-                item.setBackground(bg)
                 self._table.setItem(row, col, item)
 
         self._table.setSortingEnabled(True)

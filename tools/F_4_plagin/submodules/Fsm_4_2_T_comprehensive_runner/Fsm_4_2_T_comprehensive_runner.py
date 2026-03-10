@@ -72,6 +72,7 @@ class ComprehensiveTestRunner:
         'Fsm_4_2_T_dadata.py',           # DaData API (M_39)
         'Fsm_4_2_T_nspd.py',             # NSPD API stability monitoring
         'Fsm_4_2_T_heartbeat.py',        # Heartbeat (License Revocation)
+        'Fsm_4_2_T_4_4.py',              # Feedback API тесты (Yandex Cloud)
     }
 
     def __init__(self, iface, log_level: int = TestLogger.LOG_LEVEL_ERROR,

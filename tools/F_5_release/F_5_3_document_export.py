@@ -133,12 +133,18 @@ class F_5_3_DocumentExport(BaseTool):
         # Применяем региональные модификаторы (M_37)
         try:
             regional_mgr = registry.get('M_37')
-            metadata = ExportUtils.get_project_metadata()
-            selected_items = regional_mgr.apply_export_modifiers(
-                selected_items, metadata
-            )
         except KeyError:
-            pass  # M_37 не зарегистрирован
+            regional_mgr = None
+
+        if regional_mgr is not None:
+            try:
+                metadata = ExportUtils.get_project_metadata()
+                selected_items = regional_mgr.apply_export_modifiers(
+                    selected_items, metadata
+                )
+            except Exception as e:
+                log_warning(f"F_5_3: Ошибка региональных модификаторов, "
+                            f"экспорт без модификаций: {e}")
 
         # Создаём прогресс-диалог
         progress = QProgressDialog(
@@ -179,14 +185,19 @@ class F_5_3_DocumentExport(BaseTool):
 
             # Экспорт через фабрику
             extra_context = item.get('extra_context', {})
-            success = factory.export(
-                layer=layer,
-                template=template,
-                output_folder=output_folder,
-                create_wgs84=create_wgs84,
-                appendix_num=appendix_num,
-                extra_context=extra_context,
-            )
+            try:
+                success = factory.export(
+                    layer=layer,
+                    template=template,
+                    output_folder=output_folder,
+                    create_wgs84=create_wgs84,
+                    appendix_num=appendix_num,
+                    extra_context=extra_context,
+                )
+            except Exception as e:
+                log_error(f"F_5_3: Ошибка экспорта {layer.name()} "
+                          f"({doc_type_name}): {e}")
+                success = False
 
             results[f"{layer.name()} ({doc_type_name})"] = success
 

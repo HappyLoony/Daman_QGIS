@@ -19,8 +19,7 @@ from .submodules.Fsm_4_4_1_feedback_dialog import FeedbackDialog
 class F_4_4_Feedback(BaseTool):
     """Инструмент обратной связи"""
 
-    # Доступен без лицензии — для сообщений о проблемах с активацией
-    requires_license = False
+    requires_license = True
 
     @property
     def name(self) -> str:
