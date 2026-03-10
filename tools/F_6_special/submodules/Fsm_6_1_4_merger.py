@@ -235,6 +235,14 @@ class MergedTimesheetGenerator:
 
         default_font = Font(name=DEFAULT_FONT_NAME, size=DEFAULT_FONT_SIZE)
 
+        # Вид работ (колонка B)
+        cell_work_type = ws.cell(row, 2)
+        if project.work_type:
+            cell_work_type.value = project.work_type
+        cell_work_type.font = default_font
+        cell_work_type.alignment = self._center_alignment
+        cell_work_type.border = self._thin_border
+
         # Шифр проекта
         cell_code = ws.cell(row, COL_CODE)
         cell_code.value = project.code
@@ -301,6 +309,10 @@ class MergedTimesheetGenerator:
 
         default_font = Font(name=DEFAULT_FONT_NAME, size=DEFAULT_FONT_SIZE)
 
+        # Колонка B - пустая для спец.категорий
+        cell_b = ws.cell(row, 2)
+        cell_b.border = self._thin_border
+
         # Название категории (объединяем ячейки C:D)
         cell_cat = ws.cell(row, COL_CODE)
         cell_cat.value = category.category
@@ -366,6 +378,11 @@ class MergedTimesheetGenerator:
         self._init_styles()
 
         bold_font = Font(name=DEFAULT_FONT_NAME, size=DEFAULT_FONT_SIZE, bold=True)
+
+        # Колонка B - пустая для строки итого
+        cell_b = ws.cell(row, 2)
+        cell_b.border = self._thin_border
+        cell_b.fill = self._stripe_fill_15
 
         # Итого
         cell_code = ws.cell(row, COL_CODE)
@@ -482,11 +499,7 @@ class MergedTimesheetGenerator:
                 cell_fio.alignment = self._center_alignment
                 cell_fio.border = self._thin_border
 
-                # Колонка B пустая (для ФИО)
-                cell_b = ws.cell(current_row, 2)
-                cell_b.border = self._thin_border
-
-                # Проекты
+                # Проекты (колонка B заполняется в _write_project_row)
                 for project in ts.projects:
                     self._write_project_row(ws, current_row, project, days_in_month, end_day)
                     current_row += 1
@@ -502,20 +515,13 @@ class MergedTimesheetGenerator:
                 grand_total_hours += employee_total
                 employee_end_row = current_row
 
-                # Объединяем ячейки ФИО по вертикали (A:employee_start_row до A:employee_end_row)
+                # Объединяем ячейки ФИО по вертикали (только колонка A)
                 if employee_end_row > employee_start_row:
                     ws.merge_cells(
                         start_row=employee_start_row,
                         start_column=1,
                         end_row=employee_end_row,
                         end_column=1
-                    )
-                    # Объединяем также колонку B
-                    ws.merge_cells(
-                        start_row=employee_start_row,
-                        start_column=2,
-                        end_row=employee_end_row,
-                        end_column=2
                     )
 
                 current_row += 1
@@ -530,6 +536,10 @@ class MergedTimesheetGenerator:
             cell_total_label.alignment = self._center_alignment
             cell_total_label.border = self._thick_border
             cell_total_label.fill = self._stripe_fill_15
+
+            cell_total_b = ws.cell(current_row, 2)
+            cell_total_b.border = self._thick_border
+            cell_total_b.fill = self._stripe_fill_15
 
             cell_total_name = ws.cell(current_row, COL_NAME)
             cell_total_name.border = self._thick_border

@@ -91,6 +91,7 @@ class ProjectRow:
     name: Optional[str]
     total_hours: float
     daily_hours: Dict[int, float] = field(default_factory=dict)  # {день: часы}
+    work_type: Optional[str] = None  # Вид работ (колонка B)
 
 
 @dataclass
@@ -577,6 +578,10 @@ def parse_timesheet(filepath: str) -> Optional[TimesheetData]:
             if is_project_row(code):
                 code_str, name_str, total_hours, daily_hours = _parse_row(ws, row, days_in_month)
 
+                # Вид работ (колонка B)
+                work_type_val = ws.cell(row, 2).value
+                work_type_str = str(work_type_val).strip() if work_type_val else None
+
                 # Пропускаем пустые строки проектов (нулевые часы)
                 if total_hours > 0 or daily_hours:
                     project = ProjectRow(
@@ -584,7 +589,8 @@ def parse_timesheet(filepath: str) -> Optional[TimesheetData]:
                         code=code_str,
                         name=name_str,
                         total_hours=total_hours,
-                        daily_hours=daily_hours
+                        daily_hours=daily_hours,
+                        work_type=work_type_str
                     )
                     result.projects.append(project)
                     result.total_hours += total_hours

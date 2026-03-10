@@ -114,10 +114,19 @@ class FileLockScanner:
             result.total_files_scanned += 1
             locked = self._check_lock_file(entry_path, entry_name)
             if locked:
+                log_info(
+                    f"Fsm_6_5_2: Phase2 found: '{locked.file_name}' "
+                    f"user='{locked.locked_by_user}' host='{locked.locked_by_host}' "
+                    f"source='{locked.lock_source}'"
+                )
                 # Fallback: если lock-парсер не определил пользователя
                 if locked.locked_by_user == "Неизвестно":
                     locker = _query_file_locker(locked.file_path)
                     if locker:
+                        log_info(
+                            f"Fsm_6_5_2: Phase2 RestartMgr fallback: "
+                            f"owner='{locker.owner}' app='{locker.app_name}'"
+                        )
                         if locker.owner:
                             locked.locked_by_user = locker.owner
                         if not locked.locked_by_host:
@@ -300,13 +309,25 @@ class FileLockScanner:
         else:
             user, host = self._parse_dwl_text(dwl_path)
 
+        log_info(
+            f"Fsm_6_5_2: DWL parse '{dwl_name}': "
+            f"user='{user}', host='{host}', type={'dwl2' if is_dwl2 else 'dwl'}"
+        )
+
         if not user:
             user = "Неизвестно"
 
         # Найти оригинальный файл (только в той же папке)
         target_path, target_name = self._find_dwl_target(dwl_path, dwl_name)
         if not target_path:
+            log_warning(
+                f"Fsm_6_5_2: DWL '{dwl_name}': оригинал не найден"
+            )
             return None
+
+        log_info(
+            f"Fsm_6_5_2: DWL '{dwl_name}' -> target='{target_name}'"
+        )
 
         try:
             size = os.path.getsize(target_path)
@@ -409,6 +430,9 @@ class FileLockScanner:
         Первый байт -- длина имени, затем имя в ASCII или UTF-16LE.
         """
         user = self._extract_office_username(lock_path)
+        log_info(
+            f"Fsm_6_5_2: Office lock '{lock_name}': user='{user}'"
+        )
 
         # Оригинал: убрать ~$ из начала имени
         original_name = lock_name[2:]  # ~$report.xlsx -> report.xlsx
@@ -449,6 +473,16 @@ class FileLockScanner:
 
         if len(data) < 2:
             return "Неизвестно"
+
+        # Debug: hex dump первых 64 байтов для диагностики формата
+        hex_preview = data[:64].hex(" ")
+        log_info(
+            f"Fsm_6_5_2: Office lock hex[0:64]: {hex_preview}"
+        )
+        log_info(
+            f"Fsm_6_5_2: Office lock len={len(data)}, "
+            f"byte[0]={data[0]}, byte[1]={data[1]}"
+        )
 
         # Word (.docx): первый байт = длина имени, далее имя в UTF-16LE
         # Excel (.xlsx): может быть plain ASCII с padding нулями

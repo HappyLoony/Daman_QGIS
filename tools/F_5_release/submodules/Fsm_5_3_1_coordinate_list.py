@@ -258,6 +258,14 @@ class Fsm_5_3_1_CoordinateList:
         import xlsxwriter
 
         extra_context = extra_context or {}
+
+        # SPB формат — отдельный метод
+        if extra_context.get('spb_format'):
+            return self._export_to_excel_spb(
+                layer, template, output_folder, is_wgs84,
+                appendix_num, extra_context
+            )
+
         metadata = ExportUtils.get_project_metadata()
 
         # Формируем имя файла из шаблона
@@ -379,10 +387,169 @@ class Fsm_5_3_1_CoordinateList:
         log_info(f"Fsm_5_3_1: Экспорт завершён: {filepath}")
         return True
 
+    def _export_to_excel_spb(
+        self,
+        layer: QgsVectorLayer,
+        template: DocumentTemplate,
+        output_folder: str,
+        is_wgs84: bool,
+        appendix_num: str,
+        extra_context: Dict[str, Any]
+    ) -> bool:
+        """
+        Экспорт в Excel формата СПб (3 колонки, без приложения/CRS).
+
+        Layout:
+        - Row 0: Заголовок title_override (merge A:C)
+        - Row 1: "Номер точки" | "Х (м)" | "Y (м)"
+        - Row 2+: Данные (номер сквозной в контуре, X, Y)
+        - Разделители "Внутренний контур N" между контурами
+        - Последняя строка: "S=... кв. м"
+
+        Args:
+            layer: Слой для экспорта
+            template: Шаблон документа
+            output_folder: Папка для сохранения
+            is_wgs84: Экспортировать в WGS-84
+            appendix_num: Номер приложения
+            extra_context: Контекст от Region78FormatModifier
+
+        Returns:
+            bool: Успешность экспорта
+        """
+        import xlsxwriter
+
+        metadata = ExportUtils.get_project_metadata()
+
+        # Формируем имя файла
+        layer_info = {'layer_name': layer.name(), 'appendix': appendix_num}
+        layer_info.update(extra_context)
+
+        if template.filename_template:
+            filename_base = ExportUtils.format_template_text(
+                template.filename_template, metadata, layer_info
+            )
+        else:
+            filename_base = f"Координаты"
+
+        feature_name = extra_context.get('feature_name')
+        if feature_name:
+            filename_base += f'_{feature_name}'
+
+        if is_wgs84:
+            filename_base += '_WGS84'
+
+        filename = f"{ExportUtils.sanitize_filename(filename_base)}.xlsx"
+        filepath = os.path.join(output_folder, filename)
+
+        # Собираем контуры БЕЗ замыкания
+        close_contours = extra_context.get('close_contours', True)
+        contours_data = self._collect_contours_with_coordinates(
+            layer, is_wgs84, close_contours
+        )
+
+        # Площадь из геометрии (в локальных координатах)
+        total_area = 0.0
+        for feature in layer.getFeatures():
+            if feature.hasGeometry():
+                total_area += feature.geometry().area()
+
+        workbook = xlsxwriter.Workbook(filepath)
+        try:
+            worksheet = workbook.add_worksheet('Координаты')
+            fmt = ExcelFormatManager(workbook)
+
+            # Ширина 3 колонок
+            worksheet.set_column(0, 0, 15)  # Номер точки
+            worksheet.set_column(1, 1, 15)  # X
+            worksheet.set_column(2, 2, 15)  # Y
+
+            # Форматы
+            title_format = fmt.get_title_format(font_size=11)
+            header_format = fmt.get_data_format(
+                align='center', with_border=False
+            )
+            data_format = fmt.get_data_format(
+                align='center', with_border=False
+            )
+            coord_format = fmt.get_coordinate_format(is_wgs84)
+            separator_format = fmt.get_subtitle_format(font_size=11)
+
+            current_row = 0
+
+            # Row 0: Заголовок
+            title_text = extra_context.get('title_override', '')
+            if not title_text:
+                title_text = ExportUtils.format_template_text(
+                    template.title_template, metadata, layer_info
+                )
+            worksheet.merge_range(
+                current_row, 0, current_row, 2,
+                title_text, title_format
+            )
+            # Высота строки заголовка (пропорционально длине текста)
+            title_lines = title_text.count('\n') + 1
+            worksheet.set_row(current_row, max(30, title_lines * 15))
+            current_row += 1
+
+            # Row 1: Заголовки колонок
+            if is_wgs84:
+                col_headers = ['Номер точки', 'Широта', 'Долгота']
+            else:
+                col_headers = ['Номер точки', 'Х (м)', 'Y (м)']
+
+            for col_idx, header_text in enumerate(col_headers):
+                worksheet.write(current_row, col_idx, header_text, header_format)
+            current_row += 1
+
+            # Данные контуров
+            inner_contour_num = 0
+
+            for contour_info in contours_data:
+                contour_type = contour_info['type']
+                coordinates = contour_info['coordinates']
+
+                if contour_type == 'hole':
+                    # Разделитель внутреннего контура
+                    inner_contour_num += 1
+                    label = f"Внутренний контур {inner_contour_num}"
+                    worksheet.merge_range(
+                        current_row, 0, current_row, 2,
+                        label, separator_format
+                    )
+                    current_row += 1
+
+                # Координаты с последовательной нумерацией внутри контура
+                for idx, coord in enumerate(coordinates, 1):
+                    worksheet.write(current_row, 0, idx, data_format)
+                    # Геодезический порядок: X=север (coord[2]), Y=восток (coord[1])
+                    worksheet.write(current_row, 1, coord[2], coord_format)
+                    worksheet.write(current_row, 2, coord[1], coord_format)
+                    current_row += 1
+
+            # Последняя строка: площадь
+            if extra_context.get('show_area') and total_area > 0:
+                area_int = round(total_area)
+                area_text = f"S={area_int} кв. м"
+                worksheet.merge_range(
+                    current_row, 0, current_row, 2,
+                    area_text, separator_format
+                )
+                current_row += 1
+
+            # Область печати
+            worksheet.print_area(0, 0, current_row - 1, 2)
+        finally:
+            workbook.close()
+
+        log_info(f"Fsm_5_3_1: SPB экспорт завершён: {filepath}")
+        return True
+
     def _collect_contours_with_coordinates(
         self,
         layer: QgsVectorLayer,
-        is_wgs84: bool = False
+        is_wgs84: bool = False,
+        close_contours: bool = True
     ) -> List[Dict[str, Any]]:
         """
         Сбор контуров с координатами и уникальной нумерацией точек
@@ -394,6 +561,7 @@ class Fsm_5_3_1_CoordinateList:
         Args:
             layer: Слой QGIS
             is_wgs84: Нужна ли трансформация в WGS-84
+            close_contours: Замыкать контуры первой точкой (False для СПб)
 
         Returns:
             Список контуров с координатами
@@ -414,7 +582,9 @@ class Fsm_5_3_1_CoordinateList:
 
         # Точечный слой - специальная обработка
         if layer_geom_type == Qgis.GeometryType.Point:
-            return self._collect_points_from_point_layer(layer, transform, precision)
+            return self._collect_points_from_point_layer(
+                layer, transform, precision, close_contours
+            )
 
         # Для полигональных слоёв пытаемся найти слой точек Т_*
         points_layer = self._find_points_layer(layer.name())
@@ -510,8 +680,8 @@ class Fsm_5_3_1_CoordinateList:
                     CPM.round_coordinate(point.y(), precision)
                 ])
 
-            # Замыкаем контур первой точкой
-            if len(raw_points) > 1:
+            # Замыкаем контур первой точкой (не для SPB формата)
+            if close_contours and len(raw_points) > 1:
                 first_point = raw_points[0]
                 key = CPM.round_point_tuple(first_point, precision)
                 point_num = unique_points[key]
@@ -535,7 +705,8 @@ class Fsm_5_3_1_CoordinateList:
         self,
         layer: QgsVectorLayer,
         transform: Optional[QgsCoordinateTransform],
-        precision: int
+        precision: int,
+        close_contours: bool = True
     ) -> List[Dict[str, Any]]:
         """
         Сбор точек из точечного слоя (Т_*)
@@ -660,8 +831,8 @@ class Fsm_5_3_1_CoordinateList:
             for pt in points:
                 coordinates.append([pt['num'], pt['x'], pt['y']])
 
-            # Добавляем замыкающую точку
-            if coordinates:
+            # Добавляем замыкающую точку (не для SPB формата)
+            if close_contours and coordinates:
                 first_coord = coordinates[0]
                 coordinates.append([first_coord[0], first_coord[1], first_coord[2]])
 

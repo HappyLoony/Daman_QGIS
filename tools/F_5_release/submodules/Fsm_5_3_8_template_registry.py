@@ -77,6 +77,17 @@ COORD_CUTTING_OKS_IZM = DocumentTemplate(
     filename_template='Приложение_{appendix}_координаты_ОЗУ_Изм',
 )
 
+COORD_CUTTING_OKS_PS = DocumentTemplate(
+    template_id='coord_cutting_oks_ps',
+    doc_type='coordinate_list',
+    name='Перечень координат ОЗУ ОКС (ПС)',
+    source_layers=['Le_2_1_1_*_ПС*'],
+    title_template='Перечень координат характерных точек контуров публичных сервитутов',
+    contour_format='Контур {№}',
+    supports_wgs84=True,
+    filename_template='Приложение_{appendix}_координаты_ОЗУ_ПС',
+)
+
 COORD_CUTTING_LO = DocumentTemplate(
     template_id='coord_cutting_lo',
     doc_type='coordinate_list',
@@ -324,6 +335,7 @@ DOCUMENT_TEMPLATES: List[DocumentTemplate] = [
     COORD_CUTTING_OKS_RAZDEL,
     COORD_CUTTING_OKS_NGS,
     COORD_CUTTING_OKS_IZM,
+    COORD_CUTTING_OKS_PS,
     COORD_CUTTING_LO,
     COORD_CUTTING_VO,
     COORD_CUTTING_REK_AD,
