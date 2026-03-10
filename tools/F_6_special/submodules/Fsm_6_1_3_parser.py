@@ -117,6 +117,7 @@ class TimesheetData:
     itogo_row: Optional[int] = None
     total_hours: float = 0.0
     parse_errors: List[str] = field(default_factory=list)
+    is_manager: bool = False
 
     @property
     def surname(self) -> str:
@@ -815,6 +816,7 @@ def get_manager_timesheet(
         timesheet = parse_timesheet(str(xlsx_file))
 
         if timesheet is not None:
+            timesheet.is_manager = True
             log_info(f"Fsm_6_1_3: Табель руководителя успешно распарсен: {timesheet.fio}")
             return timesheet
         else:

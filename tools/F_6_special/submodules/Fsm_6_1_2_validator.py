@@ -572,14 +572,16 @@ class TimesheetValidator:
         codes_result = self.validate_project_codes(timesheet)
         result.merge(codes_result)
 
-        # Валидация заполненности рабочих дней
-        workdays_result = self.validate_workdays(timesheet)
-        result.merge(workdays_result)
+        # Валидация заполненности рабочих дней и переработок
+        # Для руководителя проверяем только сумму часов (без детализации по дням)
+        if not timesheet.is_manager:
+            workdays_result = self.validate_workdays(timesheet)
+            result.merge(workdays_result)
 
-        # Валидация переработок (только для валидных табелей)
-        if result.is_valid:
-            overtime_result = self.validate_overtime(timesheet)
-            result.merge(overtime_result)
+            # Валидация переработок (только для валидных табелей)
+            if result.is_valid:
+                overtime_result = self.validate_overtime(timesheet)
+                result.merge(overtime_result)
 
         # Итоговая информация
         if result.is_valid:
