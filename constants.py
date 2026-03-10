@@ -260,16 +260,21 @@ LAYER_CUTTING_PREFIX = "Le_2_1_"
 LAYER_STAGING_PREFIX = "Le_2_7_"
 
 # Имена слоёв для F_2_1 (Нарезка ЗПР)
-# Исходные слои ЗПР (L_2_4_*)
-LAYER_ZPR_OKS = "L_2_4_1_ЗПР_ОКС"
-LAYER_ZPR_PO = "L_2_4_2_ЗПР_ПО"
-LAYER_ZPR_VO = "L_2_4_3_ЗПР_ВО"
+# Площадные ЗПР (L_1_12_*)
+LAYER_ZPR_OKS = "L_1_12_1_ЗПР_ОКС"
+LAYER_ZPR_PO = "L_1_12_2_ЗПР_ПО"
+LAYER_ZPR_VO = "L_1_12_3_ЗПР_ВО"
 
-# Линейные ЗПР (L_2_5_*)
-LAYER_ZPR_REK_AD = "L_2_5_1_ЗПР_РЕК_АД"
-LAYER_ZPR_SETI_PO = "L_2_5_2_ЗПР_СЕТИ_ПО"
-LAYER_ZPR_SETI_VO = "L_2_5_3_ЗПР_СЕТИ_ВО"
-LAYER_ZPR_NE = "L_2_5_4_ЗПР_НЭ"
+# Линейные ЗПР (L_1_13_*)
+LAYER_ZPR_REK_AD = "L_1_13_1_ЗПР_РЕК_АД"
+LAYER_ZPR_SETI_PO = "L_1_13_2_ЗПР_СЕТИ_ПО"
+LAYER_ZPR_SETI_VO = "L_1_13_3_ЗПР_СЕТИ_ВО"
+LAYER_ZPR_NE = "L_1_13_4_ЗПР_НЭ"
+
+# Префиксы слоёв ЗПР (для startswith-проверок)
+ZPR_PREFIX_STANDARD = "L_1_12_"
+ZPR_PREFIX_LINEAR = "L_1_13_"
+ZPR_PREFIXES = (ZPR_PREFIX_STANDARD, ZPR_PREFIX_LINEAR)
 
 # Все слои ЗПР (единая схема атрибутов)
 LAYERS_ZPR_ALL = (

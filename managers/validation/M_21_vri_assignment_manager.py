@@ -305,7 +305,7 @@ class VRIAssignmentManager:
         Каждый ВРИ в списке проверяется отдельно.
 
         Args:
-            zpr_layer: Слой ЗПР (L_2_4_1_ЗПР_ОКС и т.д.)
+            zpr_layer: Слой ЗПР (L_1_12_1_ЗПР_ОКС и т.д.)
 
         Returns:
             Tuple:

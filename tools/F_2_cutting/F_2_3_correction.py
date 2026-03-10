@@ -33,6 +33,8 @@ from Daman_QGIS.managers import registry
 from Daman_QGIS.constants import (
     PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION,
     COORDINATE_PRECISION,
+    # Исходные слои ЗПР
+    LAYER_ZPR_OKS, LAYER_ZPR_PO, LAYER_ZPR_VO,
     # Полигональные слои нарезки
     LAYER_CUTTING_OKS_RAZDEL, LAYER_CUTTING_OKS_NGS,
     LAYER_CUTTING_PO_RAZDEL, LAYER_CUTTING_PO_NGS,
@@ -98,9 +100,9 @@ class F_2_3_Correction(BaseTool):
 
     # Маппинг типа ЗПР на имя слоя ЗПР
     ZPR_TYPE_TO_LAYER = {
-        'ОКС': 'L_2_4_1_ЗПР_ОКС',
-        'ПО': 'L_2_4_2_ЗПР_ПО',
-        'ВО': 'L_2_4_3_ЗПР_ВО',
+        'ОКС': LAYER_ZPR_OKS,
+        'ПО': LAYER_ZPR_PO,
+        'ВО': LAYER_ZPR_VO,
     }
 
     def __init__(self, iface: Any) -> None:

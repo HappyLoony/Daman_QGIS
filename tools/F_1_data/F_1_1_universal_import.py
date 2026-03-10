@@ -12,7 +12,7 @@ from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog
 from qgis.PyQt.QtCore import Qt
 
 from Daman_QGIS.core.base_tool import BaseTool
-from Daman_QGIS.constants import PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION, MESSAGE_WARNING_DURATION
+from Daman_QGIS.constants import PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION, MESSAGE_WARNING_DURATION, ZPR_PREFIXES
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from .ui.universal_import_dialog import UniversalImportDialog
 from .submodules.Fsm_1_1_1_xml import XmlImportSubmodule
@@ -200,7 +200,7 @@ class F_1_1_UniversalImport(BaseTool):
             log_info("F_1_1: Применена сортировка слоёв по order_layers (direct import)")
 
             # Авто-ребилд ГПМТ если импортирован слой ЗПР
-            if layer_id and (layer_id.startswith('L_2_4_') or layer_id.startswith('L_2_5_')):
+            if layer_id and layer_id.startswith(ZPR_PREFIXES):
                 self._rebuild_gpmt_after_zpr_import()
 
         return result
@@ -305,7 +305,7 @@ class F_1_1_UniversalImport(BaseTool):
             if result.get('success'):
                 results['layers'].extend(result.get('layers', []))
                 # Проверяем, является ли слой слоем ЗПР
-                if layer_id.startswith('L_2_4_') or layer_id.startswith('L_2_5_'):
+                if layer_id.startswith(ZPR_PREFIXES):
                     zpr_imported = True
             else:
                 results['success'] = False
@@ -512,7 +512,7 @@ class F_1_1_UniversalImport(BaseTool):
         """
         Автоматический ребилд ГПМТ после импорта слоёв ЗПР
 
-        Вызывается когда импортирован слой L_2_4_* или L_2_5_*.
+        Вызывается когда импортирован слой ЗПР (L_1_12_* или L_1_13_*).
         Удаляет старый ГПМТ и создаёт новый из всех текущих слоёв ЗПР.
         """
         try:

@@ -128,7 +128,7 @@ class TestM28:
             f"ZPR: ожидалось 7 слоёв, получено {len(layers)}"
         )
 
-        expected = ['L_2_4_1_ЗПР_ОКС', 'L_2_4_2_ЗПР_ПО', 'L_2_4_3_ЗПР_ВО']
+        expected = ['L_1_12_1_ЗПР_ОКС', 'L_1_12_2_ЗПР_ПО', 'L_1_12_3_ЗПР_ВО']
         for name in expected:
             self.logger.check(
                 name in layers,
@@ -229,11 +229,11 @@ class TestM28:
             self.logger.skip("Валидатор не инициализирован")
             return
 
-        schema = self.validator._get_schema_for_layer('L_2_4_1_ЗПР_ОКС')
+        schema = self.validator._get_schema_for_layer('L_1_12_1_ЗПР_ОКС')
         self.logger.check(
             schema == 'ZPR',
-            "L_2_4_1_ЗПР_ОКС -> ZPR",
-            f"L_2_4_1_ЗПР_ОКС -> '{schema}'!"
+            "L_1_12_1_ЗПР_ОКС -> ZPR",
+            f"L_1_12_1_ЗПР_ОКС -> '{schema}'!"
         )
 
     def test_09_get_schema_for_forest_layer(self):
@@ -405,7 +405,7 @@ class TestM28:
 
         try:
             # Создаём memory layer с всеми полями ZPR
-            layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "L_2_4_1_ЗПР_ОКС", "memory")
+            layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "L_1_12_1_ЗПР_ОКС", "memory")
             dp = layer.dataProvider()
             dp.addAttributes([
                 QgsField("ID", QMetaType.Type.QString, len=254),
@@ -434,7 +434,7 @@ class TestM28:
 
         try:
             # Создаём memory layer с частью полей ZPR
-            layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "L_2_4_1_ЗПР_ОКС", "memory")
+            layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "L_1_12_1_ЗПР_ОКС", "memory")
             dp = layer.dataProvider()
             dp.addAttributes([
                 QgsField("ID", QMetaType.Type.QString, len=254),
@@ -467,7 +467,7 @@ class TestM28:
             return
 
         try:
-            layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "L_2_4_1_ЗПР_ОКС", "memory")
+            layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "L_1_12_1_ЗПР_ОКС", "memory")
             dp = layer.dataProvider()
             dp.addAttributes([
                 QgsField("ID", QMetaType.Type.QString, len=254),

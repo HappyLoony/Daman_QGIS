@@ -10,6 +10,7 @@ API: https://xmlcalendar.ru/data/ru/{year}/calendar.json
 
 import calendar
 import threading
+import time
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Set
 from Daman_QGIS.utils import log_info, log_warning, log_error
@@ -19,6 +20,11 @@ class ProductionCalendarManager:
     """Менеджер для работы с производственным календарем РФ."""
 
     API_URL_TEMPLATE = "https://xmlcalendar.ru/data/ru/{year}/calendar.json"
+
+    # Параметры retry
+    MAX_RETRIES = 3
+    RETRY_DELAY = 2.0  # секунды между попытками
+    REQUEST_TIMEOUT = 10  # секунды на один запрос
 
     # Lock для thread-safe доступа к кэшам
     _lock = threading.Lock()
@@ -39,6 +45,9 @@ class ProductionCalendarManager:
         Thread-safe: использует double-checked locking для минимизации
         блокировок при частых обращениях к кэшу.
 
+        При недоступности API делает до MAX_RETRIES попыток с задержкой.
+        Без fallback -- если API недоступен, возвращает None.
+
         Args:
             year: Год (например, 2026)
 
@@ -55,7 +64,7 @@ class ProductionCalendarManager:
             if year in ProductionCalendarManager._calendar_cache:
                 return ProductionCalendarManager._calendar_cache[year]
 
-            # Загружаем с API
+            # Загружаем с API (с retry)
             calendar_data = self._load_from_api(year)
 
             if calendar_data:
@@ -66,7 +75,10 @@ class ProductionCalendarManager:
 
     def _load_from_api(self, year: int) -> Optional[Dict]:
         """
-        Загрузить календарь с xmlcalendar.ru API.
+        Загрузить календарь с xmlcalendar.ru API с retry.
+
+        Делает до MAX_RETRIES попыток с задержкой RETRY_DELAY между ними.
+        Без fallback -- если все попытки неудачны, возвращает None.
 
         Args:
             year: Год
@@ -77,64 +89,44 @@ class ProductionCalendarManager:
         try:
             import requests
         except ImportError:
-            log_warning("Msm_4_22: requests не установлен")
-            return self._get_fallback_calendar(year)
+            log_error("Msm_4_22: requests не установлен, календарь недоступен")
+            return None
 
         url = self.API_URL_TEMPLATE.format(year=year)
+        last_error = None
 
-        try:
-            response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                log_info(f"Msm_4_22: Загружен календарь на {year} год")
-                return data
-            else:
-                log_warning(f"Msm_4_22: HTTP {response.status_code} для календаря {year}")
-        except requests.exceptions.Timeout:
-            log_warning(f"Msm_4_22: Таймаут при загрузке календаря {year}")
-        except requests.exceptions.RequestException as e:
-            log_warning(f"Msm_4_22: Ошибка сети при загрузке календаря {year}: {e}")
-        except Exception as e:
-            log_error(f"Msm_4_22: Ошибка парсинга календаря {year}: {e}")
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                response = requests.get(url, timeout=self.REQUEST_TIMEOUT)
+                if response.status_code == 200:
+                    data = response.json()
+                    if attempt > 1:
+                        log_info(f"Msm_4_22: Загружен календарь на {year} год (попытка {attempt})")
+                    else:
+                        log_info(f"Msm_4_22: Загружен календарь на {year} год")
+                    return data
+                else:
+                    last_error = f"HTTP {response.status_code}"
+                    log_warning(f"Msm_4_22: {last_error} для календаря {year} (попытка {attempt}/{self.MAX_RETRIES})")
+            except requests.exceptions.Timeout:
+                last_error = "таймаут"
+                log_warning(f"Msm_4_22: Таймаут загрузки календаря {year} (попытка {attempt}/{self.MAX_RETRIES})")
+            except requests.exceptions.RequestException as e:
+                last_error = str(e)
+                log_warning(f"Msm_4_22: Ошибка сети для календаря {year} (попытка {attempt}/{self.MAX_RETRIES}): {e}")
+            except Exception as e:
+                last_error = str(e)
+                log_error(f"Msm_4_22: Ошибка парсинга календаря {year} (попытка {attempt}/{self.MAX_RETRIES}): {e}")
 
-        # Возвращаем fallback календарь
-        return self._get_fallback_calendar(year)
+            # Задержка перед следующей попыткой (кроме последней)
+            if attempt < self.MAX_RETRIES:
+                time.sleep(self.RETRY_DELAY)
 
-    def _get_fallback_calendar(self, year: int) -> Optional[Dict]:
-        """
-        Получить fallback календарь (выходные = суббота, воскресенье).
-
-        Args:
-            year: Год
-
-        Returns:
-            Базовый календарь с выходными по субботам и воскресеньям
-        """
-        log_warning(f"Msm_4_22: Используется fallback календарь для {year}")
-
-        months_data = []
-        for month in range(1, 13):
-            # Находим все субботы (5) и воскресенья (6) в месяце
-            weekends = []
-            _, num_days = calendar.monthrange(year, month)
-            for day in range(1, num_days + 1):
-                weekday = calendar.weekday(year, month, day)
-                if weekday in (5, 6):  # Суббота или воскресенье
-                    weekends.append(str(day))
-
-            months_data.append({
-                "month": month,
-                "days": ",".join(weekends)
-            })
-
-        return {
-            "year": year,
-            "months": months_data,
-            "statistic": {
-                "workdays": 0,  # Будет пересчитано
-                "holidays": 0
-            }
-        }
+        log_error(
+            f"Msm_4_22: Не удалось загрузить календарь на {year} после {self.MAX_RETRIES} попыток. "
+            f"Последняя ошибка: {last_error}. Проверьте подключение к интернету."
+        )
+        return None
 
     def _parse_calendar(self, year: int, calendar_data: Dict) -> None:
         """
@@ -185,6 +177,18 @@ class ProductionCalendarManager:
         ProductionCalendarManager._holidays_cache[year] = holidays
         ProductionCalendarManager._shortened_cache[year] = shortened
 
+    def is_loaded(self, year: int) -> bool:
+        """
+        Проверить, загружен ли календарь для года.
+
+        Args:
+            year: Год
+
+        Returns:
+            True если календарь загружен (из API, не fallback)
+        """
+        return year in ProductionCalendarManager._calendar_cache
+
     def is_workday(self, check_date: date) -> bool:
         """
         Проверить, является ли дата рабочим днем.
@@ -194,6 +198,9 @@ class ProductionCalendarManager:
 
         Returns:
             True если рабочий день
+
+        Raises:
+            RuntimeError: Если производственный календарь недоступен
         """
         year = check_date.year
         month = check_date.month
@@ -201,7 +208,12 @@ class ProductionCalendarManager:
 
         # Загружаем календарь если нужно
         if year not in ProductionCalendarManager._holidays_cache:
-            self.get_calendar(year)
+            result = self.get_calendar(year)
+            if result is None:
+                raise RuntimeError(
+                    f"Производственный календарь на {year} год недоступен. "
+                    f"Проверьте подключение к интернету."
+                )
 
         holidays = ProductionCalendarManager._holidays_cache.get(year, set())
         return (month, day) not in holidays
@@ -227,6 +239,9 @@ class ProductionCalendarManager:
 
         Returns:
             True если сокращенный день
+
+        Raises:
+            RuntimeError: Если производственный календарь недоступен
         """
         year = check_date.year
         month = check_date.month
@@ -234,7 +249,12 @@ class ProductionCalendarManager:
 
         # Загружаем календарь если нужно
         if year not in ProductionCalendarManager._shortened_cache:
-            self.get_calendar(year)
+            result = self.get_calendar(year)
+            if result is None:
+                raise RuntimeError(
+                    f"Производственный календарь на {year} год недоступен. "
+                    f"Проверьте подключение к интернету."
+                )
 
         shortened = ProductionCalendarManager._shortened_cache.get(year, set())
         return (month, day) in shortened
@@ -249,10 +269,18 @@ class ProductionCalendarManager:
 
         Returns:
             Список номеров рабочих дней
+
+        Raises:
+            RuntimeError: Если производственный календарь недоступен
         """
         # Загружаем календарь если нужно
         if year not in ProductionCalendarManager._holidays_cache:
-            self.get_calendar(year)
+            result = self.get_calendar(year)
+            if result is None:
+                raise RuntimeError(
+                    f"Производственный календарь на {year} год недоступен. "
+                    f"Проверьте подключение к интернету."
+                )
 
         holidays = ProductionCalendarManager._holidays_cache.get(year, set())
 

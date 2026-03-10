@@ -6,8 +6,8 @@ M_35_ZprGpmtManager - Формирование ГПМТ из слоёв ЗПР
 объединяющий все слои ЗПР в проекте.
 
 Слои-источники:
-- L_2_4_* - стандартные ЗПР (ОКС, ПО, ВО)
-- L_2_5_* - рекреационные ЗПР (РЕК_АД, СЕТИ_ПО, СЕТИ_ВО, НЭ)
+- L_1_12_* - площадные ЗПР (ОКС, ПО, ВО)
+- L_1_13_* - линейные ЗПР (РЕК_АД, СЕТИ_ПО, СЕТИ_ВО, НЭ)
 
 Результат:
 - L_2_6_1_ГПМТ - 1 объект MultiPolygon с атрибутом area_sqm
@@ -33,7 +33,7 @@ from qgis.core import (
 )
 
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
-from Daman_QGIS.constants import PRECISION_DECIMALS, COORDINATE_PRECISION
+from Daman_QGIS.constants import PRECISION_DECIMALS, COORDINATE_PRECISION, ZPR_PREFIXES
 
 __all__ = ['ZprGpmtManager']
 
@@ -46,8 +46,8 @@ class ZprGpmtManager:
     всех ЗПР в проекте. Пересоздаётся при каждом импорте ЗПР.
     """
 
-    # Префиксы слоёв ЗПР (источники для ГПМТ)
-    ZPR_PREFIXES = ['L_2_4_', 'L_2_5_']
+    # Префиксы слоёв ЗПР (из constants.py)
+    ZPR_PREFIXES = ZPR_PREFIXES
 
     # Имя результирующего слоя ГПМТ
     GPMT_LAYER_NAME = 'L_2_6_1_ГПМТ'
@@ -129,7 +129,7 @@ class ZprGpmtManager:
 
         Процесс:
         1. Удаляет существующий ГПМТ и точечный слой нумерации
-        2. Находит все слои ЗПР (L_2_4_*, L_2_5_*) в проекте
+        2. Находит все слои ЗПР (L_1_12_*, L_1_13_*) в проекте
         3. Собирает все геометрии и объединяет через unaryUnion
         4. Создаёт 1 объект MultiPolygon с area_sqm
         5. Сохраняет в GeoPackage и добавляет в проект

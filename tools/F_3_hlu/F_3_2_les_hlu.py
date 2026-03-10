@@ -106,7 +106,7 @@ class F_3_2_LesHLU(BaseTool):
             word_manager = registry.get('M_33')
 
             # Определяем путь к шаблону
-            # Единый шаблон hlu.docx для обоих режимов (L_2_4_*/L_2_5_* и Le_3_*)
+            # Единый шаблон hlu.docx для обоих режимов (L_1_12_*/L_1_13_* и Le_3_*)
             template_path = os.path.join(
                 self.plugin_dir,
                 "data", "templates", "word", "hlu", "hlu.docx"

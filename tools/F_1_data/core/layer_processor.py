@@ -16,6 +16,7 @@ from qgis.PyQt.QtGui import QColor
 
 from Daman_QGIS.managers import LayerReplacementManager, DataCleanupManager
 from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.constants import ZPR_PREFIXES
 
 
 class LayerProcessor:
@@ -123,7 +124,7 @@ class LayerProcessor:
         # Очищаем имя слоя от недопустимых символов
         layer_name = self._clean_layer_name(layer_name)
 
-        # Дополняем обязательные поля для слоёв ЗПР (L_2_4_*, L_2_5_*)
+        # Дополняем обязательные поля для слоёв ЗПР
         # ПЕРЕД сохранением в GPKG, чтобы F_2_1 мог работать со слоем
         self._ensure_zpr_fields(layer, layer_name)
 
@@ -338,7 +339,7 @@ class LayerProcessor:
         """
         Дополнение обязательных полей для слоёв ЗПР
 
-        Проверяет, является ли слой слоем ЗПР (L_2_4_* или L_2_5_*),
+        Проверяет, является ли слой слоем ЗПР,
         и если да - добавляет недостающие обязательные поля.
 
         Обязательные поля ЗПР (схема 'ZPR' в M_28):
@@ -349,7 +350,7 @@ class LayerProcessor:
             layer_name: Имя слоя
         """
         # Проверяем, является ли слой слоем ЗПР
-        if not (layer_name.startswith('L_2_4_') or layer_name.startswith('L_2_5_')):
+        if not layer_name.startswith(ZPR_PREFIXES):
             return
 
         try:

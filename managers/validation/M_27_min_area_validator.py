@@ -19,6 +19,10 @@ from typing import Dict, List, Optional, Any
 from qgis.core import QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry
 
 from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.constants import (
+    LAYER_ZPR_OKS, LAYER_ZPR_PO, LAYER_ZPR_VO,
+    LAYER_ZPR_REK_AD, LAYER_ZPR_SETI_PO, LAYER_ZPR_SETI_VO, LAYER_ZPR_NE,
+)
 from .submodules.Msm_27_1_validation_engine import ValidationEngine
 from .submodules.Msm_27_2_result_dialog import MinAreaResultDialog
 
@@ -33,13 +37,13 @@ class MinAreaValidator:
 
     # Маппинг типа ЗПР -> имя исходного слоя ЗПР
     ZPR_TYPE_TO_LAYER = {
-        'ОКС': 'L_2_4_1_ЗПР_ОКС',
-        'ПО': 'L_2_4_2_ЗПР_ПО',
-        'ВО': 'L_2_4_3_ЗПР_ВО',
-        'РЕК_АД': 'L_2_5_1_ЗПР_РЕК_АД',
-        'СЕТИ_ПО': 'L_2_5_2_ЗПР_СЕТИ_ПО',
-        'СЕТИ_ВО': 'L_2_5_3_ЗПР_СЕТИ_ВО',
-        'НЭ': 'L_2_5_4_ЗПР_НЭ',
+        'ОКС': LAYER_ZPR_OKS,
+        'ПО': LAYER_ZPR_PO,
+        'ВО': LAYER_ZPR_VO,
+        'РЕК_АД': LAYER_ZPR_REK_AD,
+        'СЕТИ_ПО': LAYER_ZPR_SETI_PO,
+        'СЕТИ_ВО': LAYER_ZPR_SETI_VO,
+        'НЭ': LAYER_ZPR_NE,
     }
 
     # Маппинг типа ЗПР -> список имён слоёв нарезки (Раздел, НГС, Без_Меж, ПС)

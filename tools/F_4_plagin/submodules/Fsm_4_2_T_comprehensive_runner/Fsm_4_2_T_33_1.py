@@ -117,13 +117,13 @@ class TestMsm331:
 
             # Проверяем конкретные слои
             expected_layers = [
-                "L_2_4_1_ЗПР_ОКС",
-                "L_2_4_2_ЗПР_ПО",
-                "L_2_4_3_ЗПР_ВО",
-                "L_2_5_1_ЗПР_РЕК_АД",
-                "L_2_5_2_ЗПР_СЕТИ_ПО",
-                "L_2_5_3_ЗПР_СЕТИ_ВО",
-                "L_2_5_4_ЗПР_НЭ"
+                "L_1_12_1_ЗПР_ОКС",
+                "L_1_12_2_ЗПР_ПО",
+                "L_1_12_3_ЗПР_ВО",
+                "L_1_13_1_ЗПР_РЕК_АД",
+                "L_1_13_2_ЗПР_СЕТИ_ПО",
+                "L_1_13_3_ЗПР_СЕТИ_ВО",
+                "L_1_13_4_ЗПР_НЭ"
             ]
 
             for layer in expected_layers:
@@ -253,25 +253,25 @@ class TestMsm331:
             # Все слои должны начинаться с L_2_
             for layer in ZPR_LAYERS:
                 self.logger.check(
-                    layer.startswith("L_2_"),
-                    f"Слой {layer} начинается с L_2_",
+                    layer.startswith("L_1_1"),
+                    f"Слой {layer} начинается с L_1_1",
                     f"Слой {layer} имеет неверный префикс!"
                 )
 
-            # Слои ЗПР (L_2_4_*) vs ЗПР_РЕК (L_2_5_*)
-            zpr_basic = [l for l in ZPR_LAYERS if l.startswith("L_2_4_")]
-            zpr_rek = [l for l in ZPR_LAYERS if l.startswith("L_2_5_")]
+            # Площадные ЗПР (L_1_12_*) vs линейные ЗПР (L_1_13_*)
+            zpr_basic = [l for l in ZPR_LAYERS if l.startswith("L_1_12_")]
+            zpr_rek = [l for l in ZPR_LAYERS if l.startswith("L_1_13_")]
 
             self.logger.check(
                 len(zpr_basic) == 3,
-                f"3 базовых слоя ЗПР (L_2_4_*): {zpr_basic}",
-                f"Неверное количество базовых слоёв: {len(zpr_basic)}"
+                f"3 площадных слоя ЗПР (L_1_12_*): {zpr_basic}",
+                f"Неверное количество площадных слоёв: {len(zpr_basic)}"
             )
 
             self.logger.check(
                 len(zpr_rek) == 4,
-                f"4 слоя ЗПР_РЕК (L_2_5_*): {zpr_rek}",
-                f"Неверное количество слоёв ЗПР_РЕК: {len(zpr_rek)}"
+                f"4 линейных слоя ЗПР (L_1_13_*): {zpr_rek}",
+                f"Неверное количество линейных слоёв: {len(zpr_rek)}"
             )
 
             self.logger.success("Имена слоёв ЗПР соответствуют конвенции")
