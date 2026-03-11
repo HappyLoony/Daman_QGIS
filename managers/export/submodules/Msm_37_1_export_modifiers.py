@@ -185,12 +185,20 @@ class Region78FormatModifier(ExportModifier):
     - show_area: True -- показывать S= в конце
     """
 
-    # Маппинг template_id -> описание объекта в шапке
+    # Маппинг template_id -> описание объекта в шапке (для специфичных шаблонов).
+    # Для generic шаблонов (coord_cutting_lo, coord_cutting_vo, ...)
+    # дескриптор определяется по имени слоя через _get_descriptor().
     OBJECT_DESCRIPTOR_MAP: Dict[str, str] = {
         'coord_cutting_oks_razdel': 'границ земельного участка',
         'coord_cutting_oks_ngs': 'границ земельного участка',
         'coord_cutting_oks_ps': 'контура публичного сервитута',
     }
+
+    # Дескриптор по умолчанию (ОЗУ = образуемый земельный участок)
+    DEFAULT_DESCRIPTOR = 'границ земельного участка'
+
+    # Дескриптор для ПС (публичный сервитут)
+    PS_DESCRIPTOR = 'контура публичного сервитута'
 
     # Тип объекта -> фраза размещения
     PLACEMENT_PHRASE_MAP: Dict[str, str] = {
@@ -229,9 +237,10 @@ class Region78FormatModifier(ExportModifier):
 
             extra_context = dict(item.get('extra_context', {}))
             feature_index = extra_context.get('feature_index', 1)
+            layer_name = item['layer'].name() if item.get('layer') else ''
 
             title = self._build_title(
-                template.template_id, feature_index, metadata
+                template.template_id, feature_index, metadata, layer_name
             )
 
             extra_context['spb_format'] = True
@@ -248,16 +257,43 @@ class Region78FormatModifier(ExportModifier):
             log_info(
                 f"Msm_37_1: SPB формат для "
                 f"'{extra_context.get('feature_name', 'N/A')}' "
-                f"(template={template.template_id})"
+                f"(template={template.template_id}, layer={layer_name})"
             )
 
         return result
+
+    def _get_descriptor(self, template_id: str, layer_name: str) -> str:
+        """
+        Определить дескриптор объекта для заголовка.
+
+        Приоритет:
+        1. OBJECT_DESCRIPTOR_MAP по template_id (для специфичных шаблонов OKS)
+        2. Имя слоя содержит 'ПС' -> контура публичного сервитута
+        3. По умолчанию -> границ земельного участка
+
+        Args:
+            template_id: ID шаблона
+            layer_name: Имя слоя (для generic шаблонов)
+
+        Returns:
+            Строка дескриптора
+        """
+        # Специфичный шаблон (OKS с суффиксом razdel/ngs/ps)
+        if template_id in self.OBJECT_DESCRIPTOR_MAP:
+            return self.OBJECT_DESCRIPTOR_MAP[template_id]
+
+        # Generic шаблон — определяем по имени слоя
+        if '_ПС' in layer_name or layer_name.endswith('_ПС'):
+            return self.PS_DESCRIPTOR
+
+        return self.DEFAULT_DESCRIPTOR
 
     def _build_title(
         self,
         template_id: str,
         feature_index: int,
-        metadata: Dict[str, Any]
+        metadata: Dict[str, Any],
+        layer_name: str = ''
     ) -> str:
         """
         Сформировать заголовок документа для SPB формата.
@@ -272,13 +308,12 @@ class Region78FormatModifier(ExportModifier):
             template_id: ID шаблона (для определения типа объекта)
             feature_index: Номер объекта (от SplitByFeature)
             metadata: Метаданные проекта из _metadata таблицы
+            layer_name: Имя слоя (для определения дескриптора в generic шаблонах)
 
         Returns:
             Строка заголовка с переносами строк
         """
-        descriptor = self.OBJECT_DESCRIPTOR_MAP.get(
-            template_id, 'границ земельного участка'
-        )
+        descriptor = self._get_descriptor(template_id, layer_name)
 
         full_name = metadata.get('1_1_full_name', '')
 
@@ -309,21 +344,30 @@ class Region78FormatModifier(ExportModifier):
 
 # === Конфигурация модификаторов по регионам ===
 
+# Все шаблоны нарезок (Le_2_1_* и Le_2_2_*) для региона 78.
+# coord_cutting_oks_izm ИСКЛЮЧЁН — не координируется (только атрибутивные изменения).
+_REGION_78_CUTTING_TEMPLATE_IDS = [
+    # OKS (Le_2_1_1_*)
+    'coord_cutting_oks_razdel',
+    'coord_cutting_oks_ngs',
+    'coord_cutting_oks_ps',
+    # ЗПР подтипы (Le_2_1_2_*, Le_2_1_3_*)
+    'coord_cutting_lo',       # Le_2_1_2_* (ПО)
+    'coord_cutting_vo',       # Le_2_1_3_* (ВО)
+    # Сети и прочие (Le_2_2_*)
+    'coord_cutting_rek_ad',   # Le_2_2_1_* (РЕК АД)
+    'coord_cutting_seti_po',  # Le_2_2_2_* (СЕТИ ПО)
+    'coord_cutting_seti_vo',  # Le_2_2_3_* (СЕТИ ВО)
+    'coord_cutting_ne',       # Le_2_2_4_* (НЭ)
+]
+
 REGION_EXPORT_MODIFIERS: Dict[str, List[ExportModifier]] = {
     '78': [
         SplitByFeatureModifier(
-            template_ids=[
-                'coord_cutting_oks_razdel',
-                'coord_cutting_oks_ngs',
-                'coord_cutting_oks_ps',
-            ],
+            template_ids=_REGION_78_CUTTING_TEMPLATE_IDS,
         ),
         Region78FormatModifier(
-            template_ids=[
-                'coord_cutting_oks_razdel',
-                'coord_cutting_oks_ngs',
-                'coord_cutting_oks_ps',
-            ],
+            template_ids=_REGION_78_CUTTING_TEMPLATE_IDS,
         ),
     ],
 }
