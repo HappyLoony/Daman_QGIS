@@ -15,18 +15,28 @@ from typing import List, Dict, Any
 
 from qgis.core import QgsProject, QgsVectorLayer
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QGroupBox, QScrollArea, QWidget, QComboBox
 )
 from qgis.PyQt.QtCore import Qt
+
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 from ..submodules.Fsm_5_3_8_template_registry import (
     DocumentTemplate, TemplateRegistry
 )
 
 
-class DocumentExportDialog(QDialog):
+class DocumentExportDialog(BaseResponsiveDialog):
     """Диалог выбора документов для экспорта"""
+
+    # Адаптивные размеры диалога
+    WIDTH_RATIO = 0.50
+    HEIGHT_RATIO = 0.65
+    MIN_WIDTH = 600
+    MAX_WIDTH = 900
+    MIN_HEIGHT = 450
+    MAX_HEIGHT = 700
 
     def __init__(
         self,
@@ -46,8 +56,6 @@ class DocumentExportDialog(QDialog):
         self.create_wgs84_checkbox = None
 
         self.setWindowTitle("Экспорт документов по шаблону")
-        self.setMinimumWidth(700)
-        self.setMinimumHeight(500)
 
         self._init_ui()
 

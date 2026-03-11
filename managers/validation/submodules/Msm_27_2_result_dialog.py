@@ -11,7 +11,7 @@ Msm_27_2_ResultDialog - GUI диалог результатов валидаци
 from typing import Dict, List, Optional, Any
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
+    QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QPushButton, QHeaderView, QAbstractItemView,
     QMessageBox
 )
@@ -23,11 +23,19 @@ from qgis.core import (
 )
 from qgis.gui import QgsRubberBand
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import log_info, log_error
 
 
-class MinAreaResultDialog(QDialog):
+class MinAreaResultDialog(BaseResponsiveDialog):
     """Диалог отображения контуров с недостаточной площадью"""
+
+    WIDTH_RATIO = 0.65
+    HEIGHT_RATIO = 0.65
+    MIN_WIDTH = 700
+    MAX_WIDTH = 1100
+    MIN_HEIGHT = 400
+    MAX_HEIGHT = 700
 
     # Колонки таблицы
     COLUMNS = [
@@ -64,8 +72,6 @@ class MinAreaResultDialog(QDialog):
     def _setup_ui(self) -> None:
         """Настройка интерфейса"""
         self.setWindowTitle(f'Проверка минимальных площадей - {self._zpr_type}')
-        self.setMinimumSize(800, 400)
-        self.resize(900, 500)
 
         layout = QVBoxLayout(self)
 

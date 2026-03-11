@@ -9,7 +9,8 @@
 """
 
 from typing import Dict, Any, List, Tuple
-from qgis.PyQt.QtWidgets import QDialog, QComboBox, QLineEdit, QMessageBox
+from qgis.PyQt.QtWidgets import QComboBox, QLineEdit, QMessageBox
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import log_info, log_warning
 from Daman_QGIS.managers import DataValidator
 
@@ -44,7 +45,7 @@ SCALE_TO_TEXT_HEIGHT_MAP = {
 }
 
 
-class BaseMetadataDialog(QDialog):
+class BaseMetadataDialog(BaseResponsiveDialog):
     """
     Базовый класс для диалогов работы с метаданными проекта
 
@@ -53,6 +54,13 @@ class BaseMetadataDialog(QDialog):
     - Методы для загрузки enum из JSON
     - Общую валидацию метаданных
     """
+
+    WIDTH_RATIO = 0.40
+    HEIGHT_RATIO = 0.80
+    MIN_WIDTH = 480
+    MAX_WIDTH = 700
+    MIN_HEIGHT = 500
+    MAX_HEIGHT = 850
 
     def __init__(self, parent=None, reference_db=None):
         """

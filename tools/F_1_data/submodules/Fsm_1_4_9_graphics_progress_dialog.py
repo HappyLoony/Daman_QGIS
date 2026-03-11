@@ -8,13 +8,21 @@ import subprocess
 import sys
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QProgressBar, 
+    QVBoxLayout, QProgressBar,
     QLabel, QPushButton, QDialogButtonBox
 )
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class GraphicsProgressDialog(QDialog):
+class GraphicsProgressDialog(BaseResponsiveDialog):
     """Минималистичный диалог отображения прогресса"""
+
+    WIDTH_RATIO = 0.25
+    HEIGHT_RATIO = 0.15
+    MIN_WIDTH = 350
+    MAX_WIDTH = 450
+    MIN_HEIGHT = 130
+    MAX_HEIGHT = 200
     
     def __init__(self, parent=None):
         """Инициализация диалога прогресса"""

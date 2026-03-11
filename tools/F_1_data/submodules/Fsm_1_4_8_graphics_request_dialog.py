@@ -7,7 +7,7 @@
 from typing import Dict, List, Tuple
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout,
+    QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QDialogButtonBox,
     QGroupBox, QCheckBox, QScrollArea, QWidget
 )
@@ -15,18 +15,24 @@ from qgis.core import QgsProject, QgsMessageLog, Qgis
 from Daman_QGIS.constants import PLUGIN_NAME
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.managers import get_reference_managers
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class GraphicsRequestDialog(QDialog):
+class GraphicsRequestDialog(BaseResponsiveDialog):
     """Диалог выбора слоев для включения в схему"""
+
+    WIDTH_RATIO = 0.35
+    HEIGHT_RATIO = 0.55
+    MIN_WIDTH = 450
+    MAX_WIDTH = 650
+    MIN_HEIGHT = 450
+    MAX_HEIGHT = 700
 
     MAX_LAYERS = 4  # Максимальное количество слоёв с легендой (ограничение размера легенды)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Выбор слоев для схемы")
-        self.setMinimumWidth(500)
-        self.setMinimumHeight(500)
 
         self.selected_layers = []  # Не используется
         self.nspd_layers = {}  # Словарь для хранения выбранных слоев НСПД

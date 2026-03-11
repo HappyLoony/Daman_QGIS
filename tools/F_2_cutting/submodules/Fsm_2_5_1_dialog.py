@@ -16,7 +16,7 @@ GUI диалог с таблицей для выбора земельных уч
 from typing import Optional, List, Dict, Any, Callable
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+    QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QComboBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QCheckBox, QWidget,
     QMessageBox
@@ -26,16 +26,25 @@ from qgis.PyQt.QtGui import QColor
 from qgis.core import QgsVectorLayer, QgsFeature, QgsGeometry
 from qgis.gui import QgsRubberBand
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import log_info, log_warning
 
 
-class Fsm_2_5_1_Dialog(QDialog):
+class Fsm_2_5_1_Dialog(BaseResponsiveDialog):
     """Диалог выбора ЗУ для изъятия
 
     Attributes:
         layers: Список доступных слоёв-источников (Раздел, НГС)
         transfer_callback: Функция копирования (source_layer, feature_ids) -> result
     """
+
+    # Адаптивные размеры диалога
+    WIDTH_RATIO = 0.65
+    HEIGHT_RATIO = 0.70
+    MIN_WIDTH = 700
+    MAX_WIDTH = 1100
+    MIN_HEIGHT = 480
+    MAX_HEIGHT = 750
 
     # Индексы колонок таблицы
     COL_CHECK = 0
@@ -66,7 +75,6 @@ class Fsm_2_5_1_Dialog(QDialog):
         self._rubber_band: Optional[QgsRubberBand] = None
 
         self.setWindowTitle("Отбор ЗУ для изъятия")
-        self.resize(900, 550)
         self.setModal(True)
 
         self._setup_ui()

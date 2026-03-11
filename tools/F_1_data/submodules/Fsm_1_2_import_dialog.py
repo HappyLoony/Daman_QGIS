@@ -6,17 +6,25 @@
 
 import os
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+    QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QFileDialog,
     QGroupBox, QLineEdit, QMessageBox
 )
 from qgis.PyQt.QtCore import Qt, QSettings, QStandardPaths
 from qgis.PyQt.QtGui import QFont
 from qgis.core import QgsMessageLog, Qgis
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class Tool_1_2_ImportDialog(QDialog):
+class Tool_1_2_ImportDialog(BaseResponsiveDialog):
     """Диалог импорта данных КПТ с выбором формата"""
+
+    WIDTH_RATIO = 0.35
+    HEIGHT_RATIO = 0.55
+    MIN_WIDTH = 450
+    MAX_WIDTH = 650
+    MIN_HEIGHT = 350
+    MAX_HEIGHT = 550
     
     # Маппинг типов слоев на нумерацию и типы геометрии
     LAYER_TYPES = {
@@ -119,7 +127,6 @@ class Tool_1_2_ImportDialog(QDialog):
         """Инициализация диалога"""
         super().__init__(parent)
         self.setWindowTitle("Импорт данных КПТ")
-        self.setMinimumWidth(500)
         
         # Атрибуты для хранения выбранных опций
         self.selected_files = []

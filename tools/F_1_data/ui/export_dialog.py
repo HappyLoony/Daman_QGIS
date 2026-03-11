@@ -9,7 +9,7 @@ import sys
 from typing import List, Optional
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
     QPushButton, QLabel, QDialogButtonBox,
     QCheckBox, QGroupBox, QMessageBox
 )
@@ -19,10 +19,18 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.core import QgsProject, QgsVectorLayer, QgsMessageLog, Qgis
 from Daman_QGIS.constants import PLUGIN_NAME
 from Daman_QGIS.managers import registry, FolderType
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class ExportDialog(QDialog):
+class ExportDialog(BaseResponsiveDialog):
     """Диалог выбора слоев для экспорта"""
+
+    WIDTH_RATIO = 0.45
+    HEIGHT_RATIO = 0.65
+    MIN_WIDTH = 550
+    MAX_WIDTH = 800
+    MIN_HEIGHT = 450
+    MAX_HEIGHT = 700
     
     def __init__(self, parent=None, export_format=""):
         """
@@ -59,8 +67,6 @@ class ExportDialog(QDialog):
     def setup_ui(self):
         """Создание интерфейса"""
         self.setWindowTitle(f"Экспорт в {self.export_format}")
-        self.setMinimumWidth(600)
-        self.setMinimumHeight(500)
         
         layout = QVBoxLayout(self)
         

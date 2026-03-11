@@ -15,19 +15,29 @@ import threading
 from typing import Optional, Dict, Any
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTextEdit, QLineEdit, QGroupBox, QMessageBox
 )
 from qgis.PyQt.QtGui import QFont
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.core import Qgis
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
+
 from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT, PLUGIN_VERSION
 from Daman_QGIS.utils import log_info, log_error, log_warning
 
 
-class FeedbackDialog(QDialog):
+class FeedbackDialog(BaseResponsiveDialog):
     """Диалог обратной связи"""
+
+    # Адаптивные размеры диалога
+    WIDTH_RATIO = 0.42
+    HEIGHT_RATIO = 0.60
+    MIN_WIDTH = 480
+    MAX_WIDTH = 650
+    MIN_HEIGHT = 400
+    MAX_HEIGHT = 600
 
     # Сигналы для thread-safe callback из фонового потока в GUI
     _signal_success = pyqtSignal(str)
@@ -44,8 +54,6 @@ class FeedbackDialog(QDialog):
         self.iface = iface
 
         self.setWindowTitle("Daman_QGIS - Обратная связь")
-        self.setMinimumWidth(550)
-        self.setMinimumHeight(450)
 
         self._signal_success.connect(self._on_send_success)
         self._signal_error.connect(self._on_send_error)

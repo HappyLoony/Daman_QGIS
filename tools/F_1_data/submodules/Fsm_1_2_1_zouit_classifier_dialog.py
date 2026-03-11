@@ -6,15 +6,23 @@
 
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout,
+    QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox,
     QTableWidget, QTableWidgetItem,
     QGroupBox, QHeaderView
 )
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class ZouitClassifierDialog(QDialog):
+class ZouitClassifierDialog(BaseResponsiveDialog):
     """Диалог для классификации одного неопознанного объекта ЗОУИТ"""
+
+    WIDTH_RATIO = 0.85
+    HEIGHT_RATIO = 0.85
+    MIN_WIDTH = 800
+    MAX_WIDTH = 1600
+    MIN_HEIGHT = 600
+    MAX_HEIGHT = 1100
 
     def __init__(self, parent, feature_data, zouit_layers, current_index, total_count):
         """
@@ -38,8 +46,6 @@ class ZouitClassifierDialog(QDialog):
 
         self.setWindowTitle(f"Классификация ЗОУИТ ({current_index} из {total_count})")
         self.setModal(True)
-        self.setMinimumWidth(1400)
-        self.setMinimumHeight(1000)
 
         self.init_ui()
 

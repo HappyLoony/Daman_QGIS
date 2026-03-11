@@ -12,7 +12,7 @@ import math
 from typing import Optional, Tuple, List, Dict
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+    QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QGroupBox, QLineEdit, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView,
     QComboBox, QMessageBox, QGraphicsSimpleTextItem,
@@ -32,6 +32,7 @@ from .Fsm_0_6_2_transform_methods import (
 from .Fsm_0_6_3_transform_applicator import TransformApplicator
 
 from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
 # Цвета невязок (порог 0.01м)
@@ -55,13 +56,20 @@ PAIR_COLORS = [
 RMSE_THRESHOLD = 0.01  # метров
 
 
-class CoordinateTransformDialog(QDialog):
+class CoordinateTransformDialog(BaseResponsiveDialog):
     """
     Диалог трансформации координат слоя по контрольным точкам.
 
     Минимум 4 пары точек.
     Автовыбор метода: Offset / Helmert2D / Affine.
     """
+
+    WIDTH_RATIO = 0.50
+    HEIGHT_RATIO = 0.65
+    MIN_WIDTH = 600
+    MAX_WIDTH = 900
+    MIN_HEIGHT = 450
+    MAX_HEIGHT = 700
 
     def __init__(self, iface, parent_tool):
         super().__init__(iface.mainWindow())
@@ -93,8 +101,6 @@ class CoordinateTransformDialog(QDialog):
 
         # Настройка UI
         self.setWindowTitle("Трансформация координат")
-        self.setMinimumWidth(700)
-        self.setMinimumHeight(500)
         self.setWindowFlags(
             self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint
         )

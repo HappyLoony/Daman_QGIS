@@ -42,11 +42,15 @@ class EditProjectDialog(BaseMetadataDialog):
         """Настройка интерфейса"""
         self.setWindowTitle("Изменение свойств проекта")
         self.setModal(True)
-        self.setMinimumWidth(550)
-        
+
         # Главный layout
         main_layout = QVBoxLayout()
-        
+
+        # Контейнер для скроллируемого содержимого
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+
         # Группа обязательных свойств
         required_group = QGroupBox("Обязательные свойства")
         required_layout = QFormLayout()
@@ -106,7 +110,7 @@ class EditProjectDialog(BaseMetadataDialog):
         required_layout.addRow("Папка проекта:", folder_layout)
         
         required_group.setLayout(required_layout)
-        main_layout.addWidget(required_group)
+        content_layout.addWidget(required_group)
         
         # Группа системы координат
         crs_group = QGroupBox("Система координат")
@@ -187,13 +191,13 @@ class EditProjectDialog(BaseMetadataDialog):
         crs_layout.addLayout(region_form)
 
         crs_group.setLayout(crs_layout)
-        main_layout.addWidget(crs_group)
-        
+        content_layout.addWidget(crs_group)
+
         # Разделитель
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
         separator.setFrameShadow(QFrame.Shadow.Sunken)
-        main_layout.addWidget(separator)
+        content_layout.addWidget(separator)
         
         # Группа дополнительных свойств
         optional_group = QGroupBox("Дополнительные свойства")
@@ -292,17 +296,21 @@ class EditProjectDialog(BaseMetadataDialog):
         optional_layout.addRow("Ориентация листа:", self.sheet_orientation_combo)
 
         optional_group.setLayout(optional_layout)
-        main_layout.addWidget(optional_group)
-        
-        # Кнопки
+        content_layout.addWidget(optional_group)
+
+        # Скроллируемая область для содержимого
+        scroll = self._create_scroll_wrapper(content_widget)
+        main_layout.addWidget(scroll, stretch=1)
+
+        # Кнопки (снаружи скролла, всегда видны)
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         self.button_box.accepted.connect(self.validate_and_accept)
         self.button_box.rejected.connect(self.reject)
-        
+
         main_layout.addWidget(self.button_box)
-        
+
         self.setLayout(main_layout)
     
     def select_folder(self):

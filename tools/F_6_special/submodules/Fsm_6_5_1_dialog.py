@@ -14,7 +14,6 @@ from typing import Optional
 
 from qgis.PyQt.QtWidgets import (
     QApplication,
-    QDialog,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -30,6 +29,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import QSettings
 from qgis.core import QgsProject
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import log_error, log_info
 
 from .Fsm_6_5_2_scanner import FileLockScanner, ScanResult
@@ -45,8 +45,15 @@ _COLOR_ERR = "#CC0000"
 _COLUMNS = ["Файл", "Папка", "Пользователь", "Компьютер"]
 
 
-class Fsm_6_5_1_Dialog(QDialog):
+class Fsm_6_5_1_Dialog(BaseResponsiveDialog):
     """Диалог проверки блокировок файлов."""
+
+    WIDTH_RATIO = 0.58
+    HEIGHT_RATIO = 0.65
+    MIN_WIDTH = 650
+    MAX_WIDTH = 1000
+    MIN_HEIGHT = 450
+    MAX_HEIGHT = 700
 
     SETTINGS_KEY_FOLDER = "Daman_QGIS/F_6_5/last_folder"
 
@@ -66,8 +73,6 @@ class Fsm_6_5_1_Dialog(QDialog):
     def _setup_ui(self) -> None:
         """Настроить интерфейс."""
         self.setWindowTitle("F_6_5 Проверка блокировок файлов")
-        self.setMinimumWidth(800)
-        self.setMinimumHeight(500)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)

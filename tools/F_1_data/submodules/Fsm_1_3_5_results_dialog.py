@@ -7,15 +7,23 @@ import os
 from datetime import datetime
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout,
+    QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit,
     QGroupBox, QMessageBox
 )
 from qgis.core import QgsMessageLog, Qgis
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class BudgetSelectionResultsDialog(QDialog):
+class BudgetSelectionResultsDialog(BaseResponsiveDialog):
     """Диалог с результатами выборки"""
+
+    WIDTH_RATIO = 0.40
+    HEIGHT_RATIO = 0.65
+    MIN_WIDTH = 450
+    MAX_WIDTH = 700
+    MIN_HEIGHT = 400
+    MAX_HEIGHT = 750
     
     def __init__(self, parent, results, temp_folder, is_linear: bool = False):
         """Инициализация диалога
@@ -30,11 +38,9 @@ class BudgetSelectionResultsDialog(QDialog):
         self.results = results
         self.temp_folder = temp_folder
         self.is_linear = is_linear
-        
+
         self.setWindowTitle("Выборка для бюджета - Результаты")
         self.setModal(True)
-        self.setMinimumWidth(500)
-        self.setMinimumHeight(400)
         
         self.init_ui()
     

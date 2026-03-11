@@ -307,6 +307,12 @@ class Fsm_5_3_1_CoordinateList:
                 template.title_template, metadata, layer_info
             )
             worksheet.merge_range('A2:E2', title_text, fmt.get_title_format())  # type: ignore[call-arg]
+            # Высота строки (merged cells не поддерживают auto-fit)
+            title_height = ExcelFormatManager.calc_merged_row_height(
+                title_text, col_widths=[15, 15, 15, 15, 15],
+                font_size=16, bold=True
+            )
+            worksheet.set_row(1, title_height)  # row index 1 = A2
 
             # Строка 4: Система координат (объединение D4:E4)
             if is_wgs84:
@@ -325,7 +331,14 @@ class Fsm_5_3_1_CoordinateList:
             # Начинаем с 6 строки (индекс 5)
             current_row = 5
             contour_number = 0
-            data_format = fmt.get_data_format(with_border=False)
+            data_format = fmt.get_data_format(with_border=True)
+            header_col_format = fmt.get_header_format(
+                with_border=True, bg_color='#FFFFFF'
+            )
+            coord_format = fmt.get_coordinate_format(is_wgs84, with_border=True)
+            subtitle_border_format = fmt.get_data_format(
+                align='center', with_border=True
+            )
 
             for contour_info in contours_data:
                 contour_type = contour_info['type']
@@ -342,42 +355,35 @@ class Fsm_5_3_1_CoordinateList:
                         )
                         worksheet.merge_range(
                             current_row, 1, current_row, 3,
-                            contour_title, fmt.get_subtitle_format()
+                            contour_title, subtitle_border_format
                         )
                     current_row += 1
-                    current_row += 1  # Пустая строка
 
                     # Заголовки колонок
-                    worksheet.write(current_row, 1, headers['point_num'], data_format)
-                    worksheet.write(current_row, 2, headers['x'], data_format)
-                    worksheet.write(current_row, 3, headers['y'], data_format)
+                    worksheet.write(current_row, 1, headers['point_num'], header_col_format)
+                    worksheet.write(current_row, 2, headers['x'], header_col_format)
+                    worksheet.write(current_row, 3, headers['y'], header_col_format)
                     current_row += 1
                 else:
-                    current_row += 1
                     hole_title = f"Внутренний контур {ring_index}"
                     worksheet.merge_range(
                         current_row, 1, current_row, 3,
-                        hole_title, fmt.get_subtitle_format()
+                        hole_title, subtitle_border_format
                     )
                     current_row += 1
 
-                    worksheet.write(current_row, 1, headers['point_num'], data_format)
-                    worksheet.write(current_row, 2, headers['x'], data_format)
-                    worksheet.write(current_row, 3, headers['y'], data_format)
+                    worksheet.write(current_row, 1, headers['point_num'], header_col_format)
+                    worksheet.write(current_row, 2, headers['x'], header_col_format)
+                    worksheet.write(current_row, 3, headers['y'], header_col_format)
                     current_row += 1
 
                 # Выводим координаты точек
-                precision = PRECISION_DECIMALS_WGS84 if is_wgs84 else PRECISION_DECIMALS
-                coord_format = fmt.get_coordinate_format(is_wgs84)
-
                 for coord in coordinates:
                     worksheet.write(current_row, 1, coord[0], data_format)
                     # Геодезический порядок: X=север, Y=восток
                     worksheet.write(current_row, 2, coord[2], coord_format)
                     worksheet.write(current_row, 3, coord[1], coord_format)
                     current_row += 1
-
-                current_row += 1  # Пустая строка после контура
 
             # Настройка области печати
             worksheet.print_area(0, 0, current_row - 1, 4)
@@ -444,6 +450,13 @@ class Fsm_5_3_1_CoordinateList:
             filename_base += '_WGS84'
 
         filename = f"{ExportUtils.sanitize_filename(filename_base)}.xlsx"
+
+        # Подпапка из модификатора (например, 'ЗУ' или 'ПС')
+        subfolder = extra_context.get('subfolder')
+        if subfolder:
+            output_folder = os.path.join(output_folder, subfolder)
+            os.makedirs(output_folder, exist_ok=True)
+
         filepath = os.path.join(output_folder, filename)
 
         # Собираем контуры БЕЗ замыкания
@@ -470,12 +483,16 @@ class Fsm_5_3_1_CoordinateList:
 
             # Форматы
             title_format = fmt.get_title_format(font_size=11)
-            header_format = fmt.get_title_format(font_size=11)
-            data_format = fmt.get_data_format(
-                align='center', with_border=False
+            header_col_format = fmt.get_header_format(
+                with_border=True, bg_color='#FFFFFF'
             )
-            coord_format = fmt.get_coordinate_format(is_wgs84)
-            separator_format = fmt.get_subtitle_format(font_size=11)
+            data_format = fmt.get_data_format(
+                align='center', with_border=True
+            )
+            coord_format = fmt.get_coordinate_format(is_wgs84, with_border=True)
+            separator_format = fmt.get_data_format(
+                align='center', with_border=True
+            )
 
             current_row = 0
 
@@ -489,9 +506,12 @@ class Fsm_5_3_1_CoordinateList:
                 current_row, 0, current_row, 2,
                 title_text, title_format
             )
-            # Высота строки заголовка (пропорционально длине текста)
-            title_lines = title_text.count('\n') + 1
-            worksheet.set_row(current_row, max(30, title_lines * 15))
+            # Высота строки (merged cells не поддерживают auto-fit)
+            title_height = ExcelFormatManager.calc_merged_row_height(
+                title_text, col_widths=[15, 15, 15],
+                font_size=11, bold=True
+            )
+            worksheet.set_row(current_row, title_height)
             current_row += 1
 
             # Row 1: Заголовки колонок
@@ -501,7 +521,7 @@ class Fsm_5_3_1_CoordinateList:
                 col_headers = ['Номер точки', 'Х (м)', 'Y (м)']
 
             for col_idx, header_text in enumerate(col_headers):
-                worksheet.write(current_row, col_idx, header_text, header_format)
+                worksheet.write(current_row, col_idx, header_text, header_col_format)
             current_row += 1
 
             # Данные контуров

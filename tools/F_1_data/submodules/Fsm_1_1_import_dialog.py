@@ -17,10 +17,18 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt, QSettings, QStandardPaths
 from qgis.PyQt.QtGui import QFont
 from qgis.core import QgsProject, QgsMessageLog, Qgis
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class Tool_1_X_ImportDialog(QDialog):
+class Tool_1_X_ImportDialog(BaseResponsiveDialog):
     """Универсальный диалог импорта с выбором группа -> слой"""
+
+    WIDTH_RATIO = 0.45
+    HEIGHT_RATIO = 0.65
+    MIN_WIDTH = 600
+    MAX_WIDTH = 900
+    MIN_HEIGHT = 450
+    MAX_HEIGHT = 750
     
     # Структура всех доступных слоев для импорта
     IMPORT_STRUCTURE = {
@@ -159,7 +167,6 @@ class Tool_1_X_ImportDialog(QDialog):
         """Инициализация диалога"""
         super().__init__(parent)
         self.setWindowTitle("Универсальный импорт данных")
-        self.setMinimumWidth(700)
         
         # Атрибуты для хранения выбранных опций
         self.selected_files = []

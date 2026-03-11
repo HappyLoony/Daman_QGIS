@@ -20,7 +20,7 @@ GUI диалог с таблицей для выбора земельных уч
 from typing import Optional, List, Dict, Any, Callable, Set
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+    QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QCheckBox, QWidget,
     QMessageBox
@@ -30,15 +30,24 @@ from qgis.PyQt.QtGui import QColor
 from qgis.core import QgsVectorLayer, QgsFeature, QgsGeometry
 from qgis.gui import QgsRubberBand
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import log_info, log_warning
 
 
-class Fsm_2_2_1_Dialog(QDialog):
+class Fsm_2_2_1_Dialog(BaseResponsiveDialog):
     """Диалог выбора ЗУ для переноса в слой Без_Меж
 
     Показывает исходные ЗУ из Выборки, чьи КН найдены в слоях Раздел или Изм.
     При выборе возвращает список КН для переноса.
     """
+
+    # Адаптивные размеры диалога
+    WIDTH_RATIO = 0.80
+    HEIGHT_RATIO = 0.65
+    MIN_WIDTH = 800
+    MAX_WIDTH = 1400
+    MIN_HEIGHT = 450
+    MAX_HEIGHT = 700
 
     # Индексы колонок таблицы
     COL_CHECK = 0
@@ -83,7 +92,6 @@ class Fsm_2_2_1_Dialog(QDialog):
         self._rubber_band: Optional[QgsRubberBand] = None
 
         self.setWindowTitle("Перенос ЗУ в слой Без межевания")
-        self.resize(1200, 500)
         self.setModal(True)
 
         self._setup_ui()

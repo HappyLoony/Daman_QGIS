@@ -16,18 +16,26 @@ if TYPE_CHECKING:
     from qgis.core import QgsTask
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTextEdit, QFileDialog, QProgressBar,
     QGroupBox, QMessageBox
 )
 from qgis.PyQt.QtCore import Qt, QSettings
 from qgis.PyQt.QtGui import QFont
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import log_info, log_error
 
 
-class Fsm_6_2_1_Dialog(QDialog):
+class Fsm_6_2_1_Dialog(BaseResponsiveDialog):
     """Диалог формирования томов PDF."""
+
+    WIDTH_RATIO = 0.48
+    HEIGHT_RATIO = 0.65
+    MIN_WIDTH = 580
+    MAX_WIDTH = 850
+    MIN_HEIGHT = 450
+    MAX_HEIGHT = 700
 
     SETTINGS_KEY_SOURCE = "Daman_QGIS/F_6_2/source_folder"
 
@@ -47,8 +55,6 @@ class Fsm_6_2_1_Dialog(QDialog):
     def _setup_ui(self) -> None:
         """Настроить интерфейс."""
         self.setWindowTitle("F_6_2 Сформировать тома PDF")
-        self.setMinimumWidth(650)
-        self.setMinimumHeight(500)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)

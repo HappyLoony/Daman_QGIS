@@ -10,7 +10,7 @@ from typing import Optional, Tuple, List
 from qgis.PyQt.QtCore import Qt, QSize, QRectF, QCoreApplication, QTimer, QEventLoop
 from qgis.PyQt.QtGui import QPixmap, QImage, QColor, QPainter
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QRadioButton, QButtonGroup,
     QGroupBox, QFrame, QSizePolicy, QApplication,
     QProgressBar
@@ -23,9 +23,10 @@ from qgis.core import (
 )
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.constants import EXPORT_DPI_ROSREESTR
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class OverviewPreviewDialog(QDialog):
+class OverviewPreviewDialog(BaseResponsiveDialog):
     """Диалог предпросмотра обзорной карты с вариантами отображения
 
     Показывает 16 вариантов масштаба обзорной карты в сетке 4x4.
@@ -39,6 +40,13 @@ class OverviewPreviewDialog(QDialog):
 
     Пользователь выбирает вариант, который применяется к финальному экспорту.
     """
+
+    WIDTH_RATIO = 0.65
+    HEIGHT_RATIO = 0.85
+    MIN_WIDTH = 880
+    MAX_WIDTH = 1200
+    MIN_HEIGHT = 820
+    MAX_HEIGHT = 1000
 
     # Фиксированный размер превью (как в шаблоне A4)
     PREVIEW_WIDTH_MM = 66.5
@@ -81,8 +89,6 @@ class OverviewPreviewDialog(QDialog):
         self._setup_network_cache()
 
         self.setWindowTitle("Выбор масштаба обзорной карты")
-        self.setMinimumWidth(880)
-        self.setMinimumHeight(820)
 
         self._init_ui()
         # Рендеринг запускается отложенно после показа диалога (см. showEvent)

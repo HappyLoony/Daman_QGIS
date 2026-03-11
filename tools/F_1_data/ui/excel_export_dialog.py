@@ -6,17 +6,25 @@
 
 import os
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
+    QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QCheckBox, QPushButton, QLineEdit, QFileDialog,
     QDialogButtonBox, QMessageBox, QGroupBox
 )
 from qgis.PyQt.QtCore import Qt, QSettings
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import Qgis, QgsProject, QgsVectorLayer
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class ExcelExportDialog(QDialog):
+class ExcelExportDialog(BaseResponsiveDialog):
     """Диалог для экспорта одного слоя в Excel"""
+
+    WIDTH_RATIO = 0.35
+    HEIGHT_RATIO = 0.40
+    MIN_WIDTH = 450
+    MAX_WIDTH = 600
+    MIN_HEIGHT = 280
+    MAX_HEIGHT = 450
     
     def __init__(self, parent=None):
         """Инициализация диалога
@@ -27,7 +35,6 @@ class ExcelExportDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Экспорт координат в Excel")
         self.setModal(True)
-        self.resize(500, 300)
         
         # Настройки
         self.settings = QSettings()

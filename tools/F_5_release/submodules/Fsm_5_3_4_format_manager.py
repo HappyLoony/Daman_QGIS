@@ -244,28 +244,34 @@ class ExcelFormatManager:
 
         return self._format_cache[cache_key]
 
-    def get_coordinate_format(self, is_wgs84: bool = False) -> Any:
+    def get_coordinate_format(
+        self, is_wgs84: bool = False, with_border: bool = False
+    ) -> Any:
         """
         Формат для координат
 
         Args:
             is_wgs84: True для WGS-84 (6 знаков), False для МСК (2 знака)
+            with_border: Добавлять тонкую рамку
 
         Returns:
             xlsxwriter Format объект
         """
         decimals = 6 if is_wgs84 else 2
         num_format = f'0.{"0" * decimals}'
-        cache_key = f'coord_{decimals}'
+        cache_key = f'coord_{decimals}_{with_border}'
 
         if cache_key not in self._format_cache:
-            self._format_cache[cache_key] = self.workbook.add_format({
+            fmt_dict: Dict[str, Any] = {
                 'font_name': self.FONTS['default'],
                 'font_size': 11,
                 'align': 'center',
                 'valign': 'vcenter',
-                'num_format': num_format
-            })
+                'num_format': num_format,
+            }
+            if with_border:
+                fmt_dict['border'] = 1
+            self._format_cache[cache_key] = self.workbook.add_format(fmt_dict)
 
         return self._format_cache[cache_key]
 
@@ -372,6 +378,56 @@ class ExcelFormatManager:
             'data': 18,
             'empty': 15,
         }
+
+    @staticmethod
+    def calc_merged_row_height(
+        text: str,
+        col_widths: List[float],
+        font_size: int = 11,
+        bold: bool = False,
+        min_height: float = 20,
+        padding: float = 6
+    ) -> float:
+        """
+        Рассчитать высоту строки для merged cell с text_wrap.
+
+        Excel не поддерживает auto-fit для merged cells,
+        поэтому высоту нужно рассчитывать вручную.
+
+        Args:
+            text: Текст ячейки (может содержать \\n)
+            col_widths: Ширины колонок, входящих в merge
+            font_size: Размер шрифта
+            bold: Жирный шрифт (шире на ~10%)
+            min_height: Минимальная высота строки
+            padding: Отступы сверху/снизу
+
+        Returns:
+            Высота строки в points
+        """
+        if not text:
+            return min_height
+
+        # Суммарная ширина merge в символах (~1 символ = 1 единица ширины)
+        total_width = sum(col_widths)
+        # Коррекция: жирный шрифт шире, padding внутри ячейки
+        chars_per_line = max(1, total_width * (0.9 if bold else 1.0) - 2)
+
+        # Высота одной строки текста (points)
+        line_height = font_size * 1.4
+
+        # Считаем визуальные строки с учётом переносов
+        total_lines = 0
+        for line in text.split('\n'):
+            line_len = len(line.strip())
+            if line_len == 0:
+                total_lines += 1
+            else:
+                # ceil(line_len / chars_per_line)
+                total_lines += (line_len + int(chars_per_line) - 1) // int(chars_per_line)
+
+        height = total_lines * line_height + padding
+        return max(height, min_height)
 
     def clear_cache(self):
         """Очистить кэш форматов"""

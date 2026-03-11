@@ -17,10 +17,11 @@ from typing import Dict, Optional
 
 from qgis.PyQt.QtCore import Qt, QUrl
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+    QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QMessageBox
 )
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.constants import NSPD_AUTH_URL, NSPD_AUTH_COOKIE_DOMAINS
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
@@ -91,7 +92,7 @@ class _AuthWebEnginePage(QWebEnginePage if _webengine_available else object):  #
             log_info(log_msg)
 
 
-class Msm_40_1_AuthBrowserDialog(QDialog):
+class Msm_40_1_AuthBrowserDialog(BaseResponsiveDialog):
     """Диалог авторизации НСПД через встроенный браузер.
 
     Открывает https://nspd.gov.ru, пользователь входит через Госуслуги,
@@ -103,14 +104,19 @@ class Msm_40_1_AuthBrowserDialog(QDialog):
             cookies = dialog.get_collected_cookies()
     """
 
+    WIDTH_RATIO = 0.75
+    HEIGHT_RATIO = 0.80
+    MIN_WIDTH = 800
+    MAX_WIDTH = 1300
+    MIN_HEIGHT = 600
+    MAX_HEIGHT = 1000
+
     def __init__(self, parent: Optional[object] = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
 
         self._cookies: Dict[str, str] = {}
 
         self.setWindowTitle("Авторизация НСПД")
-        self.setMinimumSize(1000, 700)
-        self.resize(1100, 800)
         self.setWindowFlags(
             self.windowFlags() | Qt.WindowMaximizeButtonHint  # type: ignore[operator]
         )

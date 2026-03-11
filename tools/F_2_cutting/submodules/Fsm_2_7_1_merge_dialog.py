@@ -16,7 +16,7 @@ GUI диалог с таблицей для выбора контуров нар
 from typing import Optional, List, Dict, Any, Callable
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+    QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QComboBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QCheckBox, QWidget,
     QMessageBox
@@ -26,16 +26,25 @@ from qgis.PyQt.QtGui import QColor
 from qgis.core import QgsVectorLayer, QgsFeature
 from qgis.gui import QgsRubberBand
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import log_info, log_warning
 
 
-class Fsm_2_7_1_MergeDialog(QDialog):
+class Fsm_2_7_1_MergeDialog(BaseResponsiveDialog):
     """Диалог выбора контуров для объединения
 
     Attributes:
         layers: Список доступных слоёв Раздел
         merge_callback: Функция объединения (source_layer, feature_ids) -> result
     """
+
+    # Адаптивные размеры диалога
+    WIDTH_RATIO = 0.62
+    HEIGHT_RATIO = 0.70
+    MIN_WIDTH = 700
+    MAX_WIDTH = 1050
+    MIN_HEIGHT = 480
+    MAX_HEIGHT = 750
 
     # Индексы колонок таблицы
     COL_CHECK = 0
@@ -69,7 +78,6 @@ class Fsm_2_7_1_MergeDialog(QDialog):
         self._rubber_band: Optional[QgsRubberBand] = None
 
         self.setWindowTitle("Объединение контуров нарезки")
-        self.resize(850, 550)
         self.setModal(True)
 
         self._setup_ui()

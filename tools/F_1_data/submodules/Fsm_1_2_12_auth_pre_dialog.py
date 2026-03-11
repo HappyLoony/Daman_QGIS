@@ -15,21 +15,29 @@ Fsm_1_2_12_AuthPreDialog - Пре-диалог авторизации перед
 from typing import Optional, Any
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+    QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QGroupBox
 )
 from qgis.PyQt.QtCore import Qt
 
 from Daman_QGIS.managers import registry
 from Daman_QGIS.utils import log_info
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class Fsm_1_2_12_AuthPreDialog(QDialog):
+class Fsm_1_2_12_AuthPreDialog(BaseResponsiveDialog):
     """Пре-диалог авторизации НСПД перед загрузкой Web карт.
 
     Компактный диалог с информацией о статусе авторизации
     и кнопками управления.
     """
+
+    WIDTH_RATIO = 0.30
+    HEIGHT_RATIO = 0.30
+    MIN_WIDTH = 400
+    MAX_WIDTH = 500
+    MIN_HEIGHT = 200
+    MAX_HEIGHT = 350
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]

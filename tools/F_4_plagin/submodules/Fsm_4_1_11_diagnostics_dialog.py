@@ -11,10 +11,12 @@ from typing import Dict, Optional, Any
 
 from qgis.core import Qgis
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+    QVBoxLayout, QHBoxLayout, QLabel,
     QTabWidget, QProgressBar, QPushButton, QApplication
 )
 from qgis.PyQt.QtGui import QFont
+
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 # Прямой импорт для избежания циклических зависимостей при загрузке плагина
 from Daman_QGIS.managers.infrastructure.submodules.Msm_17_1_base_task import BaseAsyncTask
@@ -87,8 +89,16 @@ class DependencyCheckTask(BaseAsyncTask):
         }
 
 
-class DiagnosticsDialog(QDialog):
+class DiagnosticsDialog(BaseResponsiveDialog):
     """Диалог диагностики плагина с четырьмя вкладками"""
+
+    # Адаптивные размеры диалога
+    WIDTH_RATIO = 0.62
+    HEIGHT_RATIO = 0.80
+    MIN_WIDTH = 700
+    MAX_WIDTH = 1050
+    MIN_HEIGHT = 550
+    MAX_HEIGHT = 850
 
     def __init__(self, iface, parent=None):
         super().__init__(parent)
@@ -98,8 +108,6 @@ class DiagnosticsDialog(QDialog):
         self._last_results: Optional[Dict[str, Any]] = None
 
         self.setWindowTitle("Daman_QGIS - Диагностика плагина")
-        self.setMinimumWidth(850)
-        self.setMinimumHeight(650)
 
         self._setup_ui()
         self.check_dependencies()

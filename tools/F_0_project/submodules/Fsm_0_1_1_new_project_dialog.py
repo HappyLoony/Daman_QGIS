@@ -7,7 +7,7 @@ import os
 from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QComboBox, QPushButton, QLabel,
-    QDialogButtonBox, QFileDialog, QMessageBox
+    QDialogButtonBox, QFileDialog, QMessageBox, QWidget
 )
 from qgis.PyQt.QtCore import Qt, QSettings, QStandardPaths
 from qgis.PyQt.QtGui import QIntValidator  # Используется для zone_code_edit
@@ -40,13 +40,13 @@ class NewProjectDialog(BaseMetadataDialog):
         """Настройка интерфейса"""
         self.setWindowTitle("Создание нового проекта")
         self.setModal(True)
-        self.setMinimumWidth(500)
-        
+
         # Главный layout
         main_layout = QVBoxLayout()
-        
-        # Форма с полями
-        form_layout = QFormLayout()
+
+        # Контейнер для скроллируемого содержимого
+        content_widget = QWidget()
+        form_layout = QFormLayout(content_widget)
         
         # Обязательные поля (префикс 1_)
         
@@ -256,15 +256,17 @@ class NewProjectDialog(BaseMetadataDialog):
         self.populate_enum_combo(self.sheet_orientation_combo, '2_14_sheet_orientation')
         form_layout.addRow("Ориентация листа:", self.sheet_orientation_combo)
 
-        main_layout.addLayout(form_layout)
-        
-        # Кнопки
+        # Скроллируемая область для содержимого
+        scroll = self._create_scroll_wrapper(content_widget)
+        main_layout.addWidget(scroll, stretch=1)
+
+        # Кнопки (снаружи скролла, всегда видны)
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         self.button_box.accepted.connect(self.validate_and_accept)
         self.button_box.rejected.connect(self.reject)
-        
+
         main_layout.addWidget(self.button_box)
 
         self.setLayout(main_layout)

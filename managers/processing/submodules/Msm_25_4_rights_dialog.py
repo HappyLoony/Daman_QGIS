@@ -12,18 +12,26 @@ from typing import List, Dict, Any, Optional
 
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout,
+    QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox,
     QTableWidget, QTableWidgetItem,
     QGroupBox, QHeaderView
 )
 from qgis.core import QgsFeature
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import log_info
 
 
-class Msm_25_4_RightsDialog(QDialog):
+class Msm_25_4_RightsDialog(BaseResponsiveDialog):
     """Диалог для классификации одного неопознанного земельного участка по правам"""
+
+    WIDTH_RATIO = 0.75
+    HEIGHT_RATIO = 0.85
+    MIN_WIDTH = 800
+    MAX_WIDTH = 1200
+    MIN_HEIGHT = 650
+    MAX_HEIGHT = 1000
 
     # Ключевые атрибуты для отображения (display_name, field_name)
     KEY_ATTRIBUTES = [
@@ -73,8 +81,6 @@ class Msm_25_4_RightsDialog(QDialog):
 
         self.setWindowTitle(f"Классификация прав ЗУ ({current_index} из {total_count})")
         self.setModal(True)
-        self.setMinimumWidth(1000)
-        self.setMinimumHeight(850)
 
         self._init_ui()
 

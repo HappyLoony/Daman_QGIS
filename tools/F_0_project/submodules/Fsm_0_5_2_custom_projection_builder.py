@@ -8,7 +8,7 @@ from typing import Optional, Tuple, Dict, List
 import math
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QGroupBox, QTextEdit, QMessageBox, QCheckBox, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView
 )
@@ -20,11 +20,19 @@ from qgis.core import (
 )
 
 from Daman_QGIS.utils import log_info, log_error, log_warning, log_success
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class CustomProjectionBuilderDialog(QDialog):
+class CustomProjectionBuilderDialog(BaseResponsiveDialog):
     """Диалог создания кастомной проекции для межзональных объектов"""
-    
+
+    WIDTH_RATIO = 0.50
+    HEIGHT_RATIO = 0.50
+    MIN_WIDTH = 600
+    MAX_WIDTH = 900
+    MIN_HEIGHT = 300
+    MAX_HEIGHT = 700
+
     def __init__(self, iface, parent_tool):
         super().__init__(iface.mainWindow())
         self.iface = iface
@@ -50,8 +58,6 @@ class CustomProjectionBuilderDialog(QDialog):
         """Настройка интерфейса"""
         self.setWindowTitle("0_5 Кастомная проекция")
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
-        self.setMinimumWidth(700)
-        self.setMinimumHeight(300)
 
         layout = QVBoxLayout()
 

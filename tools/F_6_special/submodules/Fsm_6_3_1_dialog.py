@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional, List, Tuple
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QFileDialog, QGroupBox, QTreeView,
     QCheckBox, QApplication, QHeaderView
 )
@@ -24,12 +24,20 @@ from qgis.PyQt.QtCore import Qt, QSettings, QModelIndex, QDir
 from qgis.PyQt.QtWidgets import QFileSystemModel
 from qgis.core import QgsProject, Qgis
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import log_info, log_error, format_file_size
 from Daman_QGIS.constants import MESSAGE_INFO_DURATION
 
 
-class Fsm_6_3_1_Dialog(QDialog):
+class Fsm_6_3_1_Dialog(BaseResponsiveDialog):
     """Диалог списка файлов в папке."""
+
+    WIDTH_RATIO = 0.55
+    HEIGHT_RATIO = 0.70
+    MIN_WIDTH = 650
+    MAX_WIDTH = 950
+    MIN_HEIGHT = 480
+    MAX_HEIGHT = 750
 
     SETTINGS_KEY_FOLDER = "Daman_QGIS/F_6_3/last_folder"
     SETTINGS_KEY_FILTER = "Daman_QGIS/F_6_3/extensions_filter"
@@ -49,8 +57,6 @@ class Fsm_6_3_1_Dialog(QDialog):
     def _setup_ui(self) -> None:
         """Настроить интерфейс."""
         self.setWindowTitle("F_6_3 Список файлов в папке")
-        self.setMinimumWidth(750)
-        self.setMinimumHeight(550)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)

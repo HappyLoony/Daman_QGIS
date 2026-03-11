@@ -17,19 +17,27 @@ if TYPE_CHECKING:
     from qgis.core import QgsTask
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTextEdit, QFileDialog, QProgressBar,
     QGroupBox, QMessageBox, QDateEdit
 )
 from qgis.PyQt.QtCore import Qt, QSettings, QStandardPaths, QDate, QLocale
 from qgis.PyQt.QtGui import QFont
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import log_info, log_error
 from .Fsm_6_1_3_parser import find_timesheet_folder, TIMESHEETS_BASE_FOLDER
 
 
-class Fsm_6_1_1_Dialog(QDialog):
+class Fsm_6_1_1_Dialog(BaseResponsiveDialog):
     """Диалог обработки табелей сотрудников."""
+
+    WIDTH_RATIO = 0.45
+    HEIGHT_RATIO = 0.65
+    MIN_WIDTH = 550
+    MAX_WIDTH = 800
+    MIN_HEIGHT = 450
+    MAX_HEIGHT = 700
 
     SETTINGS_KEY_DEST = "Daman_QGIS/F_6_1/dest_folder"
 
@@ -57,8 +65,6 @@ class Fsm_6_1_1_Dialog(QDialog):
     def _setup_ui(self) -> None:
         """Настроить интерфейс."""
         self.setWindowTitle("F_6_1 Табель - Обработка табелей сотрудников")
-        self.setMinimumWidth(600)
-        self.setMinimumHeight(500)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)

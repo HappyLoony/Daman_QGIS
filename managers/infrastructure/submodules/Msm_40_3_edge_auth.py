@@ -29,10 +29,11 @@ from typing import Dict, List, Optional
 
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+    QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QMessageBox
 )
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.constants import (
     NSPD_AUTH_URL, NSPD_AUTH_COOKIE_DOMAINS, EDGE_CDP_STARTUP_TIMEOUT
 )
@@ -468,7 +469,7 @@ class _EdgeCdpSession:
 # Edge Auth Dialog
 # =============================================================================
 
-class Msm_40_3_EdgeAuthDialog(QDialog):
+class Msm_40_3_EdgeAuthDialog(BaseResponsiveDialog):
     """Диалог авторизации НСПД через системный Edge + CDP.
 
     Тот же интерфейс что у Msm_40_1_AuthBrowserDialog:
@@ -480,6 +481,10 @@ class Msm_40_3_EdgeAuthDialog(QDialog):
         if dialog.exec() == QDialog.Accepted:
             cookies = dialog.get_collected_cookies()
     """
+
+    WIDTH_RATIO = 0.38
+    MIN_WIDTH = 450
+    MAX_WIDTH = 550
 
     def __init__(self, parent: Optional[object] = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]

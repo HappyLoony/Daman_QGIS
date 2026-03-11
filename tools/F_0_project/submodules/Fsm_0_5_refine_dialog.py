@@ -9,7 +9,7 @@ import math
 import re
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+    QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QGroupBox, QLineEdit, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView, QCheckBox,
     QGraphicsSimpleTextItem
@@ -31,10 +31,18 @@ from Daman_QGIS.constants import (
     RMS_ERROR_THRESHOLD
 )
 from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class RefineProjectionDialog(QDialog):
+class RefineProjectionDialog(BaseResponsiveDialog):
     """Диалог уточнения проекции через контрольные точки (минимум 4 пары)"""
+
+    WIDTH_RATIO = 0.70
+    HEIGHT_RATIO = 0.80
+    MIN_WIDTH = 800
+    MAX_WIDTH = 1400
+    MIN_HEIGHT = 550
+    MAX_HEIGHT = 950
 
     # Порог отклонения для подсветки проблемных пар (в метрах)
     DEVIATION_WARNING_THRESHOLD = 1.0
@@ -91,8 +99,6 @@ class RefineProjectionDialog(QDialog):
         """Настройка интерфейса"""
         self.setWindowTitle("0_5 Уточнение проекции")
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
-        self.setMinimumWidth(700)
-        self.setMinimumHeight(650)
 
         layout = QVBoxLayout()
 

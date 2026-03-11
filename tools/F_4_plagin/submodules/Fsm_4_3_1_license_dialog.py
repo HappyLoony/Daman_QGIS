@@ -12,11 +12,13 @@ Fsm_4_3_1_LicenseDialog - GUI диалог управления лицензие
 from typing import Optional, Any
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QGroupBox, QMessageBox, QFrame, QApplication
 )
 from qgis.PyQt.QtGui import QFont, QClipboard
 from qgis.PyQt.QtCore import Qt
+
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 from Daman_QGIS.managers import (
     registry,
@@ -26,8 +28,16 @@ from Daman_QGIS.utils import log_info, log_error
 from Daman_QGIS.constants import API_KEY_FORMAT
 
 
-class LicenseDialog(QDialog):
+class LicenseDialog(BaseResponsiveDialog):
     """Диалог управления лицензией"""
+
+    # Адаптивные размеры диалога
+    WIDTH_RATIO = 0.38
+    HEIGHT_RATIO = 0.55
+    MIN_WIDTH = 450
+    MAX_WIDTH = 600
+    MIN_HEIGHT = 380
+    MAX_HEIGHT = 550
 
     def __init__(self, iface, parent=None):
         super().__init__(parent)
@@ -35,8 +45,6 @@ class LicenseDialog(QDialog):
         self.license_manager = registry.get('M_29')
 
         self.setWindowTitle("Daman_QGIS - Управление лицензией")
-        self.setMinimumWidth(500)
-        self.setMinimumHeight(400)
 
         self.setup_ui()
         self.refresh_status()

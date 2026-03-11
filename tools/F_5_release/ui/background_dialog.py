@@ -12,14 +12,24 @@
 from typing import List, Dict, Any, Optional
 
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QScrollArea, QWidget
 )
 from qgis.PyQt.QtCore import Qt
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
-class BackgroundExportDialog(QDialog):
+
+class BackgroundExportDialog(BaseResponsiveDialog):
     """Диалог выбора подложек для экспорта"""
+
+    # Адаптивные размеры диалога
+    WIDTH_RATIO = 0.30
+    HEIGHT_RATIO = 0.45
+    MIN_WIDTH = 320
+    MAX_WIDTH = 450
+    MIN_HEIGHT = 280
+    MAX_HEIGHT = 400
 
     def __init__(self, parent=None, templates: Optional[List[Dict[str, Any]]] = None, output_folder: str = ""):
         """
@@ -36,8 +46,6 @@ class BackgroundExportDialog(QDialog):
         self.output_folder = output_folder
 
         self.setWindowTitle("Экспорт подложек в DXF")
-        self.setMinimumWidth(350)
-        self.setMinimumHeight(300)
 
         self._init_ui()
 

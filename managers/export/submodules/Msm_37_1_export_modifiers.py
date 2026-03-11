@@ -257,6 +257,9 @@ class Region78FormatModifier(ExportModifier):
             extra_context['filename_override'] = self._build_filename(
                 template.template_id, feature_index, layer_name
             )
+            extra_context['subfolder'] = (
+                'ПС' if self._is_ps(template.template_id, layer_name) else 'ЗУ'
+            )
 
             result.append({
                 'layer': item['layer'],

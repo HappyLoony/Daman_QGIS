@@ -18,10 +18,18 @@ from qgis.core import QgsMessageLog, Qgis, QgsProject
 from Daman_QGIS.managers import get_reference_managers
 from Daman_QGIS.database.project_db import ProjectDB
 from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class UniversalImportDialog(QDialog):
+class UniversalImportDialog(BaseResponsiveDialog):
     """Универсальный диалог импорта с 5-уровневым выбором слоя"""
+
+    WIDTH_RATIO = 0.40
+    HEIGHT_RATIO = 0.55
+    MIN_WIDTH = 550
+    MAX_WIDTH = 750
+    MIN_HEIGHT = 400
+    MAX_HEIGHT = 550
     
     def __init__(self, plugin_dir: str, parent=None):
         """
@@ -34,8 +42,6 @@ class UniversalImportDialog(QDialog):
         super().__init__(parent)
         self.plugin_dir = plugin_dir
         self.setWindowTitle("Импорт данных")
-        self.setMinimumWidth(600)
-        self.setMaximumHeight(500)
         
         # Атрибуты для хранения выбранных опций
         self.selected_file = None

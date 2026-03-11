@@ -18,7 +18,6 @@ from qgis.PyQt.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
-    QDialog,
     QFileDialog,
     QGridLayout,
     QGroupBox,
@@ -40,6 +39,7 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.core import QgsApplication, QgsProject
 
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import log_info, log_error, format_file_size
 
 from .Fsm_6_4_2_matcher import FileMatcher, MatchResult
@@ -56,17 +56,23 @@ _SK_MODE = "Daman_QGIS/F_6_4/operation_mode"
 _SK_EXT_FOLDERS = "Daman_QGIS/F_6_4/create_ext_folders"
 
 
-class Fsm_6_4_1_Dialog(QDialog):
+class Fsm_6_4_1_Dialog(BaseResponsiveDialog):
     """
     Wizard для выборки файлов по списку.
 
     4 страницы QStackedWidget с навигацией Назад/Далее/Выполнить.
     """
 
+    WIDTH_RATIO = 0.58
+    HEIGHT_RATIO = 0.72
+    MIN_WIDTH = 650
+    MAX_WIDTH = 1000
+    MIN_HEIGHT = 480
+    MAX_HEIGHT = 750
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setWindowTitle("F_6_4: Выборка файлов по списку")
-        self.setMinimumSize(800, 550)
 
         self._settings = QSettings()
 

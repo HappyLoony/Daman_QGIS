@@ -15,7 +15,7 @@ import os
 import re
 from typing import List, Dict, Tuple, Optional, Set
 from qgis.PyQt.QtWidgets import (
-    QAction, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
+    QAction, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QFileDialog, QMessageBox, QCompleter, QApplication
 )
@@ -27,6 +27,7 @@ from qgis.core import (
     QgsExpression, QgsVectorFileWriter, QgsCoordinateTransformContext
 )
 from qgis.gui import QgsHighlight
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from .submodules.Msm_16_1_nspd_fetcher import Msm_16_1_NspdFetcher, NspdSearchResult
 
@@ -481,8 +482,15 @@ class CadnumSearchManager:
         return combined_extent if has_features else None
 
 
-class CadnumSearchDialog(QDialog):
+class CadnumSearchDialog(BaseResponsiveDialog):
     """Диалог для поиска объектов по кадастровым номерам"""
+
+    WIDTH_RATIO = 0.50
+    HEIGHT_RATIO = 0.75
+    MIN_WIDTH = 600
+    MAX_WIDTH = 900
+    MIN_HEIGHT = 500
+    MAX_HEIGHT = 800
 
     def __init__(self, iface, parent=None):
         """
@@ -524,8 +532,6 @@ class CadnumSearchDialog(QDialog):
     def init_ui(self):
         """Инициализация интерфейса"""
         self.setWindowTitle("Поиск по номеру (КН / ЗОУИТ)")
-        self.setMinimumWidth(700)
-        self.setMinimumHeight(600)
 
         layout = QVBoxLayout()
 

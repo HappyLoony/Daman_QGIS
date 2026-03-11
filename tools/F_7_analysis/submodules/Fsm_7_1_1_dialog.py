@@ -26,7 +26,6 @@ from qgis.gui import QgsMapLayerComboBox, QgsMapToolEmitPoint
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
     QComboBox,
-    QDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -49,6 +48,7 @@ from Daman_QGIS.constants import (
     LAYER_GOCHS_GROUP,
     LAYER_GOCHS_ROUTES,
 )
+from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import log_error, log_info
 
 from Daman_QGIS.managers.processing.submodules.Msm_41_4_speed_profiles import (
@@ -58,8 +58,15 @@ from Daman_QGIS.managers.processing.submodules.Msm_41_4_speed_profiles import (
 __all__ = ['Fsm_7_1_1_Dialog']
 
 
-class Fsm_7_1_1_Dialog(QDialog):
+class Fsm_7_1_1_Dialog(BaseResponsiveDialog):
     """Диалог анализа транспортной доступности."""
+
+    WIDTH_RATIO = 0.40
+    HEIGHT_RATIO = 0.75
+    MIN_WIDTH = 480
+    MAX_WIDTH = 650
+    MIN_HEIGHT = 500
+    MAX_HEIGHT = 800
 
     MODULE_ID = "Fsm_7_1_1"
 
@@ -89,7 +96,6 @@ class Fsm_7_1_1_Dialog(QDialog):
     def _setup_ui(self) -> None:
         """Построить интерфейс."""
         self.setWindowTitle("F_7_1: Транспортная доступность")
-        self.setMinimumSize(520, 600)
 
         main_layout = QVBoxLayout(self)
 
