@@ -133,7 +133,9 @@ class F_5_3_DocumentExport(BaseTool):
         # Применяем региональные модификаторы (M_44)
         try:
             regional_mgr = registry.get('M_44')
-        except KeyError:
+        except KeyError as e:
+            log_warning(f"F_5_3: M_44 не зарегистрирован: {e}. "
+                        f"Зарегистрированы: {sorted(registry._factories.keys())}")
             regional_mgr = None
 
         if regional_mgr is not None:
