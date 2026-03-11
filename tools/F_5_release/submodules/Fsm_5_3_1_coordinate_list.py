@@ -422,19 +422,23 @@ class Fsm_5_3_1_CoordinateList:
         metadata = ExportUtils.get_project_metadata()
 
         # Формируем имя файла
-        layer_info = {'layer_name': layer.name(), 'appendix': appendix_num}
-        layer_info.update(extra_context)
-
-        if template.filename_template:
-            filename_base = ExportUtils.format_template_text(
-                template.filename_template, metadata, layer_info
-            )
+        filename_override = extra_context.get('filename_override')
+        if filename_override:
+            filename_base = filename_override
         else:
-            filename_base = f"Координаты"
+            layer_info = {'layer_name': layer.name(), 'appendix': appendix_num}
+            layer_info.update(extra_context)
 
-        feature_name = extra_context.get('feature_name')
-        if feature_name:
-            filename_base += f'_{feature_name}'
+            if template.filename_template:
+                filename_base = ExportUtils.format_template_text(
+                    template.filename_template, metadata, layer_info
+                )
+            else:
+                filename_base = f"Координаты"
+
+            feature_name = extra_context.get('feature_name')
+            if feature_name:
+                filename_base += f'_{feature_name}'
 
         if is_wgs84:
             filename_base += '_WGS84'

@@ -116,6 +116,7 @@ class SplitByFeatureModifier(ExportModifier):
                         'feature_name': feature_name,
                         'feature_index': idx,
                         'split_by_feature': True,
+                        'source_layer_name': layer.name(),
                     }
                 })
 
@@ -237,7 +238,11 @@ class Region78FormatModifier(ExportModifier):
 
             extra_context = dict(item.get('extra_context', {}))
             feature_index = extra_context.get('feature_index', 1)
-            layer_name = item['layer'].name() if item.get('layer') else ''
+            # source_layer_name от SplitByFeature, иначе текущий слой
+            layer_name = extra_context.get(
+                'source_layer_name',
+                item['layer'].name() if item.get('layer') else ''
+            )
 
             title = self._build_title(
                 template.template_id, feature_index, metadata, layer_name
@@ -247,6 +252,9 @@ class Region78FormatModifier(ExportModifier):
             extra_context['close_contours'] = False
             extra_context['show_area'] = True
             extra_context['title_override'] = title
+            extra_context['filename_override'] = self._build_filename(
+                template.template_id, feature_index, layer_name
+            )
 
             result.append({
                 'layer': item['layer'],
@@ -338,6 +346,37 @@ class Region78FormatModifier(ExportModifier):
             f"территории для размещения {placement_phrase} "
             f"\u00ab{full_name}\u00bb"
         )
+
+        return title
+
+    def _is_ps(self, template_id: str, layer_name: str) -> bool:
+        """Проверить, является ли объект публичным сервитутом."""
+        if template_id == 'coord_cutting_oks_ps':
+            return True
+        if '_ПС' in layer_name or layer_name.endswith('_ПС'):
+            return True
+        return False
+
+    def _build_filename(
+        self,
+        template_id: str,
+        feature_index: int,
+        layer_name: str
+    ) -> str:
+        """
+        Сформировать имя файла для SPB формата.
+
+        Args:
+            template_id: ID шаблона
+            feature_index: Номер объекта
+            layer_name: Имя исходного слоя
+
+        Returns:
+            Имя файла без расширения
+        """
+        if self._is_ps(template_id, layer_name):
+            return f"Перечень_координат_{feature_index}_публичного_сервитута"
+        return f"Перечень_координат_{feature_index}_участка_зу"
 
         return title
 
