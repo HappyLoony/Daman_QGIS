@@ -271,15 +271,7 @@ class EditProjectDialog(BaseMetadataDialog):
         # 2_10 Основной масштаб
         self.main_scale_combo = QComboBox()
         self.populate_enum_combo(self.main_scale_combo, '2_10_main_scale')
-        self.main_scale_combo.currentIndexChanged.connect(self.on_scale_changed)
         optional_layout.addRow("Основной масштаб:", self.main_scale_combo)
-
-        # 2_10_1 Высота текста в DXF (readonly, автоматически по масштабу)
-        self.dxf_text_height_edit = QLineEdit()
-        self.dxf_text_height_edit.setReadOnly(True)
-        self.dxf_text_height_edit.setStyleSheet("background-color: #f0f0f0;")
-        self.dxf_text_height_edit.setPlaceholderText("Определяется масштабом")
-        optional_layout.addRow("Высота текста DXF:", self.dxf_text_height_edit)
 
         # 2_11 Разработчик
         self.developer_combo = QComboBox()
@@ -514,9 +506,6 @@ class EditProjectDialog(BaseMetadataDialog):
             if index >= 0:
                 self.main_scale_combo.setCurrentIndex(index)
 
-        # 2_10_1 Высота текста DXF (автоматически по масштабу)
-        self.on_scale_changed()
-
         # 2_11 Разработчик
         if '2_11_developer' in self.current_metadata:
             developer = self.current_metadata['2_11_developer'].get('value', '')
@@ -715,7 +704,6 @@ class EditProjectDialog(BaseMetadataDialog):
             ('cover', '2_8_cover', self.cover_combo, 'combo_text'),
             ('title_start', '2_9_title_start', self.title_start_edit, 'text'),
             ('main_scale', '2_10_main_scale', self.main_scale_combo, 'combo_data'),
-            ('dxf_text_height', '2_10_1_DXF_SCALE_TO_TEXT_HEIGHT', self.dxf_text_height_edit, 'text'),
             ('developer', '2_11_developer', self.developer_combo, 'combo_text'),
             ('examiner', '2_12_examiner', self.examiner_combo, 'combo_text'),
             ('quality_control', '2_13_quality_control', self.quality_control_edit, 'text'),

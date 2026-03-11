@@ -333,8 +333,6 @@ class F_0_3_EditProjectProperties(BaseTool):
             changes.append(f"• Начальный лист титула: {updated_data['title_start']}")
         if 'main_scale' in changed_fields:
             changes.append(f"• Основной масштаб: {updated_data['main_scale']}")
-        if 'dxf_text_height' in changed_fields:
-            changes.append(f"• Высота текста DXF: {updated_data['dxf_text_height']}")
         if 'developer' in changed_fields:
             changes.append(f"• Разработчик: {updated_data['developer']}")
         if 'examiner' in changed_fields:

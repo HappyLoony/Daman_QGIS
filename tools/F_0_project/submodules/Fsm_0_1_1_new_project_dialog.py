@@ -226,18 +226,7 @@ class NewProjectDialog(BaseMetadataDialog):
         index = self.main_scale_combo.findData("1000")
         if index >= 0:
             self.main_scale_combo.setCurrentIndex(index)
-        self.main_scale_combo.currentIndexChanged.connect(self.on_scale_changed)
         form_layout.addRow("Основной масштаб:", self.main_scale_combo)
-
-        # 2_10_1 Высота текста в DXF (readonly, автоматически по масштабу)
-        self.dxf_text_height_edit = QLineEdit()
-        self.dxf_text_height_edit.setReadOnly(True)
-        self.dxf_text_height_edit.setStyleSheet("background-color: #f0f0f0;")
-        self.dxf_text_height_edit.setPlaceholderText("Определяется масштабом")
-        form_layout.addRow("Высота текста DXF:", self.dxf_text_height_edit)
-
-        # Инициализируем высоту текста по текущему масштабу
-        self.on_scale_changed()
 
         # 2_11 Разработчик (дополнительно)
         self.developer_combo = QComboBox()
@@ -525,7 +514,6 @@ class NewProjectDialog(BaseMetadataDialog):
             'cover': self.cover_combo.currentText().strip(),  # Дополнительное поле 2_8
             'title_start': self.title_start_edit.text().strip(),  # Дополнительное поле 2_9
             'main_scale': self.main_scale_combo.currentData(),  # Дополнительное поле 2_10
-            'dxf_text_height': self.dxf_text_height_edit.text().strip(),  # Дополнительное поле 2_10_1 (авто по масштабу)
             'developer': self.developer_combo.currentText().strip(),  # Дополнительное поле 2_11
             'examiner': self.examiner_combo.currentText().strip(),  # Дополнительное поле 2_12
             'quality_control': self.quality_control_edit.text().strip(),  # Дополнительное поле 2_13 (авто)

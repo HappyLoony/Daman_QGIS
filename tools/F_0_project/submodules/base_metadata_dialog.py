@@ -27,7 +27,6 @@ OPTIONAL_METADATA_DESCRIPTIONS = {
     'cover': ('2_8_cover', 'Обложка обычно не наша'),
     'title_start': ('2_9_title_start', 'С какого листа начинается наш титул, так как перед нами могут быть еще подрядчики'),
     'main_scale': ('2_10_main_scale', 'Основной масштаб, основной массы чертежей (прописано в ТЗ)'),
-    'dxf_text_height': ('2_10_1_DXF_SCALE_TO_TEXT_HEIGHT', 'Высота текста в DXF (определяется масштабом)'),
     'developer': ('2_11_developer', 'Разработал'),
     'examiner': ('2_12_examiner', 'Проверил'),
     'quality_control': ('2_13_quality_control', 'Н.Контроль'),
@@ -35,14 +34,6 @@ OPTIONAL_METADATA_DESCRIPTIONS = {
     'sheet_orientation': ('2_14_sheet_orientation', 'Ориентация листа'),
 }
 
-
-# Маппинг масштаба -> высота текста в DXF (единицы чертежа, метры для МСК)
-# Источник: Project_Metadata.json (2_10_1_DXF_SCALE_TO_TEXT_HEIGHT)
-SCALE_TO_TEXT_HEIGHT_MAP = {
-    '500': '1.5',
-    '1000': '3',
-    '2000': '6',
-}
 
 
 class BaseMetadataDialog(BaseResponsiveDialog):
@@ -166,7 +157,6 @@ class BaseMetadataDialog(BaseResponsiveDialog):
             '2_8_cover': metadata.get('cover'),
             '2_9_title_start': metadata.get('title_start'),
             '2_10_main_scale': metadata.get('main_scale'),
-            '2_10_1_DXF_SCALE_TO_TEXT_HEIGHT': metadata.get('dxf_text_height'),
             '2_11_developer': metadata.get('developer'),
             '2_12_examiner': metadata.get('examiner')
         }
@@ -181,7 +171,7 @@ class BaseMetadataDialog(BaseResponsiveDialog):
                           'is_single_object', 'code',
                           'release_date', 'company', 'city', 'customer', 'general_director',
                           'technical_director', 'cover', 'title_start', 'main_scale',
-                          'dxf_text_height', 'developer', 'examiner', 'changed_fields']:
+                          'developer', 'examiner', 'changed_fields']:
                 mapped[key] = value
 
         return mapped
@@ -307,21 +297,6 @@ class BaseMetadataDialog(BaseResponsiveDialog):
             self.quality_control_edit.setText("Никитин")
         else:
             self.quality_control_edit.clear()
-
-    def on_scale_changed(self):
-        """
-        Автоматическое обновление высоты текста DXF при смене масштаба.
-
-        Маппинг масштаб -> высота текста:
-        - 1:500  -> 1.5м
-        - 1:1000 -> 3м
-        - 1:2000 -> 6м
-        """
-        scale_code = self.main_scale_combo.currentData()
-        if scale_code and scale_code in SCALE_TO_TEXT_HEIGHT_MAP:
-            self.dxf_text_height_edit.setText(SCALE_TO_TEXT_HEIGHT_MAP[scale_code])
-        else:
-            self.dxf_text_height_edit.clear()
 
     def on_cover_changed(self):
         """Обработчик изменения типа обложки"""

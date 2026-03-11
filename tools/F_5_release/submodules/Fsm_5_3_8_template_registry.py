@@ -47,34 +47,23 @@ class DocumentTemplate:
 COORD_CUTTING_OKS_RAZDEL = DocumentTemplate(
     template_id='coord_cutting_oks_razdel',
     doc_type='coordinate_list',
-    name='Перечень координат ОЗУ ОКС (Раздел)',
+    name='Перечень координат (Раздел)',
     source_layers=['Le_2_1_1_*_Раздел'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
     supports_wgs84=True,
-    filename_template='Приложение_{appendix}_координаты_ОЗУ_Раздел',
+    filename_template='Приложение_{appendix}_координаты_Раздел',
 )
 
 COORD_CUTTING_OKS_NGS = DocumentTemplate(
     template_id='coord_cutting_oks_ngs',
     doc_type='coordinate_list',
-    name='Перечень координат ОЗУ ОКС (НГС)',
+    name='Перечень координат (НГС)',
     source_layers=['Le_2_1_1_*_НГС'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
     supports_wgs84=True,
-    filename_template='Приложение_{appendix}_координаты_ОЗУ_НГС',
-)
-
-COORD_CUTTING_OKS_IZM = DocumentTemplate(
-    template_id='coord_cutting_oks_izm',
-    doc_type='coordinate_list',
-    name='Перечень координат ОЗУ ОКС (Изм)',
-    source_layers=['Le_2_1_1_*_Изм'],
-    title_template='Перечень координат характерных точек границ образуемых земельных участков',
-    contour_format='Контур {№}',
-    supports_wgs84=True,
-    filename_template='Приложение_{appendix}_координаты_ОЗУ_Изм',
+    filename_template='Приложение_{appendix}_координаты_НГС',
 )
 
 COORD_CUTTING_OKS_PS = DocumentTemplate(
@@ -91,7 +80,7 @@ COORD_CUTTING_OKS_PS = DocumentTemplate(
 COORD_CUTTING_LO = DocumentTemplate(
     template_id='coord_cutting_lo',
     doc_type='coordinate_list',
-    name='Перечень координат',
+    name='Перечень координат (ЗПР ПО)',
     source_layers=['Le_2_1_2_*'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
@@ -102,56 +91,56 @@ COORD_CUTTING_LO = DocumentTemplate(
 COORD_CUTTING_VO = DocumentTemplate(
     template_id='coord_cutting_vo',
     doc_type='coordinate_list',
-    name='Перечень координат ОЗУ ВО',
+    name='Перечень координат (ЗПР ВО)',
     source_layers=['Le_2_1_3_*'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
     supports_wgs84=True,
-    filename_template='Приложение_{appendix}_координаты_ОЗУ_ВО',
+    filename_template='Приложение_{appendix}_координаты',
 )
 
 COORD_CUTTING_REK_AD = DocumentTemplate(
     template_id='coord_cutting_rek_ad',
     doc_type='coordinate_list',
-    name='Перечень координат ОЗУ РЕК АД',
+    name='Перечень координат (РЕК АД)',
     source_layers=['Le_2_2_1_*'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
     supports_wgs84=True,
-    filename_template='Приложение_{appendix}_координаты_ОЗУ_РЕК_АД',
+    filename_template='Приложение_{appendix}_координаты',
 )
 
 COORD_CUTTING_SETI_PO = DocumentTemplate(
     template_id='coord_cutting_seti_po',
     doc_type='coordinate_list',
-    name='Перечень координат ОЗУ СЕТИ ПО',
+    name='Перечень координат (СЕТИ ПО)',
     source_layers=['Le_2_2_2_*'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
     supports_wgs84=True,
-    filename_template='Приложение_{appendix}_координаты_ОЗУ_СЕТИ_ПО',
+    filename_template='Приложение_{appendix}_координаты',
 )
 
 COORD_CUTTING_SETI_VO = DocumentTemplate(
     template_id='coord_cutting_seti_vo',
     doc_type='coordinate_list',
-    name='Перечень координат ОЗУ СЕТИ ВО',
+    name='Перечень координат (СЕТИ ВО)',
     source_layers=['Le_2_2_3_*'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
     supports_wgs84=True,
-    filename_template='Приложение_{appendix}_координаты_ОЗУ_СЕТИ_ВО',
+    filename_template='Приложение_{appendix}_координаты',
 )
 
 COORD_CUTTING_NE = DocumentTemplate(
     template_id='coord_cutting_ne',
     doc_type='coordinate_list',
-    name='Перечень координат ОЗУ НЭ',
+    name='Перечень координат (НЭ)',
     source_layers=['Le_2_2_4_*'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
     supports_wgs84=True,
-    filename_template='Приложение_{appendix}_координаты_ОЗУ_НЭ',
+    filename_template='Приложение_{appendix}_координаты',
 )
 
 # === Перечни координат этапности ===
@@ -159,7 +148,7 @@ COORD_CUTTING_NE = DocumentTemplate(
 COORD_STAGE_1 = DocumentTemplate(
     template_id='coord_stage_1',
     doc_type='coordinate_list',
-    name='Перечень координат ОЗУ (Этап 1)',
+    name='Перечень координат (Этап 1)',
     source_layers=['Le_2_7_1_*'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков (1 этап)',
     contour_format='Контур {№}',
@@ -170,7 +159,7 @@ COORD_STAGE_1 = DocumentTemplate(
 COORD_STAGE_2 = DocumentTemplate(
     template_id='coord_stage_2',
     doc_type='coordinate_list',
-    name='Перечень координат ОЗУ (Этап 2)',
+    name='Перечень координат (Этап 2)',
     source_layers=['Le_2_7_2_*'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков (2 этап)',
     contour_format='Контур {№}',
@@ -181,7 +170,7 @@ COORD_STAGE_2 = DocumentTemplate(
 COORD_STAGE_FINAL = DocumentTemplate(
     template_id='coord_stage_final',
     doc_type='coordinate_list',
-    name='Перечень координат ОЗУ (Итог)',
+    name='Перечень координат (Итог)',
     source_layers=['Le_2_7_3_*'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков (итог)',
     contour_format='Контур {№}',
@@ -334,7 +323,6 @@ DOCUMENT_TEMPLATES: List[DocumentTemplate] = [
     # Перечни координат ОЗУ
     COORD_CUTTING_OKS_RAZDEL,
     COORD_CUTTING_OKS_NGS,
-    COORD_CUTTING_OKS_IZM,
     COORD_CUTTING_OKS_PS,
     COORD_CUTTING_LO,
     COORD_CUTTING_VO,
