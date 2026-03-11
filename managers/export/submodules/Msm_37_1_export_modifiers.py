@@ -161,7 +161,7 @@ class SplitByFeatureModifier(ExportModifier):
             mem_layer.updateFields()
 
             # Добавляем feature
-            success, _ = provider.addFeature(feature)
+            success = provider.addFeature(feature)
             if not success:
                 log_error("Msm_37_1: Не удалось добавить feature в memory layer")
                 return None
