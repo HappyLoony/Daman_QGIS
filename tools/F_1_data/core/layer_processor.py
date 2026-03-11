@@ -131,6 +131,9 @@ class LayerProcessor:
         # Дополняем обязательные поля для слоя лесных выделов (Le_3_1_1_1_*)
         self._ensure_forest_vydely_fields(layer, layer_name)
 
+        # Дополняем обязательные поля для слоёв нарезки (Le_2_1_*, Le_2_2_*)
+        self._ensure_cutting_fields(layer, layer_name)
+
         # Логируем
         log_info(
             f"Сохранение слоя в GeoPackage: {layer_name}"
@@ -420,3 +423,42 @@ class LayerProcessor:
 
         except Exception as e:
             log_warning(f"LayerProcessor: Ошибка проверки полей лесных выделов для {layer_name}: {e}")
+
+    def _ensure_cutting_fields(self, layer: QgsVectorLayer, layer_name: str) -> None:
+        """
+        Дополнение обязательных полей для слоёв нарезки
+
+        Проверяет, является ли слой слоем нарезки (Le_2_1_*, Le_2_2_*),
+        и если да - добавляет недостающие поля из Base_cutting.json (27 полей).
+        Существующие поля НЕ удаляются. Поле пропускается при совпадении имени и типа.
+        При конфликте типов (имя совпадает, тип нет) - warning в лог.
+
+        Args:
+            layer: Слой для проверки и дополнения
+            layer_name: Имя слоя
+        """
+        from Daman_QGIS.constants import CUTTING_PREFIXES
+
+        if not layer_name.startswith(CUTTING_PREFIXES):
+            return
+
+        try:
+            from Daman_QGIS.managers import LayerSchemaValidator
+
+            validator = LayerSchemaValidator()
+
+            result = validator.ensure_required_fields(layer, 'CUTTING')
+
+            if result['success'] and result['fields_added']:
+                log_info(
+                    f"LayerProcessor: Слой {layer_name} дополнен полями нарезки: "
+                    f"{', '.join(result['fields_added'])}"
+                )
+            elif not result['success']:
+                log_warning(
+                    f"LayerProcessor: Ошибка дополнения полей нарезки слоя {layer_name}: "
+                    f"{result.get('error', 'unknown')}"
+                )
+
+        except Exception as e:
+            log_warning(f"LayerProcessor: Ошибка проверки полей нарезки для {layer_name}: {e}")

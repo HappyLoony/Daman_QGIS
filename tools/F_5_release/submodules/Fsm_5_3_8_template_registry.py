@@ -80,23 +80,23 @@ COORD_CUTTING_OKS_IZM = DocumentTemplate(
 COORD_CUTTING_OKS_PS = DocumentTemplate(
     template_id='coord_cutting_oks_ps',
     doc_type='coordinate_list',
-    name='Перечень координат ОЗУ ОКС (ПС)',
+    name='Перечень координат (ПС)',
     source_layers=['Le_2_1_1_*_ПС*'],
     title_template='Перечень координат характерных точек контуров публичных сервитутов',
     contour_format='Контур {№}',
     supports_wgs84=True,
-    filename_template='Приложение_{appendix}_координаты_ОЗУ_ПС',
+    filename_template='Приложение_{appendix}_координаты_ПС',
 )
 
 COORD_CUTTING_LO = DocumentTemplate(
     template_id='coord_cutting_lo',
     doc_type='coordinate_list',
-    name='Перечень координат ОЗУ ЛО',
+    name='Перечень координат',
     source_layers=['Le_2_1_2_*'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
     supports_wgs84=True,
-    filename_template='Приложение_{appendix}_координаты_ОЗУ_ЛО',
+    filename_template='Приложение_{appendix}_координаты',
 )
 
 COORD_CUTTING_VO = DocumentTemplate(
@@ -250,11 +250,11 @@ VEDOMOST_ZU_RAZDEL = DocumentTemplate(
 VEDOMOST_ZU_LO = DocumentTemplate(
     template_id='vedomost_zu_lo',
     doc_type='attribute_list',
-    name='Ведомость ОЗУ (ЛО)',
+    name='Ведомость',
     source_layers=['Le_2_1_2_*'],
-    title_template='Ведомость образуемых земельных участков (линейные объекты)',
+    title_template='Ведомость образуемых земельных участков',
     column_source={'database': 'Base_cutting', 'field': 'full_name'},
-    filename_template='Ведомость_ОЗУ_ЛО',
+    filename_template='Ведомость',
 )
 
 VEDOMOST_ZU_VO = DocumentTemplate(

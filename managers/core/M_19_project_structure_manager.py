@@ -238,6 +238,9 @@ class ProjectStructureManager:
         Args:
             project_root: Корневая папка проекта. Если None, менеджер неактивен.
         """
+        # Защита от registry, который передаёт iface как первый аргумент
+        if project_root is not None and not isinstance(project_root, str):
+            project_root = None
         self._project_root = project_root
         self._folders_cache: Dict[FolderType, str] = {}
 

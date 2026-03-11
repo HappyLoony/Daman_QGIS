@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-M_37 - Менеджер региональных модификаторов
+M_44 - Менеджер региональных модификаторов
 
 Читает код региона из метаданных проекта и применяет
 цепочку модификаторов к параметрам экспорта.
 
-Паттерн: Singleton через registry.get('M_37')
+Паттерн: Singleton через registry.get('M_44')
 Домен: export
 
 Модификаторы определены в Msm_37_1_export_modifiers.py
@@ -26,7 +26,7 @@ class RegionalModifierManager:
     в REGION_EXPORT_MODIFIERS (Msm_37_1).
 
     Использование:
-        regional_mgr = registry.get('M_37')
+        regional_mgr = registry.get('M_44')
         items = regional_mgr.apply_export_modifiers(items, metadata)
     """
 

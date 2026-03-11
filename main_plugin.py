@@ -1200,6 +1200,7 @@ class DamanQGIS:
             registry.reset('M_26')
             registry.reset('M_25')
             registry.reset('M_37')
+            registry.reset('M_44')
         except Exception:
             pass
 

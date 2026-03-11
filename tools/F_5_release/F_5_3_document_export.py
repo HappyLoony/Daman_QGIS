@@ -130,9 +130,9 @@ class F_5_3_DocumentExport(BaseTool):
         # Получаем ref_managers для передачи в фабрику (нужны для column_source)
         ref_managers = get_reference_managers()
 
-        # Применяем региональные модификаторы (M_37)
+        # Применяем региональные модификаторы (M_44)
         try:
-            regional_mgr = registry.get('M_37')
+            regional_mgr = registry.get('M_44')
         except KeyError:
             regional_mgr = None
 

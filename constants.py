@@ -257,6 +257,8 @@ LAYER_VYPISKA_EZ_PREFIX = "Le_1_6_3"
 
 # Префиксы слоёв нарезки и этапности
 LAYER_CUTTING_PREFIX = "Le_2_1_"
+LAYER_CUTTING_REK_PREFIX = "Le_2_2_"
+CUTTING_PREFIXES = (LAYER_CUTTING_PREFIX, LAYER_CUTTING_REK_PREFIX)
 LAYER_STAGING_PREFIX = "Le_2_7_"
 
 # Имена слоёв для F_2_1 (Нарезка ЗПР)

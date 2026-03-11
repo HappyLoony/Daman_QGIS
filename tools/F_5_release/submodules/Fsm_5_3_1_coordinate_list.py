@@ -466,9 +466,7 @@ class Fsm_5_3_1_CoordinateList:
 
             # Форматы
             title_format = fmt.get_title_format(font_size=11)
-            header_format = fmt.get_data_format(
-                align='center', with_border=False
-            )
+            header_format = fmt.get_title_format(font_size=11)
             data_format = fmt.get_data_format(
                 align='center', with_border=False
             )
@@ -527,14 +525,14 @@ class Fsm_5_3_1_CoordinateList:
                     worksheet.write(current_row, 2, coord[1], coord_format)
                     current_row += 1
 
-            # Последняя строка: площадь
+            # Последняя строка: площадь (left-aligned, без merge)
             if extra_context.get('show_area') and total_area > 0:
                 area_int = round(total_area)
                 area_text = f"S={area_int} кв. м"
-                worksheet.merge_range(
-                    current_row, 0, current_row, 2,
-                    area_text, separator_format
+                area_format = fmt.get_data_format(
+                    align='left', with_border=False
                 )
+                worksheet.write(current_row, 0, area_text, area_format)
                 current_row += 1
 
             # Область печати

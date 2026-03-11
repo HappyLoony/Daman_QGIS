@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Tuple, Any
 
 from qgis.core import QgsProject, QgsVectorLayer
 
-from Daman_QGIS.constants import LAYERS_ZPR_ALL, LAYER_FOREST_VYDELY
+from Daman_QGIS.constants import LAYERS_ZPR_ALL, LAYER_FOREST_VYDELY, CUTTING_PREFIXES
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 __all__ = ['LayerSchemaValidator']
@@ -39,6 +39,12 @@ class LayerSchemaValidator:
             ],
             'required_fields': [],  # Загружаются динамически из Base_forest_vydely.json
             'dynamic_provider': 'forest_vydely',
+        },
+        'CUTTING': {
+            'description': 'Схема для слоёв нарезки (Le_2_1_*, Le_2_2_*)',
+            'required_fields': [],  # Загружаются динамически из Base_cutting.json
+            'dynamic_provider': 'cutting',
+            'prefix_match': CUTTING_PREFIXES,
         },
     }
 
@@ -295,6 +301,10 @@ class LayerSchemaValidator:
     def _get_schema_for_layer(self, layer_name: str) -> Optional[str]:
         """Определить схему по имени слоя
 
+        Поддерживает два режима:
+        - Точное совпадение по списку layers
+        - Совпадение по префиксу через prefix_match
+
         Args:
             layer_name: Имя слоя
 
@@ -303,6 +313,10 @@ class LayerSchemaValidator:
         """
         for schema_name, schema in self.LAYER_SCHEMAS.items():
             if layer_name in schema.get('layers', []):
+                return schema_name
+
+            prefix_match = schema.get('prefix_match')
+            if prefix_match and layer_name.startswith(prefix_match):
                 return schema_name
 
         return None
@@ -409,7 +423,21 @@ class LayerSchemaValidator:
 
         if typed_fields is not None:
             # Динамический провайдер: поля с типами
-            missing_typed = [f for f in typed_fields if f["name"] not in existing_fields]
+            # Проверка конфликта типов: имя совпало, тип отличается
+            existing_field_map = {f.name(): f for f in layer.fields()}
+            missing_typed = []
+            for field_def in typed_fields:
+                name = field_def["name"]
+                if name not in existing_field_map:
+                    missing_typed.append(field_def)
+                else:
+                    existing_field = existing_field_map[name]
+                    if existing_field.type() != field_def["type"]:
+                        log_warning(
+                            f"M_28: Поле '{name}' в слое {layer_name} имеет тип "
+                            f"{existing_field.typeName()}, ожидается "
+                            f"{'Int' if field_def['type'] == QMetaType.Type.Int else 'String'}"
+                        )
 
             if not missing_typed:
                 result['success'] = True
@@ -501,19 +529,40 @@ class LayerSchemaValidator:
                 log_error(f"M_28: Ошибка загрузки провайдера forest_vydely: {e}")
                 return None
 
+        if provider_key == 'cutting':
+            try:
+                from Daman_QGIS.managers.validation.submodules.Msm_28_2_cutting_schema import (
+                    CuttingSchemaProvider,
+                )
+                provider = CuttingSchemaProvider()
+                return provider.get_required_fields()
+            except Exception as e:
+                log_error(f"M_28: Ошибка загрузки провайдера cutting: {e}")
+                return None
+
         return None
 
     def is_layer_in_schema(self, layer_name: str, schema_name: str) -> bool:
         """Проверить, принадлежит ли слой к схеме
+
+        Поддерживает точное совпадение по layers и prefix_match.
 
         Args:
             layer_name: Имя слоя
             schema_name: Имя схемы
 
         Returns:
-            bool: True если слой в списке layers схемы
+            bool: True если слой принадлежит схеме
         """
         schema = self.LAYER_SCHEMAS.get(schema_name)
         if not schema:
             return False
-        return layer_name in schema.get('layers', [])
+
+        if layer_name in schema.get('layers', []):
+            return True
+
+        prefix_match = schema.get('prefix_match')
+        if prefix_match and layer_name.startswith(prefix_match):
+            return True
+
+        return False
