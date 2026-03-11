@@ -228,6 +228,8 @@ class Region78FormatModifier(ExportModifier):
     ) -> List[Dict[str, Any]]:
         """Установить SPB-формат для matching items."""
         result: List[Dict[str, Any]] = []
+        # Счётчики по слоям для summary лога
+        layer_counts: Dict[str, int] = {}
 
         for item in items:
             template = item['template']
@@ -262,11 +264,12 @@ class Region78FormatModifier(ExportModifier):
                 'extra_context': extra_context,
             })
 
-            log_info(
-                f"Msm_37_1: SPB формат для "
-                f"'{extra_context.get('feature_name', 'N/A')}' "
-                f"(template={template.template_id}, layer={layer_name})"
-            )
+            layer_counts[layer_name] = layer_counts.get(layer_name, 0) + 1
+
+        # Summary лог вместо per-item
+        if layer_counts:
+            parts = [f"{count} из {name}" for name, count in layer_counts.items()]
+            log_info(f"Msm_37_1: SPB формат применён: {', '.join(parts)}")
 
         return result
 
@@ -377,8 +380,6 @@ class Region78FormatModifier(ExportModifier):
         if self._is_ps(template_id, layer_name):
             return f"Перечень_координат_{feature_index}_публичного_сервитута"
         return f"Перечень_координат_{feature_index}_участка_зу"
-
-        return title
 
 
 # === Конфигурация модификаторов по регионам ===

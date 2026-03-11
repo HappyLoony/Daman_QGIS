@@ -133,23 +133,21 @@ class F_5_3_DocumentExport(BaseTool):
         # Применяем региональные модификаторы (M_44)
         try:
             regional_mgr = registry.get('M_44')
-            log_info(f"F_5_3: M_44 получен: {type(regional_mgr).__name__}")
-        except KeyError as e:
-            log_warning(f"F_5_3: M_44 не зарегистрирован: {e}. "
-                        f"Зарегистрированы: {sorted(registry._factories.keys())}")
+        except KeyError:
             regional_mgr = None
 
         if regional_mgr is not None:
             try:
                 metadata = ExportUtils.get_project_metadata()
-                region = metadata.get('1_4_1_code_region')
-                log_info(f"F_5_3: Регион из метаданных: '{region}'")
                 original_count = len(selected_items)
                 selected_items = regional_mgr.apply_export_modifiers(
                     selected_items, metadata
                 )
-                log_info(f"F_5_3: После модификаторов: "
-                         f"{original_count} -> {len(selected_items)} items")
+                if len(selected_items) != original_count:
+                    log_info(
+                        f"F_5_3: Региональные модификаторы: "
+                        f"{original_count} -> {len(selected_items)} задач"
+                    )
             except Exception as e:
                 log_warning(f"F_5_3: Ошибка региональных модификаторов, "
                             f"экспорт без модификаций: {e}")
