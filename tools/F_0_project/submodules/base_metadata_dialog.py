@@ -155,6 +155,7 @@ class BaseMetadataDialog(BaseResponsiveDialog):
             '1_4_2_code_zone': metadata.get('code_zone'),  # Код зоны
             '1_5_doc_type': metadata.get('doc_type_name'),  # Используем _name для enum
             '1_6_stage': metadata.get('stage_name'),  # Используем _name для enum
+            '1_7_is_single_object': "Да" if metadata.get('is_single_object', True) else "Нет",
             '2_1_code': metadata.get('code'),
             '2_2_date': metadata.get('release_date'),
             '2_3_company': metadata.get('company'),
@@ -176,7 +177,8 @@ class BaseMetadataDialog(BaseResponsiveDialog):
                           'object_type_value', 'object_type_value_name', 'project_folder',
                           'crs', 'crs_description', 'crs_epsg', 'crs_wkt',
                           'code_region', 'code_zone',
-                          'doc_type', 'doc_type_name', 'stage', 'stage_name', 'code',
+                          'doc_type', 'doc_type_name', 'stage', 'stage_name',
+                          'is_single_object', 'code',
                           'release_date', 'company', 'city', 'customer', 'general_director',
                           'technical_director', 'cover', 'title_start', 'main_scale',
                           'dxf_text_height', 'developer', 'examiner', 'changed_fields']:

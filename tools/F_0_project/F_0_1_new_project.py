@@ -141,6 +141,10 @@ class F_0_1_NewProject(BaseTool):
         db.set_metadata('1_6_stage_name', project_data['stage_name'],
                        'Наименование этапа разработки')
 
+        is_single = "Да" if project_data.get('is_single_object', True) else "Нет"
+        db.set_metadata('1_7_is_single_object', is_single,
+                       'Единственный объект (влияет на склонение в наименованиях)')
+
     def _save_optional_metadata(self, db, project_data: Dict[str, Any]) -> None:
         """Сохранение необязательных метаданных проекта"""
         for field, (key, desc) in OPTIONAL_METADATA_DESCRIPTIONS.items():

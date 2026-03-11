@@ -7,7 +7,8 @@ import os
 from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QComboBox, QPushButton, QLabel,
-    QDialogButtonBox, QFileDialog, QMessageBox, QWidget
+    QDialogButtonBox, QFileDialog, QMessageBox, QWidget,
+    QCheckBox
 )
 from qgis.PyQt.QtCore import Qt, QSettings, QStandardPaths
 from qgis.PyQt.QtGui import QIntValidator  # Используется для zone_code_edit
@@ -80,6 +81,14 @@ class NewProjectDialog(BaseMetadataDialog):
             self.object_type_value_combo,
             "Линейный"
         )
+
+        # 1_7 Единственный объект
+        self.single_object_checkbox = QCheckBox("Единственный объект")
+        self.single_object_checkbox.setChecked(True)
+        self.single_object_checkbox.setToolTip(
+            "Определяет грамматическое число в наименованиях (объект/объекты)"
+        )
+        form_layout.addRow("", self.single_object_checkbox)
 
         # 1_5 Тип документации
         self.doc_type_combo = QComboBox()
@@ -494,6 +503,7 @@ class NewProjectDialog(BaseMetadataDialog):
             'object_type_name': self.object_type_combo.currentText(),
             'object_type_value': object_type_value,  # Обязательное поле 1_2_1 (условное)
             'object_type_value_name': object_type_value_name,  # Обязательное поле 1_2_1 (условное)
+            'is_single_object': self.single_object_checkbox.isChecked(),  # Обязательное поле 1_7
             'doc_type': self.doc_type_combo.currentData(),
             'doc_type_name': self.doc_type_combo.currentText(),
             'stage': self.stage_combo.currentData(),  # Обязательное поле 1_6

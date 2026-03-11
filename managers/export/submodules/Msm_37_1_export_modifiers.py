@@ -107,14 +107,23 @@ class SplitByFeatureModifier(ExportModifier):
                     )
                     continue
 
-                feature_name = f"ЗУ_{idx}"
+                # ID из атрибутов (привязан к документации)
+                feature_id = feature.attribute('ID')
+                if not feature_id:
+                    log_error(
+                        f"Msm_37_1: Пустое поле ID у feature {idx} "
+                        f"слоя {layer.name()}, пропуск"
+                    )
+                    continue
+
+                feature_name = f"ЗУ_{feature_id}"
 
                 result.append({
                     'layer': mem_layer,
                     'template': template,
                     'extra_context': {
                         'feature_name': feature_name,
-                        'feature_index': idx,
+                        'feature_index': feature_id,
                         'split_by_feature': True,
                         'source_layer_name': layer.name(),
                     }
@@ -201,10 +210,16 @@ class Region78FormatModifier(ExportModifier):
     # Дескриптор для ПС (публичный сервитут)
     PS_DESCRIPTOR = 'контура публичного сервитута'
 
-    # Тип объекта -> фраза размещения
+    # Тип объекта -> фраза размещения (множественное число)
     PLACEMENT_PHRASE_MAP: Dict[str, str] = {
         'Линейный': 'линейных объектов',
         'Площадной': 'объектов капитального строительства',
+    }
+
+    # Тип объекта -> фраза размещения (единственное число)
+    PLACEMENT_PHRASE_MAP_SINGULAR: Dict[str, str] = {
+        'Линейный': 'линейного объекта',
+        'Площадной': 'объекта капитального строительства',
     }
 
     # Значение -> склонение для "...ого значения"
@@ -331,11 +346,16 @@ class Region78FormatModifier(ExportModifier):
 
         full_name = metadata.get('1_1_full_name', '')
 
-        object_type = metadata.get('1_2_object_type', '')
-        placement = self.PLACEMENT_PHRASE_MAP.get(object_type, '')
+        # Единственное/множественное число из метаданных
+        is_single = metadata.get('1_7_is_single_object', 'Да') == 'Да'
+        phrase_map = self.PLACEMENT_PHRASE_MAP_SINGULAR if is_single else self.PLACEMENT_PHRASE_MAP
 
-        significance_value = metadata.get('1_2_1_object_type_value', '')
-        significance = self.SIGNIFICANCE_MAP.get(significance_value, '')
+        # _name ключи содержат русские наименования (Линейный/Площадной)
+        object_type_name = metadata.get('1_2_object_type_name', '')
+        placement = phrase_map.get(object_type_name, '')
+
+        significance_name = metadata.get('1_2_1_object_type_value_name', '')
+        significance = self.SIGNIFICANCE_MAP.get(significance_name, '')
 
         # Собираем фразу размещения
         placement_parts = []

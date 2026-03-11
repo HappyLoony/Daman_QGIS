@@ -205,7 +205,9 @@ class F_5_3_DocumentExport(BaseTool):
                           f"({doc_type_name}): {e}")
                 success = False
 
-            results[f"{layer.name()} ({doc_type_name})"] = success
+            # Уникальный ключ: для split items используем счётчик
+            result_key = f"{current}_{layer.name()} ({doc_type_name})"
+            results[result_key] = success
 
         progress.close()
 

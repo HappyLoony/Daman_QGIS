@@ -8,7 +8,7 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QComboBox, QPushButton, QLabel,
     QDialogButtonBox, QMessageBox, QGroupBox, QWidget,
-    QFileDialog, QFrame
+    QFileDialog, QFrame, QCheckBox
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QIntValidator
@@ -85,6 +85,14 @@ class EditProjectDialog(BaseMetadataDialog):
             self.object_type_value_combo,
             "Линейный"
         )
+
+        # 1_7 Единственный объект
+        self.single_object_checkbox = QCheckBox("Единственный объект")
+        self.single_object_checkbox.setChecked(True)
+        self.single_object_checkbox.setToolTip(
+            "Определяет грамматическое число в наименованиях (объект/объекты)"
+        )
+        required_layout.addRow("", self.single_object_checkbox)
 
         # 1_5 Тип документации
         self.doc_type_combo = QComboBox()
@@ -371,6 +379,11 @@ class EditProjectDialog(BaseMetadataDialog):
             self.object_type_value_combo.setEnabled(True)
         else:
             self.object_type_value_combo.setEnabled(False)
+
+        # Единственный объект (1_7)
+        if '1_7_is_single_object' in self.current_metadata:
+            val = self.current_metadata['1_7_is_single_object'].get('value', 'Да')
+            self.single_object_checkbox.setChecked(val == 'Да')
 
         # Тип документации
         if '1_5_doc_type' in self.current_metadata:
@@ -731,6 +744,13 @@ class EditProjectDialog(BaseMetadataDialog):
             values[field_name] = new_val
 
         # Специальные поля с нестандартной логикой извлечения
+
+        # is_single_object: чекбокс
+        old_is_single = self.current_metadata.get('1_7_is_single_object', {}).get('value', 'Да')
+        new_is_single = "Да" if self.single_object_checkbox.isChecked() else "Нет"
+        if old_is_single != new_is_single:
+            changed_fields.append('is_single_object')
+        values['is_single_object'] = self.single_object_checkbox.isChecked()
 
         # object_type_value: условное поле, зависит от isEnabled()
         old_type_value = self.current_metadata.get('1_2_1_object_type_value', {}).get('value', '')

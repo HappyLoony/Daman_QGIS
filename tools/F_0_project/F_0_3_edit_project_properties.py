@@ -199,6 +199,13 @@ class F_0_3_EditProjectProperties(BaseTool):
                           'Наименование этапа разработки')
             log_info(f"F_0_3: Изменен этап разработки: {updated_data['stage_name']}")
 
+        if 'is_single_object' in changed_fields:
+            is_single = "Да" if updated_data.get('is_single_object', True) else "Нет"
+            db.set_metadata('1_7_is_single_object', is_single,
+                          'Единственный объект (влияет на склонение в наименованиях)')
+            label = is_single
+            log_info(f"F_0_3: Изменен признак единственного объекта: {label}")
+
         if 'code' in changed_fields:
             db.set_metadata('2_1_code', updated_data['code'],
                           'Шифр (внутренняя кодировка объекта)')
@@ -295,6 +302,9 @@ class F_0_3_EditProjectProperties(BaseTool):
             changes.append(f"• Тип документации: {updated_data['doc_type_name']}")
         if 'stage' in changed_fields:
             changes.append(f"• Этап разработки: {updated_data['stage_name']}")
+        if 'is_single_object' in changed_fields:
+            label = "Да" if updated_data.get('is_single_object', True) else "Нет"
+            changes.append(f"• Единственный объект: {label}")
         if 'code' in changed_fields:
             changes.append(f"• Шифр: {updated_data['code']}")
         if 'release_date' in changed_fields:

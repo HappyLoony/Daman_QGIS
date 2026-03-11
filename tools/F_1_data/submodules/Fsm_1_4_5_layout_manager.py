@@ -293,7 +293,8 @@ class LayoutManager:
             "1_2_object_type": "Площадной",
             "1_2_1_object_type_value": "-",
             "1_5_doc_type": "ДПТ",
-            "1_6_stage": "Первичная"
+            "1_6_stage": "Первичная",
+            "1_7_is_single_object": "Да"
         }
 
         # Загружаем метаданные из БД
@@ -421,7 +422,8 @@ class LayoutManager:
             "1_2_object_type": "Площадной",
             "1_2_1_object_type_value": "-",
             "1_5_doc_type": "ДПТ",
-            "1_6_stage": "Первичная"
+            "1_6_stage": "Первичная",
+            "1_7_is_single_object": "Да"
         }
 
         # Загружаем метаданные из БД

@@ -56,6 +56,11 @@ class TitleGenerator:
         "Площадной": "с целью размещения объекта"
     }
 
+    OBJECT_TYPE_MAP_PLURAL = {
+        "Линейный": "для размещения линейных объектов",
+        "Площадной": "с целью размещения объектов"
+    }
+
     OBJECT_VALUE_MAP = {
         "Федеральный": "федерального",
         "Региональный": "регионального",
@@ -104,6 +109,8 @@ class TitleGenerator:
         doc_type = metadata.get("1_5_doc_type", "ДПТ")
         stage = metadata.get("1_6_stage", "Первичная")
 
+        is_single = metadata.get("1_7_is_single_object", "Да") == "Да"
+
         # Формируем части заголовка
 
         # 1. Стадия
@@ -113,8 +120,9 @@ class TitleGenerator:
         doc_map = self.DOC_TYPE_MAP_SCHEME.get(doc_type, self.DOC_TYPE_MAP_SCHEME["ДПТ"])
         doc_text = doc_map.get(stage, doc_map["Первичная"])
 
-        # 3. Тип объекта
-        object_text = self.OBJECT_TYPE_MAP.get(object_type, self.OBJECT_TYPE_MAP["Площадной"])
+        # 3. Тип объекта (единственное/множественное число)
+        type_map = self.OBJECT_TYPE_MAP if is_single else self.OBJECT_TYPE_MAP_PLURAL
+        object_text = type_map.get(object_type, type_map["Площадной"])
 
         # 4. Для линейных добавляем значение (федерального/регионального/местного значения)
         if object_type == "Линейный" and object_type_value and object_type_value != "-":
@@ -173,6 +181,7 @@ class TitleGenerator:
         object_type_value = metadata.get("1_2_1_object_type_value", "-")
         doc_type = metadata.get("1_5_doc_type", "ДПТ")
         stage = metadata.get("1_6_stage", "Первичная")
+        is_single = metadata.get("1_7_is_single_object", "Да") == "Да"
 
         # Формируем части заголовка
 
@@ -188,8 +197,9 @@ class TitleGenerator:
         if stage == "Внесение изменений" and doc_type == "Мастер-план":
             stage_text = "внесение изменения в"
 
-        # 3. Тип объекта
-        object_text = self.OBJECT_TYPE_MAP.get(object_type, self.OBJECT_TYPE_MAP["Площадной"])
+        # 3. Тип объекта (единственное/множественное число)
+        type_map = self.OBJECT_TYPE_MAP if is_single else self.OBJECT_TYPE_MAP_PLURAL
+        object_text = type_map.get(object_type, type_map["Площадной"])
 
         # 4. Для линейных добавляем значение (федерального/регионального/местного значения)
         if object_type == "Линейный" and object_type_value and object_type_value != "-":
@@ -232,18 +242,21 @@ class TitleGenerator:
         doc_map = doc_map_source.get(doc_type, doc_map_source["ДПТ"])
         return doc_map.get(stage, doc_map["Первичная"])
 
-    def get_object_type_text(self, object_type: str, object_type_value: Optional[str] = None) -> str:
+    def get_object_type_text(self, object_type: str, object_type_value: Optional[str] = None,
+                            is_single: bool = True) -> str:
         """
         Получить текстовое представление типа объекта
 
         Args:
             object_type: Значение метаданных 1_2_object_type
             object_type_value: Значение метаданных 1_2_1_object_type_value (для линейных)
+            is_single: Единственный объект (True) или несколько (False)
 
         Returns:
             Текстовая форма типа объекта
         """
-        object_text = self.OBJECT_TYPE_MAP.get(object_type, self.OBJECT_TYPE_MAP["Площадной"])
+        type_map = self.OBJECT_TYPE_MAP if is_single else self.OBJECT_TYPE_MAP_PLURAL
+        object_text = type_map.get(object_type, type_map["Площадной"])
 
         # Для линейных добавляем значение
         if object_type == "Линейный" and object_type_value and object_type_value != "-":
