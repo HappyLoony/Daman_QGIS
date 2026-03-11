@@ -390,7 +390,6 @@ class Fsm_5_3_1_CoordinateList:
         finally:
             workbook.close()
 
-        log_info(f"Fsm_5_3_1: Экспорт завершён: {filepath}")
         return True
 
     def _export_to_excel_spb(
@@ -564,7 +563,6 @@ class Fsm_5_3_1_CoordinateList:
         finally:
             workbook.close()
 
-        log_info(f"Fsm_5_3_1: SPB экспорт завершён: {filepath}")
         return True
 
     def _collect_contours_with_coordinates(
