@@ -196,6 +196,7 @@ class Fsm_6_3_1_Dialog(BaseResponsiveDialog):
 
     def _set_folder(self, folder: str) -> None:
         """Установить папку и обновить модель."""
+        folder = os.path.normpath(folder)
         self._current_folder = folder
         self.folder_edit.setText(folder)
         self._save_settings()

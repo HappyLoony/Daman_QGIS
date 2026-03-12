@@ -149,6 +149,7 @@ class Fsm_6_2_1_Dialog(BaseResponsiveDialog):
 
     def _set_source_folder(self, folder: str) -> None:
         """Установить выбранную папку и обновить статус."""
+        folder = os.path.normpath(folder)
         self._source_folder = folder
         self.source_edit.setText(folder)
         self._save_settings()

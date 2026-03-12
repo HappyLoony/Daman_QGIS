@@ -206,6 +206,7 @@ class Fsm_6_1_1_Dialog(BaseResponsiveDialog):
         folder = find_timesheet_folder(year, month)
 
         if folder and os.path.isdir(folder):
+            folder = os.path.normpath(folder)
             self._source_folder = folder
             self.source_edit.setText(folder)
             self.source_status_label.setText("")
@@ -238,6 +239,7 @@ class Fsm_6_1_1_Dialog(BaseResponsiveDialog):
         )
 
         if folder:
+            folder = os.path.normpath(folder)
             self._dest_folder = folder
             self.dest_edit.setText(folder)
             self._update_run_button_state()

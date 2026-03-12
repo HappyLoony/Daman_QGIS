@@ -302,7 +302,15 @@ class Fsm_1_1_5_KptImporter:
                     feature.setAttribute(idx, converted_value)
             features.append(feature)
 
-        prov.addFeatures(features)
+        expected_count = len(features)
+        success, added_features = prov.addFeatures(features)
+        actual_count = temp_layer.featureCount()
+
+        if not success or actual_count != expected_count:
+            log_error(
+                f"Fsm_1_1_5: ПОТЕРЯ ДАННЫХ в слое {layer_name}: "
+                f"ожидалось {expected_count}, добавлено {actual_count}, success={success}"
+            )
 
         if save_to_file and gpkg_path:
             options = QgsVectorFileWriter.SaveVectorOptions()
@@ -322,7 +330,17 @@ class Fsm_1_1_5_KptImporter:
                 log_error(f"Fsm_1_1_5: Ошибка записи слоя {layer_name}: {write_result[1]}")
                 return None
 
-            return QgsVectorLayer(f"{gpkg_path}|layername={layer_name}", layer_name, "ogr")
+            saved_layer = QgsVectorLayer(f"{gpkg_path}|layername={layer_name}", layer_name, "ogr")
+
+            # Верификация: количество объектов после записи в GPKG
+            saved_count = saved_layer.featureCount() if saved_layer.isValid() else 0
+            if saved_count != expected_count:
+                log_error(
+                    f"Fsm_1_1_5: ПОТЕРЯ ДАННЫХ при записи GPKG слоя {layer_name}: "
+                    f"ожидалось {expected_count}, в GPKG {saved_count}"
+                )
+
+            return saved_layer
 
         return temp_layer
 

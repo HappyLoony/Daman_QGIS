@@ -400,6 +400,7 @@ class Fsm_6_4_1_Dialog(BaseResponsiveDialog):
         if not folder:
             return
 
+        folder = os.path.normpath(folder)
         self._edit_folder.setText(folder)
         self._settings.setValue(_SK_FOLDER, folder)
 
@@ -590,7 +591,7 @@ class Fsm_6_4_1_Dialog(BaseResponsiveDialog):
             self, "Папка назначения", current
         )
         if folder:
-            self._edit_dest.setText(folder)
+            self._edit_dest.setText(os.path.normpath(folder))
 
     def _update_settings_summary(self) -> None:
         """Обновление итоговой информации."""

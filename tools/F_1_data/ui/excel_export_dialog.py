@@ -223,6 +223,7 @@ class ExcelExportDialog(BaseResponsiveDialog):
         )
         
         if folder:
+            folder = os.path.normpath(folder)
             self.folder_edit.setText(folder)
             # Сохраняем папку в настройки
             self.settings.setValue("Daman_QGIS/last_excel_export_folder", folder)
@@ -244,9 +245,9 @@ class ExcelExportDialog(BaseResponsiveDialog):
         )
         
         if last_folder and os.path.exists(last_folder):
-            self.folder_edit.setText(last_folder)
-        else:
-            self.folder_edit.setText(project_path)
+            self.folder_edit.setText(os.path.normpath(last_folder))
+        elif project_path:
+            self.folder_edit.setText(os.path.normpath(project_path))
     
     def accept(self):
         """Проверка перед закрытием диалога"""

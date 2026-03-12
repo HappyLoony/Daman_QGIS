@@ -177,6 +177,7 @@ class Fsm_6_5_1_Dialog(BaseResponsiveDialog):
 
     def _set_folder(self, folder: str) -> None:
         """Установить папку и запустить сканирование."""
+        folder = os.path.normpath(folder)
         self._current_folder = folder
         self._edt_folder.setText(folder)
         self._save_settings()
