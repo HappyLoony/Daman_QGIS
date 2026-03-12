@@ -259,9 +259,12 @@ class F_1_1_UniversalImport(BaseTool):
                 self.iface.mainWindow()
             )
             progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setWindowFlags(progress.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
             progress.setMinimumDuration(0)
             progress.setValue(0)
             progress.show()
+            progress.raise_()
+            progress.activateWindow()
             QApplication.processEvents()
 
             def on_progress(percent: int) -> None:

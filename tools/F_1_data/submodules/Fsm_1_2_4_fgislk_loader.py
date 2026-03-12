@@ -145,6 +145,28 @@ class Fsm_1_2_4_FgislkLoader:
         13.999999999998, 6.999999999999999, 2.8
     ]
 
+    # REST API для обогащения атрибутов выделов (attributesinfo)
+    # Публичный endpoint, авторизация НЕ требуется
+    # object_id = поле mvt_id из PBF тайлов (подтверждено тестами)
+    FGISLK_REST_API_URL = "https://map.fgislk.gov.ru/map/geo/map_api/layer/attributesinfo"
+
+    # Маппинг полей REST API -> поля слоя
+    # Ключ = имя в JSON payload, Значение = (имя поля в слое, тип QMetaType)
+    ENRICHMENT_FIELDS: Dict[str, tuple] = {
+        "square": ("square", QMetaType.Type.Double),
+        "totalArea": ("total_area", QMetaType.Type.Double),
+        "category_land": ("category_land", QMetaType.Type.QString),
+        "type_land": ("type_land", QMetaType.Type.QString),
+        "forest_land_type": ("forest_land_type", QMetaType.Type.QString),
+        "taxation_date": ("taxation_date", QMetaType.Type.QString),
+        "event": ("event", QMetaType.Type.QString),
+    }
+
+    # Параметры REST API обогащения
+    ENRICHMENT_MAX_WORKERS = 6        # Параллельные запросы к REST API
+    ENRICHMENT_REQUEST_TIMEOUT = 15   # Таймаут одного запроса (сек)
+    ENRICHMENT_MAX_RETRIES = 2        # Ретраи для REST API
+
     def __init__(self, iface, api_manager=None):
         """
         Инициализация загрузчика
@@ -189,6 +211,9 @@ class Fsm_1_2_4_FgislkLoader:
         # HTTP Session с connection pooling и retry (best practice urllib3 + requests docs)
         self._session = self._create_session()
 
+        # HTTP Session для REST API обогащения атрибутов (отдельный хост map.fgislk.gov.ru)
+        self._rest_session = self._create_rest_session()
+
     def _create_session(self) -> requests.Session:
         """Создание HTTP Session с connection pooling и exponential backoff.
 
@@ -220,6 +245,135 @@ class Fsm_1_2_4_FgislkLoader:
         session.mount('http://', adapter)
         session.verify = False  # Российские сертификаты Минцифры
         return session
+
+    def _create_rest_session(self) -> requests.Session:
+        """Создание HTTP Session для REST API обогащения атрибутов.
+
+        Отличия от _create_session (тайловый CDN):
+        - Отдельный хост: map.fgislk.gov.ru (не pub4.fgislk.gov.ru)
+        - 404 НЕ в status_forcelist (404 = реальная ошибка, не cache miss)
+        - Меньше ретраев (REST API стабильнее CDN)
+        """
+        retry_strategy = Retry(
+            total=self.ENRICHMENT_MAX_RETRIES,
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["GET"],
+            backoff_factor=0.5,
+            backoff_max=10,
+            backoff_jitter=0.5,
+            raise_on_status=False,
+        )
+
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=1,
+            pool_maxsize=self.ENRICHMENT_MAX_WORKERS,
+        )
+
+        session = requests.Session()
+        session.mount('https://', adapter)
+        session.mount('http://', adapter)
+        session.verify = False  # Российские сертификаты Минцифры
+        return session
+
+    def _fetch_attributes(self, mvt_id: int) -> Optional[dict]:
+        """Запрос атрибутов одного выдела из REST API (thread-safe).
+
+        Args:
+            mvt_id: Числовой ID выдела из PBF тайла (поле mvt_id)
+
+        Returns:
+            dict с атрибутами из payload или None при ошибке
+        """
+        try:
+            params = {
+                "layer_code": "TAXATION_PIECE",
+                "object_id": str(mvt_id),
+            }
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json',
+            }
+            if self.referer_url:
+                headers['Referer'] = self.referer_url
+
+            response = self._rest_session.get(
+                self.FGISLK_REST_API_URL,
+                params=params,
+                headers=headers,
+                timeout=self.ENRICHMENT_REQUEST_TIMEOUT,
+            )
+
+            if response.status_code != 200:
+                return None
+
+            data = response.json()
+            payload = data.get("payload")
+            if not payload or not isinstance(payload, dict):
+                return None
+
+            return payload
+
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+                requests.exceptions.SSLError):
+            return None
+        except Exception:
+            return None
+
+    def _enrich_attributes(self, mvt_id_map: Dict[str, int]) -> Dict[str, dict]:
+        """Параллельное обогащение атрибутов выделов через REST API.
+
+        Args:
+            mvt_id_map: {externalid: mvt_id} для запросов
+
+        Returns:
+            {externalid: {field_name: value}} -- обогащённые атрибуты
+        """
+        if not mvt_id_map:
+            return {}
+
+        total = len(mvt_id_map)
+        log_info(f"Fsm_1_2_4: Обогащение атрибутов: {total} выделов через REST API...")
+
+        enrichment_data: Dict[str, dict] = {}
+        success_count = 0
+        fail_count = 0
+
+        with ThreadPoolExecutor(max_workers=self.ENRICHMENT_MAX_WORKERS) as executor:
+            futures = {
+                executor.submit(self._fetch_attributes, mvt_id): eid
+                for eid, mvt_id in mvt_id_map.items()
+            }
+
+            for future in futures:
+                eid = futures[future]
+                try:
+                    payload = future.result(timeout=self.ENRICHMENT_REQUEST_TIMEOUT + 5)
+                    if payload:
+                        enriched: Dict[str, object] = {}
+                        for api_field, (layer_field, _) in self.ENRICHMENT_FIELDS.items():
+                            val = payload.get(api_field)
+                            if val is not None:
+                                enriched[layer_field] = val
+                        enrichment_data[eid] = enriched
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                except TimeoutError:
+                    fail_count += 1
+                except Exception:
+                    fail_count += 1
+
+        if fail_count > 0:
+            log_warning(
+                f"Fsm_1_2_4: Обогащение атрибутов: {success_count}/{total} успешно, "
+                f"{fail_count} ошибок"
+            )
+        else:
+            log_success(f"Fsm_1_2_4: Обогащение атрибутов: все {total} выделов обогащены")
+
+        return enrichment_data
 
     def get_boundary_geometry(self) -> Optional[QgsGeometry]:
         """
@@ -516,12 +670,13 @@ class Fsm_1_2_4_FgislkLoader:
 
         return found_layers
 
-    def load_layers(self, temp_dir: str) -> Dict[str, QgsVectorLayer]:
+    def load_layers(self, temp_dir: str, enrich_attributes: bool = True) -> Dict[str, QgsVectorLayer]:
         """
         Загрузка всех слоёв ФГИС ЛК
 
         Args:
             temp_dir: Директория для временных файлов
+            enrich_attributes: Обогащать выделы атрибутами из REST API (по умолчанию True)
 
         Returns:
             dict: Словарь {layer_name: QgsVectorLayer}
@@ -711,6 +866,24 @@ class Fsm_1_2_4_FgislkLoader:
                             base_data[eid]["fields"][n] = fld
                             base_data[eid]["attrs"][n] = feat.attribute(n)
 
+            # Обогащение атрибутов выделов через REST API
+            # Применяется ТОЛЬКО к TAXATION_PIECE (выделы)
+            enrichment_data: Dict[str, dict] = {}
+            if enrich_attributes and base_layer_key == "TAXATION_PIECE" and base_data:
+                mvt_id_map: Dict[str, int] = {}
+                for eid, eid_data in base_data.items():
+                    mvt_id = eid_data["attrs"].get("mvt_id")
+                    if mvt_id is not None:
+                        try:
+                            mvt_id_map[eid] = int(mvt_id)
+                        except (ValueError, TypeError):
+                            pass
+
+                if mvt_id_map:
+                    enrichment_data = self._enrich_attributes(mvt_id_map)
+                else:
+                    log_warning("Fsm_1_2_4: Нет mvt_id в выделах -- обогащение невозможно")
+
             if not base_data:
                 log_info(f"Fsm_1_2_4: Нет данных для слоя {target_layer_name}")
                 continue
@@ -728,6 +901,12 @@ class Fsm_1_2_4_FgislkLoader:
             fields = QgsFields()
             for field in all_fields.values():
                 fields.append(field)
+
+            # Добавляем поля обогащения если данные получены
+            if enrichment_data:
+                for api_field, (layer_field, field_type) in self.ENRICHMENT_FIELDS.items():
+                    if layer_field not in all_fields:
+                        fields.append(QgsField(layer_field, field_type))
 
             # Определяем тип геометрии
             any_geom = next(iter(base_data.values()))["geom"][0]
@@ -816,7 +995,15 @@ class Fsm_1_2_4_FgislkLoader:
                 f = QgsFeature()
                 f.setFields(fields)
                 f.setGeometry(uni)
-                vals = [data["attrs"].get(fld.name()) for fld in fields]  # type: ignore[attr-defined]
+                # Объединяем атрибуты PBF + enrichment (enrichment имеет приоритет)
+                eid_enrichment = enrichment_data.get(eid, {})
+                vals = []
+                for fld in fields:  # type: ignore[attr-defined]
+                    fname = fld.name()
+                    if fname in eid_enrichment:
+                        vals.append(eid_enrichment[fname])
+                    else:
+                        vals.append(data["attrs"].get(fname))
                 f.setAttributes(vals)
                 features_to_add.append(f)
 
