@@ -119,8 +119,8 @@ class F_0_3_EditProjectProperties(BaseTool):
     def _move_project_folder(self, old_path: str, new_path: str) -> bool:
         """Перемещение папки проекта. Возвращает True если перемещена.
 
-        Использует try-except вместо предварительных проверок os.path.exists()
-        для избежания TOCTOU race condition.
+        Освобождает GPKG перед перемещением: закрывает ProjectDB и удаляет
+        все слои из QGIS (иначе Windows блокирует файл).
         """
         if not old_path or old_path == new_path:
             return False
@@ -130,21 +130,25 @@ class F_0_3_EditProjectProperties(BaseTool):
             if self.project_manager:
                 self.project_manager.save_project()
 
-            # Перемещаем папку (shutil.move выбросит исключение если new_path существует
-            # или old_path не существует)
+            # Закрываем соединение с GPKG (освобождает кэш слоёв)
+            if self.project_manager and self.project_manager.project_db:
+                self.project_manager.project_db.close()
+
+            # Удаляем все слои из QGIS — они держат файловые дескрипторы GPKG
+            QgsProject.instance().removeAllMapLayers()
+            root = QgsProject.instance().layerTreeRoot()
+            root.removeAllChildren()
+
+            # Перемещаем папку
             shutil.move(old_path, new_path)
             log_info(f"F_0_3: Папка проекта перемещена: {old_path} -> {new_path}")
             return True
 
         except FileNotFoundError as e:
-            # old_path не существует
             raise ValueError(f"Исходная папка проекта не найдена: {old_path}") from e
         except FileExistsError as e:
-            # new_path уже существует (Windows)
             raise ValueError(f"Папка {new_path} уже существует") from e
         except shutil.Error as e:
-            # shutil.move может выбросить shutil.Error если new_path существует (Unix)
-            # или при других ошибках перемещения
             error_msg = str(e)
             if "already exists" in error_msg.lower() or "destination path" in error_msg.lower():
                 raise ValueError(f"Папка {new_path} уже существует") from e
@@ -349,16 +353,25 @@ class F_0_3_EditProjectProperties(BaseTool):
         if not self.project_manager or not self.project_manager.project_db:
             raise ValueError("База данных проекта не инициализирована")
 
-        db = self.project_manager.project_db
         changed_fields = updated_data.get('changed_fields', [])
 
-        # 1. Перенос папки проекта
+        # 1. Перенос папки проекта (до обновления метаданных!)
         project_folder_changed = False
         if 'project_folder' in changed_fields:
             old_path = self.project_manager.current_project if self.project_manager else None
             new_path = updated_data['project_folder']
             if old_path is not None:
                 project_folder_changed = self._move_project_folder(old_path, new_path)
+
+        # Если папка перемещена — переоткрываем проект для актуального db
+        if project_folder_changed and self.project_manager:
+            self.project_manager.close_project()
+            self.project_manager.open_project(updated_data['project_folder'])
+
+        # Получаем актуальную ссылку на БД (после возможного переоткрытия)
+        db = self.project_manager.project_db
+        if not db:
+            raise ValueError("База данных проекта не инициализирована")
 
         # 2. Обновление основных метаданных
         self._update_core_metadata(db, updated_data, changed_fields)
@@ -369,7 +382,7 @@ class F_0_3_EditProjectProperties(BaseTool):
         # 4. Обновление дополнительных метаданных
         self._update_additional_metadata(db, updated_data, changed_fields)
 
-        # 5. Сохранение пути к папке проекта
+        # 5. Сохранение пути к папке проекта (только если не было перемещения)
         if 'project_folder' in changed_fields and not project_folder_changed:
             db.set_metadata('1_3_project_folder', updated_data['project_folder'],
                           'Путь к папке проекта')
@@ -389,25 +402,21 @@ class F_0_3_EditProjectProperties(BaseTool):
         if 'crs' in changed_fields and updated_data.get('crs'):
             QgsProject.instance().setCrs(updated_data['crs'])
 
-        # 10. Переоткрытие проекта если папка была перемещена
-        if project_folder_changed and self.project_manager:
-            self.project_manager.close_project()
-            self.project_manager.open_project(updated_data['project_folder'])
-            QMessageBox.information(
-                None, "Проект перемещен",
-                f"Проект успешно перемещен в:\n{updated_data['project_folder']}\n\n"
-                "Проект автоматически переоткрыт из нового расположения."
-            )
-            return
-
-        # 11. Сохранение проекта
+        # 10. Сохранение проекта
         if self.project_manager:
             self.project_manager.save_project()
 
-        # 12. Показ сообщения об успехе
+        # 11. Показ сообщения об успехе
         changes_text = self._build_changes_summary(updated_data, changed_fields, crs_changed)
 
-        if changes_text:
+        if project_folder_changed:
+            msg = f"Проект успешно перемещен в:\n{updated_data['project_folder']}\n\n" \
+                  "Проект автоматически переоткрыт из нового расположения."
+            if changes_text:
+                msg += "\n\nДополнительные изменения:\n" + "\n".join(changes_text)
+            QMessageBox.information(None, "Проект перемещен", msg)
+            log_info(f"F_0_3: Проект перемещен + {len(changes_text)} изменений")
+        elif changes_text:
             QMessageBox.information(
                 None, "Свойства проекта изменены",
                 "Успешно применены изменения:\n\n" + "\n".join(changes_text)

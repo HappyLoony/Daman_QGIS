@@ -4,7 +4,7 @@
 Версия 3.0: Объединённый GUI с checkbox для межзональной проекции
 """
 
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Callable
 import math
 import re
 
@@ -46,6 +46,10 @@ class RefineProjectionDialog(BaseResponsiveDialog):
 
     # Порог отклонения для подсветки проблемных пар (в метрах)
     DEVIATION_WARNING_THRESHOLD = 1.0
+
+    # Параметры итеративного уточнения (Post-Calculation Refinement)
+    MAX_REFINEMENT_ITERATIONS = 3
+    REFINEMENT_CONVERGENCE_THRESHOLD = 0.001  # 1 мм - порог сходимости
 
     def __init__(self, iface, parent_tool):
         super().__init__(iface.mainWindow())
@@ -1188,6 +1192,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 log_warning("Fsm_0_5: Не удалось загрузить extent - перерасчёт СК недоступен")
                 # Используем только стандартный результат
                 if standard_result:
+                    standard_result = self._refine_standard_result(standard_result)
                     self._display_result(standard_result, None)
                     return
                 else:
@@ -1200,6 +1205,12 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                     return
 
         interzonal_result = self._run_interzonal_calculation()
+
+        # === ЭТАП 2.5: Итеративное уточнение (Post-Calculation Refinement) ===
+        if standard_result:
+            standard_result = self._refine_standard_result(standard_result)
+        if interzonal_result:
+            interzonal_result = self._refine_interzonal_result(interzonal_result)
 
         # === ЭТАП 3: Сравнение и выбор ===
         self._display_result(standard_result, interzonal_result)
@@ -1402,6 +1413,353 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             'distortion_ppm': distortion_ppm,
             'all_results': all_results
         }
+
+    # =====================================================================
+    # Post-Calculation Refinement (Iterative x_0/y_0 correction)
+    #
+    # Fixes systematic ~1.8cm error caused by pipeline difference between
+    # EPSG CRS (specific pipeline) and USER CRS (generic towgs84 pipeline).
+    # Creates virtual CRS using the SAME path as the actual apply methods,
+    # so residuals capture the real error that would remain after applying.
+    # =====================================================================
+
+    def _set_wkt2_offsets(
+        self, wkt2_string: str, easting: float, northing: float
+    ) -> Tuple[str, bool]:
+        """Set absolute False Easting/Northing values in WKT2 string.
+
+        Unlike update_wkt2_params (which adds delta), this sets absolute values.
+        Supports TM, Lambert, and Oblique Mercator parameter names.
+
+        Args:
+            wkt2_string: WKT2 CRS string
+            easting: Absolute False Easting value
+            northing: Absolute False Northing value
+
+        Returns:
+            Tuple of (modified_wkt2, success) where success=True if both params found
+        """
+        result = wkt2_string
+
+        easting_names = [
+            "False easting",
+            "Easting at false origin",
+            "Easting at projection centre",
+        ]
+        northing_names = [
+            "False northing",
+            "Northing at false origin",
+            "Northing at projection centre",
+        ]
+
+        easting_set = False
+        for param_name in easting_names:
+            pattern = rf'(PARAMETER\s*\[\s*"{param_name}"\s*,\s*)(-?[\d.]+)(\s*,)'
+            new_result = re.sub(
+                pattern,
+                lambda m, val=easting: f"{m.group(1)}{val:.4f}{m.group(3)}",
+                result,
+                flags=re.IGNORECASE
+            )
+            if new_result != result:
+                result = new_result
+                easting_set = True
+                break
+
+        northing_set = False
+        for param_name in northing_names:
+            pattern = rf'(PARAMETER\s*\[\s*"{param_name}"\s*,\s*)(-?[\d.]+)(\s*,)'
+            new_result = re.sub(
+                pattern,
+                lambda m, val=northing: f"{m.group(1)}{val:.4f}{m.group(3)}",
+                result,
+                flags=re.IGNORECASE
+            )
+            if new_result != result:
+                result = new_result
+                northing_set = True
+                break
+
+        return result, easting_set and northing_set
+
+    def _build_virtual_crs_standard(
+        self, x_0: float, y_0: float
+    ) -> Optional[QgsCoordinateReferenceSystem]:
+        """Build virtual CRS for standard mode by modifying WKT2 of object_layer_crs.
+
+        Matches the exact path of apply_projection_offset:
+        current WKT2 -> regex replace FE/FN -> fromWkt().
+
+        This ensures the virtual CRS uses the same pipeline as the eventual
+        USER CRS, capturing any pipeline difference with the original EPSG CRS.
+        """
+        wkt2 = self.object_layer_crs.toWkt(Qgis.CrsWktVariant.Wkt2_2019)
+        modified_wkt2, success = self._set_wkt2_offsets(wkt2, x_0, y_0)
+
+        if not success:
+            log_warning("Fsm_0_5: Refinement: FE/FN not found in WKT2, skipping")
+            return None
+
+        crs = QgsCoordinateReferenceSystem.fromWkt(modified_wkt2)
+        return crs if crs.isValid() else None
+
+    def _build_virtual_crs_interzonal(
+        self,
+        x_0: float,
+        y_0: float,
+        lon_0: float,
+        lat_0: float,
+        k_0: float,
+        ellps_param: str,
+        towgs84_param: str
+    ) -> Optional[QgsCoordinateReferenceSystem]:
+        """Build virtual CRS for interzonal mode via PROJ -> WKT2 -> CRS.
+
+        Matches the exact path of apply_custom_projection:
+        PROJ string -> createFromProj() -> toWkt() -> fromWkt().
+        """
+        proj_string = (
+            f"+proj=tmerc "
+            f"+lat_0={lat_0:.6f} "
+            f"+lon_0={lon_0:.6f} "
+            f"+k_0={k_0:.8f} "
+            f"+x_0={x_0:.4f} "
+            f"+y_0={y_0:.4f} "
+            f"{ellps_param} "
+            f"{towgs84_param} "
+            f"+units=m +no_defs"
+        )
+
+        temp_crs = QgsCoordinateReferenceSystem()
+        if not temp_crs.createFromProj(proj_string):
+            return None
+
+        # Convert PROJ -> WKT2 -> CRS (same path as apply_custom_projection)
+        wkt2 = temp_crs.toWkt(Qgis.CrsWktVariant.Wkt2_2019)
+        crs = QgsCoordinateReferenceSystem.fromWkt(wkt2)
+
+        if not crs.isValid():
+            # Fallback: use PROJ-based CRS directly (same as apply_custom_projection)
+            return temp_crs if temp_crs.isValid() else None
+
+        return crs
+
+    def _iterative_refine(
+        self,
+        x_0: float,
+        y_0: float,
+        crs_builder: Callable[[float, float], Optional[QgsCoordinateReferenceSystem]]
+    ) -> Optional[tuple]:
+        """Iterative refinement of x_0/y_0 through virtual CRS verification.
+
+        Creates virtual CRS via crs_builder (matching the actual apply path),
+        transforms correct_3857 through it, compares with wrong_msk
+        and adjusts x_0/y_0 by mean residual. Repeats until convergence.
+
+        Fixes systematic ~1.8cm error caused by pipeline difference between
+        EPSG CRS and USER CRS.
+
+        Args:
+            x_0, y_0: Initial false easting/northing to refine
+            crs_builder: Callable(x_0, y_0) -> CRS matching the actual apply path
+
+        Returns:
+            Tuple (refined_x_0, refined_y_0, true_rmse, per_point_deviations)
+            or None on error
+        """
+        filled_pairs = [(i, pair) for i, pair in enumerate(self.point_pairs) if pair is not None]
+        if not filled_pairs:
+            return None
+
+        epsg_3857 = QgsCoordinateReferenceSystem("EPSG:3857")
+        current_x_0 = x_0
+        current_y_0 = y_0
+
+        best_x_0 = x_0
+        best_y_0 = y_0
+        best_rmse = float('inf')
+        best_deviations: list = []
+
+        for iteration in range(self.MAX_REFINEMENT_ITERATIONS):
+            test_crs = crs_builder(current_x_0, current_y_0)
+            if test_crs is None or not test_crs.isValid():
+                log_warning(
+                    f"Fsm_0_5: Refinement: failed to build CRS at iteration {iteration + 1}"
+                )
+                break
+
+            try:
+                transform = QgsCoordinateTransform(epsg_3857, test_crs, QgsProject.instance())
+            except Exception as e:
+                log_warning(f"Fsm_0_5: Refinement: transform creation error: {e}")
+                break
+
+            residuals_x: list = []
+            residuals_y: list = []
+            deviations: list = []
+
+            for idx, pair in filled_pairs:
+                wrong_msk, correct_3857 = pair
+                try:
+                    correct_in_virtual = transform.transform(correct_3857)
+                except QgsCsException:
+                    log_warning(f"Fsm_0_5: Refinement: transform error for pair {idx + 1}")
+                    continue
+
+                res_x = wrong_msk.x() - correct_in_virtual.x()
+                res_y = wrong_msk.y() - correct_in_virtual.y()
+                residuals_x.append(res_x)
+                residuals_y.append(res_y)
+                deviations.append(math.sqrt(res_x**2 + res_y**2))
+
+            if not residuals_x:
+                log_warning("Fsm_0_5: Refinement: no valid residuals")
+                break
+
+            true_rmse = math.sqrt(sum(d**2 for d in deviations) / len(deviations))
+
+            if true_rmse < best_rmse:
+                best_x_0 = current_x_0
+                best_y_0 = current_y_0
+                best_rmse = true_rmse
+                best_deviations = deviations[:]
+
+            mean_res_x = sum(residuals_x) / len(residuals_x)
+            mean_res_y = sum(residuals_y) / len(residuals_y)
+            adjustment = math.sqrt(mean_res_x**2 + mean_res_y**2)
+
+            log_info(
+                f"Fsm_0_5: Refinement iteration {iteration + 1}: "
+                f"adjustment={adjustment:.6f}m, RMSE={true_rmse:.6f}m"
+            )
+
+            if adjustment < self.REFINEMENT_CONVERGENCE_THRESHOLD:
+                log_info(f"Fsm_0_5: Refinement converged at iteration {iteration + 1}")
+                best_x_0 = current_x_0
+                best_y_0 = current_y_0
+                best_rmse = true_rmse
+                best_deviations = deviations[:]
+                break
+
+            current_x_0 += mean_res_x
+            current_y_0 += mean_res_y
+
+        # Padding deviations to point_pairs length
+        full_deviations: list = []
+        dev_iter = iter(best_deviations)
+        for pair in self.point_pairs:
+            if pair is not None:
+                full_deviations.append(next(dev_iter, None))
+            else:
+                full_deviations.append(None)
+
+        return (best_x_0, best_y_0, best_rmse, full_deviations)
+
+    def _refine_standard_result(self, result: dict) -> dict:
+        """Refine standard result through iterative verification.
+
+        Uses WKT2 modification path (same as apply_projection_offset).
+        The virtual CRS uses the same pipeline as the eventual USER CRS,
+        so residuals capture the real pipeline-difference error.
+        """
+        original_rmse = result['rmse']
+
+        refined = self._iterative_refine(
+            x_0=result['new_x_0'],
+            y_0=result['new_y_0'],
+            crs_builder=self._build_virtual_crs_standard
+        )
+
+        if refined is None:
+            log_warning("Fsm_0_5: Refinement: standard refinement returned None, keeping original")
+            return result
+
+        refined_x_0, refined_y_0, true_rmse, deviations = refined
+
+        if true_rmse > original_rmse * 1.5:
+            log_warning(
+                f"Fsm_0_5: Refinement: RMSE degraded ({original_rmse:.6f} -> {true_rmse:.6f}), "
+                f"keeping original"
+            )
+            return result
+
+        # Recalculate delta_x/delta_y from current CRS
+        proj_str = self.object_layer_crs.toProj()
+        x_0_match = re.search(r'\+x_0=([\d\.\-]+)', proj_str)
+        y_0_match = re.search(r'\+y_0=([\d\.\-]+)', proj_str)
+        current_x_0 = float(x_0_match.group(1)) if x_0_match else 0.0
+        current_y_0 = float(y_0_match.group(1)) if y_0_match else 0.0
+
+        result['new_x_0'] = refined_x_0
+        result['new_y_0'] = refined_y_0
+        result['delta_x'] = refined_x_0 - current_x_0
+        result['delta_y'] = refined_y_0 - current_y_0
+        result['rmse'] = true_rmse
+        result['deviations'] = deviations
+
+        log_info(
+            f"Fsm_0_5: Standard refinement: RMSE {original_rmse:.6f} -> {true_rmse:.6f}m, "
+            f"x_0={refined_x_0:.2f}, y_0={refined_y_0:.2f}"
+        )
+
+        return result
+
+    def _refine_interzonal_result(self, result: dict) -> dict:
+        """Refine interzonal result through iterative verification.
+
+        Uses PROJ -> WKT2 -> CRS path (same as apply_custom_projection).
+        """
+        original_rmse = result['rmse']
+
+        ellps_param = result.get('ellps_param', ELLPS_KRASS)
+        towgs84_param = result.get('towgs84_param', TOWGS84_SK42_PROJ)
+        lon_0 = result['lon_0']
+        k_0 = result['k_0']
+
+        def crs_builder(x_0: float, y_0: float) -> Optional[QgsCoordinateReferenceSystem]:
+            return self._build_virtual_crs_interzonal(
+                x_0, y_0, lon_0, 0.0, k_0, ellps_param, towgs84_param
+            )
+
+        refined = self._iterative_refine(
+            x_0=result['x_0'],
+            y_0=result['y_0'],
+            crs_builder=crs_builder
+        )
+
+        if refined is None:
+            log_warning(
+                "Fsm_0_5: Refinement: interzonal refinement returned None, keeping original"
+            )
+            return result
+
+        refined_x_0, refined_y_0, true_rmse, deviations = refined
+
+        if true_rmse > original_rmse * 1.5:
+            log_warning(
+                f"Fsm_0_5: Refinement: interzonal RMSE degraded "
+                f"({original_rmse:.6f} -> {true_rmse:.6f}), keeping original"
+            )
+            return result
+
+        result['x_0'] = refined_x_0
+        result['y_0'] = refined_y_0
+        result['rmse'] = true_rmse
+
+        if 'all_results' in result and result['all_results']:
+            best = result['all_results'][0]
+            if hasattr(best, 'diagnostics') and isinstance(best.diagnostics, dict):
+                best.diagnostics['errors'] = [d for d in deviations if d is not None]
+            best.x_0 = refined_x_0
+            best.y_0 = refined_y_0
+            best.rmse = true_rmse
+
+        log_info(
+            f"Fsm_0_5: Interzonal refinement: RMSE {original_rmse:.6f} -> {true_rmse:.6f}m, "
+            f"x_0={refined_x_0:.2f}, y_0={refined_y_0:.2f}"
+        )
+
+        return result
 
     def _display_result(self, standard_result, interzonal_result):
         """Отображение результатов и выбор лучшего.
