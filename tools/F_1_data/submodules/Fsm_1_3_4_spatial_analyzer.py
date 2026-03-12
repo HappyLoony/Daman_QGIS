@@ -127,7 +127,7 @@ class SpatialAnalyzer:
             log_warning("Fsm_1_3_4: Слой Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ не найден")
 
         # 7. Лесные кварталы
-        layer = self._get_layer_by_name('L_1_7_3_ФГИС_ЛК_Кварталы')
+        layer = self._get_layer_by_name('Le_1_7_2_3_ФГИС_ЛК_Кварталы')
         if layer:
             total = layer.featureCount()
             count = self._count_intersecting_features(layer, boundaries_geom)
@@ -135,7 +135,7 @@ class SpatialAnalyzer:
             log_info(f"Fsm_1_3_4: Лесные кварталы - {count} из {total}")
 
         # 8. Лесоустроительные выделы
-        layer = self._get_layer_by_name('L_1_7_4_ФГИС_ЛК_Выделы')
+        layer = self._get_layer_by_name('Le_1_7_2_4_ФГИС_ЛК_Выделы')
         if layer:
             total = layer.featureCount()
             count = self._count_intersecting_features(layer, boundaries_geom)

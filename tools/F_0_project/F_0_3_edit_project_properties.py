@@ -412,13 +412,7 @@ class F_0_3_EditProjectProperties(BaseTool):
                 None, "Свойства проекта изменены",
                 "Успешно применены изменения:\n\n" + "\n".join(changes_text)
             )
-            self.iface.messageBar().pushMessage(
-                "Успех", "Свойства проекта успешно изменены",
-                level=Qgis.Success, duration=MESSAGE_INFO_DURATION
-            )
+            log_info(f"F_0_3: Свойства проекта изменены ({len(changes_text)} изменений)")
         else:
-            self.iface.messageBar().pushMessage(
-                "Информация", "Изменений не обнаружено",
-                level=Qgis.Info, duration=MESSAGE_SUCCESS_DURATION
-            )
+            log_info("F_0_3: Изменений не обнаружено")
 

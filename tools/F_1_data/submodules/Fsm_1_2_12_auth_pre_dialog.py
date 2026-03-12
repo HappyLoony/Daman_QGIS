@@ -32,12 +32,9 @@ class Fsm_1_2_12_AuthPreDialog(BaseResponsiveDialog):
     и кнопками управления.
     """
 
-    WIDTH_RATIO = 0.30
-    HEIGHT_RATIO = 0.30
-    MIN_WIDTH = 400
+    SIZING_MODE = 'content'
     MAX_WIDTH = 500
-    MIN_HEIGHT = 200
-    MAX_HEIGHT = 350
+    MAX_HEIGHT = 400
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]

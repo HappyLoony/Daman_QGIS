@@ -482,9 +482,9 @@ class Msm_40_3_EdgeAuthDialog(BaseResponsiveDialog):
             cookies = dialog.get_collected_cookies()
     """
 
-    WIDTH_RATIO = 0.38
-    MIN_WIDTH = 450
+    SIZING_MODE = 'content'
     MAX_WIDTH = 550
+    MAX_HEIGHT = 400
 
     def __init__(self, parent: Optional[object] = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]

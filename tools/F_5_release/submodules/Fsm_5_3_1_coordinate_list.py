@@ -14,9 +14,9 @@ import re
 from typing import Dict, Any, List, Optional
 
 from qgis.core import (
-    Qgis, QgsProject,
+    Qgis, QgsProject, QgsFeature,
     QgsCoordinateReferenceSystem, QgsCoordinateTransform,
-    QgsVectorLayer
+    QgsVectorLayer, QgsWkbTypes
 )
 
 from Daman_QGIS.managers import CoordinatePrecisionManager as CPM
@@ -220,6 +220,12 @@ class Fsm_5_3_1_CoordinateList:
             return False
 
         extra_context = extra_context or {}
+
+        # Merged export (объединённый перечень SPB) — layer is None
+        if extra_context.get('merged_export'):
+            return self._export_to_excel_spb_merged(
+                template, output_folder, False, extra_context
+            )
 
         success = self._export_to_excel(
             layer, template, output_folder, False, appendix_num, extra_context
@@ -564,6 +570,281 @@ class Fsm_5_3_1_CoordinateList:
             workbook.close()
 
         return True
+
+    def _export_to_excel_spb_merged(
+        self,
+        template: DocumentTemplate,
+        output_folder: str,
+        is_wgs84: bool,
+        extra_context: Dict[str, Any]
+    ) -> bool:
+        """
+        Экспорт объединённого перечня координат формата СПб.
+
+        Все features из всех merged_layers в одном файле.
+        Между features — разделитель с типом и ID объекта.
+        Опционально — площадь S= после каждого feature.
+
+        Layout:
+        - Row 0: Заголовок title_override (merge A:C)
+        - Row 1: "Номер точки" | "Х (м)" | "Y (м)"
+        - Row 2: 1 | 2 | 3 (номера колонок)
+        - Per feature:
+          - Separator: "Образуемый земельный участок {ID}" / "Контур ПС {ID}"
+          - Координаты (нумерация с 1 для каждого контура)
+          - "Внутренний контур N" (если есть holes)
+          - S= ... кв. м (если show_area_per_feature)
+
+        Args:
+            template: Шаблон документа (для fallback)
+            output_folder: Папка для сохранения
+            is_wgs84: Экспортировать в WGS-84
+            extra_context: Контекст от Region78FormatModifier
+
+        Returns:
+            bool: Успешность экспорта
+        """
+        import xlsxwriter
+
+        merged_layers = extra_context.get('merged_layers', [])
+        if not merged_layers:
+            log_warning("Fsm_5_3_1: merged_layers пуст, пропуск merged export")
+            return False
+
+        show_area = extra_context.get('show_area_per_feature', True)
+        is_ps = extra_context.get('subfolder', '') == 'Публичные сервитуты'
+        close_contours = extra_context.get('close_contours', False)
+
+        # Имя файла
+        filename_override = extra_context.get(
+            'filename_override', 'Перечень_координат'
+        )
+        if is_wgs84:
+            filename_override += '_WGS84'
+        filename = f"{ExportUtils.sanitize_filename(filename_override)}.xlsx"
+
+        # Подпапка
+        subfolder = extra_context.get('subfolder')
+        if subfolder:
+            output_folder = os.path.join(output_folder, subfolder)
+            os.makedirs(output_folder, exist_ok=True)
+
+        filepath = os.path.join(output_folder, filename)
+
+        workbook = xlsxwriter.Workbook(filepath)
+        try:
+            worksheet = workbook.add_worksheet('Координаты')
+            fmt = ExcelFormatManager(workbook)
+
+            # Ширина 3 колонок
+            worksheet.set_column(0, 0, 15)  # Номер точки
+            worksheet.set_column(1, 1, 15)  # X
+            worksheet.set_column(2, 2, 15)  # Y
+
+            # Форматы
+            title_format = fmt.get_title_format(font_size=11)
+            header_col_format = fmt.get_header_format(
+                with_border=True, bg_color='#FFFFFF'
+            )
+            data_format = fmt.get_data_format(
+                align='center', with_border=True
+            )
+            coord_format = fmt.get_coordinate_format(
+                is_wgs84, with_border=True
+            )
+            separator_format = fmt.get_data_format(
+                align='center', with_border=True
+            )
+
+            current_row = 0
+
+            # Row 0: Заголовок
+            title_text = extra_context.get('title_override', '')
+            worksheet.merge_range(
+                current_row, 0, current_row, 2,
+                title_text, title_format
+            )
+            title_height = ExcelFormatManager.calc_merged_row_height(
+                title_text, col_widths=[15, 15, 15],
+                font_size=11, bold=True
+            )
+            worksheet.set_row(current_row, title_height)
+            current_row += 1
+
+            # Row 1: Заголовки колонок
+            if is_wgs84:
+                col_headers = ['Номер точки', 'Широта', 'Долгота']
+            else:
+                col_headers = ['Номер точки', 'Х (м)', 'Y (м)']
+
+            for col_idx, header_text in enumerate(col_headers):
+                worksheet.write(
+                    current_row, col_idx, header_text, header_col_format
+                )
+            current_row += 1
+
+            # Row 2: Номера колонок (1 | 2 | 3)
+            for col_idx in range(3):
+                worksheet.write(
+                    current_row, col_idx, col_idx + 1, data_format
+                )
+            current_row += 1
+
+            # Перебираем все features из всех слоёв
+            total_features = 0
+            for layer in merged_layers:
+                for feature in layer.getFeatures():
+                    feature_id = feature.attribute('ID')
+                    if not feature_id:
+                        log_warning(
+                            f"Fsm_5_3_1: Пустое поле ID в merged layer "
+                            f"'{layer.name()}', пропуск feature"
+                        )
+                        continue
+
+                    # Разделитель: тип объекта + ID
+                    if is_ps:
+                        separator_text = (
+                            f"Контур публичного сервитута {feature_id}"
+                        )
+                    else:
+                        separator_text = (
+                            f"Образуемый земельный участок {feature_id}"
+                        )
+
+                    worksheet.merge_range(
+                        current_row, 0, current_row, 2,
+                        separator_text, separator_format
+                    )
+                    current_row += 1
+
+                    # Temp memory layer с одним feature
+                    temp_layer = self._create_temp_single_feature_layer(
+                        layer, feature
+                    )
+                    if temp_layer is None:
+                        log_warning(
+                            f"Fsm_5_3_1: Не удалось создать temp layer "
+                            f"для feature {feature_id}"
+                        )
+                        continue
+
+                    # Собираем контуры
+                    contours_data = self._collect_contours_with_coordinates(
+                        temp_layer, is_wgs84, close_contours
+                    )
+
+                    inner_contour_num = 0
+
+                    for contour_info in contours_data:
+                        contour_type = contour_info['type']
+                        coordinates = contour_info['coordinates']
+
+                        if contour_type == 'hole':
+                            # Разделитель внутреннего контура
+                            inner_contour_num += 1
+                            label = f"Внутренний контур {inner_contour_num}"
+                            worksheet.merge_range(
+                                current_row, 0, current_row, 2,
+                                label, separator_format
+                            )
+                            current_row += 1
+
+                        # Координаты с нумерацией внутри контура
+                        for idx, coord in enumerate(coordinates, 1):
+                            worksheet.write(
+                                current_row, 0, idx, data_format
+                            )
+                            # Геодезический порядок: X=север, Y=восток
+                            worksheet.write(
+                                current_row, 1, coord[2], coord_format
+                            )
+                            worksheet.write(
+                                current_row, 2, coord[1], coord_format
+                            )
+                            current_row += 1
+
+                    # Площадь после каждого feature (если включена)
+                    if show_area and feature.hasGeometry():
+                        area_int = round(feature.geometry().area())
+                        if area_int > 0:
+                            area_text = f"S={area_int} кв. м"
+                            area_format = fmt.get_data_format(
+                                align='left', with_border=False
+                            )
+                            worksheet.write(
+                                current_row, 0, area_text, area_format
+                            )
+                            current_row += 1
+
+                    total_features += 1
+
+            # Область печати
+            worksheet.print_area(0, 0, current_row - 1, 2)
+        finally:
+            workbook.close()
+
+        log_info(
+            f"Fsm_5_3_1: Merged export ({total_features} features) -> "
+            f"{os.path.basename(filepath)}"
+        )
+        return True
+
+    def _create_temp_single_feature_layer(
+        self,
+        source_layer: QgsVectorLayer,
+        feature: QgsFeature
+    ) -> Optional[QgsVectorLayer]:
+        """
+        Создать temp memory layer с одной feature.
+
+        Используется для merged export — передаём в
+        _collect_contours_with_coordinates() для получения координат.
+
+        Args:
+            source_layer: Исходный слой (для CRS и полей)
+            feature: Feature для копирования
+
+        Returns:
+            Memory layer с одной feature или None при ошибке
+        """
+        try:
+            geom_type_str = QgsWkbTypes.displayString(source_layer.wkbType())
+            crs_id = source_layer.crs().authid()
+
+            uri = f"{geom_type_str}?crs={crs_id}"
+            mem_layer = QgsVectorLayer(uri, "temp_merged_feature", "memory")
+
+            if not mem_layer.isValid():
+                log_error(
+                    "Fsm_5_3_1: Не удалось создать temp memory layer"
+                )
+                return None
+
+            provider = mem_layer.dataProvider()
+            if provider is None:
+                return None
+
+            # Копируем структуру полей
+            provider.addAttributes(source_layer.fields().toList())
+            mem_layer.updateFields()
+
+            # Добавляем feature
+            success = provider.addFeature(feature)
+            if not success:
+                log_error(
+                    "Fsm_5_3_1: Не удалось добавить feature "
+                    "в temp memory layer"
+                )
+                return None
+
+            return mem_layer
+
+        except Exception as e:
+            log_error(
+                f"Fsm_5_3_1: Ошибка создания temp memory layer: {e}"
+            )
+            return None
 
     def _collect_contours_with_coordinates(
         self,

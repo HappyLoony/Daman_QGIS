@@ -179,10 +179,17 @@ class F_5_3_DocumentExport(BaseTool):
             current += 1
             layer = item['layer']
             template = item['template']
+            extra_context = item.get('extra_context', {})
+
+            # Имя для лога: layer.name() или filename_override (merged items)
+            display_name = (
+                layer.name() if layer is not None
+                else extra_context.get('filename_override', 'merged')
+            )
 
             doc_type_name = DocumentFactory.get_doc_type_name(template.doc_type)
             progress.setValue(current)
-            progress.setLabelText(f"Экспорт: {layer.name()} ({doc_type_name})")
+            progress.setLabelText(f"Экспорт: {display_name} ({doc_type_name})")
 
             # Автонумерация приложений для перечней координат
             appendix_num = str(appendix_counter)
@@ -190,7 +197,6 @@ class F_5_3_DocumentExport(BaseTool):
                 appendix_counter += 1
 
             # Экспорт через фабрику
-            extra_context = item.get('extra_context', {})
             try:
                 success = factory.export(
                     layer=layer,
@@ -201,12 +207,14 @@ class F_5_3_DocumentExport(BaseTool):
                     extra_context=extra_context,
                 )
             except Exception as e:
-                log_error(f"F_5_3: Ошибка экспорта {layer.name()} "
-                          f"({doc_type_name}): {e}")
+                log_error(
+                    f"F_5_3: Ошибка экспорта {display_name} "
+                    f"({doc_type_name}): {e}"
+                )
                 success = False
 
             # Уникальный ключ: для split items используем счётчик
-            result_key = f"{current}_{layer.name()} ({doc_type_name})"
+            result_key = f"{current}_{display_name} ({doc_type_name})"
             results[result_key] = success
 
         progress.close()

@@ -71,7 +71,7 @@ class Fsm_1_2_9_ZouitLoader:
                 oopt_layer_name = "Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ"
                 log_info(f"Fsm_1_2_9: Загрузка ООПТ (отдельный endpoint) для слоя {oopt_layer_name}")
 
-                # Загружаем ООПТ через отдельный запрос (параметры из Base_api_endpoints.json endpoint_id=14)
+                # Загружаем ООПТ через отдельный запрос (параметры из Base_api_endpoints.json endpoint_id=12, cat=36948)
                 oopt_layer, oopt_count = self.egrn_loader.load_layer(
                     layer_name=oopt_layer_name,
                     geometry_provider=geometry_provider,

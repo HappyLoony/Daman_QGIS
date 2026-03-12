@@ -295,21 +295,24 @@ class ProjectManager:
             # Получаем актуальные слои проекта
             valid_layer_ids = set(project.mapLayers().keys())
 
-            # Проверяем индивидуальные настройки слоёв
+            # individualLayerSettings() возвращает Dict[QgsVectorLayer, IndividualLayerSettings]
             individual_configs = config.individualLayerSettings()
             invalid_layers = []
 
-            for layer_id in individual_configs.keys():
-                if layer_id not in valid_layer_ids:
-                    invalid_layers.append(layer_id)
+            for layer in individual_configs.keys():
+                if layer.id() not in valid_layer_ids:
+                    invalid_layers.append(layer)
 
             # Удаляем невалидные слои из конфигурации
             if invalid_layers:
-                for layer_id in invalid_layers:
-                    config.removeLayers([layer_id])
+                names = []
+                for layer in invalid_layers:
+                    config.removeLayers([layer])
+                    names.append(layer.name() or layer.id()[:12])
 
                 project.setSnappingConfig(config)
-                log_warning(f"M_1: Удалено {len(invalid_layers)} невалидных слоёв из snapping config")
+                log_info(f"M_1: Очистка snapping config: удалено {len(invalid_layers)} "
+                         f"осиротевших ссылок на удалённые слои ({', '.join(names)})")
 
         except Exception as e:
             # Если очистка не удалась - логируем, но не блокируем сохранение

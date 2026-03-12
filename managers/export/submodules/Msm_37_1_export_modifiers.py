@@ -126,6 +126,7 @@ class SplitByFeatureModifier(ExportModifier):
                         'feature_index': feature_id,
                         'split_by_feature': True,
                         'source_layer_name': layer.name(),
+                        '_source_layer': layer,
                     }
                 })
 
@@ -210,6 +211,10 @@ class Region78FormatModifier(ExportModifier):
     # Дескриптор для ПС (публичный сервитут)
     PS_DESCRIPTOR = 'контура публичного сервитута'
 
+    # Дескрипторы для объединённых перечней (множественное число)
+    MERGED_DESCRIPTOR_ZU = 'границ образуемых земельных участков'
+    MERGED_DESCRIPTOR_PS = 'контуров публичных сервитутов'
+
     # Тип объекта -> фраза размещения (множественное число)
     PLACEMENT_PHRASE_MAP: Dict[str, str] = {
         'Линейный': 'линейных объектов',
@@ -291,6 +296,99 @@ class Region78FormatModifier(ExportModifier):
             parts = [f"{count} из {name}" for name, count in layer_counts.items()]
             log_info(f"Msm_37_1: SPB формат применён: {', '.join(parts)}")
 
+        # --- Объединённые перечни ---
+        # Группируем по subfolder, собираем уникальные исходные слои
+        zu_layers: Dict[str, QgsVectorLayer] = {}  # name -> layer
+        ps_layers: Dict[str, QgsVectorLayer] = {}
+        first_zu_template = None
+        first_ps_template = None
+
+        for item in result:
+            ec = item.get('extra_context', {})
+            if not ec.get('split_by_feature'):
+                continue  # Только split items
+
+            source_layer = ec.get('_source_layer')
+            source_name = ec.get('source_layer_name', '')
+            if not source_layer or not source_name:
+                continue
+
+            subfolder = ec.get('subfolder', '')
+            if subfolder == 'Публичные сервитуты':
+                if source_name not in ps_layers:
+                    ps_layers[source_name] = source_layer
+                if first_ps_template is None:
+                    first_ps_template = item['template']
+            else:
+                if source_name not in zu_layers:
+                    zu_layers[source_name] = source_layer
+                if first_zu_template is None:
+                    first_zu_template = item['template']
+
+        # Создаём merged items для ЗУ (2 файла: с площадью и без)
+        if zu_layers and first_zu_template:
+            merged_title_zu = self._build_merged_title(
+                metadata, is_ps=False
+            )
+            merged_base = {
+                'merged_export': True,
+                'spb_format': True,
+                'close_contours': False,
+                'merged_layers': list(zu_layers.values()),
+                'title_override': merged_title_zu,
+                'subfolder': 'Земельные участки',
+            }
+            # С площадью
+            result.append({
+                'layer': None,
+                'template': first_zu_template,
+                'extra_context': {
+                    **merged_base,
+                    'show_area_per_feature': True,
+                    'filename_override': 'Перечень_координат_ЗУ',
+                },
+            })
+            # Без площади
+            result.append({
+                'layer': None,
+                'template': first_zu_template,
+                'extra_context': {
+                    **merged_base,
+                    'show_area_per_feature': False,
+                    'filename_override': 'Перечень_координат_ЗУ_без_площади',
+                },
+            })
+            log_info(
+                f"Msm_37_1: Объединённые перечни ЗУ: "
+                f"{sum(l.featureCount() for l in zu_layers.values())} features "
+                f"из {len(zu_layers)} слоёв"
+            )
+
+        # Создаём merged item для ПС (1 файл)
+        if ps_layers and first_ps_template:
+            merged_title_ps = self._build_merged_title(
+                metadata, is_ps=True
+            )
+            result.append({
+                'layer': None,
+                'template': first_ps_template,
+                'extra_context': {
+                    'merged_export': True,
+                    'spb_format': True,
+                    'close_contours': False,
+                    'merged_layers': list(ps_layers.values()),
+                    'show_area_per_feature': True,
+                    'title_override': merged_title_ps,
+                    'filename_override': 'Перечень_координат_ПС',
+                    'subfolder': 'Публичные сервитуты',
+                },
+            })
+            log_info(
+                f"Msm_37_1: Объединённый перечень ПС: "
+                f"{sum(l.featureCount() for l in ps_layers.values())} features "
+                f"из {len(ps_layers)} слоёв"
+            )
+
         return result
 
     def _get_descriptor(self, template_id: str, layer_name: str) -> str:
@@ -371,6 +469,56 @@ class Region78FormatModifier(ExportModifier):
             f"ПЕРЕЧЕНЬ\n"
             f"координат характерных точек {descriptor} "
             f"\u2116 {feature_index} "
+            f"территории для размещения {placement_phrase} "
+            f"\u00ab{full_name}\u00bb"
+        )
+
+        return title
+
+    def _build_merged_title(
+        self,
+        metadata: Dict[str, Any],
+        is_ps: bool = False
+    ) -> str:
+        """
+        Сформировать заголовок для объединённого перечня (без № N).
+
+        Args:
+            metadata: Метаданные проекта
+            is_ps: True для публичных сервитутов
+
+        Returns:
+            Строка заголовка
+        """
+        descriptor = (
+            self.MERGED_DESCRIPTOR_PS if is_ps
+            else self.MERGED_DESCRIPTOR_ZU
+        )
+
+        full_name = metadata.get('1_1_full_name', '')
+
+        is_single = metadata.get('1_7_is_single_object', 'Да') == 'Да'
+        phrase_map = (
+            self.PLACEMENT_PHRASE_MAP_SINGULAR if is_single
+            else self.PLACEMENT_PHRASE_MAP
+        )
+
+        object_type_name = metadata.get('1_2_object_type_name', '')
+        placement = phrase_map.get(object_type_name, '')
+
+        significance_name = metadata.get('1_2_1_object_type_value_name', '')
+        significance = self.SIGNIFICANCE_MAP.get(significance_name, '')
+
+        placement_parts = []
+        if placement:
+            placement_parts.append(placement)
+        if significance:
+            placement_parts.append(f"{significance} значения")
+        placement_phrase = ' '.join(placement_parts)
+
+        title = (
+            f"ПЕРЕЧЕНЬ\n"
+            f"координат характерных точек {descriptor} "
             f"территории для размещения {placement_phrase} "
             f"\u00ab{full_name}\u00bb"
         )

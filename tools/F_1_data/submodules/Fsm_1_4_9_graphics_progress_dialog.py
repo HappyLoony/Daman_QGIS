@@ -17,12 +17,9 @@ from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 class GraphicsProgressDialog(BaseResponsiveDialog):
     """Минималистичный диалог отображения прогресса"""
 
-    WIDTH_RATIO = 0.25
-    HEIGHT_RATIO = 0.15
-    MIN_WIDTH = 350
+    SIZING_MODE = 'content'
     MAX_WIDTH = 450
-    MIN_HEIGHT = 130
-    MAX_HEIGHT = 200
+    MAX_HEIGHT = 250
     
     def __init__(self, parent=None):
         """Инициализация диалога прогресса"""
