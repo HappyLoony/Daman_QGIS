@@ -376,6 +376,7 @@ class NewProjectDialog(BaseMetadataDialog):
         )
 
         if folder:
+            folder = os.path.normpath(folder)
             self.folder_edit.setText(folder)
             self.project_path = folder
             # Сохраняем для следующего использования

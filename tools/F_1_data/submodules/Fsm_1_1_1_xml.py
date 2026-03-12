@@ -73,10 +73,18 @@ class XmlImportSubmodule(BaseImporter):
         Args:
             file_path: Путь к XML файлу или список файлов
             **custom_params: Дополнительные параметры
+                progress_callback: Callable[[int], None] - прогресс 0-100%
+                text_callback: Callable[[str], None] - текст статуса
+                is_cancelled_callback: Callable[[], bool] - проверка отмены
 
         Returns:
             Результаты импорта
         """
+        # Извлекаем callbacks до merge_params (они не являются параметрами импорта)
+        progress_callback = custom_params.pop('progress_callback', None)
+        text_callback = custom_params.pop('text_callback', None)
+        is_cancelled_callback = custom_params.pop('is_cancelled_callback', None)
+
         # Объединяем параметры
         params = self.merge_params(custom_params)
 
@@ -143,7 +151,12 @@ class XmlImportSubmodule(BaseImporter):
 
         # Запускаем импорт
         try:
-            imported_layers = self.kpt_importer.run_import(kpt_options)
+            imported_layers = self.kpt_importer.run_import(
+                kpt_options,
+                progress_callback=progress_callback,
+                text_callback=text_callback,
+                is_cancelled_callback=is_cancelled_callback
+            )
 
             # Обрабатываем созданные слои
             for layer in imported_layers:
@@ -270,9 +283,10 @@ class XmlImportSubmodule(BaseImporter):
             if saved_layer:
                 layer = saved_layer
 
-        # Удаляем из проекта если уже есть
+        # Забираем из проекта если уже есть (добавлен в Fsm_1_1_5._process_file_group)
+        # takeMapLayer: забирает владение без удаления C++ объекта (в отличие от removeMapLayer)
         if layer.id() in QgsProject.instance().mapLayers():
-            QgsProject.instance().removeMapLayer(layer.id())
+            QgsProject.instance().takeMapLayer(layer)
 
         # Добавляем через LayerManager
         if self.layer_manager:

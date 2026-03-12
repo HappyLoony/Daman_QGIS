@@ -8,7 +8,7 @@ import os
 import traceback
 from typing import Optional, Dict, List, Any
 from qgis.core import QgsProject, Qgis
-from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog
+from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog, QApplication
 from qgis.PyQt.QtCore import Qt
 
 from Daman_QGIS.core.base_tool import BaseTool
@@ -103,8 +103,8 @@ class F_1_1_UniversalImport(BaseTool):
         if not submodule_class:
             raise NotImplementedError(f"Сабмодуль для {format_name} еще не реализован")
 
-        # Создаем прогресс-диалог
-        progress = self._create_progress_dialog(len(files), format_name)
+        # Создаем прогресс-диалог (XML имеет свой прогресс-диалог в _import_xml)
+        progress = None if format_name == 'XML' else self._create_progress_dialog(len(files), format_name)
 
         # Результаты импорта
         all_results = {
@@ -249,8 +249,44 @@ class F_1_1_UniversalImport(BaseTool):
             kpt_submodule.set_project_manager(self.project_manager)
             kpt_submodule.set_layer_manager(self.layer_manager)
 
-            kpt_result = kpt_submodule.import_file(kpt_files, **options)  # type: ignore[arg-type]
-            combined_results = self._merge_results(combined_results, kpt_result)
+            # Прогресс-диалог для КПТ (парсинг может занимать минуты для больших файлов)
+            total_size_mb = sum(os.path.getsize(f) for f in kpt_files) / (1024 * 1024)
+            progress = QProgressDialog(
+                f"Импорт КПТ: {len(kpt_files)} файлов ({total_size_mb:.0f} МБ)...",
+                "Отмена",
+                0,
+                100,
+                self.iface.mainWindow()
+            )
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
+            progress.show()
+            QApplication.processEvents()
+
+            def on_progress(percent: int) -> None:
+                progress.setValue(percent)
+                QApplication.processEvents()
+
+            def on_text(text: str) -> None:
+                progress.setLabelText(text)
+                QApplication.processEvents()
+
+            def on_cancelled() -> bool:
+                QApplication.processEvents()
+                return progress.wasCanceled()
+
+            try:
+                kpt_result = kpt_submodule.import_file(
+                    kpt_files,  # type: ignore[arg-type]
+                    progress_callback=on_progress,
+                    text_callback=on_text,
+                    is_cancelled_callback=on_cancelled,
+                    **options
+                )
+                combined_results = self._merge_results(combined_results, kpt_result)
+            finally:
+                progress.close()
 
         # Импортируем выписки
         if vypiska_files:

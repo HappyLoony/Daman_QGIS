@@ -333,7 +333,7 @@ class EditProjectDialog(BaseMetadataDialog):
         if folder:
             # Добавляем имя папки проекта к выбранному пути
             project_folder_name = os.path.basename(current_folder)
-            new_path = os.path.join(folder, project_folder_name)
+            new_path = os.path.normpath(os.path.join(folder, project_folder_name))
             self.folder_edit.setText(new_path)
     def load_current_values(self):
         """Загрузка текущих значений из метаданных"""
@@ -393,9 +393,8 @@ class EditProjectDialog(BaseMetadataDialog):
 
         # Папка проекта
         if '1_3_project_folder' in self.current_metadata:
-            self.folder_edit.setText(
-                self.current_metadata['1_3_project_folder'].get('value', '')
-            )
+            raw_path = self.current_metadata['1_3_project_folder'].get('value', '')
+            self.folder_edit.setText(os.path.normpath(raw_path) if raw_path else '')
 
         # Шифр
         if '2_1_code' in self.current_metadata:

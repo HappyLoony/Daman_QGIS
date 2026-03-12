@@ -11,6 +11,7 @@
        Нельзя использовать их в ThreadPoolExecutor - это вызывает access violation.
 """
 
+import math
 import os
 import hashlib
 import time
@@ -18,11 +19,12 @@ import shutil
 from typing import Optional, Dict, List, Tuple
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from functools import wraps
 
 import requests
 import urllib3
 from urllib3.exceptions import InsecureRequestWarning
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 # Отключаем предупреждения о небезопасных SSL запросах
 # ФГИС ЛК использует российские сертификаты Минцифры, которые не распознаются стандартным certifi
@@ -36,35 +38,7 @@ from qgis.core import (
 from qgis.PyQt.QtCore import QMetaType
 
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
-from Daman_QGIS.constants import TILE_DOWNLOAD_TIMEOUT, DEFAULT_MAX_RETRIES
-
-
-def retry(max_attempts=DEFAULT_MAX_RETRIES, delay=2):
-    """
-    Декоратор для повторных попыток при сбоях
-
-    Args:
-        max_attempts: Максимальное количество попыток
-        delay: Задержка между попытками в секундах
-
-    Returns:
-        Декорированная функция с механизмом retry
-    """
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    if attempt == max_attempts - 1:
-                        # Последняя попытка - пробрасываем исключение
-                        raise e
-                    log_warning(f"Fsm_1_2_4: [RETRY] {func.__name__} попытка {attempt + 1}/{max_attempts} не удалась. Повтор через {delay} сек... Ошибка: {str(e)}")
-                    time.sleep(delay)
-            return None
-        return wrapper
-    return decorator
+from Daman_QGIS.constants import TILE_DOWNLOAD_TIMEOUT
 
 
 class TileCache:
@@ -212,6 +186,41 @@ class Fsm_1_2_4_FgislkLoader:
         referer = endpoint.get('referer_url')
         self.referer_url = referer if referer and referer not in (None, '', '-', 'null') else None
 
+        # HTTP Session с connection pooling и retry (best practice urllib3 + requests docs)
+        self._session = self._create_session()
+
+    def _create_session(self) -> requests.Session:
+        """Создание HTTP Session с connection pooling и exponential backoff.
+
+        Best practice из официальной документации urllib3 + requests:
+        - Connection pooling: переиспользование TCP+TLS соединений к одному хосту
+        - Exponential backoff: 0.5, 1, 2, 4 сек (не фиксированная пауза)
+        - Jitter: случайная добавка 0-0.5 сек предотвращает thundering herd
+        - status_forcelist: HTTP 404 включён, т.к. CDN ФГИС ЛК возвращает случайные 404
+          (cache miss GeoWebCache, НЕ реальное отсутствие ресурса)
+        """
+        retry_strategy = Retry(
+            total=self.max_retries,
+            status_forcelist=[404, 500, 502, 503, 504],
+            allowed_methods=["GET"],
+            backoff_factor=0.5,     # задержки: 0.5, 1, 2, 4 сек
+            backoff_max=10,         # не больше 10 сек между ретраями
+            backoff_jitter=0.5,     # случайная добавка 0-0.5 сек
+            raise_on_status=False,  # вернуть Response после исчерпания (не exception)
+        )
+
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=1,             # один хост (pub4.fgislk.gov.ru)
+            pool_maxsize=self.max_workers,  # соответствует ThreadPoolExecutor
+        )
+
+        session = requests.Session()
+        session.mount('https://', adapter)
+        session.mount('http://', adapter)
+        session.verify = False  # Российские сертификаты Минцифры
+        return session
+
     def get_boundary_geometry(self) -> Optional[QgsGeometry]:
         """
         Получить геометрию границ из слоя L_1_1_1_Границы_работ
@@ -332,14 +341,14 @@ class Fsm_1_2_4_FgislkLoader:
 
         return QgsGeometry()
 
-    @retry(max_attempts=3, delay=2)
     def download_tile_file(self, x: int, y: int, temp_dir: str) -> Optional[str]:
         """
-        Загрузка тайла с сервера (только HTTP, thread-safe)
+        Загрузка тайла с сервера (thread-safe)
 
-        Декорирован @retry для автоматических повторных попыток при сбоях сервера.
+        Retry обрабатывается urllib3.Retry через Session (exponential backoff + jitter).
+        CDN GeoWebCache возвращает случайные HTTP 404 (cache miss) — 404 в status_forcelist.
 
-        ВАЖНО: Использует requests (thread-safe) для работы в ThreadPoolExecutor.
+        ВАЖНО: Использует requests.Session (thread-safe) для работы в ThreadPoolExecutor.
                НЕ использует Qt объекты - они не thread-safe!
 
         Args:
@@ -349,58 +358,52 @@ class Fsm_1_2_4_FgislkLoader:
         Returns:
             str: Путь к загруженному PBF файлу или None при ошибке
         """
-        try:
-            url = self.tile_url_template.format(z=self.TILE_ZOOM_SERVER, x=x, y=y)
+        # Подготовка путей и ключа кэша
+        hash_name = hashlib.md5(f"{x}_{y}".encode()).hexdigest()
+        pbf_path = os.path.join(temp_dir, f"tile_{hash_name}.pbf")
+        cache_key = f"{self.TILE_ZOOM_SERVER}_{x}_{y}"
 
-            # Подготовка путей и ключа кэша
-            hash_name = hashlib.md5(f"{x}_{y}".encode()).hexdigest()
-            pbf_path = os.path.join(temp_dir, f"tile_{hash_name}.pbf")
-            cache_key = f"{self.TILE_ZOOM_SERVER}_{x}_{y}"
-
-            # Проверяем двухуровневый кэш (RAM + диск)
-            cached_data = self.tile_cache.get(cache_key)
-
-            if cached_data:
-                # Тайл найден в кэше (RAM или диск)
-                # Сохраняем на диск если его там нет
-                if not os.path.exists(pbf_path):
-                    with open(pbf_path, "wb") as f:
-                        f.write(cached_data)
-                return pbf_path
-
-            # Загружаем новый тайл с сервера через requests (thread-safe!)
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': '*/*'
-            }
-            if self.referer_url:
-                headers['Referer'] = self.referer_url
-
-            # ФГИС ЛК использует российские сертификаты Минцифры
-            # verify=False - отключаем проверку SSL (безопасно для публичных тайлов)
-            response = requests.get(url, headers=headers, timeout=self.timeout, verify=False)
-
-            if response.status_code != 200:
-                raise Exception(f"HTTP {response.status_code}")
-
-            if not response.content:
-                raise Exception("Пустой ответ")
-
-            pbf_data = response.content
-
-            # Сохраняем тайл на диск
-            with open(pbf_path, "wb") as f:
-                f.write(pbf_data)
-
-            # Добавляем в двухуровневый кэш
-            self.tile_cache.put(cache_key, pbf_data, pbf_path)
-
+        # Проверяем двухуровневый кэш (RAM + диск)
+        cached_data = self.tile_cache.get(cache_key)
+        if cached_data:
+            if not os.path.exists(pbf_path):
+                with open(pbf_path, "wb") as f:
+                    f.write(cached_data)
             return pbf_path
 
-        except (requests.exceptions.SSLError,
+        url = self.tile_url_template.format(z=self.TILE_ZOOM_SERVER, x=x, y=y)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': '*/*'
+        }
+        if self.referer_url:
+            headers['Referer'] = self.referer_url
+
+        # Retry (exponential backoff + jitter) обрабатывается urllib3.Retry в _session
+        # Connection pooling: TCP+TLS переиспользуются между тайлами
+        try:
+            response = self._session.get(url, headers=headers, timeout=self.timeout)
+
+            if response.status_code == 200 and response.content:
+                pbf_data = response.content
+                with open(pbf_path, "wb") as f:
+                    f.write(pbf_data)
+                self.tile_cache.put(cache_key, pbf_data, pbf_path)
+                return pbf_path
+
+            if response.status_code == 403:
+                # Fatal: доступ запрещён, retry не поможет
+                return None
+
+            # Все ретраи urllib3 исчерпаны, тайл недоступен
+            return None
+
+        except (requests.exceptions.ConnectionError,
                 requests.exceptions.Timeout,
-                requests.exceptions.ConnectionError,
-                Exception):
+                requests.exceptions.SSLError):
+            # Все ретраи urllib3 исчерпаны, сетевая ошибка
+            return None
+        except Exception:
             return None
 
     def parse_tile(self, pbf_path: str, x: int, y: int,
@@ -523,8 +526,6 @@ class Fsm_1_2_4_FgislkLoader:
         Returns:
             dict: Словарь {layer_name: QgsVectorLayer}
         """
-        import time
-
         start_total = time.time()
 
         # Получаем геометрию границ
@@ -574,43 +575,86 @@ class Fsm_1_2_4_FgislkLoader:
 
         # ФАЗА 1: Загрузка тайлов параллельно через ThreadPoolExecutor (thread-safe requests)
 
-        # Загружаем файлы параллельно (только HTTP, thread-safe)
+        RETRY_WAVES = 2        # Количество волн повторных загрузок failed тайлов
+        RETRY_WAVE_DELAY = 5   # Пауза между волнами (сек) — даёт CDN ротировать бэкенд
+
         downloaded_tiles = []  # List[(x, y, pbf_path)]
+        failed_tile_coords = []  # List[(x, y)] — координаты failed тайлов для повторной загрузки
 
-        failed_tiles = 0
-        timeout_tiles = 0
+        def _download_batch(coords: List[Tuple[int, int]]) -> Tuple[List[Tuple[int, int, str]], List[Tuple[int, int]]]:
+            """Параллельная загрузка пакета тайлов. Возвращает (ok, failed)."""
+            ok = []
+            failed = []
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = {
+                    executor.submit(self.download_tile_file, x, y, temp_dir): (x, y)
+                    for x, y in coords
+                }
+                for future in futures:
+                    x, y = futures[future]
+                    try:
+                        pbf_path = future.result(timeout=TILE_DOWNLOAD_TIMEOUT)
+                        if pbf_path:
+                            ok.append((x, y, pbf_path))
+                        else:
+                            failed.append((x, y))
+                    except TimeoutError:
+                        failed.append((x, y))
+                    except Exception:
+                        failed.append((x, y))
+            return ok, failed
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {
-                executor.submit(self.download_tile_file, x, y, temp_dir): (x, y)
-                for x, y in tile_coords
-            }
+        # Основная загрузка
+        ok_tiles, failed_tile_coords = _download_batch(tile_coords)
+        downloaded_tiles.extend(ok_tiles)
 
-            for future in futures:
-                x, y = futures[future]
-                try:
-                    # КРИТИЧНО: timeout на загрузку одного тайла ФГИС ЛК
-                    pbf_path = future.result(timeout=TILE_DOWNLOAD_TIMEOUT)
-                    if pbf_path:
-                        downloaded_tiles.append((x, y, pbf_path))
-                    else:
-                        failed_tiles += 1
-                except TimeoutError:
-                    timeout_tiles += 1
-                except Exception:
-                    failed_tiles += 1
-
-        # Сводка по загрузке тайлов
-        if failed_tiles or timeout_tiles:
-            parts = []
-            if failed_tiles:
-                parts.append(f"ошибки: {failed_tiles}")
-            if timeout_tiles:
-                parts.append(f"timeout: {timeout_tiles}")
+        if failed_tile_coords:
             log_warning(
                 f"Fsm_1_2_4: Загружено {len(downloaded_tiles)}/{total_tiles} тайлов "
-                f"({', '.join(parts)})"
+                f"(ошибки: {len(failed_tile_coords)})"
             )
+
+        # Волны повторных загрузок failed тайлов
+        for wave in range(RETRY_WAVES):
+            if not failed_tile_coords:
+                break
+
+            log_info(
+                f"Fsm_1_2_4: Волна {wave + 1}/{RETRY_WAVES}: "
+                f"повтор {len(failed_tile_coords)} тайлов (пауза {RETRY_WAVE_DELAY} сек)..."
+            )
+            time.sleep(RETRY_WAVE_DELAY)
+
+            recovered, still_failed = _download_batch(failed_tile_coords)
+            downloaded_tiles.extend(recovered)
+
+            if recovered:
+                log_success(
+                    f"Fsm_1_2_4: Волна {wave + 1}: восстановлено {len(recovered)} тайлов"
+                )
+            failed_tile_coords = still_failed
+
+        # Логирование оставшихся потерянных тайлов с координатами
+        if failed_tile_coords:
+            res = self.CUSTOM_RESOLUTIONS[self.TILE_ZOOM_SERVER]
+            for tx, ty in failed_tile_coords:
+                # Центр тайла в EPSG:3857 -> WGS-84 (приблизительная конвертация)
+                cx_merc = (tx + 0.5) * res * self.TILE_SIZE_PIXELS - 20037508.34
+                cy_merc = (ty + 0.5) * res * self.TILE_SIZE_PIXELS - 20037508.34
+                lon = cx_merc / 20037508.34 * 180.0
+                lat = math.degrees(2 * math.atan(math.exp(cy_merc / 20037508.34 * math.pi)) - math.pi / 2)
+                log_warning(
+                    f"Fsm_1_2_4: Тайл ({tx},{ty}) потерян "
+                    f"(центр: lat={lat:.4f}, lon={lon:.4f})"
+                )
+            log_warning(
+                f"Fsm_1_2_4: Итого потеряно {len(failed_tile_coords)} "
+                f"из {total_tiles} тайлов после {RETRY_WAVES} волн повторов"
+            )
+
+        # Итоговая сводка
+        if not failed_tile_coords:
+            log_success(f"Fsm_1_2_4: Все {total_tiles} тайлов загружены")
 
         # Диагностика первого тайла - проверяем наличие новых неизвестных слоёв
         if downloaded_tiles:
@@ -671,9 +715,18 @@ class Fsm_1_2_4_FgislkLoader:
                 log_info(f"Fsm_1_2_4: Нет данных для слоя {target_layer_name}")
                 continue
 
-            # Создаём поля
+            # Создаём поля — union из ВСЕХ записей
+            # PBF тайлы имеют переменные схемы: если все значения поля NULL в тайле,
+            # GeoWebCache не включает это поле в PBF. Разные записи base_data могут
+            # иметь разные наборы полей. Union гарантирует, что ни одно поле не потеряется.
+            all_fields: Dict[str, QgsField] = {}
+            for eid_data in base_data.values():
+                for fname, fld in eid_data["fields"].items():
+                    if fname not in all_fields:
+                        all_fields[fname] = fld
+
             fields = QgsFields()
-            for field in next(iter(base_data.values()))["fields"].values():  # type: ignore[attr-defined]
+            for field in all_fields.values():
                 fields.append(field)
 
             # Определяем тип геометрии

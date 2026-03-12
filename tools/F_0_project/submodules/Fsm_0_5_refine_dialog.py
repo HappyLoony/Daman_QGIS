@@ -37,10 +37,10 @@ from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 class RefineProjectionDialog(BaseResponsiveDialog):
     """Диалог уточнения проекции через контрольные точки (минимум 4 пары)"""
 
-    WIDTH_RATIO = 0.70
+    WIDTH_RATIO = 0.55
     HEIGHT_RATIO = 0.80
-    MIN_WIDTH = 800
-    MAX_WIDTH = 1400
+    MIN_WIDTH = 750
+    MAX_WIDTH = 1100
     MIN_HEIGHT = 550
     MAX_HEIGHT = 950
 
