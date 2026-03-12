@@ -117,7 +117,13 @@ class BaseReferenceLoader:
             elif response.status_code == 401:
                 log_warning(f"BaseReferenceLoader: Авторизация отклонена для {filename}")
             elif response.status_code == 403:
-                log_warning(f"BaseReferenceLoader: Доступ запрещён к {filename}")
+                # Логируем тело ответа для диагностики (JWT AUTH_FAILED vs файл в PROTECTED_FILES)
+                try:
+                    error_body = response.json()
+                    error_code = error_body.get('error_code', error_body.get('error', 'unknown'))
+                except Exception:
+                    error_code = response.text[:100] if response.text else 'empty'
+                log_warning(f"BaseReferenceLoader: Доступ запрещён к {filename} (reason: {error_code})")
             elif response.status_code == 404:
                 log_warning(f"BaseReferenceLoader: Файл {filename} не найден на сервере")
             else:
