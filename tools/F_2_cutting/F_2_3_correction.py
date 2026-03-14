@@ -303,12 +303,15 @@ class F_2_3_Correction(BaseTool):
             log_warning(f"F_2_3: Нет объектов в слое {layer_name}")
             return None
 
+        # Проверка целостности ID: сохранить или перенумеровать
+        preserve_ids = self._check_ids_integrity(layer, layer_name)
+
         if is_bez_mezh:
             # СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ БЕЗ_МЕЖ
             # Только пересчёт ID, НЕ пересчитываем Услов_КН/ЕЗ и План_*
             # Эти атрибуты уже установлены в F_2_2
             updated_features = self._recalculate_bez_mezh_attributes(
-                features_data, layer_name
+                features_data, layer_name, preserve_ids
             )
 
             # Поле "Точки" = "" (пустое)
@@ -329,7 +332,7 @@ class F_2_3_Correction(BaseTool):
         # СТАНДАРТНАЯ ОБРАБОТКА ДЛЯ РАЗДЕЛ/НГС
         # Пересчёт атрибутов
         updated_features = self._recalculate_attributes(
-            features_data, layer_name, zpr_type
+            features_data, layer_name, zpr_type, preserve_ids
         )
 
         # Пересчёт ВРИ (План_ВРИ, Общая_земля) по геометрическому пересечению с ЗПР
@@ -389,7 +392,8 @@ class F_2_3_Correction(BaseTool):
     def _recalculate_bez_mezh_attributes(
         self,
         features_data: List[Dict[str, Any]],
-        layer_name: str
+        layer_name: str,
+        preserve_ids: bool = False
     ) -> List[Dict[str, Any]]:
         """Пересчёт атрибутов для слоёв Без_Меж
 
@@ -400,6 +404,7 @@ class F_2_3_Correction(BaseTool):
         Args:
             features_data: Исходные данные объектов
             layer_name: Имя слоя
+            preserve_ids: True = сохранить существующие ID
 
         Returns:
             List[Dict]: Обновлённые данные (только ID обновлён)
@@ -410,8 +415,8 @@ class F_2_3_Correction(BaseTool):
         for item in features_data:
             attrs = item['attributes']
 
-            # Только новый ID
-            attrs['ID'] = self._attribute_mapper.generate_id(layer_name)
+            if not preserve_ids:
+                attrs['ID'] = self._attribute_mapper.generate_id(layer_name)
 
             # contour_id для совместимости (хотя точки не создаются)
             item['contour_id'] = attrs['ID']
@@ -458,6 +463,67 @@ class F_2_3_Correction(BaseTool):
         features_data = self._sort_features_by_northwest(features_data)
 
         return features_data
+
+    def _check_ids_integrity(
+        self,
+        layer: QgsVectorLayer,
+        layer_name: str
+    ) -> bool:
+        """Проверка целостности ID в слое
+
+        Проверяет что все ID заполнены, уникальны и без пропусков.
+        Если ID корректны - возвращает True (сохранить существующие).
+        Если найдены проблемы - возвращает False (перенумеровать).
+
+        Args:
+            layer: Слой для проверки
+            layer_name: Имя слоя (для логирования)
+
+        Returns:
+            bool: True = сохранить ID, False = перенумеровать
+        """
+        # Проверка наличия поля ID
+        if layer.fields().indexFromName('ID') < 0:
+            log_info(f"F_2_3: {layer_name} - поле ID отсутствует, требуется перенумерация")
+            return False
+
+        ids = []
+        for feature in layer.getFeatures():
+            val = feature['ID']
+
+            # Проверка на NULL/None/пустое
+            if val is None or str(val) == 'NULL' or str(val).strip() == '':
+                log_info(f"F_2_3: {layer_name} - обнаружен пустой ID, требуется перенумерация")
+                return False
+
+            try:
+                int_val = int(val)
+                if int_val <= 0:
+                    log_info(f"F_2_3: {layer_name} - ID <= 0 ({int_val}), требуется перенумерация")
+                    return False
+                ids.append(int_val)
+            except (ValueError, TypeError):
+                log_info(f"F_2_3: {layer_name} - некорректный ID '{val}', требуется перенумерация")
+                return False
+
+        if not ids:
+            return False
+
+        # Проверка дубликатов
+        if len(ids) != len(set(ids)):
+            dupes = sorted(set(x for x in ids if ids.count(x) > 1))
+            log_info(f"F_2_3: {layer_name} - дубликаты ID: {dupes}, требуется перенумерация")
+            return False
+
+        # Проверка пропусков (1,2,4,5 -> нет 3)
+        expected = set(range(1, max(ids) + 1))
+        missing = expected - set(ids)
+        if missing:
+            log_info(f"F_2_3: {layer_name} - пропуски в ID: {sorted(missing)}, требуется перенумерация")
+            return False
+
+        log_info(f"F_2_3: {layer_name} - ID корректны ({len(ids)} шт.), сохранены без перенумерации")
+        return True
 
     def _sort_features_by_northwest(
         self,
@@ -513,19 +579,21 @@ class F_2_3_Correction(BaseTool):
         self,
         features_data: List[Dict[str, Any]],
         layer_name: str,
-        zpr_type: str
+        zpr_type: str,
+        preserve_ids: bool = False
     ) -> List[Dict[str, Any]]:
         """Пересчёт атрибутов для всех объектов
 
         Пересчитываются:
-        - ID (новый порядковый номер)
-        - Услов_КН, Услов_ЕЗ (глобальная нумерация)
-        - Площадь_ОЗУ (по текущей геометрии)
+        - ID (новый порядковый номер, если preserve_ids=False)
+        - Услов_КН, Услов_ЕЗ (глобальная нумерация, всегда)
+        - Площадь_ОЗУ (по текущей геометрии, всегда)
 
         Args:
             features_data: Исходные данные объектов
             layer_name: Имя слоя
             zpr_type: Тип ЗПР
+            preserve_ids: True = сохранить существующие ID
 
         Returns:
             List[Dict]: Обновлённые данные
@@ -537,8 +605,9 @@ class F_2_3_Correction(BaseTool):
             attrs = item['attributes']
             geom = item['geometry']
 
-            # Новый ID
-            attrs['ID'] = self._attribute_mapper.generate_id(layer_name)
+            # ID: сохранить или перенумеровать
+            if not preserve_ids:
+                attrs['ID'] = self._attribute_mapper.generate_id(layer_name)
 
             # contour_id для PointNumberingManager (ID_Контура в точечном слое)
             item['contour_id'] = attrs['ID']

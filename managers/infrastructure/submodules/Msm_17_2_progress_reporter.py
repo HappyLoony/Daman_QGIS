@@ -12,7 +12,7 @@ SilentReporter - пустая реализация для тестов и silent
 from typing import Optional
 from qgis.PyQt.QtWidgets import QProgressBar, QLabel, QHBoxLayout, QWidget, QPushButton
 from qgis.core import Qgis
-from Daman_QGIS.utils import log_info
+from Daman_QGIS.utils import log_info, log_success, log_warning
 from Daman_QGIS.constants import PLUGIN_NAME
 
 
@@ -166,10 +166,10 @@ class MessageBarReporter:
             level = Qgis.Warning
             text = message if message else f"{self.title}: Ошибка"
 
-        # Показываем сообщение о завершении (автоматически исчезнет через 5 сек)
-        self.iface.messageBar().pushMessage(PLUGIN_NAME, text, level, duration=5)
-
-        log_info(f"Msm_17_2: Завершение '{self.title}' (success={success})")
+        if success:
+            log_success(f"Msm_17_2: {text}")
+        else:
+            log_warning(f"Msm_17_2: {text}")
 
 
 class SilentReporter:

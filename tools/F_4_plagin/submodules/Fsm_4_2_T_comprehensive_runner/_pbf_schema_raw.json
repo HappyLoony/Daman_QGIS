@@ -1,0 +1,240 @@
+{
+  "FORESTRY": {
+    "feature_count": 1,
+    "geom_types": [
+      "Polygon"
+    ],
+    "fields": {
+      "externalid": "str",
+      "id": "int",
+      "label_name": "str"
+    },
+    "sample_values": {
+      "externalid": "50:13",
+      "id": "1000588",
+      "label_name": "Ногинское"
+    }
+  },
+  "FORESTRY_APPROVE": {
+    "feature_count": 1,
+    "geom_types": [
+      "Polygon"
+    ],
+    "fields": {
+      "externalid": "str",
+      "id": "int",
+      "label_name": "str"
+    },
+    "sample_values": {
+      "externalid": "50:13",
+      "id": "1091",
+      "label_name": "Ногинское"
+    }
+  },
+  "FORESTRY_TAXATION_DATE": {
+    "feature_count": 1,
+    "geom_types": [
+      "Polygon"
+    ],
+    "fields": {
+      "externalid": "str",
+      "id": "int",
+      "label_name": "str",
+      "taxation_date": "int"
+    },
+    "sample_values": {
+      "externalid": "50:13",
+      "id": "1000588",
+      "label_name": "Ногинское",
+      "taxation_date": "7"
+    }
+  },
+  "FOREST_STEAD": {
+    "feature_count": 1,
+    "geom_types": [
+      "Polygon"
+    ],
+    "fields": {
+      "externalid": "str",
+      "id": "int",
+      "label_name": "str"
+    },
+    "sample_values": {
+      "externalid": "50:13:ЛУ226",
+      "id": "1713540",
+      "label_name": "50:13:ЛУ226"
+    }
+  },
+  "PART_FOREST_STEAD": {
+    "feature_count": 1,
+    "geom_types": [
+      "Polygon"
+    ],
+    "fields": {
+      "externalid": "str",
+      "id": "int",
+      "label_name": "str"
+    },
+    "sample_values": {
+      "externalid": "50:15:0060113:1001/5",
+      "id": "1561544",
+      "label_name": "50:15:0060113:1001/5"
+    }
+  },
+  "QUARTER": {
+    "feature_count": 2,
+    "geom_types": [
+      "Polygon"
+    ],
+    "fields": {
+      "externalid": "str",
+      "id": "int",
+      "label_name": "str"
+    },
+    "sample_values": {
+      "externalid": "50:13:13:12",
+      "id": "3701232",
+      "label_name": "11"
+    }
+  },
+  "QUARTER_FIRE_DANGER": {
+    "feature_count": 2,
+    "geom_types": [
+      "Polygon"
+    ],
+    "fields": {
+      "externalid": "str",
+      "id": "int",
+      "label_name": "str"
+    },
+    "sample_values": {
+      "externalid": "50:13:13:12",
+      "id": "3701232",
+      "label_name": "11"
+    }
+  },
+  "SUBJECT_BOUNDARY": {
+    "feature_count": 1,
+    "geom_types": [
+      "Polygon"
+    ],
+    "fields": {
+      "code": "int",
+      "region": "str"
+    },
+    "sample_values": {
+      "code": "643",
+      "region": "Российская Федерация"
+    }
+  },
+  "TAXATION_PIECE": {
+    "feature_count": 7,
+    "geom_types": [
+      "MultiPolygon",
+      "Polygon"
+    ],
+    "fields": {
+      "externalid": "str",
+      "id": "int",
+      "label_name": "str"
+    },
+    "sample_values": {
+      "externalid": "50:13:13:8:9",
+      "id": "43010176",
+      "label_name": "7"
+    }
+  },
+  "TAXATION_PIECE_BONITET": {
+    "feature_count": 7,
+    "geom_types": [
+      "MultiPolygon",
+      "Polygon"
+    ],
+    "fields": {
+      "externalid": "str",
+      "id": "int",
+      "label_name": "str",
+      "yield_class": "str"
+    },
+    "sample_values": {
+      "externalid": "50:13:13:8:9",
+      "id": "43010176",
+      "label_name": "7",
+      "yield_class": "1"
+    }
+  },
+  "TAXATION_PIECE_EVENT_SCORE": {
+    "feature_count": 7,
+    "geom_types": [
+      "MultiPolygon",
+      "Polygon"
+    ],
+    "fields": {
+      "externalid": "str",
+      "id": "int",
+      "label_name": "str"
+    },
+    "sample_values": {
+      "externalid": "50:13:13:8:9",
+      "id": "43010176",
+      "label_name": "7"
+    }
+  },
+  "TAXATION_PIECE_EVENT_TYPE": {
+    "feature_count": 7,
+    "geom_types": [
+      "MultiPolygon",
+      "Polygon"
+    ],
+    "fields": {
+      "externalid": "str",
+      "id": "int",
+      "label_name": "str"
+    },
+    "sample_values": {
+      "externalid": "50:13:13:8:9",
+      "id": "43010176",
+      "label_name": "7"
+    }
+  },
+  "TAXATION_PIECE_PVS": {
+    "feature_count": 7,
+    "geom_types": [
+      "MultiPolygon",
+      "Polygon"
+    ],
+    "fields": {
+      "age_group": "str",
+      "externalid": "str",
+      "id": "int",
+      "label_name": "str",
+      "tree_species": "str"
+    },
+    "sample_values": {
+      "age_group": "приспевающие",
+      "externalid": "50:13:13:8:9",
+      "id": "43010176",
+      "label_name": "7",
+      "tree_species": "Сосна"
+    }
+  },
+  "TAXATION_PIECE_TIMBER_STOCK": {
+    "feature_count": 7,
+    "geom_types": [
+      "MultiPolygon",
+      "Polygon"
+    ],
+    "fields": {
+      "externalid": "str",
+      "id": "int",
+      "label_name": "str",
+      "timber_stock": "str"
+    },
+    "sample_values": {
+      "externalid": "50:13:13:8:9",
+      "id": "43010176",
+      "label_name": "7",
+      "timber_stock": "320.0"
+    }
+  }
+}

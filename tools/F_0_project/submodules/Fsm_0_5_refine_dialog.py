@@ -215,6 +215,15 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         error_layout.addStretch()
         results_layout.addLayout(error_layout)
 
+        # Коррекция (среднее смещение)
+        shift_layout = QHBoxLayout()
+        shift_layout.addWidget(QLabel("Коррекция:"))
+        self.shift_edit = QLineEdit()
+        self.shift_edit.setReadOnly(True)
+        self.shift_edit.setPlaceholderText("—")
+        shift_layout.addWidget(self.shift_edit)
+        results_layout.addLayout(shift_layout)
+
         # Применённый метод
         method_layout = QHBoxLayout()
         method_layout.addWidget(QLabel("Метод:"))
@@ -1131,6 +1140,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         self.clear_all_graphics()
 
         self.error_edit.clear()
+        self.shift_edit.clear()
         self.method_edit.clear()
 
         self.update_buttons_state()
@@ -1742,9 +1752,13 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             )
             return result
 
+        original_x_0 = result['x_0']
+        original_y_0 = result['y_0']
         result['x_0'] = refined_x_0
         result['y_0'] = refined_y_0
         result['rmse'] = true_rmse
+        result['refinement_dx'] = refined_x_0 - original_x_0
+        result['refinement_dy'] = refined_y_0 - original_y_0
 
         if 'all_results' in result and result['all_results']:
             best = result['all_results'][0]
@@ -1846,6 +1860,16 @@ class RefineProjectionDialog(BaseResponsiveDialog):
 
         # Обновляем GUI
         self.error_edit.setText(f"{self.avg_error:.4f} м")
+
+        if use_interzonal:
+            rdx = result.get('refinement_dx', 0.0)
+            rdy = result.get('refinement_dy', 0.0)
+            self.shift_edit.setText(f"dX = {rdx:+.4f} м, dY = {rdy:+.4f} м")
+        else:
+            dx = result.get('delta_x', 0.0)
+            dy = result.get('delta_y', 0.0)
+            self.shift_edit.setText(f"dX = {dx:+.4f} м, dY = {dy:+.4f} м")
+
         self.method_edit.setText(method_display)
         self._update_deviation_column()
 
@@ -1996,13 +2020,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             # Очищаем точки - они в старой CRS
             self.on_clear_all_clicked()
 
-            log_info("Fsm_0_5: Кастомная проекция успешно создана и применена")
-            self.iface.messageBar().pushMessage(
-                "Успех",
-                "Кастомная проекция создана и применена к проекту",
-                level=Qgis.Success,
-                duration=MESSAGE_SUCCESS_DURATION
-            )
+            log_success("Fsm_0_5: Кастомная проекция успешно создана и применена")
             self.clear_all_graphics()
             self.parent_tool.deactivate_map_tool()
             self.accept()

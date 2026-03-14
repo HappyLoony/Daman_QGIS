@@ -8,7 +8,6 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
-from qgis.core import QgsMessageLog, Qgis
 from Daman_QGIS.constants import PLUGIN_NAME
 
 
@@ -24,7 +23,6 @@ def log_info(message: str) -> None:
     Args:
         message: Текст сообщения
     """
-    QgsMessageLog.logMessage(message, PLUGIN_NAME, Qgis.Info)
     _write_to_session_log(message, "INFO")
 
 
@@ -35,7 +33,6 @@ def log_warning(message: str) -> None:
     Args:
         message: Текст предупреждения
     """
-    QgsMessageLog.logMessage(message, PLUGIN_NAME, Qgis.Warning)
     _write_to_session_log(message, "WARNING")
 
 
@@ -50,7 +47,6 @@ def log_error(message: str, send_telemetry: bool = True) -> None:
         message: Текст ошибки
         send_telemetry: Отправлять ли в телеметрию (по умолчанию True)
     """
-    QgsMessageLog.logMessage(message, PLUGIN_NAME, Qgis.Critical)
     _write_to_session_log(message, "CRITICAL")
 
     # Отправка в телеметрию
@@ -126,7 +122,6 @@ def log_success(message: str) -> None:
     Args:
         message: Текст сообщения об успехе
     """
-    QgsMessageLog.logMessage(message, PLUGIN_NAME, Qgis.Success)
     _write_to_session_log(message, "SUCCESS")
 
 
@@ -189,7 +184,7 @@ def log_exception(
     import traceback
 
     message = f"{class_name}.{method_name}: Исключение - {str(exception)}"
-    QgsMessageLog.logMessage(message, PLUGIN_NAME, Qgis.Critical)
+    _write_to_session_log(message, "CRITICAL")
 
     # Отправка в телеметрию с полным стеком
     try:

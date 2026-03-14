@@ -272,12 +272,7 @@ class F_1_2_LoadWMS(BaseTool):
         if errors:
             message += f" | Ошибок: {len(errors)}"
 
-        self.iface.messageBar().pushMessage(
-            PLUGIN_NAME,
-            f"F_1_2: {message}",
-            level=Qgis.Success,
-            duration=7
-        )
+        log_success(f"F_1_2: {message}")
 
     def _auto_run_selection(self) -> Optional[Dict[str, Any]]:
         """Автоматическая выборка ЗУ/ОКС после загрузки web карт (main thread)
@@ -695,9 +690,7 @@ class F_1_2_LoadWMS(BaseTool):
                 log_info(f"F_1_2: Создание родительских слоёв из {len(loaded_sublayers)} групп подслоёв")
                 self.parent_layer_manager.create_parent_layers(loaded_sublayers, gpkg_path)
 
-            # Безопасный отложенный refresh через QTimer (предотвращает краши)
-            from Daman_QGIS.utils import safe_refresh_canvas, REFRESH_HEAVY
-            safe_refresh_canvas(REFRESH_HEAVY, delay_ms=200)
+            # Refresh canvas централизован в sort_all_layers() (M_2)
 
             # Подсчитываем результаты
             loaded_count = 0
@@ -746,9 +739,7 @@ class F_1_2_LoadWMS(BaseTool):
             if success:
                 log_success(f"F_1_2: OSM слои успешно загружены: {count} слоя(ёв)")
 
-            # Безопасный отложенный refresh через QTimer (предотвращает краши)
-            from Daman_QGIS.utils import safe_refresh_canvas, REFRESH_HEAVY
-            safe_refresh_canvas(REFRESH_HEAVY, delay_ms=200)
+            # Refresh canvas централизован в sort_all_layers() (M_2)
 
             return True, count
 
@@ -810,9 +801,7 @@ class F_1_2_LoadWMS(BaseTool):
 
                     log_success(f"F_1_2: ФГИС ЛК слои успешно добавлены")
 
-                    # Безопасный отложенный refresh через QTimer (предотвращает краши)
-                    from Daman_QGIS.utils import safe_refresh_canvas, REFRESH_HEAVY
-                    safe_refresh_canvas(REFRESH_HEAVY, delay_ms=200)
+                    # Refresh canvas централизован в sort_all_layers() (M_2)
 
                     return True, len(fgislk_layers)
                 else:

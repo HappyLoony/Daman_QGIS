@@ -194,10 +194,6 @@ class Fsm_1_2_9_ZouitLoader:
                 except Exception as e:
                     log_error(f"Fsm_1_2_9: Ошибка обработки ЗОУИТ слоя {layer_name}: {str(e)}")
 
-            # Безопасный отложенный refresh через QTimer (предотвращает краши)
-            from Daman_QGIS.utils import safe_refresh_canvas, REFRESH_HEAVY
-            safe_refresh_canvas(REFRESH_HEAVY, delay_ms=200)
-
             return zouit_total
 
         except Exception as e:

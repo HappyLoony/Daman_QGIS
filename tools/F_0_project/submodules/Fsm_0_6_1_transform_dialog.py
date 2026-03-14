@@ -773,7 +773,7 @@ class CoordinateTransformDialog(BaseResponsiveDialog):
             f"RMSE={self._transform_result.rmse:.4f}м"
         )
 
-        # Обновить карту
+        # refreshAllLayers() — полная перезагрузка (координаты физически изменены)
         self.iface.mapCanvas().refreshAllLayers()
 
         # Закрыть диалог

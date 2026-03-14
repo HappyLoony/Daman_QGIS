@@ -275,11 +275,13 @@ class LayerManager:
             # 6. Применяем новый порядок отрисовки
             root.setCustomLayerOrder(sorted_layers)
 
-            # 7. Принудительное обновление canvas для корректной отрисовки
-            # После setCustomLayerOrder() canvas может не обновиться автоматически
-            from qgis.utils import iface
-            if iface and iface.mapCanvas():
-                iface.mapCanvas().refresh()
+            # 7. Перерисовка canvas после изменения порядка отрисовки.
+            # redrawAllLayers() очищает render cache и перерисовывает все слои
+            # из уже загруженных данных (без повторных запросов к провайдерам).
+            # Прямой вызов безопасен — метод ставит redraw в очередь paint event.
+            from qgis.utils import iface as _iface
+            if _iface and _iface.mapCanvas():
+                _iface.mapCanvas().redrawAllLayers()
 
         except Exception as e:
             log_error(f"M_2_LayerManager: Ошибка при сортировке: {str(e)}")

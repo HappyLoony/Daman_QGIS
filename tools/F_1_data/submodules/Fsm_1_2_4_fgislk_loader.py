@@ -82,38 +82,50 @@ class Fsm_1_2_4_FgislkLoader:
     """Загрузчик данных ФГИС ЛК через vector tiles"""
 
     # Маппинг слоёв ФГИС ЛК на слои проекта
+    # Верифицировано через PBF тайлы 2026-03-13 (Fsm_4_2_T_1_2_4_schema.py)
     LAYER_MAPPING = {
-        # Основные слои (соответствуют Base_layers.json)
-        "FORESTRY_TAXATION_DATE": "Le_1_7_2_1_ФГИС_ЛК_Лесничества",
-        "DISTRICT_FORESTRY_TAXATION_DATE": "Le_1_7_2_2_ФГИС_ЛК_Уч_Лесничества",
+        # Основные слои (соответствуют Base_layers.json, подтверждены в PBF)
+        "FORESTRY": "Le_1_7_2_0_ФГИС_ЛК_Лесничества_базовые",              # Базовые границы лесничеств
+        "FORESTRY_APPROVE": "Le_1_7_2_0a_ФГИС_ЛК_Лесничества_утверж",       # Утверждённые границы лесничеств
+        "FORESTRY_TAXATION_DATE": "Le_1_7_2_1_ФГИС_ЛК_Лесничества",         # Лесничества с датой таксации
+        "DISTRICT_FORESTRY_TAXATION_DATE": "Le_1_7_2_2_ФГИС_ЛК_Уч_Лесничества",  # Уч. лесничества
         "QUARTER": "Le_1_7_2_3_ФГИС_ЛК_Кварталы",
         "TAXATION_PIECE": "Le_1_7_2_4_ФГИС_ЛК_Выделы",
-        "FOREST_STEAD": "Le_1_7_2_6_ФГИС_ЛК_Участки",
-        # Новые слои (заглушки - требуют анализа и добавления в Base_layers.json)
-        "FOREST_PURPOSE": "Le_1_7_6_ФГИС_ЛК_Целевое_назначение",          # Виды лесов согласно целевому назначению
-        "PROTECTIVE_FOREST": "Le_1_7_7_ФГИС_ЛК_Защитные_леса",            # Категории защитных лесов
-        "PROTECTIVE_FOREST_SUBCATEGORY": "Le_1_7_8_ФГИС_ЛК_Ценные_леса",  # Запись о ценных лесах
-        "SPECIAL_PROTECT_STEAD": "Le_1_7_9_ФГИС_ЛК_ОЗУ",                  # Особо защитные участки лесов
-        "CLEARCUT": "Le_1_7_10_ФГИС_ЛК_Лесосеки",                         # Лесосека
-        "PROCESSING_OBJECT": "Le_1_7_11_ФГИС_ЛК_Лесопереработка",         # Пункт лесопереработки
-        # TIMBER_YARD (Склады древесины) - ОТКЛЮЧЁН: слой всегда пустой, данные отсутствуют в API
+        "FOREST_STEAD": "Le_1_7_2_6_ФГИС_ЛК_Участки",                       # Лесные участки
+        "PART_FOREST_STEAD": "Le_1_7_2_7_ФГИС_ЛК_Части_участков",           # Части лесных участков (кадастровые)
+        "SUBJECT_BOUNDARY": "Le_1_7_2_8_ФГИС_ЛК_Границы_субъектов",         # Границы субъектов РФ
+        "TIMBER_YARD": "Le_1_7_12_ФГИС_ЛК_Склады_древесины",                # Склады древесины (данные есть в z10+)
+        # Тематические слои (заглушки - не обнаружены в PBF z10/z12, возможно на других зумах)
+        "FOREST_PURPOSE": "Le_1_7_6_ФГИС_ЛК_Целевое_назначение",            # Виды лесов согласно целевому назначению
+        "PROTECTIVE_FOREST": "Le_1_7_7_ФГИС_ЛК_Защитные_леса",              # Категории защитных лесов
+        "PROTECTIVE_FOREST_SUBCATEGORY": "Le_1_7_8_ФГИС_ЛК_Ценные_леса",    # Запись о ценных лесах
+        "SPECIAL_PROTECT_STEAD": "Le_1_7_9_ФГИС_ЛК_ОЗУ",                    # Особо защитные участки лесов
+        "CLEARCUT": "Le_1_7_10_ФГИС_ЛК_Лесосеки",                           # Лесосека
+        "PROCESSING_OBJECT": "Le_1_7_11_ФГИС_ЛК_Лесопереработка",           # Пункт лесопереработки
     }
 
     # Слои, для которых уже существуют полигональные определения в Base_layers.json
     # Остальные слои (линии, точки или новые полигоны) получат временные названия
     POLYGON_LAYERS_IN_DB = {
+        "FORESTRY",
+        "FORESTRY_APPROVE",
         "FORESTRY_TAXATION_DATE",
         "DISTRICT_FORESTRY_TAXATION_DATE",
         "QUARTER",
         "TAXATION_PIECE",
         "FOREST_STEAD",
+        "PART_FOREST_STEAD",
+        "SUBJECT_BOUNDARY",
     }
 
     # Префикс для временных слоёв (не полигоны или слои без определения в БД)
     TEMP_LAYER_PREFIX = "_TEMP_FGISLK_"
 
     # Дополнительные слои для обогащения данных (атрибуты из связанных слоёв PBF)
+    # Верифицировано через PBF тайлы 2026-03-13
     LAYER_EXTRAS = {
+        "FORESTRY": set(),
+        "FORESTRY_APPROVE": set(),
         "FORESTRY_TAXATION_DATE": set(),
         "DISTRICT_FORESTRY_TAXATION_DATE": set(),
         "QUARTER": {"QUARTER_FIRE_DANGER"},
@@ -125,14 +137,16 @@ class Fsm_1_2_4_FgislkLoader:
             "TAXATION_PIECE_TIMBER_STOCK"
         },
         "FOREST_STEAD": set(),
-        # Новые слои - extras пока пустые (требуют анализа)
+        "PART_FOREST_STEAD": set(),
+        "SUBJECT_BOUNDARY": set(),
+        "TIMBER_YARD": set(),
+        # Тематические слои - не обнаружены в PBF, extras пока пустые
         "FOREST_PURPOSE": set(),
         "PROTECTIVE_FOREST": set(),
         "PROTECTIVE_FOREST_SUBCATEGORY": set(),
         "SPECIAL_PROTECT_STEAD": set(),
         "CLEARCUT": set(),
         "PROCESSING_OBJECT": set(),
-        # TIMBER_YARD - ОТКЛЮЧЁН (см. LAYER_MAPPING)
     }
 
     # Параметры тайловой сетки
@@ -152,13 +166,28 @@ class Fsm_1_2_4_FgislkLoader:
 
     # Маппинг полей REST API -> поля слоя
     # Ключ = имя в JSON payload, Значение = (имя поля в слое, тип QMetaType)
+    # Верифицировано 2026-03-13: REST API возвращает 15 полей для TAXATION_PIECE
     ENRICHMENT_FIELDS: Dict[str, tuple] = {
+        # Площади и статус
         "square": ("square", QMetaType.Type.Double),
         "totalArea": ("total_area", QMetaType.Type.Double),
+        "objectValid": ("object_valid", QMetaType.Type.QString),
+        # Категории земель
         "category_land": ("category_land", QMetaType.Type.QString),
         "type_land": ("type_land", QMetaType.Type.QString),
         "forest_land_type": ("forest_land_type", QMetaType.Type.QString),
+        # Таксационные характеристики
         "taxation_date": ("taxation_date", QMetaType.Type.QString),
+        "tree_species": ("tree_species", QMetaType.Type.QString),
+        "age_group": ("age_group", QMetaType.Type.QString),
+        "yield_class": ("yield_class", QMetaType.Type.QString),
+        "timber_stock": ("timber_stock", QMetaType.Type.QString),
+        # Номера и идентификаторы
+        "number": ("number", QMetaType.Type.QString),
+        "number_lud": ("number_lud", QMetaType.Type.QString),
+        "forest_quarter_number": ("forest_quarter_number", QMetaType.Type.QString),
+        "forest_quarter_number_lud": ("forest_quarter_number_lud", QMetaType.Type.QString),
+        # Лесохозяйственные мероприятия
         "event": ("event", QMetaType.Type.QString),
     }
 
@@ -627,48 +656,78 @@ class Fsm_1_2_4_FgislkLoader:
             log_warning(f"Fsm_1_2_4: Ошибка парсинга тайла {x}/{y}: {str(e)}")
             return {}
 
-    def diagnose_pbf_layers(self, pbf_path: str) -> set:
+    def diagnose_pbf_layers(self, pbf_path: str, verbose: bool = False) -> Dict[str, dict]:
         """
-        Диагностика: получить список ВСЕХ слоёв в PBF файле
+        Диагностика: получить список ВСЕХ слоёв в PBF файле с полными схемами.
 
         Сравнивает с известными слоями и выводит предупреждение
-        если обнаружены новые неизвестные слои.
+        если обнаружены новые неизвестные слои. В verbose режиме
+        дополнительно выводит поля каждого слоя.
 
         Args:
             pbf_path: Путь к PBF файлу
+            verbose: Если True, выводить детали полей каждого слоя
 
         Returns:
-            set: Множество всех найденных слоёв в PBF
+            dict: {layer_name: {"feature_count": int, "fields": [(name, type)]}}
         """
         from osgeo import ogr
 
-        found_layers = set()
+        layer_info: Dict[str, dict] = {}
         try:
             ds = ogr.Open(pbf_path)
             if ds:
                 for i in range(ds.GetLayerCount()):
                     layer = ds.GetLayerByIndex(i)
                     if layer:
-                        found_layers.add(layer.GetName())
+                        lname = layer.GetName()
+                        feat_count = layer.GetFeatureCount()
+                        # Извлекаем схему полей
+                        defn = layer.GetLayerDefn()
+                        fields = []
+                        for fi in range(defn.GetFieldCount()):
+                            fd = defn.GetFieldDefn(fi)
+                            fields.append((fd.GetName(), fd.GetTypeName()))
+
+                        layer_info[lname] = {
+                            "feature_count": feat_count,
+                            "fields": fields,
+                        }
+
+                        if verbose:
+                            field_names = [f[0] for f in fields]
+                            log_info(
+                                f"Fsm_1_2_4: PBF слой '{lname}': "
+                                f"{feat_count} фичей, поля: {field_names}"
+                            )
+
                 ds = None  # Закрываем датасет
         except Exception as e:
             log_warning(f"Fsm_1_2_4: Ошибка диагностики PBF: {str(e)}")
-            return found_layers
+            return layer_info
 
         # Собираем все известные слои (основные + extras)
         known_layers = set(self.LAYER_MAPPING.keys())
         for extras in self.LAYER_EXTRAS.values():
             known_layers |= extras
 
+        found_layers = set(layer_info.keys())
+
         # Находим новые неизвестные слои
         unknown_layers = found_layers - known_layers
 
         if unknown_layers:
             log_warning("Fsm_1_2_4: ОБНАРУЖЕНЫ НОВЫЕ СЛОИ В PBF!")
-            log_warning(f"Fsm_1_2_4: Неизвестные слои: {sorted(unknown_layers)}")
+            for lname in sorted(unknown_layers):
+                info = layer_info[lname]
+                field_names = [f[0] for f in info["fields"]]
+                log_warning(
+                    f"Fsm_1_2_4: Неизвестный слой '{lname}': "
+                    f"{info['feature_count']} фичей, поля: {field_names}"
+                )
             log_warning("Fsm_1_2_4: Проверьте - возможно нужно добавить в LAYER_MAPPING или LAYER_EXTRAS")
 
-        return found_layers
+        return layer_info
 
     def load_layers(self, temp_dir: str, enrich_attributes: bool = True) -> Dict[str, QgsVectorLayer]:
         """

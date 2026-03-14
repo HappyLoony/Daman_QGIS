@@ -218,16 +218,8 @@ class F_0_5_RefineProjection(BaseTool):
             # просто CRS была указана неверно.
             self.apply_crs_to_all_layers(saved_crs, old_crs=current_crs)
 
-            # Сообщение об успехе
-            self.iface.messageBar().pushMessage(
-                "Успех",
-                f"Создана и применена новая проекция: {crs_name}",
-                level=Qgis.Success,
-                duration=MESSAGE_INFO_DURATION
-            )
-
-            log_info(f"F_0_5: Создана новая CRS: {crs_name}")
-            log_info(f"F_0_5: Смещение: ΔX={delta_x:.4f}, ΔY={delta_y:.4f}")
+            log_success(f"F_0_5: Создана новая CRS: {crs_name}")
+            log_info(f"F_0_5: Смещение: dX={delta_x:.4f}, dY={delta_y:.4f}")
 
             return True
 
@@ -342,14 +334,6 @@ class F_0_5_RefineProjection(BaseTool):
             # именно то, что нужно для калибровки: координаты правильные,
             # просто CRS была указана неверно.
             self.apply_crs_to_all_layers(saved_crs, old_crs=object_layer_crs)
-
-            # Сообщение об успехе
-            self.iface.messageBar().pushMessage(
-                "Успех",
-                f"Создана кастомная проекция: {crs_name}",
-                level=Qgis.Success,
-                duration=MESSAGE_INFO_DURATION
-            )
 
             log_success(f"F_0_5: Создана кастомная проекция: {crs_name}")
             log_info(f"F_0_5: lon_0={params['lon_0']:.6f}°, k_0={params['k_0']:.8f}")
@@ -754,8 +738,9 @@ class F_0_5_RefineProjection(BaseTool):
             # processEvents() после setDestinationCrs
             QApplication.instance().processEvents()
 
-            # Полное обновление canvas с перезагрузкой свойств слоёв
-            # refresh() недостаточно - нужен refreshAllLayers() для пересоздания трансформаций
+            # refreshAllLayers() — полная перезагрузка с провайдеров.
+            # Необходим именно здесь (НЕ redrawAllLayers) т.к. CRS изменилась
+            # и провайдеры должны пересоздать CoordinateTransform объекты.
             canvas.refreshAllLayers()
 
             # Финальный processEvents() для гарантии обновления дисплея

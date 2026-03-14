@@ -1,0 +1,10 @@
+{
+  "status": "failed_ogr",
+  "findings": [],
+  "errors": [
+    "OGR ошибка: No module named 'osgeo'"
+  ],
+  "pbf_layers": {},
+  "rest_api_payload_keys": [],
+  "rest_api_all_layers_keys": {}
+}

@@ -119,11 +119,16 @@ class F_0_3_EditProjectProperties(BaseTool):
     def _move_project_folder(self, old_path: str, new_path: str) -> bool:
         """Перемещение папки проекта. Возвращает True если перемещена.
 
+        Стратегия: copytree -> удаление источника (с допуском заблокированных файлов).
         Освобождает GPKG перед перемещением: закрывает ProjectDB и удаляет
         все слои из QGIS (иначе Windows блокирует файл).
         """
         if not old_path or old_path == new_path:
             return False
+
+        # Проверяем что назначение не существует (до тяжёлых операций)
+        if os.path.exists(new_path):
+            raise ValueError(f"Папка {new_path} уже существует")
 
         try:
             # Сохраняем проект перед перемещением
@@ -139,22 +144,64 @@ class F_0_3_EditProjectProperties(BaseTool):
             root = QgsProject.instance().layerTreeRoot()
             root.removeAllChildren()
 
-            # Перемещаем папку
-            shutil.move(old_path, new_path)
-            log_info(f"F_0_3: Папка проекта перемещена: {old_path} -> {new_path}")
+            # Копируем в новое расположение
+            shutil.copytree(old_path, new_path)
+            log_info(f"F_0_3: Папка проекта скопирована: {old_path} -> {new_path}")
+
+            # Удаляем источник; если некоторые файлы заблокированы — предупреждаем
+            locked_files = self._try_remove_tree(old_path)
+            if locked_files:
+                names = [os.path.basename(f) for f in locked_files]
+                log_warning(
+                    f"F_0_3: Не удалось удалить {len(locked_files)} файлов "
+                    f"из старой папки (заняты другим процессом): {', '.join(names)}"
+                )
+                self.iface.messageBar().pushMessage(
+                    "Внимание",
+                    f"Проект скопирован в новое расположение, но {len(locked_files)} "
+                    f"файл(ов) в старой папке заблокирован(ы) другим процессом. "
+                    f"Удалите старую папку вручную после закрытия программ.",
+                    level=Qgis.MessageLevel.Warning,
+                    duration=MESSAGE_INFO_DURATION
+                )
+
             return True
 
         except FileNotFoundError as e:
             raise ValueError(f"Исходная папка проекта не найдена: {old_path}") from e
-        except FileExistsError as e:
-            raise ValueError(f"Папка {new_path} уже существует") from e
-        except shutil.Error as e:
-            error_msg = str(e)
-            if "already exists" in error_msg.lower() or "destination path" in error_msg.lower():
-                raise ValueError(f"Папка {new_path} уже существует") from e
-            raise ValueError(f"Не удалось переместить папку проекта: {error_msg}") from e
         except OSError as e:
+            # Если copytree упал — удаляем частичную копию
+            if os.path.exists(new_path):
+                shutil.rmtree(new_path, ignore_errors=True)
             raise ValueError(f"Ошибка файловой системы при перемещении: {e}") from e
+
+    @staticmethod
+    def _try_remove_tree(path: str) -> list:
+        """Удаление дерева папок с пропуском заблокированных файлов.
+
+        Returns:
+            Список путей файлов, которые не удалось удалить.
+        """
+        locked = []
+        for root_dir, dirs, files in os.walk(path, topdown=False):
+            for name in files:
+                filepath = os.path.join(root_dir, name)
+                try:
+                    os.unlink(filepath)
+                except PermissionError:
+                    locked.append(filepath)
+            for name in dirs:
+                dirpath = os.path.join(root_dir, name)
+                try:
+                    os.rmdir(dirpath)
+                except OSError:
+                    pass  # Не пустая (содержит locked файлы)
+        # Пробуем удалить корневую папку
+        try:
+            os.rmdir(path)
+        except OSError:
+            pass
+        return locked
 
     def _update_core_metadata(self, db, updated_data: Dict[str, Any], changed_fields: list) -> None:
         """Обновление основных метаданных проекта"""

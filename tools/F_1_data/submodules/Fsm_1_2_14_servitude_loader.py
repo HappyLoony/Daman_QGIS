@@ -186,9 +186,7 @@ class Fsm_1_2_14_ServitudeLoader:
                     auto_number=False, check_precision=False
                 )
 
-            # Обновление карты
-            from Daman_QGIS.utils import safe_refresh_canvas, REFRESH_HEAVY
-            safe_refresh_canvas(REFRESH_HEAVY, delay_ms=200)
+            # Refresh canvas централизован в sort_all_layers() (M_2)
 
             log_success(
                 f"Fsm_1_2_14: Публичные сервитуты загружены: "
