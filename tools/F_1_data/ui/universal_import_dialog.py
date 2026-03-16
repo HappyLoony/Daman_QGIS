@@ -111,11 +111,11 @@ class UniversalImportDialog(BaseResponsiveDialog):
         Проверка разрешён ли импорт слоя ЗПР для текущего типа объекта.
 
         Бизнес-правило:
-        - Площадной объект: только ЗПР_ОКС
+        - Площадной объект: только слои с ОКС (ЗПР_ОКС, Лес_ЗПР_ОКС и их нарезка)
         - Линейный объект: все слои ЗПР
 
         Args:
-            layer_name: Имя слоя (например 'ЗПР_ОКС', 'ЗПР_ПО')
+            layer_name: Имя слоя (например 'ЗПР_ОКС', 'ЗПР_ПО', 'Лес_ЗПР_ОКС')
 
         Returns:
             True если слой разрешён для импорта
@@ -128,11 +128,9 @@ class UniversalImportDialog(BaseResponsiveDialog):
         if self.project_object_type == 'Линейный':
             return True
 
-        # Для площадных объектов - только ЗПР_ОКС
+        # Для площадных объектов - только слои содержащие ОКС
         if self.project_object_type == 'Площадной':
-            # Разрешённые слои для площадных объектов
-            allowed_layers = ['ЗПР_ОКС']
-            return layer_name in allowed_layers
+            return 'ОКС' in layer_name
 
         return True
 
@@ -409,8 +407,11 @@ class UniversalImportDialog(BaseResponsiveDialog):
 
         self.selected_group = group_key
 
-        # Определяем, является ли это группой ЗПР (2_4 или 2_5)
-        is_zpr_group = group_key in ['2_4', '2_5']
+        # Группы ЗПР: источники (1_12, 1_13), нарезка (2_1, 2_2),
+        # точки (2_5, 2_6), лес (3_2, 3_3)
+        is_zpr_group = group_key in (
+            '1_12', '1_13', '2_1', '2_2', '2_5', '2_6', '3_2', '3_3'
+        )
 
         # Заполняем слои для выбранной группы
         if group_key in self.layers_by_group:
@@ -421,7 +422,7 @@ class UniversalImportDialog(BaseResponsiveDialog):
             for layer_key, layer_name in sorted(layers.items()):
                 # Для групп ЗПР применяем фильтрацию по типу объекта
                 if is_zpr_group:
-                    # Извлекаем имя слоя из layer_name (например "2_4_1_ЗПР_ОКС" -> "ЗПР_ОКС")
+                    # Извлекаем имя слоя из layer_name (например "1_12_1_ЗПР_ОКС" -> "ЗПР_ОКС")
                     parts = layer_name.split('_')
                     if len(parts) >= 4:
                         zpr_layer_name = '_'.join(parts[3:])  # "ЗПР_ОКС", "ЗПР_ПО", etc.

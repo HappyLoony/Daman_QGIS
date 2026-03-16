@@ -93,7 +93,7 @@ class Fsm_1_2_4_FgislkLoader:
         "TAXATION_PIECE": "Le_1_7_2_4_ФГИС_ЛК_Выделы",
         "FOREST_STEAD": "Le_1_7_2_6_ФГИС_ЛК_Участки",                       # Лесные участки
         "PART_FOREST_STEAD": "Le_1_7_2_7_ФГИС_ЛК_Части_участков",           # Части лесных участков (кадастровые)
-        "SUBJECT_BOUNDARY": "Le_1_7_2_8_ФГИС_ЛК_Границы_субъектов",         # Границы субъектов РФ
+        # SUBJECT_BOUNDARY -- исключён: дубликат Le_1_2_3_14_АТД_Суб_РФ_poly (ЕГРН), нет externalid
         "TIMBER_YARD": "Le_1_7_12_ФГИС_ЛК_Склады_древесины",                # Склады древесины (данные есть в z10+)
         # Тематические слои (заглушки - не обнаружены в PBF z10/z12, возможно на других зумах)
         "FOREST_PURPOSE": "Le_1_7_6_ФГИС_ЛК_Целевое_назначение",            # Виды лесов согласно целевому назначению
@@ -115,7 +115,6 @@ class Fsm_1_2_4_FgislkLoader:
         "TAXATION_PIECE",
         "FOREST_STEAD",
         "PART_FOREST_STEAD",
-        "SUBJECT_BOUNDARY",
     }
 
     # Префикс для временных слоёв (не полигоны или слои без определения в БД)
@@ -138,7 +137,6 @@ class Fsm_1_2_4_FgislkLoader:
         },
         "FOREST_STEAD": set(),
         "PART_FOREST_STEAD": set(),
-        "SUBJECT_BOUNDARY": set(),
         "TIMBER_YARD": set(),
         # Тематические слои - не обнаружены в PBF, extras пока пустые
         "FOREST_PURPOSE": set(),
@@ -634,6 +632,10 @@ class Fsm_1_2_4_FgislkLoader:
                 lyr = QgsVectorLayer(uri, lname, "ogr")
 
                 if not lyr.isValid():
+                    continue
+
+                # Слои без поля externalid (например SUBJECT_BOUNDARY) пропускаем
+                if lyr.fields().indexFromName("externalid") == -1:
                     continue
 
                 for feat in lyr.getFeatures():

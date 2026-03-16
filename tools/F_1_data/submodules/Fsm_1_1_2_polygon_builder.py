@@ -499,10 +499,10 @@ class PolygonBuilder:
             "memory"
         )
 
-        # Добавляем атрибуты
+        # Добавляем атрибуты (uppercase ID — совместимость с GeoPackage)
         provider = layer.dataProvider()
         fields = QgsFields()
-        fields.append(QgsField("id", QMetaType.Type.Int))
+        fields.append(QgsField("ID", QMetaType.Type.Int))
         fields.append(QgsField("area", QMetaType.Type.Int))
         fields.append(QgsField("polygons_count", QMetaType.Type.Int))
         fields.append(QgsField("total_holes", QMetaType.Type.Int))
@@ -571,10 +571,10 @@ class PolygonBuilder:
             "memory"
         )
 
-        # Добавляем атрибуты
+        # Добавляем атрибуты (uppercase ID — совместимость с Base_cutting.json)
         provider = layer.dataProvider()
         fields = QgsFields()
-        fields.append(QgsField("id", QMetaType.Type.Int))
+        fields.append(QgsField("ID", QMetaType.Type.Int))
         fields.append(QgsField("area", QMetaType.Type.Int))
         fields.append(QgsField("holes_count", QMetaType.Type.Int))
         provider.addAttributes(fields)

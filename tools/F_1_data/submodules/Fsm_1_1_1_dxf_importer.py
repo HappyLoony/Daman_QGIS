@@ -1072,7 +1072,7 @@ class DxfImporter(BaseImporter):
         )
 
         layer.startEditing()
-        layer.addAttribute(QgsField("id", QMetaType.Type.Int))
+        layer.addAttribute(QgsField("ID", QMetaType.Type.Int))
 
         for i, geom in enumerate(polylines):
             if geom and not geom.isEmpty():

@@ -117,7 +117,8 @@ class LayerSchemaValidator:
             required_fields = [f["name"] for f in typed_fields]
         else:
             required_fields = schema.get('required_fields', [])
-        missing = [f for f in required_fields if f not in field_names]
+        field_names_lower = {f.lower() for f in field_names}
+        missing = [f for f in required_fields if f.lower() not in field_names_lower]
         result['missing_fields'] = missing
 
         result['valid'] = len(missing) == 0
@@ -424,14 +425,15 @@ class LayerSchemaValidator:
         if typed_fields is not None:
             # Динамический провайдер: поля с типами
             # Проверка конфликта типов: имя совпало, тип отличается
-            existing_field_map = {f.name(): f for f in layer.fields()}
+            # Case-insensitive: GeoPackage (SQLite) не различает регистр имён полей
+            existing_field_map = {f.name().lower(): f for f in layer.fields()}
             missing_typed = []
             for field_def in typed_fields:
                 name = field_def["name"]
-                if name not in existing_field_map:
+                if name.lower() not in existing_field_map:
                     missing_typed.append(field_def)
                 else:
-                    existing_field = existing_field_map[name]
+                    existing_field = existing_field_map[name.lower()]
                     if existing_field.type() != field_def["type"]:
                         log_warning(
                             f"M_28: Поле '{name}' в слое {layer_name} имеет тип "
@@ -467,8 +469,10 @@ class LayerSchemaValidator:
 
         else:
             # Статическая схема (ZPR): все поля String(254)
+            # Case-insensitive: GeoPackage (SQLite) не различает регистр имён полей
             required_fields = schema.get('required_fields', [])
-            missing_fields = [f for f in required_fields if f not in existing_fields]
+            existing_lower = {f.lower() for f in existing_fields}
+            missing_fields = [f for f in required_fields if f.lower() not in existing_lower]
 
             if not missing_fields:
                 result['success'] = True
