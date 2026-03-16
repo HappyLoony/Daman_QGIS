@@ -636,7 +636,7 @@ class ProfileSetupManager:
             return 0
 
     def sync_crs_registry(self) -> Dict:
-        """Очистка USER CRS реестра: дедупликация по имени.
+        """Очистка USER CRS реестра: дедупликация + чистка unknown.
 
         Reference CRS (без '_') управляются через qgis.db профиля.
         Замена qgis.db при обновлении профиля -- основной механизм
@@ -645,12 +645,20 @@ class ProfileSetupManager:
         Custom CRS (с '_') сохраняются при замене qgis.db
         через _restore_user_crs().
 
+        Дополнительно чистит unknown записи из кэша недавних
+        проекций в QGIS3.ini (recentProjectionsAuthId и др.).
+
         Returns:
-            Словарь со статистикой {duplicates_removed, custom, reference, total}.
+            Словарь со статистикой {duplicates_removed, custom, reference, total,
+            recent_unknown_removed}.
         """
         try:
-            from Daman_QGIS.core.crs_utils import cleanup_user_crs
+            from Daman_QGIS.core.crs_utils import (
+                cleanup_user_crs,
+                cleanup_recent_projections,
+            )
             stats = cleanup_user_crs()
+            stats['recent_unknown_removed'] = cleanup_recent_projections()
             return stats
         except Exception as e:
             log_warning(f"M_37 (sync_crs_registry): {e}")

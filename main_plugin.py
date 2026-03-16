@@ -6,7 +6,7 @@
  Комплексный инструмент для работы с данными в QGIS
                               -------------------
         begin                : 2024
-        copyright            : (C) 2024-2026 Alexander Plahotnyuk
+        copyright            : (C) 2024-2026 Aleksandr Plakhotniuk
         email                : damanQGIS@gmail.com
  ***************************************************************************/
 

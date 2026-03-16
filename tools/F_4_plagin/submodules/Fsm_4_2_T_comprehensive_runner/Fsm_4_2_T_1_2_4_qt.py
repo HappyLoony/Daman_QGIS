@@ -65,7 +65,7 @@ class TestFgislkLoaderRuntimeError:
             checks = {
                 'import requests': 'Использование requests (thread-safe HTTP)',
                 'ThreadPoolExecutor': 'Параллельная загрузка через ThreadPoolExecutor',
-                '@retry': 'Декоратор retry для отказоустойчивости',
+                'Retry(': 'Retry-стратегия для отказоустойчивости (urllib3)',
                 'class TileCache': 'Двухуровневый кэш TileCache'
             }
 

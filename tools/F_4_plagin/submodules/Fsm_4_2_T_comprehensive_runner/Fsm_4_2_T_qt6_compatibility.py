@@ -4,7 +4,7 @@ Fsm_4_2_T_qt6_compatibility - Тест совместимости с Qt6/QGIS 4.
 
 Проверяет готовность плагина к миграции на Qt6 (QGIS 4.0).
 
-Проверки:
+Проверки (статический анализ):
 1.  metadata.txt: supportsQt6, qgisMaximumVersion
 2.  Использование qgis.PyQt вместо прямых импортов PyQt5/PyQt6
 3.  Qt enum scoping (Qt.AlignCenter -> Qt.AlignmentFlag.AlignCenter)
@@ -17,6 +17,13 @@ Fsm_4_2_T_qt6_compatibility - Тест совместимости с Qt6/QGIS 4.
 10. Удалённые модули Qt (QtScript, QtWebKit)
 11. QgsWkbTypes -> Qgis.WkbType / Qgis.GeometryType
 12. QgsUnitTypes -> Qgis.RenderUnit / Qgis.LayoutUnit
+
+Проверки (runtime):
+13. Qt6 fully-qualified enum resolution в текущей среде
+14. Наличие методов exec/exec_, QAction в QtGui/QtWidgets
+15. QVariant поведение, QMetaType.Type доступность
+16. Processing алгоритмы плагина в registry
+17. Сторонние библиотеки (ezdxf, xlsxwriter, requests, lxml)
 
 Основано на:
 - https://github.com/qgis/QGIS/wiki/Plugin-migration-to-be-compatible-with-Qt5-and-Qt6
@@ -382,6 +389,7 @@ class TestQt6Compatibility:
         self.logger.section("ТЕСТ СОВМЕСТИМОСТИ С Qt6/QGIS 4.0")
 
         try:
+            # Статический анализ (regex-сканирование кода)
             self.test_01_check_metadata()
             self.test_02_check_imports()
             self.test_03_check_qt_enum_scoping()
@@ -393,6 +401,15 @@ class TestQt6Compatibility:
             self.test_09_check_removed_globals()
             self.test_10_check_removed_modules()
             self.test_11_check_qgis_deprecated()
+
+            # Runtime проверки (среда выполнения)
+            self.test_13_runtime_enum_resolution()
+            self.test_14_runtime_method_existence()
+            self.test_15_runtime_qvariant_behavior()
+            self.test_16_runtime_processing_algorithms()
+            self.test_17_runtime_third_party_libs()
+
+            # Итоговая сводка
             self.test_12_summary()
 
         except Exception as e:
@@ -827,6 +844,431 @@ class TestQt6Compatibility:
     # ТЕСТ 12: Итоговая сводка
     # ----------------------------------------------------------------
 
+    # ----------------------------------------------------------------
+    # ТЕСТ 13: Runtime enum resolution
+    # ----------------------------------------------------------------
+
+    def test_13_runtime_enum_resolution(self) -> None:
+        """ТЕСТ 13: Проверка резолвинга Qt6 fully-qualified enum в runtime"""
+        self.logger.section("13. Runtime: Qt6 enum resolution")
+
+        from qgis.PyQt.QtCore import Qt
+        from qgis.PyQt.QtWidgets import (
+            QMessageBox, QFrame, QSizePolicy, QAbstractItemView,
+            QHeaderView, QDialogButtonBox
+        )
+
+        # --- Qt namespace enums ---
+        qt_enums = [
+            ('Qt.AlignmentFlag.AlignCenter', lambda: Qt.AlignmentFlag.AlignCenter),
+            ('Qt.AlignmentFlag.AlignLeft', lambda: Qt.AlignmentFlag.AlignLeft),
+            ('Qt.ItemDataRole.UserRole', lambda: Qt.ItemDataRole.UserRole),
+            ('Qt.ItemDataRole.DisplayRole', lambda: Qt.ItemDataRole.DisplayRole),
+            ('Qt.CursorShape.WaitCursor', lambda: Qt.CursorShape.WaitCursor),
+            ('Qt.Orientation.Horizontal', lambda: Qt.Orientation.Horizontal),
+            ('Qt.CheckState.Checked', lambda: Qt.CheckState.Checked),
+            ('Qt.GlobalColor.white', lambda: Qt.GlobalColor.white),
+            ('Qt.PenStyle.SolidLine', lambda: Qt.PenStyle.SolidLine),
+            ('Qt.BrushStyle.SolidPattern', lambda: Qt.BrushStyle.SolidPattern),
+            ('Qt.ItemFlag.ItemIsEnabled', lambda: Qt.ItemFlag.ItemIsEnabled),
+            ('Qt.WindowModality.WindowModal', lambda: Qt.WindowModality.WindowModal),
+            ('Qt.SortOrder.AscendingOrder', lambda: Qt.SortOrder.AscendingOrder),
+            ('Qt.FocusPolicy.StrongFocus', lambda: Qt.FocusPolicy.StrongFocus),
+            ('Qt.WindowType.Dialog', lambda: Qt.WindowType.Dialog),
+        ]
+
+        # --- Widget enums ---
+        widget_enums = [
+            ('QMessageBox.StandardButton.Yes', lambda: QMessageBox.StandardButton.Yes),
+            ('QMessageBox.StandardButton.No', lambda: QMessageBox.StandardButton.No),
+            ('QMessageBox.StandardButton.Ok', lambda: QMessageBox.StandardButton.Ok),
+            ('QMessageBox.Icon.Warning', lambda: QMessageBox.Icon.Warning),
+            ('QMessageBox.Icon.Critical', lambda: QMessageBox.Icon.Critical),
+            ('QDialogButtonBox.StandardButton.Ok', lambda: QDialogButtonBox.StandardButton.Ok),
+            ('QFrame.Shape.HLine', lambda: QFrame.Shape.HLine),
+            ('QSizePolicy.Policy.Expanding', lambda: QSizePolicy.Policy.Expanding),
+            ('QSizePolicy.Policy.Fixed', lambda: QSizePolicy.Policy.Fixed),
+            ('QAbstractItemView.SelectionBehavior.SelectRows', lambda: QAbstractItemView.SelectionBehavior.SelectRows),
+            ('QAbstractItemView.EditTrigger.NoEditTriggers', lambda: QAbstractItemView.EditTrigger.NoEditTriggers),
+            ('QHeaderView.ResizeMode.Stretch', lambda: QHeaderView.ResizeMode.Stretch),
+        ]
+
+        # --- QGIS enums ---
+        qgis_enums: List[Tuple[str, Any]] = []
+        try:
+            from qgis.core import Qgis
+            qgis_enums = [
+                ('Qgis.GeometryType.Polygon', lambda: Qgis.GeometryType.Polygon),
+                ('Qgis.GeometryType.Line', lambda: Qgis.GeometryType.Line),
+                ('Qgis.GeometryType.Point', lambda: Qgis.GeometryType.Point),
+                ('Qgis.WkbType.MultiPolygon', lambda: Qgis.WkbType.MultiPolygon),
+                ('Qgis.WkbType.Point', lambda: Qgis.WkbType.Point),
+                ('Qgis.WkbType.NoGeometry', lambda: Qgis.WkbType.NoGeometry),
+                ('Qgis.LayerType.Vector', lambda: Qgis.LayerType.Vector),
+                ('Qgis.LayerType.Raster', lambda: Qgis.LayerType.Raster),
+            ]
+        except Exception:
+            self.logger.info("Qgis enum класс недоступен (ожидаемо для старых версий)")
+
+        all_enums = [
+            ('Qt namespace', qt_enums),
+            ('Widget', widget_enums),
+            ('QGIS', qgis_enums),
+        ]
+
+        total_ok = 0
+        total_fail = 0
+
+        for group_name, enum_list in all_enums:
+            if not enum_list:
+                continue
+
+            ok_count = 0
+            fail_list = []
+
+            for name, resolver in enum_list:
+                try:
+                    resolver()
+                    ok_count += 1
+                except AttributeError:
+                    fail_list.append(name)
+
+            total_ok += ok_count
+            total_fail += len(fail_list)
+
+            if fail_list:
+                self.logger.warning(
+                    f"  {group_name}: {ok_count}/{ok_count + len(fail_list)} "
+                    f"(не резолвятся: {', '.join(fail_list[:5])})"
+                )
+                for name in fail_list:
+                    self.issues.append({
+                        'issue': f'Runtime enum fail: {name}',
+                        'count': 1,
+                        'severity': 'warning',
+                    })
+            else:
+                self.logger.success(f"  {group_name}: все {ok_count} enum резолвятся")
+
+        if total_fail == 0:
+            self.logger.success(
+                f"Все {total_ok} Qt6 fully-qualified enum доступны в runtime"
+            )
+        else:
+            self.logger.warning(
+                f"Runtime enum: {total_ok} OK, {total_fail} недоступны"
+            )
+
+    # ----------------------------------------------------------------
+    # ТЕСТ 14: Runtime method existence
+    # ----------------------------------------------------------------
+
+    def test_14_runtime_method_existence(self) -> None:
+        """ТЕСТ 14: Проверка наличия методов, изменённых в Qt6"""
+        self.logger.section("14. Runtime: method existence (Qt5/Qt6)")
+
+        # --- exec vs exec_ ---
+        from qgis.PyQt.QtWidgets import QDialog
+
+        dialog = QDialog()
+        has_exec = hasattr(dialog, 'exec')
+        has_exec_ = hasattr(dialog, 'exec_')
+        dialog.deleteLater()
+
+        if has_exec and has_exec_:
+            self.logger.success("QDialog: exec() и exec_() оба доступны (совместимый режим)")
+        elif has_exec:
+            self.logger.success("QDialog: exec() доступен (Qt6 стиль)")
+            if not has_exec_:
+                self.logger.warning("QDialog: exec_() отсутствует (deprecated, удалён в Qt6)")
+                self.issues.append({
+                    'issue': 'exec_() недоступен в runtime',
+                    'count': 1,
+                    'severity': 'warning',
+                })
+        elif has_exec_:
+            self.logger.info("QDialog: только exec_() доступен (Qt5 стиль)")
+        else:
+            self.logger.error("QDialog: ни exec() ни exec_() не доступны!")
+
+        # --- QAction: QtGui vs QtWidgets ---
+        action_from_gui = False
+        action_from_widgets = False
+
+        try:
+            from qgis.PyQt.QtGui import QAction  # noqa: F401
+            action_from_gui = True
+        except ImportError:
+            pass
+
+        try:
+            from qgis.PyQt.QtWidgets import QAction as _QAction  # noqa: F401
+            action_from_widgets = True
+        except ImportError:
+            pass
+
+        if action_from_gui and action_from_widgets:
+            self.logger.success("QAction: доступен из QtGui и QtWidgets (совместимый режим)")
+        elif action_from_gui:
+            self.logger.success("QAction: доступен из QtGui (Qt6 стиль)")
+        elif action_from_widgets:
+            self.logger.info("QAction: доступен только из QtWidgets (Qt5 стиль)")
+        else:
+            self.logger.error("QAction: недоступен ни из QtGui ни из QtWidgets!")
+
+        # --- QApplication.instance() vs qApp ---
+        from qgis.PyQt.QtWidgets import QApplication
+
+        has_instance = hasattr(QApplication, 'instance')
+        self.logger.check(
+            has_instance,
+            "QApplication.instance() доступен",
+            "QApplication.instance() недоступен!"
+        )
+
+        qapp_available = False
+        try:
+            from qgis.PyQt.QtWidgets import qApp  # noqa: F401
+            qapp_available = True
+        except ImportError:
+            pass
+
+        if qapp_available:
+            self.logger.info("qApp доступен (deprecated в Qt6, но пока работает)")
+        else:
+            self.logger.success("qApp недоступен (ожидаемо для Qt6)")
+
+    # ----------------------------------------------------------------
+    # ТЕСТ 15: Runtime QVariant behavior
+    # ----------------------------------------------------------------
+
+    def test_15_runtime_qvariant_behavior(self) -> None:
+        """ТЕСТ 15: Поведение QVariant в runtime"""
+        self.logger.section("15. Runtime: QVariant behavior")
+
+        # --- QVariant как класс ---
+        qvariant_available = False
+        try:
+            from qgis.PyQt.QtCore import QVariant
+            qvariant_available = True
+            self.logger.info("QVariant класс доступен")
+        except ImportError:
+            self.logger.success("QVariant класс недоступен (ожидаемо для Qt6)")
+
+        # --- QVariant() конструктор ---
+        if qvariant_available:
+            from qgis.PyQt.QtCore import QVariant
+            try:
+                val = QVariant()
+                self.logger.info(f"QVariant() = {val} (тип: {type(val).__name__})")
+
+                # NULL проверка
+                is_null = val.isNull() if hasattr(val, 'isNull') else 'метод отсутствует'
+                self.logger.info(f"QVariant().isNull() = {is_null}")
+
+            except TypeError as e:
+                self.logger.warning(f"QVariant() вызывает TypeError: {e}")
+                self.issues.append({
+                    'issue': 'QVariant() конструктор недоступен в runtime',
+                    'count': 1,
+                    'severity': 'warning',
+                })
+            except Exception as e:
+                self.logger.warning(f"QVariant() ошибка: {e}")
+
+        # --- QMetaType.Type доступность ---
+        try:
+            from qgis.PyQt.QtCore import QMetaType
+            test_types = [
+                ('QMetaType.Type.QString', lambda: QMetaType.Type.QString),
+                ('QMetaType.Type.Int', lambda: QMetaType.Type.Int),
+                ('QMetaType.Type.Double', lambda: QMetaType.Type.Double),
+                ('QMetaType.Type.Bool', lambda: QMetaType.Type.Bool),
+                ('QMetaType.Type.LongLong', lambda: QMetaType.Type.LongLong),
+            ]
+
+            ok_count = 0
+            for name, resolver in test_types:
+                try:
+                    resolver()
+                    ok_count += 1
+                except AttributeError:
+                    self.logger.warning(f"  {name} недоступен")
+
+            if ok_count == len(test_types):
+                self.logger.success(f"QMetaType.Type: все {ok_count} типов доступны")
+            else:
+                self.logger.warning(
+                    f"QMetaType.Type: {ok_count}/{len(test_types)} доступны"
+                )
+
+        except ImportError:
+            self.logger.warning("QMetaType недоступен")
+
+        # --- NULL значение для QgsField ---
+        try:
+            from qgis.core import QgsField
+            from qgis.PyQt.QtCore import QMetaType
+
+            field = QgsField("test", QMetaType.Type.QString)
+            self.logger.success(
+                f"QgsField с QMetaType.Type.QString создан: {field.name()}"
+            )
+        except Exception as e:
+            self.logger.warning(f"QgsField + QMetaType.Type: {e}")
+
+    # ----------------------------------------------------------------
+    # ТЕСТ 16: Runtime Processing algorithms
+    # ----------------------------------------------------------------
+
+    def test_16_runtime_processing_algorithms(self) -> None:
+        """ТЕСТ 16: Доступность Processing алгоритмов, используемых плагином"""
+        self.logger.section("16. Runtime: Processing algorithms")
+
+        try:
+            from qgis.core import QgsApplication
+
+            registry = QgsApplication.processingRegistry()
+
+            # Все алгоритмы, используемые плагином (из кодовой базы)
+            plugin_algorithms = [
+                ('native:fixgeometries', 'F_0_4 topology'),
+                ('native:extractvertices', 'F_0_4 topology'),
+                ('native:removeduplicatevertices', 'F_0_4 topology'),
+                ('native:snapgeometries', 'F_0_4 topology'),
+                ('native:buffer', 'F_1_1 import, M_41 isochrones'),
+                ('native:polygonstolines', 'Fsm_1_2_8 geometry'),
+                ('native:dissolve', 'processing ops'),
+                ('native:intersection', 'processing ops'),
+                ('native:difference', 'processing ops'),
+                ('native:clip', 'processing ops'),
+                ('native:simplifygeometries', 'M_41 results'),
+                ('native:reprojectlayer', 'processing ops'),
+                ('native:shortestpathpointtopoint', 'M_41 routes'),
+                ('native:serviceareafrompoint', 'M_41 isochrones'),
+                ('qgis:checkvalidity', 'F_0_4 topology'),
+                ('gdal:contour_polygon', 'M_41 terrain'),
+            ]
+
+            ok_count = 0
+            missing = []
+
+            for alg_id, used_by in plugin_algorithms:
+                alg = registry.algorithmById(alg_id)
+                if alg:
+                    ok_count += 1
+                else:
+                    missing.append((alg_id, used_by))
+
+            if missing:
+                self.logger.warning(
+                    f"Processing: {ok_count}/{len(plugin_algorithms)} алгоритмов доступны"
+                )
+                for alg_id, used_by in missing:
+                    self.logger.warning(f"  Отсутствует: {alg_id} ({used_by})")
+                    self.issues.append({
+                        'issue': f'Processing algorithm missing: {alg_id}',
+                        'count': 1,
+                        'severity': 'warning',
+                    })
+            else:
+                self.logger.success(
+                    f"Все {ok_count} Processing алгоритмов плагина доступны"
+                )
+
+        except Exception as e:
+            self.logger.error(f"Ошибка проверки Processing: {e}")
+
+    # ----------------------------------------------------------------
+    # ТЕСТ 17: Third-party libraries
+    # ----------------------------------------------------------------
+
+    def test_17_runtime_third_party_libs(self) -> None:
+        """ТЕСТ 17: Совместимость сторонних библиотек"""
+        self.logger.section("17. Runtime: Third-party libraries")
+
+        import sys
+        self.logger.info(f"  Python {sys.version.split()[0]}")
+
+        # --- ezdxf ---
+        try:
+            import ezdxf
+            version = ezdxf.__version__
+            doc = ezdxf.new('R2013')
+            msp = doc.modelspace()
+            self.logger.success(f"ezdxf {version}: new('R2013') + modelspace() OK")
+        except ImportError:
+            self.logger.warning("ezdxf не установлен")
+        except Exception as e:
+            self.logger.error(f"ezdxf ошибка: {e}")
+            self.issues.append({
+                'issue': f'ezdxf runtime error: {e}',
+                'count': 1,
+                'severity': 'error',
+            })
+
+        # --- xlsxwriter ---
+        try:
+            import xlsxwriter
+            version = xlsxwriter.__version__
+            import tempfile
+            tmp = os.path.join(tempfile.gettempdir(), '_daman_qt6_test.xlsx')
+            try:
+                wb = xlsxwriter.Workbook(tmp)
+                ws = wb.add_worksheet('test')
+                ws.write(0, 0, 'Qt6 test')
+                wb.close()
+                self.logger.success(f"xlsxwriter {version}: Workbook + write OK")
+            finally:
+                if os.path.exists(tmp):
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
+        except ImportError:
+            self.logger.warning("xlsxwriter не установлен")
+        except Exception as e:
+            self.logger.error(f"xlsxwriter ошибка: {e}")
+            self.issues.append({
+                'issue': f'xlsxwriter runtime error: {e}',
+                'count': 1,
+                'severity': 'error',
+            })
+
+        # --- requests ---
+        try:
+            import requests
+            version = requests.__version__
+            self.logger.success(f"requests {version}: import OK")
+        except ImportError:
+            self.logger.warning("requests не установлен")
+
+        # --- lxml ---
+        try:
+            from lxml import etree
+            version = etree.LXML_VERSION
+            version_str = '.'.join(str(v) for v in version)
+            root = etree.Element('test')
+            etree.SubElement(root, 'child').text = 'value'
+            xml_str = etree.tostring(root, encoding='unicode')
+            self.logger.success(f"lxml {version_str}: Element + tostring OK")
+        except ImportError:
+            self.logger.warning("lxml не установлен")
+        except Exception as e:
+            self.logger.error(f"lxml ошибка: {e}")
+
+        # --- openpyxl ---
+        try:
+            import openpyxl
+            version = openpyxl.__version__
+            self.logger.success(f"openpyxl {version}: import OK")
+        except ImportError:
+            self.logger.info("openpyxl не установлен (опционально)")
+
+    # ----------------------------------------------------------------
+    # ТЕСТ 12: Итоговая сводка
+    # ----------------------------------------------------------------
+
     def test_12_summary(self) -> None:
         """ТЕСТ 12: Итоговая сводка"""
         self.logger.section("12. Итоговая сводка Qt6 совместимости")
@@ -857,10 +1299,27 @@ class TestQt6Compatibility:
             self.logger.info(f"  Информационные: {info_count} ({len(infos)} категорий)")
 
         self.logger.info("")
-        self.logger.info("  Приоритет исправлений:")
+        self.logger.info("  Приоритет исправлений (статический анализ):")
         self.logger.info("  1. exec_() -> exec() [механическая замена]")
         self.logger.info("  2. QVariant.* -> QMetaType.Type.* [критично]")
         self.logger.info("  3. Qt/Widget enum scoping [массовая замена]")
         self.logger.info("  4. QgsWkbTypes/QgsUnitTypes -> Qgis.* [QGIS 4.0]")
         self.logger.info("  5. Прямые импорты PyQt5 -> qgis.PyQt")
         self.logger.info("  6. QAction: QtWidgets -> QtGui")
+        self.logger.info("")
+
+        # Runtime issues
+        runtime_issues = [
+            i for i in self.issues
+            if 'Runtime' in str(i.get('issue', ''))
+            or 'runtime' in str(i.get('issue', ''))
+            or 'Processing algorithm' in str(i.get('issue', ''))
+        ]
+        if runtime_issues:
+            runtime_count = sum(i.get('count', 1) for i in runtime_issues)
+            self.logger.warning(
+                f"  Runtime проблемы: {runtime_count} "
+                f"({len(runtime_issues)} категорий)"
+            )
+        else:
+            self.logger.success("  Runtime проверки: все пройдены")
