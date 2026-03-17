@@ -354,6 +354,13 @@ class DamanQGIS:
         # Инициализация менеджеров
         self._init_managers()
 
+        # NSPD WMTS preprocessor (подмена User-Agent для обхода WAF)
+        self._nspd_preprocessor_id = None
+        try:
+            self._register_nspd_preprocessor()
+        except Exception as e:
+            log_warning(f"Daman_QGIS: NSPD preprocessor failed: {e}")
+
         # --- LICENSE GATE: JWT токены нужны для загрузки конфигурации ---
         has_license = self._acquire_jwt_tokens()
 
@@ -408,6 +415,29 @@ class DamanQGIS:
             self._nspd_status_label.setStyleSheet(
                 "padding: 2px 6px; color: gray; font-size: 9pt;"
             )
+
+    def _register_nspd_preprocessor(self) -> None:
+        """Регистрация preprocessor для подмены User-Agent в запросах к НСПД.
+
+        НСПД WAF блокирует User-Agent содержащий "QGIS".
+        QgsNetworkAccessManager принудительно перезаписывает UA через createRequest(),
+        поэтому setRequestPreprocessor — единственный способ подменить UA после перезаписи.
+        """
+        from qgis.core import QgsNetworkAccessManager
+        from Daman_QGIS.constants import NSPD_BROWSER_USER_AGENT, NSPD_WMTS_REFERER
+
+        ua_bytes = NSPD_BROWSER_USER_AGENT.encode('utf-8')
+        referer_bytes = NSPD_WMTS_REFERER.encode('utf-8')
+
+        def _inject_headers(request):
+            if b'nspd.gov.ru' in request.url().toEncoded():
+                request.setRawHeader(b'User-Agent', ua_bytes)
+                request.setRawHeader(b'Referer', referer_bytes)
+
+        self._nspd_preprocessor_id = QgsNetworkAccessManager.setRequestPreprocessor(
+            _inject_headers
+        )
+        log_info(f"Daman_QGIS: NSPD WMTS preprocessor registered")
 
     def _init_telemetry(self) -> None:
         """Инициализация телеметрии при запуске плагина."""
@@ -1117,6 +1147,15 @@ class DamanQGIS:
             from Daman_QGIS.managers._registry import registry
             session_log = registry.get('M_38')
             session_log.shutdown()
+        except Exception:
+            pass
+
+        # Удаление NSPD WMTS preprocessor
+        try:
+            if getattr(self, '_nspd_preprocessor_id', None):
+                from qgis.core import QgsNetworkAccessManager
+                QgsNetworkAccessManager.removeRequestPreprocessor(self._nspd_preprocessor_id)
+                self._nspd_preprocessor_id = None
         except Exception:
             pass
 

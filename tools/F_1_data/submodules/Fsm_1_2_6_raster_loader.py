@@ -80,11 +80,10 @@ class Fsm_1_2_6_RasterLoader:
         assert endpoint is not None, f"Endpoint для {layer_name} не найден в Base_api_endpoints.json"
 
         base_url = endpoint['base_url']
-        category_id = endpoint['category_id']
-        # Формируем QGIS XYZ URI для НСПД с referer headers
-        maphead = f'http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D{category_id}'
+        # XYZ URI без кастомных headers — Referer и User-Agent
+        # инжектируются через QgsNetworkAccessManager preprocessor (main_plugin.py)
         tile_url = f'{base_url}/{{z}}/{{x}}/{{y}}.png'
-        uri = f'{maphead}&referer=https://nspd.gov.ru/map?baseLayerId%3D{category_id}&type=xyz&url={tile_url}&zmax=18&zmin=0'
+        uri = f'type=xyz&url={tile_url}&zmax=18&zmin=0'
 
         layer = QgsRasterLayer(uri, layer_name, PROVIDER_WMS)
 
@@ -112,11 +111,10 @@ class Fsm_1_2_6_RasterLoader:
         assert endpoint is not None, f"Endpoint для {layer_name} не найден в Base_api_endpoints.json"
 
         base_url = endpoint['base_url']
-        category_id = endpoint['category_id']
-        # Формируем QGIS XYZ URI для ЦОС с referer headers
-        maphead = f'http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D{category_id}'
+        # XYZ URI без кастомных headers — Referer и User-Agent
+        # инжектируются через QgsNetworkAccessManager preprocessor (main_plugin.py)
         tile_url = f'{base_url}/{{z}}/{{x}}/{{y}}.png'
-        uri = f'{maphead}&referer=https://nspd.gov.ru/map?%26baseLayerId%3D{category_id}&type=xyz&url={tile_url}&zmax=18&zmin=0'
+        uri = f'type=xyz&url={tile_url}&zmax=18&zmin=0'
 
         layer = QgsRasterLayer(uri, layer_name, PROVIDER_WMS)
 

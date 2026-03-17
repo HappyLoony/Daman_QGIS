@@ -562,6 +562,17 @@ NSPD_AUTH_COOKIE_DOMAINS = [
     'esia.gosuslugi.ru', '.gosuslugi.ru'
 ]
 
+# НСПД WMTS Network (preprocessor для обхода WAF блокировки QGIS User-Agent)
+# НСПД блокирует User-Agent содержащий "QGIS" через WAF.
+# QgsNetworkAccessManager принудительно перезаписывает UA - обход через setRequestPreprocessor.
+# Используется: main_plugin.py (_register_nspd_preprocessor)
+NSPD_BROWSER_USER_AGENT = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    'AppleWebKit/537.36 (KHTML, like Gecko) '
+    'Chrome/131.0.0.0 Safari/537.36'
+)
+NSPD_WMTS_REFERER = 'https://nspd.gov.ru/map'
+
 # Edge CDP авторизация (Msm_40_3)
 # Используется: Msm_40_3_edge_auth.py
 EDGE_CDP_STARTUP_TIMEOUT = 10  # секунд ожидания CDP endpoint после запуска Edge
