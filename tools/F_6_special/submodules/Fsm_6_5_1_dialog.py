@@ -39,6 +39,7 @@ from .Fsm_6_5_3_closer import (
     close_local_files,
     close_network_files,
     is_unc_path,
+    notify_users,
     parse_unc_path,
 )
 from .Fsm_6_5_4_credential_dialog import Fsm_6_5_4_CredentialDialog
@@ -347,8 +348,14 @@ class Fsm_6_5_1_Dialog(BaseResponsiveDialog):
         if confirm.exec() != Fsm_6_5_5_ConfirmDialog.DialogCode.Accepted:
             return
 
-        # 2. Определить тип пути
+        # 2. Отправить уведомления пользователям (msg)
         folder = self._current_folder or ""
+        folder_name = os.path.basename(folder)
+        sent = notify_users(closeable, folder_name)
+        if sent > 0:
+            log_info(f"Fsm_6_5_1: Sent {sent} notifications")
+
+        # 3. Определить тип пути
         use_network = is_unc_path(folder)
 
         close_result: Optional[CloseResult] = None
