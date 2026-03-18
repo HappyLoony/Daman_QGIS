@@ -151,6 +151,7 @@ class Fsm_6_5_1_Dialog(BaseResponsiveDialog):
         if saved_folder and os.path.isdir(saved_folder):
             self._current_folder = os.path.normpath(saved_folder)
             self._edt_folder.setText(self._current_folder)
+            self._btn_refresh.setEnabled(True)
 
     def _save_settings(self) -> None:
         """Сохранить настройки."""
@@ -185,6 +186,7 @@ class Fsm_6_5_1_Dialog(BaseResponsiveDialog):
         folder = os.path.normpath(folder)
         self._current_folder = folder
         self._edt_folder.setText(folder)
+        self._btn_refresh.setEnabled(True)
         self._save_settings()
 
     # ------------------------------------------------------------------

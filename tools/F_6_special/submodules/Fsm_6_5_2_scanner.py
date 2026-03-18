@@ -30,7 +30,32 @@ CHECKED_EXTENSIONS: Set[str] = {
     ".gpkg", ".shp", ".qgs", ".qgz", ".tab", ".mxd", ".aprx",
     ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp",
     ".md", ".txt", ".csv",
+    # Компоненты compound форматов (Shapefile, MapInfo TAB)
+    ".dbf", ".shx", ".dat", ".map", ".id",
 }
+
+# ---------------------------------------------------------------------------
+# Compound format: дочерний -> родитель
+# ---------------------------------------------------------------------------
+_CHILD_TO_PARENT: Dict[str, str] = {
+    ".dbf": ".shp",
+    ".shx": ".shp",
+    ".prj": ".shp",
+    ".cpg": ".shp",
+    ".dat": ".tab",
+    ".map": ".tab",
+    ".id": ".tab",
+    ".ind": ".tab",
+}
+
+# ---------------------------------------------------------------------------
+# Lock-маркеры compound форматов
+# ---------------------------------------------------------------------------
+# MapInfo: .TDA/.TIN/.TMA = таблица редактируется
+_MAPINFO_LOCK_EXTENSIONS: Set[str] = {".tda", ".tin", ".tma"}
+
+# GeoPackage: WAL/SHM/journal = файл открыт
+_GPKG_COMPANION_EXTENSIONS: Set[str] = {".gpkg-wal", ".gpkg-shm", ".gpkg-journal"}
 
 
 # ---------------------------------------------------------------------------
@@ -155,8 +180,14 @@ class FileLockScanner:
                 or name_lower.endswith(".dwl")
                 or name_lower.endswith(".dwl2")
                 or name_lower.endswith(".laccdb")
+                or ext in _MAPINFO_LOCK_EXTENSIONS
+                or name_lower.endswith(".lock")
             ):
                 continue
+            # Пропустить gpkg companion файлы
+            if any(name_lower.endswith(ge) for ge in _GPKG_COMPANION_EXTENSIONS):
+                continue
+
             norm = os.path.normpath(entry_path).lower()
             if norm in lock_targets:
                 continue  # уже найден через lock-файл
@@ -164,8 +195,27 @@ class FileLockScanner:
             is_locked = self._test_exclusive_open(entry_path)
 
             if is_locked:
+                # Compound grouping: если заблокирован .dbf -- показать .shp
+                report_path = entry_path
+                report_name = entry_name
+                if ext in _CHILD_TO_PARENT:
+                    parent_ext = _CHILD_TO_PARENT[ext]
+                    base = os.path.splitext(entry_name)[0]
+                    parent_name = base + parent_ext
+                    parent_path = os.path.join(
+                        os.path.dirname(entry_path), parent_name
+                    )
+                    if os.path.isfile(parent_path):
+                        # Проверить что родитель ещё не в списке
+                        norm_parent = os.path.normpath(parent_path).lower()
+                        if norm_parent in lock_targets:
+                            continue
+                        report_path = parent_path
+                        report_name = parent_name
+                        lock_targets.add(norm_parent)
+
                 try:
-                    size = os.path.getsize(entry_path)
+                    size = os.path.getsize(report_path)
                 except OSError:
                     size = 0
 
@@ -177,16 +227,17 @@ class FileLockScanner:
                 if locker:
                     if locker.owner:
                         user = locker.owner
-                        # RestartManager видит только локальные процессы
                         host = os.environ.get("COMPUTERNAME", "")
                     if locker.app_name:
                         program = locker.app_name
 
-                rel = os.path.relpath(os.path.dirname(entry_path), self._root)
+                rel = os.path.relpath(
+                    os.path.dirname(report_path), self._root
+                )
                 result.locked_files.append(
                     LockedFile(
-                        file_path=entry_path,
-                        file_name=entry_name,
+                        file_path=report_path,
+                        file_name=report_name,
                         relative_path=rel if rel != "." else self._root_name,
                         locked_by_user=user,
                         locked_by_host=host,
@@ -281,6 +332,20 @@ class FileLockScanner:
         # MS Access: .laccdb
         if name_lower.endswith(".laccdb"):
             return self._parse_access_lock(file_path, file_name)
+
+        # MapInfo: .TDA / .TIN / .TMA (таблица редактируется)
+        ext_lower = os.path.splitext(name_lower)[1]
+        if ext_lower in _MAPINFO_LOCK_EXTENSIONS:
+            return self._parse_mapinfo_lock(file_path, file_name)
+
+        # GeoPackage: .gpkg-wal / .gpkg-shm / .gpkg-journal
+        for gpkg_ext in _GPKG_COMPANION_EXTENSIONS:
+            if name_lower.endswith(gpkg_ext):
+                return self._parse_gpkg_companion(file_path, file_name, gpkg_ext)
+
+        # ArcGIS Shapefile: *.shp.*.sr.lock / *.shp.ed.lock
+        if name_lower.endswith(".lock") and ".shp." in name_lower:
+            return self._parse_arcgis_lock(file_path, file_name)
 
         return None
 
@@ -643,6 +708,128 @@ class FileLockScanner:
             locked_by_host=host,
             lock_source="Access (.laccdb)",
             lock_program="MS Access",
+            file_size=size,
+        )
+
+    def _parse_mapinfo_lock(
+        self,
+        lock_path: str,
+        lock_name: str,
+    ) -> Optional[LockedFile]:
+        """MapInfo: .TDA/.TIN/.TMA = таблица редактируется.
+
+        Файлы не содержат имени пользователя -- только факт редактирования.
+        Ищем родительский .tab файл по базовому имени.
+        """
+        base = os.path.splitext(lock_name)[0]
+        folder = os.path.dirname(lock_path)
+        tab_name = base + ".tab"
+        tab_path = os.path.join(folder, tab_name)
+
+        # Поиск .tab без учёта регистра
+        if not os.path.isfile(tab_path):
+            for f in os.listdir(folder):
+                if f.lower() == tab_name.lower():
+                    tab_path = os.path.join(folder, f)
+                    tab_name = f
+                    break
+            else:
+                return None
+
+        try:
+            size = os.path.getsize(tab_path)
+        except OSError:
+            size = 0
+
+        ext_upper = os.path.splitext(lock_name)[1].upper()
+        rel = os.path.relpath(os.path.dirname(tab_path), self._root)
+        return LockedFile(
+            file_path=tab_path,
+            file_name=tab_name,
+            relative_path=rel if rel != "." else self._root_name,
+            locked_by_user="Неизвестно",
+            locked_by_host="",
+            lock_source=f"MapInfo ({ext_upper})",
+            lock_program="MapInfo",
+            file_size=size,
+        )
+
+    def _parse_gpkg_companion(
+        self,
+        companion_path: str,
+        companion_name: str,
+        gpkg_ext: str,
+    ) -> Optional[LockedFile]:
+        """GeoPackage: .gpkg-wal/.gpkg-shm/.gpkg-journal = БД открыта."""
+        # Родитель: filename.gpkg-wal -> filename.gpkg
+        gpkg_name = companion_name[: -len(gpkg_ext)] + ".gpkg"
+        folder = os.path.dirname(companion_path)
+        gpkg_path = os.path.join(folder, gpkg_name)
+
+        if not os.path.isfile(gpkg_path):
+            return None
+
+        try:
+            size = os.path.getsize(gpkg_path)
+        except OSError:
+            size = 0
+
+        suffix = gpkg_ext.replace(".gpkg-", "").upper()
+        rel = os.path.relpath(os.path.dirname(gpkg_path), self._root)
+        return LockedFile(
+            file_path=gpkg_path,
+            file_name=gpkg_name,
+            relative_path=rel if rel != "." else self._root_name,
+            locked_by_user="Неизвестно",
+            locked_by_host="",
+            lock_source=f"GeoPackage ({suffix})",
+            lock_program="QGIS",
+            file_size=size,
+        )
+
+    def _parse_arcgis_lock(
+        self,
+        lock_path: str,
+        lock_name: str,
+    ) -> Optional[LockedFile]:
+        """ArcGIS: name.shp.COMPUTER.####.####.sr.lock / name.shp.ed.lock."""
+        # Извлечь имя .shp: всё до первого .shp.
+        name_lower = lock_name.lower()
+        shp_end = name_lower.find(".shp.") + 4  # позиция конца ".shp"
+        if shp_end <= 3:
+            return None
+
+        shp_name = lock_name[:shp_end]
+        folder = os.path.dirname(lock_path)
+        shp_path = os.path.join(folder, shp_name)
+
+        if not os.path.isfile(shp_path):
+            return None
+
+        # Попытка извлечь имя ПК из lock-файла
+        # Формат: name.shp.COMPUTER.####.####.sr.lock
+        host = ""
+        parts = lock_name[shp_end + 1:].split(".")
+        if len(parts) >= 4 and parts[-1].lower() == "lock":
+            # parts[0] = COMPUTER, parts[-2] = "sr" или "ed"
+            host = parts[0]
+
+        is_edit = ".ed.lock" in name_lower
+
+        try:
+            size = os.path.getsize(shp_path)
+        except OSError:
+            size = 0
+
+        rel = os.path.relpath(os.path.dirname(shp_path), self._root)
+        return LockedFile(
+            file_path=shp_path,
+            file_name=shp_name,
+            relative_path=rel if rel != "." else self._root_name,
+            locked_by_user="Неизвестно",
+            locked_by_host=host,
+            lock_source="ArcGIS (edit)" if is_edit else "ArcGIS (read)",
+            lock_program="ArcGIS",
             file_size=size,
         )
 
