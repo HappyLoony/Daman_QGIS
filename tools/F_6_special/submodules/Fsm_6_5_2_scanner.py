@@ -385,14 +385,28 @@ class FileLockScanner:
         # Найти оригинальный файл (только в той же папке)
         target_path, target_name = self._find_dwl_target(dwl_path, dwl_name)
         if not target_path:
+            # Застрявший DWL -- оригинал удалён/переименован (крэш AutoCAD)
+            # Показать только .dwl (пропустить .dwl2 дубль)
+            if is_dwl2:
+                return None
             log_warning(
-                f"Fsm_6_5_2: DWL '{dwl_name}': оригинал не найден"
+                f"Fsm_6_5_2: DWL '{dwl_name}': оригинал не найден (застрявший)"
             )
-            return None
-
-        log_info(
-            f"Fsm_6_5_2: DWL '{dwl_name}' -> target='{target_name}'"
-        )
+            try:
+                size = os.path.getsize(dwl_path)
+            except OSError:
+                size = 0
+            rel = os.path.relpath(os.path.dirname(dwl_path), self._root)
+            return LockedFile(
+                file_path=dwl_path,
+                file_name=dwl_name,
+                relative_path=rel if rel != "." else self._root_name,
+                locked_by_user=user,
+                locked_by_host=host,
+                lock_source="Мусор (застрявший .dwl)",
+                lock_program="AutoCAD",
+                file_size=size,
+            )
 
         try:
             size = os.path.getsize(target_path)
@@ -538,16 +552,6 @@ class FileLockScanner:
 
         if len(data) < 2:
             return "Неизвестно"
-
-        # Debug: hex dump первых 64 байтов для диагностики формата
-        hex_preview = data[:64].hex(" ")
-        log_info(
-            f"Fsm_6_5_2: Office lock hex[0:64]: {hex_preview}"
-        )
-        log_info(
-            f"Fsm_6_5_2: Office lock len={len(data)}, "
-            f"byte[0]={data[0]}, byte[1]={data[1]}"
-        )
 
         # Word (.docx): первый байт = длина имени, далее имя в UTF-16LE
         # Excel (.xlsx): может быть plain ASCII с padding нулями
