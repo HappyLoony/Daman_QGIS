@@ -80,6 +80,7 @@ def parse_unc_path(path: str) -> Tuple[str, str]:
 
     \\\\server\\share\\folder -> ("server", "share\\folder")
     Маппированный диск резолвится автоматически.
+    DFS namespace резолвится в реальный сервер через NetDfsGetClientInfo.
     """
     normalized = resolve_to_unc(path).lstrip("\\")
     parts = normalized.split("\\")
@@ -87,7 +88,93 @@ def parse_unc_path(path: str) -> Tuple[str, str]:
         return parts[0], ""
     server = parts[0]
     basepath = "\\".join(parts[1:])
+
+    # Попытка DFS resolution: domain.ru -> srv-dc1.domain.ru
+    real_server = _resolve_dfs_server(f"\\\\{normalized}")
+    if real_server and real_server.lower() != server.lower():
+        log_info(
+            f"Fsm_6_5_3: DFS resolved: {server} -> {real_server}"
+        )
+        server = real_server
+
     return server, basepath
+
+
+def _resolve_dfs_server(dfs_path: str) -> Optional[str]:
+    """Разрешить DFS путь в реальный hostname через NetDfsGetClientInfo.
+
+    Args:
+        dfs_path: полный UNC путь (\\\\domain\\share\\folder)
+
+    Returns:
+        Hostname реального файлового сервера или None.
+    """
+    if sys.platform != "win32":
+        return None
+
+    try:
+        netapi32 = ctypes.WinDLL("netapi32", use_last_error=True)
+    except OSError:
+        return None
+
+    # DFS_INFO_3 содержит список storage (серверов)
+    # Используем уровень 3 для получения server + share info
+    buf_ptr = ctypes.c_void_p()
+
+    ret = netapi32.NetDfsGetClientInfo(
+        dfs_path,
+        None,  # ServerName (NULL = auto)
+        None,  # ShareName (NULL = auto)
+        3,     # Level
+        ctypes.byref(buf_ptr),
+    )
+
+    if ret != 0 or not buf_ptr.value:
+        # Не DFS путь или ошибка -- нормальная ситуация
+        return None
+
+    try:
+        # DFS_INFO_3 structure:
+        # LPWSTR EntryPath, LPWSTR Comment, DWORD State,
+        # DWORD NumberOfStorages, LPDFS_STORAGE_INFO Storage
+        # DFS_STORAGE_INFO: DWORD State, LPWSTR ServerName, LPWSTR ShareName
+
+        # Читаем NumberOfStorages (смещение: 2*pointer + 1*DWORD + padding)
+        ptr_size = ctypes.sizeof(ctypes.c_void_p)
+        # EntryPath (ptr) + Comment (ptr) + State (DWORD) + padding
+        offset_num = ptr_size * 2 + 8  # 8 = DWORD State + padding
+        num_storages = ctypes.c_uint32.from_address(
+            buf_ptr.value + offset_num
+        ).value
+
+        if num_storages == 0:
+            return None
+
+        # Storage pointer (после NumberOfStorages)
+        offset_storage_ptr = offset_num + ptr_size  # after DWORD + padding
+        storage_arr_ptr = ctypes.c_void_p.from_address(
+            buf_ptr.value + offset_storage_ptr
+        ).value
+
+        if not storage_arr_ptr:
+            return None
+
+        # DFS_STORAGE_INFO: State (DWORD + padding) + ServerName (ptr) + ShareName (ptr)
+        storage_size = 8 + ptr_size * 2  # DWORD State + pad + 2 pointers
+        # ServerName is at offset 8 in DFS_STORAGE_INFO
+        server_ptr_addr = storage_arr_ptr + 8
+        server_name_ptr = ctypes.c_void_p.from_address(server_ptr_addr).value
+
+        if server_name_ptr:
+            server_name = ctypes.wstring_at(server_name_ptr)
+            return server_name
+
+    except (OSError, ValueError):
+        pass
+    finally:
+        netapi32.NetApiBufferFree(buf_ptr)
+
+    return None
 
 
 # ===========================================================================
