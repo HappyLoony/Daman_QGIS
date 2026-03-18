@@ -401,10 +401,36 @@ class Fsm_6_5_1_Dialog(BaseResponsiveDialog):
                 progress_callback=self._on_close_progress,
             )
 
-        # 4. Показать результат
-        self._show_close_result(close_result)
+        # 4. Удалить lock-маркеры (~$, .dwl и т.д.) -- всегда
+        deleted_markers = self._delete_lock_markers(closeable)
 
-        # 5. Пересканировать через 2 сек
+        # 5. Показать результат
+        total_closed = (close_result.closed_count if close_result else 0) + deleted_markers
+        if close_result and close_result.errors:
+            error_text = "\n".join(close_result.errors)
+            QMessageBox.warning(
+                self,
+                "Ошибки при закрытии",
+                f"Закрыто: {total_closed}\n\nОшибки:\n{error_text}",
+            )
+        elif total_closed > 0:
+            QMessageBox.information(
+                self,
+                "Файлы закрыты",
+                f"Закрыто: {total_closed} "
+                f"(OS-блокировок: {close_result.closed_count if close_result else 0}, "
+                f"маркеров: {deleted_markers})\n\n"
+                f"Пересканирование через 2 секунды...",
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Нет файлов для закрытия",
+                "Не удалось закрыть файлы. "
+                "Возможно блокировка снята другим путём.",
+            )
+
+        # 6. Пересканировать через 2 сек
         QTimer.singleShot(2000, self._on_scan)
 
     def _on_close_progress(self, message: str) -> None:
@@ -412,33 +438,80 @@ class Fsm_6_5_1_Dialog(BaseResponsiveDialog):
         self._lbl_status.setText(message)
         QApplication.processEvents()
 
-    def _show_close_result(self, result: Optional[CloseResult]) -> None:
-        """Показать результат закрытия."""
-        if result is None:
-            return
+    # ------------------------------------------------------------------
+    # Удаление lock-маркеров
+    # ------------------------------------------------------------------
+    # Lock-источники для которых есть физический маркер-файл
+    _MARKER_SOURCES = {
+        "Office (~$)", "AutoCAD (.dwl)", "AutoCAD (.dwl2)",
+        "LibreOffice (.~lock)", "Access (.laccdb)",
+    }
 
-        if result.errors:
-            error_text = "\n".join(result.errors)
-            QMessageBox.warning(
-                self,
-                "Ошибки при закрытии",
-                f"Закрыто файлов: {result.closed_count}\n\n"
-                f"Ошибки:\n{error_text}",
-            )
-        elif result.closed_count > 0:
-            QMessageBox.information(
-                self,
-                "Файлы закрыты",
-                f"Успешно закрыто: {result.closed_count} файлов.\n\n"
-                f"Пересканирование через 2 секунды...",
-            )
-        else:
-            QMessageBox.information(
-                self,
-                "Нет файлов для закрытия",
-                "Не найдено открытых файлов на сервере "
-                "в пределах указанной папки.",
-            )
+    def _delete_lock_markers(self, files: List[LockedFile]) -> int:
+        """Удалить lock-маркеры (~$, .dwl и т.д.). Возвращает количество удалённых."""
+        marker_files = [
+            lf for lf in files
+            if lf.lock_source in self._MARKER_SOURCES
+        ]
+        if not marker_files:
+            return 0
+
+        deleted = 0
+        for lf in marker_files:
+            marker_path = self._find_marker_file(lf)
+            if marker_path and os.path.isfile(marker_path):
+                try:
+                    os.remove(marker_path)
+                    deleted += 1
+                    log_info(
+                        f"Fsm_6_5_1: Deleted marker: {marker_path}"
+                    )
+                except OSError as exc:
+                    log_error(
+                        f"Fsm_6_5_1: Failed to delete marker "
+                        f"{marker_path}: {exc}"
+                    )
+        return deleted
+
+    @staticmethod
+    def _find_marker_file(lf: LockedFile) -> Optional[str]:
+        """Найти физический lock-маркер для заблокированного файла."""
+        folder = os.path.dirname(lf.file_path)
+        name = lf.file_name
+        base = os.path.splitext(name)[0]
+        ext = os.path.splitext(name)[1]
+
+        candidates = []
+
+        if lf.lock_source == "Office (~$)":
+            # ~$filename.ext или ~$усечённое_имя.ext
+            candidates.append(os.path.join(folder, f"~${name}"))
+            # Также искать ~$ файлы с тем же расширением
+            try:
+                for entry in os.scandir(folder):
+                    n = entry.name
+                    if n.startswith("~$") and n.lower().endswith(ext.lower()):
+                        # Проверить что это маркер для нашего файла
+                        suffix = n[2:]
+                        if name.lower().endswith(suffix.lower()):
+                            candidates.append(entry.path)
+            except OSError:
+                pass
+
+        elif lf.lock_source in ("AutoCAD (.dwl)", "AutoCAD (.dwl2)"):
+            candidates.append(os.path.join(folder, f"{base}.dwl"))
+            candidates.append(os.path.join(folder, f"{base}.dwl2"))
+
+        elif lf.lock_source == "LibreOffice (.~lock)":
+            candidates.append(os.path.join(folder, f".~lock.{name}#"))
+
+        elif lf.lock_source == "Access (.laccdb)":
+            candidates.append(os.path.join(folder, f"{base}.laccdb"))
+
+        for c in candidates:
+            if os.path.isfile(c):
+                return c
+        return None
 
     # ------------------------------------------------------------------
     # Events

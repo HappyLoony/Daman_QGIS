@@ -514,12 +514,43 @@ class FileLockScanner:
         )
 
         # Оригинал: убрать ~$ из начала имени
-        original_name = lock_name[2:]  # ~$report.xlsx -> report.xlsx
+        # Word обрезает длинные имена: ~$Содержание.docx может быть от
+        # 4_Том_6_Содержание.docx (убраны первые символы)
+        suffix = lock_name[2:]  # ~$report.xlsx -> report.xlsx
         folder = os.path.dirname(lock_path)
-        original_path = os.path.join(folder, original_name)
+        original_path = os.path.join(folder, suffix)
+        original_name = suffix
 
         if not os.path.isfile(original_path):
-            return None
+            # Поиск файла с таким же окончанием (Word truncation)
+            ext = os.path.splitext(suffix)[1].lower()
+            suffix_lower = suffix.lower()
+            found = False
+            try:
+                for entry in os.scandir(folder):
+                    if not entry.is_file():
+                        continue
+                    name = entry.name
+                    if name.lower().endswith(suffix_lower) and name.lower() != suffix_lower:
+                        original_path = entry.path
+                        original_name = name
+                        found = True
+                        break
+                    # Также проверить совпадение расширения + похожее имя
+                    if (
+                        not found
+                        and name.lower().endswith(ext)
+                        and suffix_lower[:-len(ext)] in name.lower()
+                    ):
+                        original_path = entry.path
+                        original_name = name
+                        found = True
+                        break
+            except OSError:
+                pass
+
+            if not found:
+                return None
 
         # Определить программу по расширению
         ext = os.path.splitext(original_name)[1].lower()
