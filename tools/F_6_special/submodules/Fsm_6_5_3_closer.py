@@ -142,7 +142,34 @@ def close_network_files(
             if progress_callback:
                 progress_callback("Получение списка открытых файлов...")
 
+            # Сначала с basepath фильтром, потом без (fallback)
             open_files = _net_file_enum(server, basepath)
+            if not open_files:
+                # basepath мог не совпасть (сервер хранит локальные пути)
+                # Попробовать без фильтра и отфильтровать локально
+                log_info(
+                    f"Fsm_6_5_3: NetFileEnum с basepath пустой, "
+                    f"пробуем без фильтра..."
+                )
+                all_files = _net_file_enum(server, "")
+                if all_files:
+                    # Фильтр: pathname должен содержать часть basepath
+                    # Берём последние 2-3 компонента для сравнения
+                    bp_parts = basepath.replace("/", "\\").split("\\")
+                    # Ключевые компоненты: share + последняя папка
+                    filter_parts = [p.lower() for p in bp_parts if p]
+                    for fid, fpath, fuser in all_files:
+                        fpath_lower = fpath.lower().replace("/", "\\")
+                        # Проверить что все ключевые части присутствуют
+                        if all(p in fpath_lower for p in filter_parts[-3:]):
+                            open_files.append((fid, fpath, fuser))
+
+                log_info(
+                    f"Fsm_6_5_3: NetFileEnum без фильтра: "
+                    f"всего={len(all_files)}, "
+                    f"в папке={len(open_files)}"
+                )
+
             if not open_files:
                 log_info("Fsm_6_5_3: NetFileEnum: нет открытых файлов")
                 return result
@@ -257,7 +284,10 @@ def _net_file_enum(
         )
 
         if ret not in (NERR_Success, ERROR_MORE_DATA):
-            log_error(f"Fsm_6_5_3: NetFileEnum failed: ret={ret}")
+            log_error(
+                f"Fsm_6_5_3: NetFileEnum failed: ret={ret}, "
+                f"server={server_str}, basepath={basepath or 'None'}"
+            )
             break
 
         if entries_read.value > 0 and buf_ptr:
