@@ -15,7 +15,7 @@ from qgis.core import (
 
 from .base_exporter import BaseExporter
 from Daman_QGIS.managers import get_reference_managers
-from Daman_QGIS.constants import PLUGIN_NAME
+from Daman_QGIS.constants import PLUGIN_NAME, PRECISION_DECIMALS
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
@@ -31,6 +31,7 @@ class TabExporter(BaseExporter):
             'create_wgs84': True,  # Создавать ли файл в WGS-84
             'use_non_earth': True,  # Использовать Non-Earth для МСК
             'clean_temp_files': True,  # Удалять временные MIF файлы
+            'bounds': None,  # Bounds для NonEarth (None = default)
         })
         
         # Инициализируем reference_manager для стилей
@@ -188,7 +189,10 @@ class TabExporter(BaseExporter):
 
         # Если это МСК и нужен Non-Earth - используем GDAL
         if params.get('use_non_earth', True) and is_local_crs:
-            return self._export_to_tab_gdal(layer, output_path, target_crs, mapinfo_style)
+            return self._export_to_tab_gdal(
+                layer, output_path, target_crs, mapinfo_style,
+                bounds=params.get('bounds')
+            )
 
         # Иначе используем стандартный экспорт QGIS (для WGS-84 и других географических СК)
         options = QgsVectorFileWriter.SaveVectorOptions()
@@ -251,7 +255,10 @@ class TabExporter(BaseExporter):
             return True
         
         return False
-    def _export_to_tab_gdal(self, layer: QgsVectorLayer, output_path: str, target_crs: QgsCoordinateReferenceSystem, mapinfo_style: Optional[str] = None) -> bool:
+    # Bounds по умолчанию для NonEarth (покрывают все МСК России)
+    DEFAULT_BOUNDS = "-1000000,-1000000,19000000,19000000"
+
+    def _export_to_tab_gdal(self, layer: QgsVectorLayer, output_path: str, target_crs: QgsCoordinateReferenceSystem, mapinfo_style: Optional[str] = None, bounds: Optional[str] = None) -> bool:
         """
         Создает TAB файл с Nonearth проекцией через GDAL
 
@@ -260,6 +267,8 @@ class TabExporter(BaseExporter):
             output_path: Путь к выходному TAB файлу
             target_crs: Целевая СК (QgsCoordinateReferenceSystem)
             mapinfo_style: Стиль MapInfo для применения
+            bounds: Bounds для NonEarth (например '0,0,200000,200000').
+                    None = DEFAULT_BOUNDS
 
         Returns:
             bool: Успешно ли создан TAB файл
@@ -299,7 +308,7 @@ class TabExporter(BaseExporter):
             ogr_geom_type = ogr.wkbUnknown
 
         # Создаем слой с Nonearth и границами
-        bounds_str = "-1000000,-1000000,19000000,19000000"
+        bounds_str = bounds if bounds else self.DEFAULT_BOUNDS
         lyr = ds.CreateLayer(
             'layer1',
             srs,
@@ -345,6 +354,12 @@ class TabExporter(BaseExporter):
             # Трансформируем геометрию если нужно
             if transform:
                 geom.transform(transform)
+
+            # Округляем координаты до 0.01м (PRECISION_DECIMALS = 2)
+            # Обязательно до конвертации в WKT, иначе MapInfo
+            # при узких Bounds сохранит избыточную точность
+            grid_size = 10 ** (-PRECISION_DECIMALS)  # 0.01
+            geom = geom.snappedToGrid(grid_size, grid_size)
 
             # Создаем OGR feature
             ogr_feature = ogr.Feature(lyr.GetLayerDefn())

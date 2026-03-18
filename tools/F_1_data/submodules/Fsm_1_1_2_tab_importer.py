@@ -308,8 +308,20 @@ class TabImporter(BaseImporter):
                 # Устанавливаем ту же СК что и у исходного слоя
                 buffer_layer.setCrs(source_layer.crs())
 
+                # Сохраняем в GPKG (если memory layer)
+                if buffer_layer.dataProvider().name() == 'memory':
+                    from ..core import LayerProcessor
+                    processor = LayerProcessor(self.project_manager, self.layer_manager)
+                    saved_layer = processor.save_to_gpkg(buffer_layer, layer_name)
+                    if saved_layer:
+                        buffer_layer = saved_layer
+                        self.log_message(f"Буферный слой '{layer_name}' сохранён в GPKG")
+
                 # Добавляем слой в проект через LayerManager (автоматическое применение стилей)
                 if self.layer_manager:
+                    # Если слой уже в GPKG, удаляем его из проекта перед повторным добавлением
+                    if buffer_layer.id() in QgsProject.instance().mapLayers():
+                        QgsProject.instance().removeMapLayer(buffer_layer.id())
                     self.layer_manager.add_layer(
                         buffer_layer,
                         make_readonly=False,

@@ -65,7 +65,8 @@ class F_5_1_VectorExport(BaseTool):
     def _export_layers_with_styles(self,
                                    layers: List[QgsVectorLayer],
                                    output_folder: str,
-                                   options: Dict[str, Any]) -> None:
+                                   options: Dict[str, Any],
+                                   bounds: Optional[str] = None) -> None:
         """
         Экспорт слоев с применением MapInfo стилей
 
@@ -73,6 +74,7 @@ class F_5_1_VectorExport(BaseTool):
             layers: Список слоев для экспорта
             output_folder: Папка назначения
             options: Параметры экспорта из диалога
+            bounds: Bounds для NonEarth проекции (None = default TabExporter)
         """
         log_info(f"F_5_1: Экспорт {len(layers)} слоев в {output_folder}")
 
@@ -127,10 +129,13 @@ class F_5_1_VectorExport(BaseTool):
 
                 # Экспортируем через TabExporter
                 # TabExporter автоматически применит стиль через SetStyleString()
+                export_options = dict(options)
+                if bounds:
+                    export_options['bounds'] = bounds
                 export_results = exporter.export_layers(
                     [layer],
                     output_folder,
-                    **options
+                    **export_options
                 )
 
                 results[layer.name()] = export_results.get(layer.name(), False)

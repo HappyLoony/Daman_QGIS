@@ -400,6 +400,9 @@ REFERENCE_6_5_OII_TYPE: List[str] = [
 
 PROJECTION_COORDSYS = 'CoordSys NonEarth Units "m" Bounds (0, 0) (200000, 200000)'
 
+# Bounds для TabExporter (формат GDAL: "minX,minY,maxX,maxY")
+TAB_BOUNDS = "0,0,200000,200000"
+
 
 # === Структура выходных папок ===
 
