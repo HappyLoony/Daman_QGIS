@@ -45,8 +45,14 @@ class Fsm_6_5_4_CredentialDialog(QDialog):
         form = QFormLayout()
         form.setSpacing(6)
 
+        # Извлечь домен из имени сервера для подсказки
+        # krtsys.ru -> KRTSYS, server-01.corp.local -> SERVER-01
+        self._default_domain = server_name.split(".")[0].upper()
+
         self._edt_username = QLineEdit()
-        self._edt_username.setPlaceholderText("DOMAIN\\admin или admin@domain")
+        self._edt_username.setPlaceholderText(
+            f"{self._default_domain}\\admin"
+        )
         form.addRow("Логин:", self._edt_username)
 
         self._edt_password = QLineEdit()
@@ -84,6 +90,10 @@ class Fsm_6_5_4_CredentialDialog(QDialog):
             parts = raw_user.split("@", 1)
             username = parts[0]
             domain = parts[1]
+
+        # Если домен не указан -- использовать домен сервера
+        if not domain:
+            domain = self._server  # krtsys.ru
 
         self._result = (username, domain, raw_pass)
         log_info(
