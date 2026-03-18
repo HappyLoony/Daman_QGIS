@@ -278,7 +278,7 @@ class Fsm_6_5_1_Dialog(BaseResponsiveDialog):
                 lf.file_name,
                 lf.relative_path,
                 user_display,
-                lf.locked_by_host,
+                lf.locked_by_host or "--",
             ]
 
             for col, text in enumerate(items):

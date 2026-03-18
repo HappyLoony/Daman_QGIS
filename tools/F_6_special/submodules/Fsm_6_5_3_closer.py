@@ -34,18 +34,54 @@ class CloseResult:
 # ---------------------------------------------------------------------------
 # Определение типа пути
 # ---------------------------------------------------------------------------
-def is_unc_path(path: str) -> bool:
-    """Проверка: путь UNC (сетевая шара)?"""
+def resolve_to_unc(path: str) -> str:
+    """Резолвить маппированный диск (A:\\...) в UNC путь (\\\\server\\...).
+
+    Если путь уже UNC или резолв не удался -- возвращает оригинал.
+    """
+    if sys.platform != "win32":
+        return path
+
     normalized = path.replace("/", "\\")
-    return normalized.startswith("\\\\")
+    if normalized.startswith("\\\\"):
+        return normalized  # Уже UNC
+
+    # Проверить маппированный диск (A:, Z: и т.д.)
+    if len(normalized) >= 2 and normalized[1] == ":":
+        drive = normalized[:2]  # "A:"
+        try:
+            mpr = ctypes.WinDLL("mpr", use_last_error=True)
+            buf = ctypes.create_unicode_buffer(512)
+            buf_size = ctypes.wintypes.DWORD(512)
+            ret = mpr.WNetGetConnectionW(drive, buf, ctypes.byref(buf_size))
+            if ret == 0 and buf.value:
+                # Заменить "A:\folder" на "\\server\share\folder"
+                unc_root = buf.value  # "\\server\share"
+                rest = normalized[2:]  # "\folder\..."
+                resolved = unc_root + rest
+                log_info(
+                    f"Fsm_6_5_3: Resolved {drive} -> {unc_root}"
+                )
+                return resolved
+        except OSError:
+            pass
+
+    return normalized
+
+
+def is_unc_path(path: str) -> bool:
+    """Проверка: путь UNC (сетевая шара) или маппированный диск?"""
+    resolved = resolve_to_unc(path)
+    return resolved.startswith("\\\\")
 
 
 def parse_unc_path(path: str) -> Tuple[str, str]:
     """Разобрать UNC путь на сервер и basepath.
 
     \\\\server\\share\\folder -> ("server", "share\\folder")
+    Маппированный диск резолвится автоматически.
     """
-    normalized = path.replace("/", "\\").lstrip("\\")
+    normalized = resolve_to_unc(path).lstrip("\\")
     parts = normalized.split("\\")
     if len(parts) < 2:
         return parts[0], ""
