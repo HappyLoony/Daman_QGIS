@@ -145,11 +145,12 @@ class Fsm_6_5_1_Dialog(BaseResponsiveDialog):
     # Settings
     # ------------------------------------------------------------------
     def _load_settings(self) -> None:
-        """Загрузить сохраненные настройки."""
+        """Загрузить сохраненные настройки (без запуска сканирования)."""
         settings = QSettings()
         saved_folder = settings.value(self.SETTINGS_KEY_FOLDER, "")
         if saved_folder and os.path.isdir(saved_folder):
-            self._set_folder(saved_folder)
+            self._current_folder = os.path.normpath(saved_folder)
+            self._edt_folder.setText(self._current_folder)
 
     def _save_settings(self) -> None:
         """Сохранить настройки."""
@@ -172,16 +173,19 @@ class Fsm_6_5_1_Dialog(BaseResponsiveDialog):
             "Выберите папку для проверки блокировок",
             start_dir,
         )
+        log_info(
+            f"Fsm_6_5_1: Browse result: '{folder}' "
+            f"(type={type(folder).__name__}, bool={bool(folder)})"
+        )
         if folder:
             self._set_folder(folder)
 
     def _set_folder(self, folder: str) -> None:
-        """Установить папку и запустить сканирование."""
+        """Установить папку (без автосканирования)."""
         folder = os.path.normpath(folder)
         self._current_folder = folder
         self._edt_folder.setText(folder)
         self._save_settings()
-        self._on_scan()
 
     # ------------------------------------------------------------------
     # Сканирование
