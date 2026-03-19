@@ -16,7 +16,6 @@ from qgis.PyQt.QtCore import Qt, pyqtSignal, QSettings, QStandardPaths
 from qgis.PyQt.QtGui import QFont
 from qgis.core import QgsMessageLog, Qgis, QgsProject
 from Daman_QGIS.managers import get_reference_managers
-from Daman_QGIS.database.project_db import ProjectDB
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
@@ -31,18 +30,19 @@ class UniversalImportDialog(BaseResponsiveDialog):
     MIN_HEIGHT = 400
     MAX_HEIGHT = 550
     
-    def __init__(self, plugin_dir: str, parent=None):
+    def __init__(self, plugin_dir: str, parent=None, object_type: Optional[str] = None):
         """
         Инициализация диалога
-        
+
         Args:
             plugin_dir: Путь к директории плагина
             parent: Родительское окно
+            object_type: Тип объекта проекта ('area'/'linear') из ProjectManager
         """
         super().__init__(parent)
         self.plugin_dir = plugin_dir
         self.setWindowTitle("Импорт данных")
-        
+
         # Атрибуты для хранения выбранных опций
         self.selected_file = None
         self.selected_format = None
@@ -51,7 +51,7 @@ class UniversalImportDialog(BaseResponsiveDialog):
         self.selected_layer = None
         self.selected_sublayer = None
         self.selected_full_name = None  # Полное имя слоя (например: 2_1_1_Выборка_ЗУ)
-        
+
         # Загружаем структуру слоев из Base_layers.json
         self.base_layers = self._load_base_layers()
         if not self.base_layers:
@@ -64,50 +64,15 @@ class UniversalImportDialog(BaseResponsiveDialog):
         self.sublayers_by_layer = {}  # {layer_key: {sublayer_key: sublayer_name}}
         self.layer_info = {}  # {full_name: layer_data}
 
-        # Получаем тип объекта проекта для фильтрации слоёв ЗПР
-        self.project_object_type = self._get_project_object_type()
+        # Тип объекта проекта для фильтрации слоёв ЗПР (из ProjectManager)
+        self.project_object_type = object_type
+        log_info(f"UniversalImportDialog: project_object_type = '{self.project_object_type}'")
 
         # Парсим структуру
         self._parse_base_layers()
 
         # Создаем интерфейс
         self.setup_ui()
-
-    def _get_project_object_type(self) -> Optional[str]:
-        """
-        Получение типа объекта проекта из метаданных.
-
-        Returns:
-            'Площадной', 'Линейный' или None если не определён
-        """
-        try:
-            # Получаем путь к проекту
-            project = QgsProject.instance()
-            project_path = project.homePath()
-            if not project_path:
-                log_warning("UniversalImportDialog: homePath пуст, фильтрация ЗПР отключена")
-                return None
-
-            # Ищем GPKG файл
-            gpkg_path = os.path.join(project_path, 'project.gpkg')
-            if not os.path.exists(gpkg_path):
-                log_warning(f"UniversalImportDialog: project.gpkg не найден в {project_path}")
-                return None
-
-            # Получаем тип объекта из метаданных
-            project_db = ProjectDB(gpkg_path)
-            metadata = project_db.get_all_metadata()
-
-            if metadata and '1_2_object_type' in metadata:
-                object_type = metadata['1_2_object_type'].get('value', '')
-                log_info(f"UniversalImportDialog: Тип объекта проекта = '{object_type}'")
-                return object_type
-
-            log_warning(f"UniversalImportDialog: ключ 1_2_object_type не найден в метаданных (keys: {list(metadata.keys()) if metadata else 'нет'})")
-            return None
-        except Exception as e:
-            log_warning(f"UniversalImportDialog: Не удалось получить тип объекта: {e}")
-            return None
 
     def _is_zpr_layer_allowed(self, layer_name: str) -> bool:
         """

@@ -73,7 +73,11 @@ class F_1_1_UniversalImport(BaseTool):
 
         # Показываем универсальный диалог импорта
         assert self.plugin_dir is not None  # для type checker
-        dialog = UniversalImportDialog(self.plugin_dir, self.iface.mainWindow())
+        # Передаём тип объекта из ProjectManager (уже загружен из GPKG)
+        object_type = None
+        if self.project_manager and self.project_manager.settings:
+            object_type = self.project_manager.settings.object_type
+        dialog = UniversalImportDialog(self.plugin_dir, self.iface.mainWindow(), object_type=object_type)
 
         if dialog.exec():
             options = dialog.get_import_options()
