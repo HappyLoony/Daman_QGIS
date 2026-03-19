@@ -284,6 +284,12 @@ LAYERS_ZPR_ALL = (
     LAYER_ZPR_REK_AD, LAYER_ZPR_SETI_PO, LAYER_ZPR_SETI_VO, LAYER_ZPR_NE,
 )
 
+# Слои ГПМТ (L_1_14_*)
+LAYER_GPMT = "L_1_14_1_ГПМТ"
+LAYER_GPMT_VNES_IZM = "L_1_14_2_ГПМТ_ВНЕС_ИЗМ"
+LAYER_GPMT_POINTS = "L_1_14_3_Т_ГПМТ"
+LAYER_GPMT_VNES_IZM_POINTS = "L_1_14_4_Т_ГПМТ_ВНЕС_ИЗМ"
+
 # Слои границ нарезки (overlay)
 LAYER_SELECTION_NP = "L_1_9_4_Выборка_НП"
 LAYER_SELECTION_TERZONY = "L_1_9_6_Выборка_ТерЗоны"

@@ -197,7 +197,7 @@ COORD_GPMT = DocumentTemplate(
     template_id='coord_gpmt',
     doc_type='gpmt_coordinates',
     name='Координаты ГПМТ',
-    source_layers=['L_2_6_1_ГПМТ'],
+    source_layers=['L_1_14_1_ГПМТ'],
     title_template='Перечень координат характерных точек границ территории, '
                    'применительно к которой осуществляется подготовка проекта '
                    'межевания территории {object_type} объекта',
@@ -209,7 +209,7 @@ CHARACTERISTICS_GPMT = DocumentTemplate(
     template_id='characteristics_gpmt',
     doc_type='gpmt_characteristics',
     name='Характеристики ГПМТ',
-    source_layers=['L_2_6_1_ГПМТ'],
+    source_layers=['L_1_14_1_ГПМТ'],
     title_template='Ведомость характеристик ГПМТ',
     filename_template='ГПМТ_характеристики',
 )

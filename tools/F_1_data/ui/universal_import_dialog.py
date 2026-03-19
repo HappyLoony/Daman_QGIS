@@ -85,11 +85,13 @@ class UniversalImportDialog(BaseResponsiveDialog):
             project = QgsProject.instance()
             project_path = project.homePath()
             if not project_path:
+                log_warning("UniversalImportDialog: homePath пуст, фильтрация ЗПР отключена")
                 return None
 
             # Ищем GPKG файл
             gpkg_path = os.path.join(project_path, 'project.gpkg')
             if not os.path.exists(gpkg_path):
+                log_warning(f"UniversalImportDialog: project.gpkg не найден в {project_path}")
                 return None
 
             # Получаем тип объекта из метаданных
@@ -101,6 +103,7 @@ class UniversalImportDialog(BaseResponsiveDialog):
                 log_info(f"UniversalImportDialog: Тип объекта проекта = '{object_type}'")
                 return object_type
 
+            log_warning(f"UniversalImportDialog: ключ 1_2_object_type не найден в метаданных (keys: {list(metadata.keys()) if metadata else 'нет'})")
             return None
         except Exception as e:
             log_warning(f"UniversalImportDialog: Не удалось получить тип объекта: {e}")

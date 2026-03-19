@@ -10,8 +10,8 @@ M_35_ZprGpmtManager - Формирование ГПМТ из слоёв ЗПР
 - L_1_13_* - линейные ЗПР (РЕК_АД, СЕТИ_ПО, СЕТИ_ВО, НЭ)
 
 Результат:
-- L_2_6_1_ГПМТ - 1 объект MultiPolygon с атрибутом area_sqm
-- L_2_6_3_Т_ГПМТ - точечный слой с нумерацией вершин ГПМТ
+- L_1_14_1_ГПМТ - 1 объект MultiPolygon с атрибутом area_sqm
+- L_1_14_3_Т_ГПМТ - точечный слой с нумерацией вершин ГПМТ
 
 Логика:
 - При каждом импорте ЗПР вызывается rebuild_gpmt()
@@ -33,7 +33,10 @@ from qgis.core import (
 )
 
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
-from Daman_QGIS.constants import PRECISION_DECIMALS, COORDINATE_PRECISION, ZPR_PREFIXES
+from Daman_QGIS.constants import (
+    PRECISION_DECIMALS, COORDINATE_PRECISION, ZPR_PREFIXES,
+    LAYER_GPMT, LAYER_GPMT_POINTS,
+)
 
 __all__ = ['ZprGpmtManager']
 
@@ -50,10 +53,10 @@ class ZprGpmtManager:
     ZPR_PREFIXES = ZPR_PREFIXES
 
     # Имя результирующего слоя ГПМТ
-    GPMT_LAYER_NAME = 'L_2_6_1_ГПМТ'
+    GPMT_LAYER_NAME = LAYER_GPMT
 
     # Имя точечного слоя нумерации ГПМТ
-    GPMT_POINTS_LAYER_NAME = 'L_2_6_3_Т_ГПМТ'
+    GPMT_POINTS_LAYER_NAME = LAYER_GPMT_POINTS
 
     def __init__(self, iface, layer_manager=None):
         """
@@ -509,7 +512,7 @@ class ZprGpmtManager:
             # Применяем стиль
             self._apply_style(saved_layer)
 
-            # Применяем видимость из Base_layers.json (hidden=1 для L_2_6_3_Т_ГПМТ)
+            # Применяем видимость из Base_layers.json (hidden=1 для L_1_14_3_Т_ГПМТ)
             self._apply_layer_visibility(saved_layer)
 
             result['success'] = True
