@@ -134,7 +134,10 @@ class StyleManager:
 
             # Проверка соответствия
             # ВАЖНО: Polygon и MultiPolygon оба относятся к категории PolygonGeometry (geom_type=2)
-            if expected_geom_type not in ['Point', 'LineString', 'Line', 'Polygon', 'MultiPolygon']:
+            if expected_geom_type == 'Mixed':
+                # Mixed (GeometryCollection) — стилизация через rule-based renderer
+                pass
+            elif expected_geom_type not in ['Point', 'LineString', 'Line', 'Polygon', 'MultiPolygon']:
                 # Если в базе что-то другое (например "not"), пропускаем проверку
                 pass
             elif expected_geom_type == 'Line' or expected_geom_type == 'LineString':
@@ -164,6 +167,9 @@ class StyleManager:
                 symbol = self.converter.convert_line(style)
             elif geom_type == 2:  # Polygon
                 symbol = self.converter.convert_polygon(style)
+            elif geom_type == 3 and expected_geom_type == 'Mixed':  # GeometryCollection
+                # Mixed: rule-based renderer с отдельными стилями для каждого типа
+                return self._apply_mixed_style(layer, layer_name, style)
             else:
                 log_warning(f"StyleManager: Неизвестный тип геометрии {geom_type} для '{layer_name}'")
                 return False
@@ -199,6 +205,102 @@ class StyleManager:
 
         except Exception as e:
             log_error(f"StyleManager: Ошибка применения renderer для '{layer_name}': {e}")
+            return False
+
+    def _apply_mixed_style(self, layer: QgsVectorLayer, layer_name: str, style: dict) -> bool:
+        """
+        Применить rule-based стиль для Mixed (GeometryCollection) слоя.
+
+        Создает правила по типу геометрии каждого feature:
+        - Polygon -> стиль полигона
+        - LineString -> стиль линии
+        - Point -> стиль точки
+
+        Args:
+            layer: Векторный слой
+            layer_name: Имя слоя
+            style: Словарь стиля из Base_layers.json
+
+        Returns:
+            True если успешно
+        """
+        from qgis.core import (
+            Qgis, QgsWkbTypes, QgsRuleBasedRenderer, QgsSymbol,
+            QgsSimpleLineSymbolLayer, QgsSimpleFillSymbolLayer, QgsSimpleMarkerSymbolLayer
+        )
+        from qgis.PyQt.QtGui import QColor
+        from qgis.PyQt.QtCore import Qt
+        from Daman_QGIS.utils import log_info, safe_refresh_layer, safe_refresh_layer_symbology
+
+        try:
+            # Получаем цвет и толщину из AutoCAD стиля
+            line_color_str = style.get('line_color', '255,0,0')
+            line_weight = float(style.get('line_global_weight', '0.4') or '0.4')
+
+            parts = line_color_str.split(',')
+            color = QColor(int(parts[0]), int(parts[1]), int(parts[2]))
+
+            # ВАЖНО: geometry_type($geometry) возвращает ПЕРЕВЕДЁННЫЕ строки
+            # В русской локали: "Полигон", "Линия", "Точка" вместо "Polygon", "Line", "Point"
+            polygon_str = QgsWkbTypes.geometryDisplayString(Qgis.GeometryType.Polygon)
+            line_str = QgsWkbTypes.geometryDisplayString(Qgis.GeometryType.Line)
+            point_str = QgsWkbTypes.geometryDisplayString(Qgis.GeometryType.Point)
+
+            log_info(f"StyleManager: Mixed locale strings: polygon='{polygon_str}', line='{line_str}', point='{point_str}'")
+
+            # Корневой символ (обязателен для QgsRuleBasedRenderer)
+            root_rule = QgsRuleBasedRenderer.Rule(None)
+
+            # Правило для полигонов
+            polygon_symbol = QgsSymbol.defaultSymbol(2)  # PolygonGeometry
+            polygon_symbol.deleteSymbolLayer(0)
+            fill_layer = QgsSimpleFillSymbolLayer(
+                color=QColor(color.red(), color.green(), color.blue(), 50),
+                style=Qt.BrushStyle.SolidPattern,
+                strokeColor=color,
+                strokeStyle=Qt.PenStyle.SolidLine,
+                strokeWidth=line_weight
+            )
+            polygon_symbol.appendSymbolLayer(fill_layer)
+            polygon_rule = QgsRuleBasedRenderer.Rule(polygon_symbol)
+            polygon_rule.setFilterExpression(f"geometry_type($geometry) = '{polygon_str}'")
+            polygon_rule.setLabel(polygon_str)
+            root_rule.appendChild(polygon_rule)
+
+            # Правило для линий
+            line_symbol = QgsSymbol.defaultSymbol(1)  # LineGeometry
+            line_symbol.deleteSymbolLayer(0)
+            line_layer = QgsSimpleLineSymbolLayer(color=color, width=line_weight)
+            line_symbol.appendSymbolLayer(line_layer)
+            line_rule = QgsRuleBasedRenderer.Rule(line_symbol)
+            line_rule.setFilterExpression(f"geometry_type($geometry) = '{line_str}'")
+            line_rule.setLabel(line_str)
+            root_rule.appendChild(line_rule)
+
+            # Правило для точек
+            point_symbol = QgsSymbol.defaultSymbol(0)  # PointGeometry
+            point_symbol.deleteSymbolLayer(0)
+            marker_layer = QgsSimpleMarkerSymbolLayer(color=color, size=2.0)
+            point_symbol.appendSymbolLayer(marker_layer)
+            point_rule = QgsRuleBasedRenderer.Rule(point_symbol)
+            point_rule.setFilterExpression(f"geometry_type($geometry) = '{point_str}'")
+            point_rule.setLabel(point_str)
+            root_rule.appendChild(point_rule)
+
+            renderer = QgsRuleBasedRenderer(root_rule)
+            layer.setRenderer(renderer)
+
+            # Сохраняем AutoCAD свойства
+            self._save_autocad_properties_to_layer(layer, style)
+
+            safe_refresh_layer(layer)
+            safe_refresh_layer_symbology(layer)
+
+            log_info(f"StyleManager: Mixed стиль применен для '{layer_name}' (rule-based)")
+            return True
+
+        except Exception as e:
+            log_error(f"StyleManager: Ошибка Mixed стиля для '{layer_name}': {e}")
             return False
 
     def get_mapinfo_style(self, layer_name: str) -> Optional[str]:
