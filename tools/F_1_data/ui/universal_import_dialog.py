@@ -125,11 +125,13 @@ class UniversalImportDialog(BaseResponsiveDialog):
             return True
 
         # Для линейных объектов разрешены все слои ЗПР
-        if self.project_object_type == 'Линейный':
+        # Значение в БД: 'linear' (НЕ 'Линейный')
+        if self.project_object_type == 'linear':
             return True
 
         # Для площадных объектов - только слои содержащие ОКС
-        if self.project_object_type == 'Площадной':
+        # Значение в БД: 'area' (НЕ 'Площадной')
+        if self.project_object_type == 'area':
             return 'ОКС' in layer_name
 
         return True
