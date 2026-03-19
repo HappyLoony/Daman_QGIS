@@ -74,6 +74,34 @@ class UniversalImportDialog(BaseResponsiveDialog):
         # Создаем интерфейс
         self.setup_ui()
 
+    def _is_group_allowed(self, group_key: str) -> bool:
+        """
+        Проверка доступна ли группа для текущего типа объекта.
+
+        Для площадных объектов: группы РЕК (1_13, 2_2, 2_6, 3_3) скрыты полностью,
+        в остальных ЗПР-группах проверяем наличие хотя бы одного разрешённого слоя.
+        """
+        if self.project_object_type != 'area':
+            return True
+
+        # Группы РЕК — полностью недоступны для площадных объектов
+        rek_groups = ('1_13', '2_2', '2_6', '3_3')
+        if group_key in rek_groups:
+            return False
+
+        # Остальные ЗПР-группы — проверяем есть ли хотя бы один разрешённый слой
+        zpr_groups = ('1_12', '2_1', '2_5', '3_2')
+        if group_key in zpr_groups:
+            layers = self.layers_by_group.get(group_key, {})
+            for layer_name in layers.values():
+                parts = layer_name.split('_')
+                zpr_name = '_'.join(parts[3:]) if len(parts) >= 4 else layer_name
+                if self._is_zpr_layer_allowed(zpr_name):
+                    return True
+            return False
+
+        return True
+
     def _is_zpr_layer_allowed(self, layer_name: str) -> bool:
         """
         Проверка разрешён ли импорт слоя ЗПР для текущего типа объекта.
@@ -346,6 +374,9 @@ class UniversalImportDialog(BaseResponsiveDialog):
             self.group_combo.addItem("-- Выберите группу --", None)
             groups = self.groups_by_section[section_num]
             for group_key, group_name in sorted(groups.items()):
+                # Для площадных объектов скрываем группы без доступных слоёв
+                if not self._is_group_allowed(group_key):
+                    continue
                 self.group_combo.addItem(group_name, group_key)
             self.group_combo.setEnabled(True)
         else:

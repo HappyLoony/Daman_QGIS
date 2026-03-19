@@ -11,7 +11,7 @@ Fsm_5_1_2 - Схема слоёв DPT_* для региона 78 (СПб)
 - Справочники значений для атрибутов
 - Проекцию (план-схема, МСК-64)
 
-Маппинг L_*/Le_* -> DPT_* определяется отдельно (при реализации экспорта).
+Маппинг L_* -> DPT_*: прямой (LAYER_MAPPING).
 """
 
 from typing import Dict, List, Any
@@ -388,6 +388,38 @@ REFERENCE_6_5_OII_TYPE: List[str] = [
 ]
 
 
+# === Маппинг L_* -> DPT_* (прямой) ===
+#
+# Ключ: имя слоя в проекте (L_4_1_N_DPT_*), значение: имя TAB файла при экспорте.
+
+LAYER_MAPPING: Dict[str, str] = {
+    'L_4_1_1_DPT_OKS_PL': 'DPT_OKS_PL',
+    'L_4_1_2_DPT_OKS_SO': 'DPT_OKS_SO',
+    'L_4_1_3_DPT_OKS_SN': 'DPT_OKS_SN',
+    'L_4_1_4_DPT_UDS': 'DPT_UDS',
+    'L_4_1_5_DPT_OI_I': 'DPT_OI_I',
+    'L_4_1_6_DPT_ZEL_ZNOP': 'DPT_ZEL_ZNOP',
+    'L_4_1_7_DPT_ZEL_ZU': 'DPT_ZEL_ZU',
+    'L_4_1_8_DPT_PARK': 'DPT_PARK',
+    'L_4_1_9_DPT_PARK_ZU': 'DPT_PARK_ZU',
+    'L_4_1_10_DPT_SERV': 'DPT_SERV',
+    'L_4_1_11_DPT_REDL': 'DPT_REDL',
+    'L_4_1_12_DPT_redl_project': 'DPT_redl_project',
+    'L_4_1_13_DPT_redl_save': 'DPT_redl_save',
+    'L_4_1_14_DPT_redl_off': 'DPT_redl_off',
+    'L_4_1_15_DPT_ZONE_OKS': 'DPT_ZONE_OKS',
+    'L_4_1_16_DPT_O_ZU': 'DPT_O_ZU',
+    'L_4_1_17_DPT_I_ZU': 'DPT_I_ZU',
+    'L_4_1_18_DPT_S_ZU': 'DPT_S_ZU',
+    'L_4_1_19_DPT_P_PS': 'DPT_P_PS',
+    'L_4_1_20_DPT_S_PS': 'DPT_S_PS',
+    'L_4_1_21_DPT_OTREDL': 'DPT_OTREDL',
+}
+
+# Обратный маппинг: DPT_* -> L_*
+DPT_TO_LAYER: Dict[str, str] = {v: k for k, v in LAYER_MAPPING.items()}
+
+
 # === Проекция ===
 #
 # Формат TAB: проекция "план-схема(метры)"
@@ -474,3 +506,29 @@ def get_required_fields(layer_name: str) -> List[str]:
         elif layer_name in field.get('required_for', []):
             result.append(field['name'])
     return result
+
+
+def get_dpt_name(layer_name: str) -> str | None:
+    """
+    Получить имя DPT_* для слоя проекта.
+
+    Args:
+        layer_name: Имя слоя в проекте (например, 'L_4_1_1_DPT_OKS_PL')
+
+    Returns:
+        Имя DPT_* (например, 'DPT_OKS_PL') или None
+    """
+    return LAYER_MAPPING.get(layer_name)
+
+
+def get_project_layer_name(dpt_name: str) -> str | None:
+    """
+    Получить имя слоя проекта для DPT_*.
+
+    Args:
+        dpt_name: Имя DPT_* (например, 'DPT_OKS_PL')
+
+    Returns:
+        Имя слоя в проекте (например, 'L_4_1_1_DPT_OKS_PL') или None
+    """
+    return DPT_TO_LAYER.get(dpt_name)
