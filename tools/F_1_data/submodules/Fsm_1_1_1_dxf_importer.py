@@ -393,6 +393,13 @@ class DxfImporter(BaseImporter):
                         block_groups,
                         target_layer_name
                     )
+            elif expected_geom_type == 'Mixed':
+                # Mixed слой: замкнутые полилинии -> Polygon, открытые -> LineString
+                polylines = self._extract_all_polylines(msp, doc)
+                if not polylines:
+                    self.log_message("В DXF файле не найдено полилиний", Qgis.Warning)
+                    return None
+                result_layer = self._build_mixed_layer(polylines, target_layer_name)
             else:
                 # Линейный слой - плоский список
                 polylines = self._extract_all_polylines(msp, doc)
@@ -1084,6 +1091,61 @@ class DxfImporter(BaseImporter):
         layer.commitChanges()
 
         self.log_message(f"Создан линейный слой с {layer.featureCount()} объектами")
+
+        return layer
+
+    def _build_mixed_layer(self, polylines: List[QgsGeometry],
+                           layer_name: str) -> Optional[QgsVectorLayer]:
+        """
+        Построение Mixed (GeometryCollection) слоя из полилиний.
+
+        Замкнутые полилинии (first == last, >= 4 точки) конвертируются в Polygon.
+        Открытые полилинии остаются LineString.
+
+        Args:
+            polylines: Список QgsGeometry (LineString)
+            layer_name: Имя слоя
+
+        Returns:
+            QgsVectorLayer (GeometryCollection) или None
+        """
+        layer = QgsVectorLayer(
+            "GeometryCollection?crs=EPSG:4326",
+            layer_name,
+            "memory"
+        )
+
+        layer.startEditing()
+        layer.addAttribute(QgsField("ID", QMetaType.Type.Int))
+
+        polygon_count = 0
+        line_count = 0
+
+        for i, geom in enumerate(polylines):
+            if not geom or geom.isEmpty():
+                continue
+
+            feature = QgsFeature()
+
+            # Замкнутая полилиния -> Polygon
+            points = geom.asPolyline()
+            if len(points) >= 4 and points[0] == points[-1]:
+                polygon_geom = QgsGeometry.fromPolygonXY([points])
+                feature.setGeometry(polygon_geom)
+                polygon_count += 1
+            else:
+                feature.setGeometry(geom)
+                line_count += 1
+
+            feature.setAttributes([i + 1])
+            layer.addFeature(feature)
+
+        layer.commitChanges()
+
+        self.log_message(
+            f"Создан Mixed слой с {layer.featureCount()} объектами "
+            f"(полигонов: {polygon_count}, линий: {line_count})"
+        )
 
         return layer
 
