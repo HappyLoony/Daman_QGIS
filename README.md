@@ -43,7 +43,7 @@ https://raw.githubusercontent.com/HappyLoony/Daman_QGIS/main/beta/plugins.xml
 
 ## Author
 
-Alexander Plahotnyuk
+Aleksandr Plakhotniuk
 Email: sashaplahot@gmail.com
 
 ## License
