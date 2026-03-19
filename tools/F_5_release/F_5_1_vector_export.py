@@ -162,8 +162,15 @@ class F_5_1_VectorExport(BaseTool):
             layer: Векторный слой
 
         Returns:
-            Имя типа ('Point', 'LineString', 'Polygon', 'Unknown')
+            Имя типа ('Point', 'LineString', 'Polygon', 'Mixed', 'Unknown')
         """
+        from qgis.core import QgsWkbTypes, Qgis
+
+        # Mixed (GeometryCollection) — содержит разные типы геометрий
+        flat_type = QgsWkbTypes.flatType(layer.wkbType())
+        if flat_type == Qgis.WkbType.GeometryCollection:
+            return 'Mixed'
+
         geom_type = layer.geometryType()
 
         if geom_type == 0:  # QgsWkbTypes.PointGeometry

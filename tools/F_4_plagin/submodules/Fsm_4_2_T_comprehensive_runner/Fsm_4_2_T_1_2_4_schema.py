@@ -42,7 +42,7 @@ LAYER_MAPPING = {
     "TAXATION_PIECE": "Le_1_7_2_4",
     "FOREST_STEAD": "Le_1_7_2_6",
     "PART_FOREST_STEAD": "Le_1_7_2_7",
-    "SUBJECT_BOUNDARY": "Le_1_7_2_8",
+    # SUBJECT_BOUNDARY -- исключён: дубликат АТД из ЕГРН, нет externalid
     "TIMBER_YARD": "Le_1_7_12",
     "FOREST_PURPOSE": "Le_1_7_6",
     "PROTECTIVE_FOREST": "Le_1_7_7",
@@ -67,7 +67,6 @@ LAYER_EXTRAS = {
     },
     "FOREST_STEAD": set(),
     "PART_FOREST_STEAD": set(),
-    "SUBJECT_BOUNDARY": set(),
     "TIMBER_YARD": set(),
     "FOREST_PURPOSE": set(),
     "PROTECTIVE_FOREST": set(),

@@ -294,11 +294,17 @@ class TabExporter(BaseExporter):
 
         # Определяем тип геометрии
         geom_type = layer.wkbType()
-        if QgsWkbTypes.hasM(geom_type) or QgsWkbTypes.hasZ(geom_type):
+
+        # GeometryCollection (Mixed) — пропускаем to25D, сразу wkbUnknown
+        is_mixed = QgsWkbTypes.flatType(geom_type) == Qgis.WkbType.GeometryCollection
+
+        if not is_mixed and (QgsWkbTypes.hasM(geom_type) or QgsWkbTypes.hasZ(geom_type)):
             geom_type = QgsWkbTypes.to25D(geom_type)
 
         # Конвертируем тип геометрии QGIS в OGR
-        if geom_type in [Qgis.WkbType.LineString, Qgis.WkbType.MultiLineString]:
+        if is_mixed:
+            ogr_geom_type = ogr.wkbUnknown
+        elif geom_type in [Qgis.WkbType.LineString, Qgis.WkbType.MultiLineString]:
             ogr_geom_type = ogr.wkbLineString
         elif geom_type in [Qgis.WkbType.Polygon, Qgis.WkbType.MultiPolygon]:
             ogr_geom_type = ogr.wkbPolygon
