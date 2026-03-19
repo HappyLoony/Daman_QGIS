@@ -352,9 +352,13 @@ class TabExporter(BaseExporter):
             )
 
         # Экспортируем features
+        exported_count = 0
+        skipped_count = 0
+
         for qgs_feature in layer.getFeatures():
             geom = qgs_feature.geometry()
             if not geom or geom.isEmpty():
+                skipped_count += 1
                 continue
 
             # Трансформируем геометрию если нужно
@@ -366,6 +370,10 @@ class TabExporter(BaseExporter):
             # при узких Bounds сохранит избыточную точность
             grid_size = 10 ** (-PRECISION_DECIMALS)  # 0.01
             geom = geom.snappedToGrid(grid_size, grid_size)
+
+            # Mixed слои: замкнутые LineString -> Polygon
+            if is_mixed:
+                geom = self._promote_closed_lines(geom, qgs_feature.id())
 
             # Создаем OGR feature
             ogr_feature = ogr.Feature(lyr.GetLayerDefn())
@@ -409,4 +417,62 @@ class TabExporter(BaseExporter):
             )
 
         return True
+
+    def _promote_closed_lines(self, geom, feature_id=None):
+        """
+        Для Mixed слоёв: замкнутые LineString конвертируются в Polygon.
+
+        Замкнутая полилиния (первая точка == последняя) по сути является
+        контуром полигона. MapInfo TAB различает pline и region —
+        замкнутые контуры должны быть region (Polygon).
+
+        Args:
+            geom: QgsGeometry
+            feature_id: ID фичи для логирования
+
+        Returns:
+            QgsGeometry (Polygon если была замкнутая линия, иначе без изменений)
+        """
+        from qgis.core import QgsGeometry, QgsWkbTypes
+
+        flat_type = QgsWkbTypes.flatType(geom.wkbType())
+
+        # Одиночная LineString
+        if flat_type == Qgis.WkbType.LineString:
+            points = geom.asPolyline()
+            if len(points) >= 4 and points[0] == points[-1]:
+                polygon = QgsGeometry.fromPolygonXY([points])
+                log_info(
+                    f"Fsm_1_5_7: feature {feature_id} — "
+                    f"замкнутая LineString ({len(points)} точек) -> Polygon"
+                )
+                return polygon
+
+        # MultiLineString — каждую часть проверяем
+        elif flat_type == Qgis.WkbType.MultiLineString:
+            lines = geom.asMultiPolyline()
+            polygons = []
+            remaining_lines = []
+            for line in lines:
+                if len(line) >= 4 and line[0] == line[-1]:
+                    polygons.append([line])
+                else:
+                    remaining_lines.append(line)
+
+            if polygons and not remaining_lines:
+                # Все части замкнуты — MultiPolygon
+                result = QgsGeometry.fromMultiPolygonXY(polygons)
+                log_info(
+                    f"Fsm_1_5_7: feature {feature_id} — "
+                    f"MultiLineString ({len(polygons)} замкнутых) -> MultiPolygon"
+                )
+                return result
+            elif polygons:
+                log_info(
+                    f"Fsm_1_5_7: feature {feature_id} — "
+                    f"MultiLineString: {len(polygons)} замкнутых, "
+                    f"{len(remaining_lines)} открытых — оставляем как есть"
+                )
+
+        return geom
 
