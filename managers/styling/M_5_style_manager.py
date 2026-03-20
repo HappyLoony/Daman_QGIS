@@ -161,15 +161,15 @@ class StyleManager:
 
         # Конвертировать в QGIS символ
         try:
-            if geom_type == 0:  # Point
+            # Mixed ПЕРЕД обычными проверками — wkbType может быть Polygon после GPKG save
+            if expected_geom_type == 'Mixed':
+                return self._apply_mixed_style(layer, layer_name, style)
+            elif geom_type == 0:  # Point
                 symbol = self.converter.convert_point(style)
             elif geom_type == 1:  # Line
                 symbol = self.converter.convert_line(style)
             elif geom_type == 2:  # Polygon
                 symbol = self.converter.convert_polygon(style)
-            elif geom_type == 3 and expected_geom_type == 'Mixed':  # GeometryCollection
-                # Mixed: rule-based renderer с отдельными стилями для каждого типа
-                return self._apply_mixed_style(layer, layer_name, style)
             else:
                 log_warning(f"StyleManager: Неизвестный тип геометрии {geom_type} для '{layer_name}'")
                 return False
@@ -248,44 +248,56 @@ class StyleManager:
 
             log_info(f"StyleManager: Mixed locale strings: polygon='{polygon_str}', line='{line_str}', point='{point_str}'")
 
+            # Определяем какие типы геометрий реально есть в слое
+            existing_geom_types = set()
+            for feat in layer.getFeatures():
+                geom = feat.geometry()
+                if geom and not geom.isEmpty():
+                    existing_geom_types.add(geom.type())
+
+            log_info(f"StyleManager: Mixed actual geom types: {[t.name for t in existing_geom_types]}")
+
             # Корневой символ (обязателен для QgsRuleBasedRenderer)
             root_rule = QgsRuleBasedRenderer.Rule(None)
 
-            # Правило для полигонов
-            polygon_symbol = QgsSymbol.defaultSymbol(2)  # PolygonGeometry
-            polygon_symbol.deleteSymbolLayer(0)
-            fill_layer = QgsSimpleFillSymbolLayer(
-                color=QColor(color.red(), color.green(), color.blue(), 50),
-                style=Qt.BrushStyle.SolidPattern,
-                strokeColor=color,
-                strokeStyle=Qt.PenStyle.SolidLine,
-                strokeWidth=line_weight
-            )
-            polygon_symbol.appendSymbolLayer(fill_layer)
-            polygon_rule = QgsRuleBasedRenderer.Rule(polygon_symbol)
-            polygon_rule.setFilterExpression(f"geometry_type($geometry) = '{polygon_str}'")
-            polygon_rule.setLabel(polygon_str)
-            root_rule.appendChild(polygon_rule)
+            # Правило для полигонов (только если есть полигоны)
+            if Qgis.GeometryType.Polygon in existing_geom_types:
+                polygon_symbol = QgsSymbol.defaultSymbol(Qgis.GeometryType.Polygon)
+                polygon_symbol.deleteSymbolLayer(0)
+                fill_layer = QgsSimpleFillSymbolLayer(
+                    color=QColor(color.red(), color.green(), color.blue(), 50),
+                    style=Qt.BrushStyle.SolidPattern,
+                    strokeColor=color,
+                    strokeStyle=Qt.PenStyle.SolidLine,
+                    strokeWidth=line_weight
+                )
+                polygon_symbol.appendSymbolLayer(fill_layer)
+                polygon_rule = QgsRuleBasedRenderer.Rule(polygon_symbol)
+                polygon_rule.setFilterExpression(f"geometry_type($geometry) = '{polygon_str}'")
+                polygon_rule.setLabel(polygon_str)
+                root_rule.appendChild(polygon_rule)
 
-            # Правило для линий
-            line_symbol = QgsSymbol.defaultSymbol(1)  # LineGeometry
-            line_symbol.deleteSymbolLayer(0)
-            line_layer = QgsSimpleLineSymbolLayer(color=color, width=line_weight)
-            line_symbol.appendSymbolLayer(line_layer)
-            line_rule = QgsRuleBasedRenderer.Rule(line_symbol)
-            line_rule.setFilterExpression(f"geometry_type($geometry) = '{line_str}'")
-            line_rule.setLabel(line_str)
-            root_rule.appendChild(line_rule)
+            # Правило для линий (только если есть линии)
+            if Qgis.GeometryType.Line in existing_geom_types:
+                line_symbol = QgsSymbol.defaultSymbol(Qgis.GeometryType.Line)
+                line_symbol.deleteSymbolLayer(0)
+                line_layer = QgsSimpleLineSymbolLayer(color=color, width=line_weight)
+                line_symbol.appendSymbolLayer(line_layer)
+                line_rule = QgsRuleBasedRenderer.Rule(line_symbol)
+                line_rule.setFilterExpression(f"geometry_type($geometry) = '{line_str}'")
+                line_rule.setLabel(line_str)
+                root_rule.appendChild(line_rule)
 
-            # Правило для точек
-            point_symbol = QgsSymbol.defaultSymbol(0)  # PointGeometry
-            point_symbol.deleteSymbolLayer(0)
-            marker_layer = QgsSimpleMarkerSymbolLayer(color=color, size=2.0)
-            point_symbol.appendSymbolLayer(marker_layer)
-            point_rule = QgsRuleBasedRenderer.Rule(point_symbol)
-            point_rule.setFilterExpression(f"geometry_type($geometry) = '{point_str}'")
-            point_rule.setLabel(point_str)
-            root_rule.appendChild(point_rule)
+            # Правило для точек (только если есть точки)
+            if Qgis.GeometryType.Point in existing_geom_types:
+                point_symbol = QgsSymbol.defaultSymbol(Qgis.GeometryType.Point)
+                point_symbol.deleteSymbolLayer(0)
+                marker_layer = QgsSimpleMarkerSymbolLayer(color=color, size=2.0)
+                point_symbol.appendSymbolLayer(marker_layer)
+                point_rule = QgsRuleBasedRenderer.Rule(point_symbol)
+                point_rule.setFilterExpression(f"geometry_type($geometry) = '{point_str}'")
+                point_rule.setLabel(point_str)
+                root_rule.appendChild(point_rule)
 
             renderer = QgsRuleBasedRenderer(root_rule)
             layer.setRenderer(renderer)

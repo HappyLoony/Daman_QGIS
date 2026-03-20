@@ -20,6 +20,7 @@ from qgis.core import QgsProject, QgsVectorLayer, QgsMessageLog, Qgis
 from Daman_QGIS.constants import PLUGIN_NAME
 from Daman_QGIS.managers import registry, FolderType
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
+from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
 
 
 class ExportDialog(BaseResponsiveDialog):
@@ -50,6 +51,26 @@ class ExportDialog(BaseResponsiveDialog):
         self.setup_ui()
         self.load_layers()
         self.load_settings()
+
+    def _get_section_names(self) -> dict:
+        """
+        Получить mapping section_num -> section_name из Base_layers.json
+
+        Returns:
+            dict: {section_num: display_name}
+        """
+        try:
+            loader = BaseReferenceLoader()
+            layers = loader._load_json('Base_layers.json') or []
+            sections = {}
+            for layer in layers:
+                sn = layer.get('section_num', '')
+                sec = layer.get('section', '')
+                if sn and sn not in sections:
+                    sections[sn] = f"{sn}_{sec}" if sec else sn
+            return sections
+        except Exception:
+            return {}
 
     def _get_export_folder(self) -> str:
         """
@@ -181,19 +202,13 @@ class ExportDialog(BaseResponsiveDialog):
                     sections[section] = []
                 sections[section].append(layer)
         
+        # Загружаем названия разделов из Base_layers.json
+        section_names = self._get_section_names()
+
         # Добавляем в дерево
         for section, layers in sorted(sections.items()):
             # Создаем раздел
-            section_names = {
-                '0': 'F_0_Проект',
-                '1': 'F_1_Данные',
-                '2': 'F_2_Обработка',
-                '3': 'F_2_Нарезка',
-                '4': 'F_3_ХЛУ',
-                '5': 'F_4_Настройка',
-                '6': 'F_5_Выпуск'
-            }
-            section_name = section_names.get(section, f'F_{section}_Раздел')
+            section_name = section_names.get(section, f"{section}_Раздел")
             
             section_item = QTreeWidgetItem(self.tree_widget, [section_name])
             section_item.setExpanded(True)

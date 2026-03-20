@@ -420,15 +420,26 @@ class DxfImporter(BaseImporter):
                 result_layer.setCrs(project_crs)
                 self.log_message(f"Установлена СК: {project_crs.authid()}")
 
-            # Сохраняем в GPKG (если memory layer)
-            if result_layer.dataProvider().name() == 'memory':
+            # Сохраняем в GPKG (memory layer или temp Mixed GPKG)
+            is_memory = result_layer.dataProvider().name() == 'memory'
+            temp_mixed_path = result_layer.customProperty('_temp_mixed_path')
+            if is_memory or temp_mixed_path:
                 from ..core import LayerProcessor
                 processor = LayerProcessor(self.project_manager, self.layer_manager)
                 saved_layer = processor.save_to_gpkg(result_layer, target_layer_name)
                 if saved_layer:
                     result_layer = saved_layer
                     self.result_layer = result_layer
+                    # Сохраняем метку Mixed (wkbType теряется при GPKG save)
+                    if temp_mixed_path:
+                        result_layer.setCustomProperty('daman_mixed_geometry', True)
                     self.log_message(f"Слой '{target_layer_name}' сохранён в GPKG")
+                # Удаляем temp Mixed GPKG
+                if temp_mixed_path:
+                    try:
+                        os.remove(temp_mixed_path)
+                    except OSError:
+                        pass
 
             # Добавляем слой в проект
             if result_layer.id() in QgsProject.instance().mapLayers():
@@ -470,15 +481,15 @@ class DxfImporter(BaseImporter):
         polylines = []
         processed_blocks = set()
 
-        # 1. Прямые полилинии в modelspace
+        # 1. Прямые объекты в modelspace
         direct_count = 0
-        for entity in msp.query('LWPOLYLINE POLYLINE LINE'):
+        for entity in msp.query(self.GEOMETRY_ENTITY_QUERY):
             geom = self._entity_to_geometry(entity)
             if geom and not geom.isEmpty():
                 polylines.append(geom)
                 direct_count += 1
 
-        self.log_message(f"Прямых полилиний в modelspace: {direct_count}")
+        self.log_message(f"Прямых объектов в modelspace: {direct_count}")
 
         # 2. Полилинии из блоков INSERT (через virtual_entities)
         block_count = 0
@@ -493,7 +504,7 @@ class DxfImporter(BaseImporter):
                 for virtual_entity in insert.virtual_entities():
                     entity_type = virtual_entity.dxftype()
 
-                    if entity_type in ('LWPOLYLINE', 'POLYLINE', 'LINE'):
+                    if entity_type in self.GEOMETRY_ENTITY_TYPES:
                         geom = self._entity_to_geometry(virtual_entity)
                         if geom and not geom.isEmpty():
                             polylines.append(geom)
@@ -509,7 +520,7 @@ class DxfImporter(BaseImporter):
             except Exception as e:
                 self.log_message(f"Ошибка при обработке блока '{block_name}': {e}", Qgis.Warning)
 
-        self.log_message(f"Полилиний из блоков INSERT: {block_count}")
+        self.log_message(f"Объектов из блоков INSERT: {block_count}")
 
         return polylines
 
@@ -545,9 +556,9 @@ class DxfImporter(BaseImporter):
         groups = []
         processed_blocks = set()
 
-        # 1. Прямые полилинии в modelspace (одна группа без атрибутов)
+        # 1. Прямые объекты в modelspace (одна группа без атрибутов)
         direct_polylines = []
-        for entity in msp.query('LWPOLYLINE POLYLINE LINE'):
+        for entity in msp.query(self.GEOMETRY_ENTITY_QUERY):
             geom = self._entity_to_geometry(entity)
             if geom and not geom.isEmpty():
                 direct_polylines.append(geom)
@@ -555,11 +566,11 @@ class DxfImporter(BaseImporter):
         if direct_polylines:
             groups.append({
                 'polylines': direct_polylines,
-                'attributes': {},  # Прямые полилинии не имеют атрибутов блоков
+                'attributes': {},  # Прямые объекты не имеют атрибутов блоков
                 'block_name': None,
                 'dxf_layer': None
             })
-            self.log_message(f"Прямых полилиний в modelspace: {len(direct_polylines)} (1 группа)")
+            self.log_message(f"Прямых объектов в modelspace: {len(direct_polylines)} (1 группа)")
 
         # 2. Полилинии из блоков INSERT - каждый INSERT = отдельная группа с атрибутами
         for insert in msp.query('INSERT'):
@@ -575,7 +586,7 @@ class DxfImporter(BaseImporter):
                 for virtual_entity in insert.virtual_entities():
                     entity_type = virtual_entity.dxftype()
 
-                    if entity_type in ('LWPOLYLINE', 'POLYLINE', 'LINE'):
+                    if entity_type in self.GEOMETRY_ENTITY_TYPES:
                         geom = self._entity_to_geometry(virtual_entity)
                         if geom and not geom.isEmpty():
                             block_polylines.append(geom)
@@ -646,7 +657,7 @@ class DxfImporter(BaseImporter):
             for virtual_entity in insert.virtual_entities():
                 entity_type = virtual_entity.dxftype()
 
-                if entity_type in ('LWPOLYLINE', 'POLYLINE', 'LINE'):
+                if entity_type in self.GEOMETRY_ENTITY_TYPES:
                     geom = self._entity_to_geometry(virtual_entity)
                     if geom and not geom.isEmpty():
                         polylines.append(geom)
@@ -663,12 +674,20 @@ class DxfImporter(BaseImporter):
 
         return polylines
 
+    # Типы DXF-entity для извлечения геометрии
+    GEOMETRY_ENTITY_TYPES = ('LWPOLYLINE', 'POLYLINE', 'LINE', 'CIRCLE', 'ARC', 'ELLIPSE', 'SPLINE')
+    GEOMETRY_ENTITY_QUERY = ' '.join(GEOMETRY_ENTITY_TYPES)
+
     def _entity_to_geometry(self, entity: Any) -> Optional[QgsGeometry]:
         """
-        Конвертация ezdxf entity в QgsGeometry
+        Конвертация ezdxf entity в QgsGeometry.
+
+        Использует ezdxf.path.make_path() + flattening() для корректной
+        обработки дуг (LWPOLYLINE bulge), окружностей, эллипсов и сплайнов.
 
         Args:
-            entity: Entity объект ezdxf (LWPOLYLINE, POLYLINE, LINE)
+            entity: Entity объект ezdxf (LWPOLYLINE, POLYLINE, LINE,
+                    CIRCLE, ARC, ELLIPSE, SPLINE)
 
         Returns:
             QgsGeometry (LineString) или None
@@ -676,54 +695,32 @@ class DxfImporter(BaseImporter):
         try:
             entity_type = entity.dxftype()
 
-            if entity_type == 'LWPOLYLINE':
-                # LWPOLYLINE - лёгкая полилиния
-                points = []
-                for x, y, *_ in entity.get_points():
-                    points.append(QgsPointXY(x, y))
+            if entity_type not in self.GEOMETRY_ENTITY_TYPES:
+                return None
 
-                if len(points) < 2:
-                    return None
+            from ezdxf import path as ezdxf_path
 
-                # Проверяем замкнутость (флаг 1)
-                is_closed = bool(entity.dxf.flags & 1)
-                if is_closed and points[0] != points[-1]:
-                    points.append(points[0])  # Замыкаем
+            try:
+                p = ezdxf_path.make_path(entity)
+            except Exception:
+                return None
 
-                return QgsGeometry.fromPolylineXY(points)
+            # Тесселяция кривых (distance = макс. отклонение от истинной кривой)
+            vertices = list(p.flattening(distance=COORDINATE_PRECISION))
 
-            elif entity_type == 'POLYLINE':
-                # POLYLINE - старый формат (2D/3D полилиния)
-                # Используем .points() вместо .get_points() для совместимости
-                # Документация: https://ezdxf.readthedocs.io/en/stable/dxfentities/polyline.html
-                points = []
-                for pt in entity.points():
-                    # points() возвращает (x, y) или (x, y, z) tuples
-                    points.append(QgsPointXY(pt[0], pt[1]))
+            if len(vertices) < 2:
+                return None
 
-                if len(points) < 2:
-                    return None
+            points = [QgsPointXY(v.x, v.y) for v in vertices]
 
-                # Проверяем замкнутость (флаг 1)
-                is_closed = entity.is_closed
-                if is_closed and points[0] != points[-1]:
-                    points.append(points[0])
+            # Замыкание для closed entities (CIRCLE, замкнутые LWPOLYLINE и т.д.)
+            if p.is_closed and points[0] != points[-1]:
+                points.append(points[0])
 
-                return QgsGeometry.fromPolylineXY(points)
-
-            elif entity_type == 'LINE':
-                # LINE - простая линия из двух точек
-                start = entity.dxf.start
-                end = entity.dxf.end
-                return QgsGeometry.fromPolylineXY([
-                    QgsPointXY(start.x, start.y),
-                    QgsPointXY(end.x, end.y)
-                ])
-
-            return None
+            return QgsGeometry.fromPolylineXY(points)
 
         except Exception as e:
-            log_warning(f"Fsm_1_1_1: Ошибка конвертации entity: {e}")
+            log_warning(f"Fsm_1_1_1: Ошибка конвертации entity {entity.dxftype()}: {e}")
             return None
 
     def _build_polygon_layer(self, polylines: List[QgsGeometry],
@@ -1097,50 +1094,140 @@ class DxfImporter(BaseImporter):
     def _build_mixed_layer(self, polylines: List[QgsGeometry],
                            layer_name: str) -> Optional[QgsVectorLayer]:
         """
-        Построение Mixed (GeometryCollection) слоя из полилиний.
+        Построение Mixed слоя из полилиний.
 
-        Замкнутые полилинии (first == last, >= 4 точки) конвертируются в Polygon.
+        Замкнутые полилинии → PolygonBuilder (containment, holes).
         Открытые полилинии остаются LineString.
+
+        QGIS memory provider НЕ поддерживает mixed geometries —
+        используем временный GPKG через OGR/GDAL с ogr.wkbUnknown.
 
         Args:
             polylines: Список QgsGeometry (LineString)
             layer_name: Имя слоя
 
         Returns:
-            QgsVectorLayer (GeometryCollection) или None
+            QgsVectorLayer (OGR-backed, temp GPKG) или None
         """
-        layer = QgsVectorLayer(
-            "GeometryCollection?crs=EPSG:4326",
-            layer_name,
-            "memory"
-        )
+        import tempfile
+        from osgeo import ogr, osr
 
-        layer.startEditing()
-        layer.addAttribute(QgsField("ID", QMetaType.Type.Int))
+        # 1. Разделяем на closed (потенциальные полигоны) и open (линии)
+        closed_polylines = []
+        open_polylines = []
 
-        polygon_count = 0
-        line_count = 0
-
-        for i, geom in enumerate(polylines):
+        for geom in polylines:
             if not geom or geom.isEmpty():
                 continue
-
-            feature = QgsFeature()
-
-            # Замкнутая полилиния -> Polygon
             points = geom.asPolyline()
-            if len(points) >= 4 and points[0] == points[-1]:
-                polygon_geom = QgsGeometry.fromPolygonXY([points])
-                feature.setGeometry(polygon_geom)
-                polygon_count += 1
+            if not points:
+                continue
+            ring_points = [QgsPoint(pt) for pt in points]
+            if CoordinatePrecisionManager.is_ring_closed(ring_points):
+                closed_polylines.append(geom)
             else:
-                feature.setGeometry(geom)
-                line_count += 1
+                open_polylines.append(geom)
 
-            feature.setAttributes([i + 1])
-            layer.addFeature(feature)
+        self.log_message(
+            f"Fsm_1_1_1: Mixed разделение: {len(closed_polylines)} замкнутых, "
+            f"{len(open_polylines)} открытых полилиний"
+        )
 
-        layer.commitChanges()
+        # 2. Closed -> PolygonBuilder (containment, holes, ring orientation)
+        polygons = []
+        if closed_polylines:
+            builder = PolygonBuilder()
+            polygons = builder.build_polygons_with_holes(
+                closed_polylines,
+                min_area=MIN_POLYGON_AREA,
+                validate=True,
+                remove_largest_outer=False
+            )
+            stats = builder.statistics
+            self.log_message(
+                f"Fsm_1_1_1: PolygonBuilder (Mixed): {stats['polygons_created']} полигонов, "
+                f"{stats['holes_created']} holes"
+            )
+
+            # Нормализация: makeValid() может вернуть GeometryCollection
+            # вместо Polygon (из-за дупликатов от тесселяции дуг)
+            clean_polygons = []
+            for geom in polygons:
+                flat_type = QgsWkbTypes.flatType(geom.wkbType())
+                if flat_type == Qgis.WkbType.GeometryCollection:
+                    for part in geom.asGeometryCollection():
+                        if part.type() == Qgis.GeometryType.Polygon and part.area() >= MIN_POLYGON_AREA:
+                            clean_polygons.append(part)
+                    self.log_message("Fsm_1_1_1: GeometryCollection нормализован в Polygon")
+                else:
+                    clean_polygons.append(geom)
+            polygons = clean_polygons
+
+        if not polygons and not open_polylines:
+            self.log_message("Fsm_1_1_1: нет объектов для Mixed слоя", Qgis.Warning)
+            return None
+
+        # 3. Записать в temp GPKG
+        # Тип OGR слоя: конкретный если все объекты одного типа, иначе wkbUnknown
+        if polygons and open_polylines:
+            ogr_geom_type = ogr.wkbUnknown  # Реальный mix полигонов и линий
+        elif polygons:
+            ogr_geom_type = ogr.wkbPolygon  # Все полигоны (избегаем GeometryCollection)
+        else:
+            ogr_geom_type = ogr.wkbLineString
+
+        temp_path = os.path.join(tempfile.gettempdir(), f"daman_mixed_{layer_name}.gpkg")
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+        driver = ogr.GetDriverByName('GPKG')
+        ds = driver.CreateDataSource(temp_path)
+        if not ds:
+            self.log_message("Fsm_1_1_1: Не удалось создать temp GPKG для Mixed слоя", Qgis.Critical)
+            return None
+
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)  # Placeholder, setCrs() установит реальную СК позже
+        ogr_layer = ds.CreateLayer(layer_name, srs, ogr_geom_type)
+        ogr_layer.CreateField(ogr.FieldDefn('ID', ogr.OFTInteger))
+
+        feat_id = 0
+
+        # Полигоны (из PolygonBuilder, с holes)
+        for polygon_geom in polygons:
+            feat_id += 1
+            feat = ogr.Feature(ogr_layer.GetLayerDefn())
+            feat.SetGeometry(ogr.CreateGeometryFromWkt(polygon_geom.asWkt()))
+            feat.SetField('ID', feat_id)
+            ogr_layer.CreateFeature(feat)
+
+        polygon_count = len(polygons)
+
+        # Линии (открытые полилинии)
+        for geom in open_polylines:
+            feat_id += 1
+            feat = ogr.Feature(ogr_layer.GetLayerDefn())
+            feat.SetGeometry(ogr.CreateGeometryFromWkt(geom.asWkt()))
+            feat.SetField('ID', feat_id)
+            ogr_layer.CreateFeature(feat)
+
+        line_count = len(open_polylines)
+
+        ds = None  # Flush
+
+        # Загружаем как QgsVectorLayer (OGR provider)
+        layer = QgsVectorLayer(
+            f"{temp_path}|layername={layer_name}",
+            layer_name,
+            "ogr"
+        )
+
+        if not layer.isValid():
+            self.log_message("Fsm_1_1_1: Не удалось загрузить Mixed слой из temp GPKG", Qgis.Critical)
+            return None
+
+        # Помечаем для save_to_gpkg (temp файл, нужно скопировать в project GPKG)
+        layer.setCustomProperty('_temp_mixed_path', temp_path)
 
         self.log_message(
             f"Создан Mixed слой с {layer.featureCount()} объектами "

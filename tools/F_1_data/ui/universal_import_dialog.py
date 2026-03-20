@@ -5,7 +5,6 @@
 """
 
 import os
-import json
 from typing import Dict, Optional, List, Any
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -132,6 +131,141 @@ class UniversalImportDialog(BaseResponsiveDialog):
 
         return True
 
+    def _find_quick_matches(self, filename: str) -> List[Dict[str, Any]]:
+        """
+        Поиск топ-3 слоёв по релевантности к имени файла.
+
+        Двухэтапный: точное совпадение подстроки, затем token overlap.
+        Учитывает фильтрацию по типу объекта (area/linear).
+
+        Args:
+            filename: Имя файла без расширения (например 'DPT_UDS')
+
+        Returns:
+            Список до 3 записей с ключами: full_name, section_num, group_key,
+            layer_key, sublayer_key (или None)
+        """
+        query = filename.upper()
+        query_tokens = set(query.split('_'))
+        candidates = []
+
+        for full_name, layer_data in self.layer_info.items():
+            name_upper = full_name.upper()
+            section_num = layer_data.get('section_num', '')
+            group_num = layer_data.get('group_num', '')
+            group_key = f"{section_num}_{group_num}"
+
+            # Фильтрация: import_enabled + тип объекта (группа + слой)
+            if not self._is_group_allowed(group_key):
+                continue
+            zpr_groups = ('1_12', '1_13', '2_1', '2_2', '2_5', '2_6', '3_2', '3_3')
+            if group_key in zpr_groups:
+                parts = full_name.split('_')
+                zpr_name = '_'.join(parts[3:]) if len(parts) >= 4 else full_name
+                if not self._is_zpr_layer_allowed(zpr_name):
+                    continue
+
+            # Извлекаем суффикс full_name после L_X_Y_Z_ (или Le_X_Y_Z_A_)
+            suffix = full_name
+            if full_name.startswith('L_') or full_name.startswith('Le_'):
+                parts = full_name.split('_')
+                # L_1_12_1_ЗПР_ОКС -> ЗПР_ОКС (skip 4 parts)
+                # Le_2_1_1_1_Нарезка -> Нарезка (skip 5 parts)
+                skip = 5 if full_name.startswith('Le_') else 4
+                suffix = '_'.join(parts[skip:]) if len(parts) > skip else full_name
+            suffix_upper = suffix.upper()
+
+            # Этап 1a: полное совпадение суффикса с запросом
+            if query == suffix_upper:
+                candidates.append((0, full_name, layer_data))
+                continue
+
+            # Этап 1b: запрос содержит суффикс или суффикс содержит запрос
+            if query in suffix_upper or suffix_upper in query or query in name_upper:
+                candidates.append((1, full_name, layer_data))
+                continue
+
+            # Этап 2: token overlap
+            name_tokens = set(name_upper.split('_'))
+            common = query_tokens & name_tokens
+            if common:
+                candidates.append((2 - len(common) / max(len(query_tokens), 1), full_name, layer_data))
+
+        # Сортировка: по score (меньше = лучше), затем по длине разницы с запросом
+        candidates.sort(key=lambda c: (c[0], abs(len(c[1]) - len(query))))
+
+        results = []
+        for _, full_name, layer_data in candidates[:3]:
+            section_num = layer_data.get('section_num', '')
+            group_num = layer_data.get('group_num', '')
+            layer_num = layer_data.get('layer_num', '')
+            sublayer_num = layer_data.get('sublayer_num')
+
+            group_key = f"{section_num}_{group_num}"
+            layer_key = f"{section_num}_{group_num}_{layer_num}"
+            sublayer_key = f"{layer_key}_{sublayer_num}" if sublayer_num else None
+
+            results.append({
+                'full_name': full_name,
+                'section_num': section_num,
+                'group_key': group_key,
+                'layer_key': layer_key,
+                'sublayer_key': sublayer_key,
+            })
+
+        return results
+
+    def _update_quick_matches(self, filename: str) -> None:
+        """Обновить блок быстрого выбора после выбора файла."""
+        matches = self._find_quick_matches(filename)
+        self._quick_match_data = matches
+
+        # Обновляем кнопки
+        for i, btn in enumerate(self.quick_match_buttons):
+            if i < len(matches):
+                btn.setText(matches[i]['full_name'])
+                btn.setVisible(True)
+            else:
+                btn.setVisible(False)
+
+        # "Совпадений не найдено"
+        self.quick_match_no_results.setVisible(len(matches) == 0)
+        self.quick_match_group.setVisible(True)
+
+    def _on_quick_match_clicked(self, index: int) -> None:
+        """Обработчик нажатия кнопки быстрого выбора — заполняет комбобоксы."""
+        if index >= len(self._quick_match_data):
+            return
+
+        match = self._quick_match_data[index]
+        section_num = match['section_num']
+        group_key = match['group_key']
+        layer_key = match['layer_key']
+        sublayer_key = match.get('sublayer_key')
+
+        log_info(f"UniversalImportDialog: Quick match -> {match['full_name']}")
+
+        # 1. Раздел
+        idx = self.section_combo.findData(section_num)
+        if idx >= 0:
+            self.section_combo.setCurrentIndex(idx)
+
+        # 2. Группа (после каскадного обновления от section)
+        idx = self.group_combo.findData(group_key)
+        if idx >= 0:
+            self.group_combo.setCurrentIndex(idx)
+
+        # 3. Слой
+        idx = self.layer_combo.findData(layer_key)
+        if idx >= 0:
+            self.layer_combo.setCurrentIndex(idx)
+
+        # 4. Подслой (если есть)
+        if sublayer_key:
+            idx = self.sublayer_combo.findData(sublayer_key)
+            if idx >= 0:
+                self.sublayer_combo.setCurrentIndex(idx)
+
     def _load_base_layers(self) -> List[Dict[str, Any]]:
         """Загрузка Base_layers.json через LayerReferenceManager"""
         from Daman_QGIS.managers import LayerReferenceManager
@@ -238,6 +372,39 @@ class UniversalImportDialog(BaseResponsiveDialog):
 
         file_group.setLayout(file_layout)
         layout.addWidget(file_group)
+
+        # ========================================
+        # БЫСТРЫЙ ВЫБОР: Подсказки на основе имени файла
+        # ========================================
+        self.quick_match_group = QGroupBox("Быстрый выбор")
+        quick_match_layout = QVBoxLayout()
+        quick_match_layout.setSpacing(4)
+
+        self.quick_match_buttons: List[QPushButton] = []
+        for i in range(3):
+            btn = QPushButton()
+            btn.setFlat(True)
+            btn.setStyleSheet(
+                "QPushButton { text-align: left; padding: 4px 8px; "
+                "border: 1px solid #ccc; border-radius: 3px; }"
+                "QPushButton:hover { background-color: #e6f0ff; border-color: #0066cc; }"
+            )
+            btn.setVisible(False)
+            btn.clicked.connect(lambda checked, idx=i: self._on_quick_match_clicked(idx))
+            quick_match_layout.addWidget(btn)
+            self.quick_match_buttons.append(btn)
+
+        self.quick_match_no_results = QLabel("Совпадений не найдено")
+        self.quick_match_no_results.setStyleSheet("color: #888; font-style: italic; padding: 4px;")
+        self.quick_match_no_results.setVisible(False)
+        quick_match_layout.addWidget(self.quick_match_no_results)
+
+        self.quick_match_group.setLayout(quick_match_layout)
+        self.quick_match_group.setVisible(False)
+        layout.addWidget(self.quick_match_group)
+
+        # Данные подсказок: [{full_name, section_num, group_key, layer_key, sublayer_key}, ...]
+        self._quick_match_data: List[Dict[str, Any]] = []
 
         # ========================================
         # ВТОРОЕ: Группа выбора слоя (заблокирована по умолчанию)
@@ -463,7 +630,6 @@ class UniversalImportDialog(BaseResponsiveDialog):
         if not layer_key:
             self.sublayer_combo.addItem("-", None)
             self.sublayer_combo.setEnabled(False)
-            self.browse_button.setEnabled(False)
             self.selected_layer = None
             self.selected_full_name = None
             return
@@ -543,6 +709,7 @@ class UniversalImportDialog(BaseResponsiveDialog):
             self.file_edit.clear()
             self.format_info_label.setText("")
             self.selection_group.setEnabled(False)
+            self.quick_match_group.setVisible(False)
             self.update_import_button_state()
             return
 
@@ -578,6 +745,7 @@ class UniversalImportDialog(BaseResponsiveDialog):
             )
             # БЛОКИРУЕМ выбор слоя для XML
             self.selection_group.setEnabled(False)
+            self.quick_match_group.setVisible(False)
             self.selected_full_name = "AUTO_XML"  # Специальное значение для XML
 
         elif ext == '.tab':
@@ -603,9 +771,15 @@ class UniversalImportDialog(BaseResponsiveDialog):
 
         else:
             self.selected_format = None
-            self.format_info_label.setText("❌ Неподдерживаемый формат файла")
+            self.format_info_label.setText("Неподдерживаемый формат файла")
             self.selection_group.setEnabled(False)
+            self.quick_match_group.setVisible(False)
             self.selected_full_name = None
+
+        # Быстрый выбор для DXF/TAB/SHP
+        if self.selected_format in ('DXF', 'TAB', 'SHP'):
+            file_stem = os.path.splitext(os.path.basename(first_file))[0]
+            self._update_quick_matches(file_stem)
 
         self.update_import_button_state()
     

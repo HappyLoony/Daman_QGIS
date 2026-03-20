@@ -48,7 +48,6 @@ class ProjectManager:
         self.plugin_version = ""  # Версия плагина (передается из main_plugin)
         # Lazy init для избежания циклических импортов
         self._reference_managers = None
-        self._structure_manager = None
 
     @property
     def reference_managers(self):
@@ -60,11 +59,9 @@ class ProjectManager:
 
     @property
     def structure_manager(self):
-        """Ленивая инициализация координатора структуры (M_19)"""
-        if self._structure_manager is None:
-            from .M_19_project_structure_manager import ProjectStructureManager
-            self._structure_manager = ProjectStructureManager()
-        return self._structure_manager
+        """Получение координатора структуры (M_19) из реестра"""
+        from Daman_QGIS.managers import registry
+        return registry.get('M_19')
     
     def create_project(self,
                       project_name: str,

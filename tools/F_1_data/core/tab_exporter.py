@@ -295,8 +295,13 @@ class TabExporter(BaseExporter):
         # Определяем тип геометрии
         geom_type = layer.wkbType()
 
-        # GeometryCollection (Mixed) — пропускаем to25D, сразу wkbUnknown
-        is_mixed = QgsWkbTypes.flatType(geom_type) == Qgis.WkbType.GeometryCollection
+        # Mixed: wkbType может быть Polygon после GPKG save (QgsVectorFileWriter меняет Unknown -> Polygon)
+        # Проверяем: custom property (надёжно) + fallback на wkbType
+        flat = QgsWkbTypes.flatType(geom_type)
+        is_mixed = (
+            layer.customProperty('daman_mixed_geometry', False)
+            or flat in (Qgis.WkbType.GeometryCollection, Qgis.WkbType.Unknown)
+        )
 
         if not is_mixed and (QgsWkbTypes.hasM(geom_type) or QgsWkbTypes.hasZ(geom_type)):
             geom_type = QgsWkbTypes.to25D(geom_type)
@@ -325,10 +330,17 @@ class TabExporter(BaseExporter):
         if not lyr:
             raise RuntimeError("Не удалось создать слой в TAB файле")
 
-        # Добавляем поля из исходного слоя
-        for field in layer.fields():
+        # Добавляем поля из исходного слоя (fid — внутреннее поле GPKG, пропускаем)
+        export_field_indices = []
+        for idx, field in enumerate(layer.fields()):
             field_name = field.name()
             field_type = field.typeName().upper()
+
+            if field_name == 'fid' and 'INT' in field_type:
+                log_info(f"TAB export: поле '{field_name}' пропущено (GPKG internal)")
+                continue
+
+            export_field_indices.append(idx)
 
             # Конвертируем типы полей QGIS в OGR
             if 'INT' in field_type:
@@ -378,14 +390,16 @@ class TabExporter(BaseExporter):
             # Создаем OGR feature
             ogr_feature = ogr.Feature(lyr.GetLayerDefn())
 
-            # Копируем атрибуты
-            for i, attr in enumerate(qgs_feature.attributes()):
-                if attr is not None:
-                    # Преобразуем значение в строку если нужно
-                    if isinstance(attr, (int, float)):
-                        ogr_feature.SetField(i, attr)
-                    else:
-                        ogr_feature.SetField(i, str(attr))
+            # Копируем атрибуты (только экспортируемые поля, без fid)
+            all_attrs = qgs_feature.attributes()
+            for ogr_idx, qgs_idx in enumerate(export_field_indices):
+                if qgs_idx < len(all_attrs):
+                    attr = all_attrs[qgs_idx]
+                    if attr is not None:
+                        if isinstance(attr, (int, float)):
+                            ogr_feature.SetField(ogr_idx, attr)
+                        else:
+                            ogr_feature.SetField(ogr_idx, str(attr))
 
             # Конвертируем геометрию из QGIS в OGR
             wkt = geom.asWkt()
@@ -400,12 +414,15 @@ class TabExporter(BaseExporter):
 
                 # Добавляем feature в слой
                 lyr.CreateFeature(ogr_feature)
+                exported_count += 1
 
             # Освобождаем ресурсы
             ogr_feature = None
 
         # Закрываем DataSource
         ds = None
+
+        log_info(f"TAB export: '{layer.name()}' exported={exported_count}, skipped={skipped_count}")
 
         if mapinfo_style:
             log_info(
