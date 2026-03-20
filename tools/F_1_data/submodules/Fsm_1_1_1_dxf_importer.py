@@ -125,7 +125,23 @@ class DxfImporter(BaseImporter):
                     log_warning(f"Fsm_1_1_1: Неизвестная $CODEPAGE: {codepage}, используем cp1251")
                     return 'cp1251'
             else:
-                # $CODEPAGE не найден - для русских систем предполагаем cp1251
+                # $CODEPAGE не найден - пробуем определить: UTF-8 или CP1251
+                # UTF-8 BOM
+                if header_bytes.startswith(b'\xef\xbb\xbf'):
+                    log_info("Fsm_1_1_1: $CODEPAGE не найден, обнаружен UTF-8 BOM")
+                    return 'utf-8-sig'
+
+                # Пробуем декодировать как UTF-8 (strict) - если получится, значит UTF-8
+                try:
+                    header_bytes.decode('utf-8', errors='strict')
+                    # Если есть не-ASCII байты, это надёжный UTF-8
+                    has_non_ascii = any(b > 127 for b in header_bytes)
+                    if has_non_ascii:
+                        log_info("Fsm_1_1_1: $CODEPAGE не найден, файл валидный UTF-8 с не-ASCII, используем utf-8")
+                        return 'utf-8'
+                except UnicodeDecodeError:
+                    pass  # Не UTF-8, значит CP1251
+
                 log_info("Fsm_1_1_1: $CODEPAGE не найден, используем cp1251 по умолчанию")
                 return 'cp1251'
 

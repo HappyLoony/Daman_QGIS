@@ -612,7 +612,8 @@ class Fsm_5_3_1_CoordinateList:
             return False
 
         show_area = extra_context.get('show_area_per_feature', True)
-        is_ps = extra_context.get('subfolder', '') == 'Публичные сервитуты'
+        is_ps = extra_context.get('is_ps', False)
+        extended_ps = extra_context.get('extended_servitude_name', False)
         close_contours = extra_context.get('close_contours', False)
 
         # Имя файла
@@ -704,9 +705,14 @@ class Fsm_5_3_1_CoordinateList:
 
                     # Разделитель: тип объекта + ID
                     if is_ps:
-                        separator_text = (
-                            f"Контур публичного сервитута {feature_id}"
-                        )
+                        if extended_ps:
+                            separator_text = (
+                                f"Контур сервитута, публичного сервитута {feature_id}"
+                            )
+                        else:
+                            separator_text = (
+                                f"Контур публичного сервитута {feature_id}"
+                            )
                     else:
                         separator_text = (
                             f"Образуемый земельный участок {feature_id}"

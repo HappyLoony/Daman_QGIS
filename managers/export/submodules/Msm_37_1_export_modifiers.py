@@ -205,15 +205,26 @@ class Region78FormatModifier(ExportModifier):
         'coord_cutting_oks_ps': 'контура публичного сервитута',
     }
 
+    # Расширенный маппинг (при extended_servitude_name=True)
+    OBJECT_DESCRIPTOR_MAP_EXTENDED: Dict[str, str] = {
+        'coord_cutting_oks_ps': 'контура сервитута, публичного сервитута',
+    }
+
     # Дескриптор по умолчанию (ОЗУ = образуемый земельный участок)
     DEFAULT_DESCRIPTOR = 'границ земельного участка'
 
     # Дескриптор для ПС (публичный сервитут)
     PS_DESCRIPTOR = 'контура публичного сервитута'
+    PS_DESCRIPTOR_EXTENDED = 'контура сервитута, публичного сервитута'
 
     # Дескрипторы для объединённых перечней (множественное число)
     MERGED_DESCRIPTOR_ZU = 'границ образуемых земельных участков'
     MERGED_DESCRIPTOR_PS = 'контуров публичных сервитутов'
+    MERGED_DESCRIPTOR_PS_EXTENDED = 'контуров сервитутов, публичных сервитутов'
+
+    # Имена подпапок для ПС
+    PS_SUBFOLDER = 'Публичные сервитуты'
+    PS_SUBFOLDER_EXTENDED = 'Сервитуты, публичные сервитуты'
 
     # Тип объекта -> фраза размещения (множественное число)
     PLACEMENT_PHRASE_MAP: Dict[str, str] = {
@@ -240,6 +251,7 @@ class Region78FormatModifier(ExportModifier):
             template_ids: ID шаблонов, к которым применяется SPB формат
         """
         self.template_ids = template_ids
+        self._extended_ps = False
 
     def modify_export_items(
         self,
@@ -247,6 +259,8 @@ class Region78FormatModifier(ExportModifier):
         metadata: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """Установить SPB-формат для matching items."""
+        self._extended_ps = metadata.get('extended_servitude_name', False)
+
         result: List[Dict[str, Any]] = []
         # Счётчики по слоям для summary лога
         layer_counts: Dict[str, int] = {}
@@ -277,11 +291,16 @@ class Region78FormatModifier(ExportModifier):
             extra_context['filename_override'] = self._build_filename(
                 template.template_id, feature_index, layer_name
             )
-            extra_context['subfolder'] = (
-                'Публичные сервитуты'
-                if self._is_ps(template.template_id, layer_name)
-                else 'Земельные участки'
-            )
+            is_ps = self._is_ps(template.template_id, layer_name)
+            extra_context['is_ps'] = is_ps
+            extra_context['extended_servitude_name'] = self._extended_ps
+            if is_ps:
+                extra_context['subfolder'] = (
+                    self.PS_SUBFOLDER_EXTENDED if self._extended_ps
+                    else self.PS_SUBFOLDER
+                )
+            else:
+                extra_context['subfolder'] = 'Земельные участки'
 
             result.append({
                 'layer': item['layer'],
@@ -313,8 +332,8 @@ class Region78FormatModifier(ExportModifier):
             if not source_layer or not source_name:
                 continue
 
-            subfolder = ec.get('subfolder', '')
-            if subfolder == 'Публичные сервитуты':
+            is_ps_item = ec.get('is_ps', False)
+            if is_ps_item:
                 if source_name not in ps_layers:
                     ps_layers[source_name] = source_layer
                 if first_ps_template is None:
@@ -369,6 +388,10 @@ class Region78FormatModifier(ExportModifier):
             merged_title_ps = self._build_merged_title(
                 metadata, is_ps=True
             )
+            ps_subfolder = (
+                self.PS_SUBFOLDER_EXTENDED if self._extended_ps
+                else self.PS_SUBFOLDER
+            )
             result.append({
                 'layer': None,
                 'template': first_ps_template,
@@ -380,7 +403,9 @@ class Region78FormatModifier(ExportModifier):
                     'show_area_per_feature': True,
                     'title_override': merged_title_ps,
                     'filename_override': 'Перечень_координат_ПС',
-                    'subfolder': 'Публичные сервитуты',
+                    'subfolder': ps_subfolder,
+                    'is_ps': True,
+                    'extended_servitude_name': self._extended_ps,
                 },
             })
             log_info(
@@ -408,12 +433,17 @@ class Region78FormatModifier(ExportModifier):
             Строка дескриптора
         """
         # Специфичный шаблон (OKS с суффиксом razdel/ngs/ps)
+        if self._extended_ps and template_id in self.OBJECT_DESCRIPTOR_MAP_EXTENDED:
+            return self.OBJECT_DESCRIPTOR_MAP_EXTENDED[template_id]
         if template_id in self.OBJECT_DESCRIPTOR_MAP:
             return self.OBJECT_DESCRIPTOR_MAP[template_id]
 
         # Generic шаблон — определяем по имени слоя
         if '_ПС' in layer_name or layer_name.endswith('_ПС'):
-            return self.PS_DESCRIPTOR
+            return (
+                self.PS_DESCRIPTOR_EXTENDED if self._extended_ps
+                else self.PS_DESCRIPTOR
+            )
 
         return self.DEFAULT_DESCRIPTOR
 
@@ -490,10 +520,13 @@ class Region78FormatModifier(ExportModifier):
         Returns:
             Строка заголовка
         """
-        descriptor = (
-            self.MERGED_DESCRIPTOR_PS if is_ps
-            else self.MERGED_DESCRIPTOR_ZU
-        )
+        if is_ps:
+            descriptor = (
+                self.MERGED_DESCRIPTOR_PS_EXTENDED if self._extended_ps
+                else self.MERGED_DESCRIPTOR_PS
+            )
+        else:
+            descriptor = self.MERGED_DESCRIPTOR_ZU
 
         full_name = metadata.get('1_1_full_name', '')
 
@@ -551,6 +584,8 @@ class Region78FormatModifier(ExportModifier):
             Имя файла без расширения
         """
         if self._is_ps(template_id, layer_name):
+            if self._extended_ps:
+                return f"Перечень_координат_{feature_index}_сервитута_публичного_сервитута"
             return f"Перечень_координат_{feature_index}_публичного_сервитута"
         return f"Перечень_координат_{feature_index}_участка_зу"
 

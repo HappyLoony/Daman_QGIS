@@ -139,6 +139,26 @@ class F_5_3_DocumentExport(BaseTool):
         if regional_mgr is not None:
             try:
                 metadata = ExportUtils.get_project_metadata()
+
+                # Регион 78: предлагаем расширенное именование ПС
+                if (regional_mgr.is_region('78', metadata)
+                        and self._has_ps_items(selected_items)):
+                    reply = QMessageBox.question(
+                        self.iface.mainWindow(),
+                        "Именование сервитутов",
+                        "Среди выбранных слоёв есть публичные сервитуты.\n\n"
+                        "Добавить 'сервитут,' к наименованиям?\n"
+                        "(папки, шапки, имена файлов)",
+                        QMessageBox.StandardButton.Yes
+                        | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        metadata['extended_servitude_name'] = True
+                        log_info(
+                            "F_5_3: Расширенное именование ПС включено"
+                        )
+
                 original_count = len(selected_items)
                 selected_items = regional_mgr.apply_export_modifiers(
                     selected_items, metadata
@@ -269,3 +289,17 @@ class F_5_3_DocumentExport(BaseTool):
             )
 
         log_info(f"F_5_3: Экспорт завершён: {success_count} успешно, {error_count} ошибок")
+
+    @staticmethod
+    def _has_ps_items(items: List[Dict[str, Any]]) -> bool:
+        """Проверить наличие слоёв публичных сервитутов среди items."""
+        for item in items:
+            template = item.get('template')
+            if template and getattr(template, 'template_id', '') == 'coord_cutting_oks_ps':
+                return True
+            layer = item.get('layer')
+            if layer is not None:
+                name = layer.name()
+                if '_ПС' in name or name.endswith('_ПС'):
+                    return True
+        return False

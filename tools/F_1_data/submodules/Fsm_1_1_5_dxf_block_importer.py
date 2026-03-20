@@ -533,7 +533,20 @@ class Fsm_1_1_5_DxfBlockImporter:
                     # Для неизвестных ANSI кодировок на русских системах - cp1251
                     return 'cp1251'
             else:
-                # $CODEPAGE не найден - для русских систем предполагаем cp1251
+                # $CODEPAGE не найден - пробуем определить: UTF-8 или CP1251
+                if header_bytes.startswith(b'\xef\xbb\xbf'):
+                    log_info("Fsm_1_1_5: $CODEPAGE не найден, обнаружен UTF-8 BOM")
+                    return 'utf-8-sig'
+
+                try:
+                    header_bytes.decode('utf-8', errors='strict')
+                    has_non_ascii = any(b > 127 for b in header_bytes)
+                    if has_non_ascii:
+                        log_info("Fsm_1_1_5: $CODEPAGE не найден, файл валидный UTF-8, используем utf-8")
+                        return 'utf-8'
+                except UnicodeDecodeError:
+                    pass
+
                 log_info("Fsm_1_1_5: $CODEPAGE не найден, используем cp1251 по умолчанию")
                 return 'cp1251'
 
