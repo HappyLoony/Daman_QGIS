@@ -35,6 +35,7 @@ from Daman_QGIS.utils import log_info, log_error, log_warning
 from .Fsm_5_1_2_region78_schema import (
     LAYER_MAPPING,
     DPT_LAYERS,
+    AREA_RULES,
     TAB_BOUNDS,
     OUTPUT_FOLDERS,
     get_layer_fields,
@@ -168,6 +169,12 @@ class Fsm_5_1_3_Region78TabExporter:
 
             new_feat = QgsFeature(mem_layer.fields())
             new_feat.setGeometry(src_feat.geometry())
+
+            # Инициализируем строковые поля пустой строкой (КГА: не NULL)
+            for i, field_def in enumerate(dpt_fields):
+                if field_def['type'] == 'string':
+                    new_feat.setAttribute(i, '')
+
             self._copy_matching_attrs(
                 src_feat, new_feat, source_layer, mem_layer, matching
             )
@@ -175,6 +182,9 @@ class Fsm_5_1_3_Region78TabExporter:
 
         if features_to_add:
             provider.addFeatures(features_to_add)
+
+        # Автоматический расчёт площадей из геометрии
+        self._calculate_areas(mem_layer, dpt_name)
 
         log_info(
             f"Fsm_5_1_3: {dpt_name}: {len(features_to_add)} features, "
@@ -347,6 +357,77 @@ class Fsm_5_1_3_Region78TabExporter:
                 dst_feat.setAttribute(
                     dst_idx, src_feat.attribute(src_idx)
                 )
+
+    def _calculate_areas(
+        self,
+        layer: QgsVectorLayer,
+        dpt_name: str
+    ) -> None:
+        """
+        Автоматический расчёт площадей из геометрии объектов.
+
+        Правила из AREA_RULES (Приказ КГА N 1-16-82):
+        - кв.м (decimals=0): round(area_m2) -> целое значение
+        - га (decimals=2): round(area_m2 / 10000, 2)
+        - га (decimals=4): round(area_m2 / 10000, 4)
+        """
+        area_rules = AREA_RULES.get(dpt_name)
+        if not area_rules:
+            return
+
+        fields = layer.fields()
+
+        # Проверяем что поля существуют в слое
+        field_indices = {}
+        for field_name, rule in area_rules.items():
+            idx = fields.lookupField(field_name)
+            if idx >= 0:
+                field_indices[field_name] = (idx, rule)
+            else:
+                log_warning(
+                    f"Fsm_5_1_3: Поле {field_name} не найдено в {dpt_name}"
+                )
+
+        if not field_indices:
+            return
+
+        # Редактируем слой
+        if not layer.startEditing():
+            log_error(
+                f"Fsm_5_1_3: Не удалось начать редактирование {dpt_name}"
+            )
+            return
+
+        updated = 0
+        for feat in layer.getFeatures():
+            geom = feat.geometry()
+            if not geom or geom.isEmpty():
+                continue
+
+            area_m2 = geom.area()
+            if area_m2 <= 0:
+                continue
+
+            for field_name, (idx, rule) in field_indices.items():
+                unit = rule['unit']
+                decimals = rule['decimals']
+
+                if unit == 'ha':
+                    value = round(area_m2 / 10000.0, decimals)
+                else:
+                    # кв.м — целое значение (round → float для Вещественное,
+                    # int для Целое)
+                    value = round(area_m2)
+
+                layer.changeAttributeValue(feat.id(), idx, value)
+
+            updated += 1
+
+        layer.commitChanges()
+        log_info(
+            f"Fsm_5_1_3: {dpt_name}: площади рассчитаны для "
+            f"{updated} объектов ({list(field_indices.keys())})"
+        )
 
     def get_tab_bounds(self) -> str:
         """Bounds для NonEarth проекции КГА СПб."""
