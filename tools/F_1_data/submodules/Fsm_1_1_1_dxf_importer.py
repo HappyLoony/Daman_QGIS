@@ -610,8 +610,11 @@ class DxfImporter(BaseImporter):
                         # Исправляем кодировку для бинарных DXF:
                         # ezdxf читает бинарный DXF как CP1252, но реально данные в CP1251
                         # Перекодируем: str -> bytes(cp1252) -> str(cp1251)
-                        if text and is_binary:
-                            text = self._fix_binary_dxf_encoding(text)
+                        if is_binary:
+                            if tag:
+                                tag = self._fix_binary_dxf_encoding(tag)
+                            if text:
+                                text = self._fix_binary_dxf_encoding(text)
 
                         block_attributes[tag] = text
 

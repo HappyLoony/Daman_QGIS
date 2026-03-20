@@ -130,23 +130,36 @@ class Fsm_1_1_5_DxfBlockImporter:
             log_info(f"Fsm_1_1_5: Открытие файла {os.path.basename(file_path)}")
             assert self._ezdxf is not None  # Гарантировано _ensure_ezdxf()
 
+            # Определяем формат: бинарный или текстовый DXF
+            is_binary = self._is_binary_dxf(file_path)
+
             # Определяем кодировку для чтения
-            # Для русских DXF файлов с $CODEPAGE=ANSI_1251 нужно явно указать cp1251
             read_encoding = encoding
             if read_encoding is None:
-                # Пробуем определить кодировку из файла
                 read_encoding = self._detect_dxf_encoding(file_path)
 
-            doc = self._ezdxf.readfile(file_path, encoding=read_encoding)  # type: ignore[attr-defined]
+            if is_binary:
+                # Бинарный DXF - ezdxf игнорирует encoding, читает как CP1252
+                log_info("Fsm_1_1_5: Обнаружен бинарный DXF, читаем напрямую")
+                doc = self._ezdxf.readfile(file_path)  # type: ignore[attr-defined]
+            else:
+                # Текстовый DXF - ezdxf игнорирует encoding в readfile(),
+                # поэтому читаем вручную с нужной кодировкой
+                with open(file_path, 'rt', encoding=read_encoding, errors='replace') as f:
+                    file_content = f.read()
+                from io import StringIO
+                doc = self._ezdxf.read(StringIO(file_content))  # type: ignore[attr-defined]
 
             # Логируем обнаруженную кодировку
             codepage = doc.header.get('$CODEPAGE', 'не указана')
-            log_info(f"Fsm_1_1_5: Кодировка DXF: {codepage}, используемая: {read_encoding or 'auto'}")
+            format_type = 'бинарный' if is_binary else 'текстовый'
+            log_info(f"Fsm_1_1_5: DXF ({format_type}), $CODEPAGE: {codepage}, "
+                     f"кодировка: {read_encoding if not is_binary else 'N/A'}")
 
             msp = doc.modelspace()
 
             # Извлекаем блоки с атрибутами
-            blocks_data = self._extract_blocks_with_attributes(msp, block_names)
+            blocks_data = self._extract_blocks_with_attributes(msp, block_names, is_binary)
 
             if not blocks_data:
                 result['message'] = "В файле не найдено блоков с атрибутами"
@@ -194,7 +207,8 @@ class Fsm_1_1_5_DxfBlockImporter:
 
     def _extract_blocks_with_attributes(self,
                                         modelspace,
-                                        block_names: Optional[List[str]] = None
+                                        block_names: Optional[List[str]] = None,
+                                        is_binary: bool = False
                                         ) -> List[Dict[str, Any]]:
         """
         Извлечение данных блоков с атрибутами из modelspace
@@ -202,6 +216,7 @@ class Fsm_1_1_5_DxfBlockImporter:
         Args:
             modelspace: Modelspace объект ezdxf
             block_names: Фильтр по именам блоков (None = все)
+            is_binary: True если бинарный DXF (требуется перекодировка CP1252->CP1251)
 
         Returns:
             Список словарей с данными блоков:
@@ -231,6 +246,15 @@ class Fsm_1_1_5_DxfBlockImporter:
             for attrib in insert.attribs:
                 tag = attrib.dxf.tag
                 text = attrib.dxf.text
+
+                # Исправляем кодировку для бинарных DXF:
+                # ezdxf читает бинарный DXF как CP1252, но реально данные в CP1251
+                if is_binary:
+                    if tag:
+                        tag = self._fix_binary_dxf_encoding(tag)
+                    if text:
+                        text = self._fix_binary_dxf_encoding(text)
+
                 attributes[tag] = text
 
             # Если нет атрибутов - пропускаем (опционально можно убрать)
@@ -395,6 +419,59 @@ class Fsm_1_1_5_DxfBlockImporter:
 
         return sanitized
 
+    def _open_dxf(self, file_path: str, encoding: Optional[str] = None) -> Any:
+        """
+        Открытие DXF файла с корректной обработкой бинарного/текстового формата.
+
+        Args:
+            file_path: Путь к DXF файлу
+            encoding: Кодировка (None = авто-определение)
+
+        Returns:
+            ezdxf Document объект
+        """
+        assert self._ezdxf is not None
+
+        is_binary = self._is_binary_dxf(file_path)
+        read_encoding = encoding or self._detect_dxf_encoding(file_path)
+
+        if is_binary:
+            return self._ezdxf.readfile(file_path)  # type: ignore[attr-defined]
+        else:
+            with open(file_path, 'rt', encoding=read_encoding, errors='replace') as f:
+                file_content = f.read()
+            from io import StringIO
+            return self._ezdxf.read(StringIO(file_content))  # type: ignore[attr-defined]
+
+    def _is_binary_dxf(self, file_path: str) -> bool:
+        """
+        Определение формата DXF файла: бинарный или текстовый.
+        Бинарный DXF начинается с сигнатуры "AutoCAD Binary DXF".
+        """
+        try:
+            with open(file_path, 'rb') as f:
+                header = f.read(22)
+            return header.startswith(b'AutoCAD Binary DXF')
+        except Exception:
+            return False
+
+    def _fix_binary_dxf_encoding(self, text: str) -> str:
+        """
+        Исправление кодировки текста из бинарного DXF файла.
+
+        ezdxf читает бинарные DXF и декодирует текст как CP1252 (Latin-1),
+        но русские DXF содержат текст в CP1251 (кириллица).
+        Перекодируем: str -> bytes(latin-1) -> str(cp1251).
+        """
+        if not text or text.isascii():
+            return text
+
+        try:
+            return text.encode('latin-1', errors='replace').decode('cp1251', errors='replace')
+        except (UnicodeEncodeError, UnicodeDecodeError) as e:
+            log_warning(f"Fsm_1_1_5: Ошибка перекодировки текста '{text[:20]}...': {e}")
+            return text
+
     def _detect_dxf_encoding(self, file_path: str) -> Optional[str]:
         """
         Определение кодировки DXF файла из заголовка $CODEPAGE
@@ -504,8 +581,7 @@ class Fsm_1_1_5_DxfBlockImporter:
 
         try:
             assert self._ezdxf is not None  # Гарантировано _ensure_ezdxf()
-            encoding = self._detect_dxf_encoding(file_path)
-            doc = self._ezdxf.readfile(file_path, encoding=encoding)  # type: ignore[attr-defined]
+            doc = self._open_dxf(file_path)
             msp = doc.modelspace()
 
             block_names = set()
@@ -535,8 +611,8 @@ class Fsm_1_1_5_DxfBlockImporter:
 
         try:
             assert self._ezdxf is not None  # Гарантировано _ensure_ezdxf()
-            encoding = self._detect_dxf_encoding(file_path)
-            doc = self._ezdxf.readfile(file_path, encoding=encoding)  # type: ignore[attr-defined]
+            is_binary = self._is_binary_dxf(file_path)
+            doc = self._open_dxf(file_path)
             msp = doc.modelspace()
 
             preview = {}
@@ -550,9 +626,17 @@ class Fsm_1_1_5_DxfBlockImporter:
                 if block_counts[block_name] > max_blocks:
                     continue
 
-                # Собираем атрибуты
-                attributes = {attrib.dxf.tag: attrib.dxf.text
-                             for attrib in insert.attribs}  # type: ignore[attr-defined]
+                # Собираем атрибуты с исправлением кодировки
+                attributes = {}
+                for attrib in insert.attribs:
+                    tag = attrib.dxf.tag
+                    text = attrib.dxf.text
+                    if is_binary:
+                        if tag:
+                            tag = self._fix_binary_dxf_encoding(tag)
+                        if text:
+                            text = self._fix_binary_dxf_encoding(text)
+                    attributes[tag] = text
 
                 if attributes:
                     if block_name not in preview:
