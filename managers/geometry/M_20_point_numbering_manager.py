@@ -60,7 +60,8 @@ class PointNumberingManager:
         features_data: List[Dict[str, Any]],
         precision: int = PRECISION_DECIMALS,
         auto_reset: bool = True,
-        sort_northwest: bool = True
+        sort_northwest: bool = True,
+        per_ring_numbering: bool = False
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Обработка полигональных объектов и формирование точечных данных
@@ -76,6 +77,9 @@ class PointNumberingManager:
                        Используется для сквозной нумерации Раздел+НГС из одной ЗПР.
             sort_northwest: Сортировать контуры от СЗ к ЮВ (default=True).
                            СЗ контур получает первые номера точек (П/0592).
+            per_ring_numbering: Нумерация с 1 для каждого кольца (default=False).
+                               Регион 78 (СПб): каждое кольцо (внешнее/внутреннее)
+                               нумеруется независимо от 1. Нет межфичерной дедупликации.
 
         Returns:
             Tuple:
@@ -89,6 +93,11 @@ class PointNumberingManager:
         """
         if auto_reset:
             self.reset()
+
+        # Per-ring: каждое кольцо нумеруется с 1 (регион 78)
+        if per_ring_numbering:
+            return self._process_per_ring(features_data, precision, sort_northwest)
+
         points_data: List[Dict[str, Any]] = []
 
         # Сортировка контуров от СЗ к ЮВ
@@ -175,6 +184,87 @@ class PointNumberingManager:
 
         log_info(f"M_20: Обработано точек: {self._point_counter} уникальных, "
                 f"{len(points_data)} всего (с дубликатами)")
+
+        return features_data, points_data
+
+    def _process_per_ring(
+        self,
+        features_data: List[Dict[str, Any]],
+        precision: int,
+        sort_northwest: bool
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Per-ring нумерация: каждое кольцо нумеруется с 1 независимо.
+
+        Используется для региона 78 (СПб, Приказ КГА N 1-16-82).
+        Нет межфичерной дедупликации точек.
+
+        Args:
+            features_data: Список данных объектов
+            precision: Точность округления координат
+            sort_northwest: Сортировать контуры от СЗ к ЮВ
+
+        Returns:
+            Tuple: (features_data с point_numbers_str, points_data)
+        """
+        points_data: List[Dict[str, Any]] = []
+        total_points = 0
+
+        if sort_northwest:
+            features_data = self._sort_features_by_northwest(features_data)
+
+        for item in features_data:
+            geom = item.get('geometry')
+            contour_id = item.get('contour_id')
+            if contour_id is None:
+                contour_id = 0
+
+            attributes = item.get('attributes', {})
+            uslov_kn = attributes.get('Услов_КН', '') or ''
+            kn = attributes.get('КН', '') or ''
+
+            if not geom or geom.isEmpty():
+                item['point_numbers_str'] = ""
+                continue
+
+            rings_data = self._extract_polygon_points_by_ring(geom, precision)
+
+            exterior_numbers_list: List[List[int]] = []
+            holes_numbers: List[List[int]] = []
+
+            for ring_info in rings_data:
+                contour_type = ring_info['contour_type']
+                contour_number = ring_info['contour_number']
+                ring_numbers: List[int] = []
+
+                for contour_point_idx, point_tuple in enumerate(ring_info['points'], start=1):
+                    # Per-ring: id = номер точки внутри кольца (всегда с 1)
+                    ring_numbers.append(contour_point_idx)
+
+                    points_data.append({
+                        'id': contour_point_idx,
+                        'contour_point_index': contour_point_idx,
+                        'contour_id': contour_id,
+                        'uslov_kn': uslov_kn,
+                        'kn': kn,
+                        'contour_type': contour_type,
+                        'contour_number': contour_number,
+                        'x_geodetic': point_tuple[1],
+                        'y_geodetic': point_tuple[0],
+                        'point': QgsPointXY(point_tuple[0], point_tuple[1])
+                    })
+                    total_points += 1
+
+                if contour_type == 'Внешний':
+                    exterior_numbers_list.append(ring_numbers)
+                else:
+                    holes_numbers.append(ring_numbers)
+
+            item['point_numbers_str'] = self._format_point_numbers_with_holes(
+                exterior_numbers_list, holes_numbers
+            )
+
+        log_info(f"M_20: Обработано точек (per-ring): {total_points} всего")
 
         return features_data, points_data
 

@@ -1220,9 +1220,14 @@ class F_2_4_Staging(BaseTool):
                 item['contour_id'] = contour_id
 
         # Нумерация точек
+        # Регион 78 (СПб): per-ring нумерация (каждое кольцо с 1)
+        regional_mgr = registry.get('M_44')
+        per_ring = regional_mgr.is_region('78') if regional_mgr else False
+
         point_numbering = PointNumberingManager()
         features_with_points, points_data = point_numbering.process_polygon_layer(
-            features_data, precision=2
+            features_data, precision=2,
+            per_ring_numbering=per_ring
         )
 
         # Обновление поля "Точки" в атрибутах

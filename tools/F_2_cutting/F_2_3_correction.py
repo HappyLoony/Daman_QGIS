@@ -360,11 +360,16 @@ class F_2_3_Correction(BaseTool):
         # Нумерация точек
         # ВАЖНО: sort_northwest=False, т.к. данные уже отсортированы в _collect_features_sorted_by_northwest
         # Это гарантирует совпадение порядка контуров и нумерации точек
+        # Регион 78 (СПб): per-ring нумерация (каждое кольцо с 1)
+        regional_mgr = registry.get('M_44')
+        per_ring = regional_mgr.is_region('78') if regional_mgr else False
+
         point_numbering = PointNumberingManager()
         features_with_points, points_data = point_numbering.process_polygon_layer(
             updated_features,
             precision=2,  # PRECISION_DECIMALS
-            sort_northwest=False  # Данные уже отсортированы по СЗ
+            sort_northwest=False,  # Данные уже отсортированы по СЗ
+            per_ring_numbering=per_ring
         )
 
         # Обновление поля "Точки" в атрибутах
@@ -953,7 +958,7 @@ class F_2_3_Correction(BaseTool):
                 # НГС частично остался → обновляем геометрию
                 features_to_update.append((feature.id(), new_geom))
                 log_info(f"F_2_3: Объект НГС ID={feature.id()} обновлён, "
-                        f"новая площадь: {new_geom.area():.2f} кв.м")
+                        f"новая площадь: {int(round(new_geom.area()))} кв.м")
 
         # 3. Применяем изменения к слою НГС
         if features_to_delete or features_to_update:

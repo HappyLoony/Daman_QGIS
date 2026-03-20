@@ -26,6 +26,9 @@ from qgis.core import (
     QgsVectorLayer,
     QgsFeature,
     QgsField,
+    QgsGeometry,
+    QgsProject,
+    QgsSpatialIndex,
     QgsWkbTypes,
 )
 from qgis.PyQt.QtCore import QMetaType
@@ -63,6 +66,15 @@ _GEOM_TYPE_MAP = {
     'LineString': 'LineString',
     'Point': 'Point',
 }
+
+# Слои, полигоны которых объединяются по зонам DPT_ZONE_OKS
+_MERGE_BY_ZONE_LAYERS = {'DPT_ZEL_ZU', 'DPT_PARK_ZU'}
+
+# Имя слоя зон в проекте (L_* формат)
+_ZONE_OKS_LAYER_NAME = 'L_4_1_15_DPT_ZONE_OKS'
+
+# Порог наложения для привязки к зоне (%)
+_OVERLAP_THRESHOLD = 98.0
 
 
 class Fsm_5_1_3_Region78TabExporter:
@@ -179,6 +191,11 @@ class Fsm_5_1_3_Region78TabExporter:
                 src_feat, new_feat, source_layer, mem_layer, matching
             )
             features_to_add.append(new_feat)
+
+        # Объединение полигонов по зонам OKS (ZEL_ZU, PARK_ZU)
+        features_to_add = self._merge_by_zones(
+            features_to_add, dpt_name, mem_layer
+        )
 
         if features_to_add:
             provider.addFeatures(features_to_add)
@@ -357,6 +374,153 @@ class Fsm_5_1_3_Region78TabExporter:
                 dst_feat.setAttribute(
                     dst_idx, src_feat.attribute(src_idx)
                 )
+
+    def _merge_by_zones(
+        self,
+        features: List[QgsFeature],
+        dpt_name: str,
+        mem_layer: QgsVectorLayer
+    ) -> List[QgsFeature]:
+        """
+        Объединение полигонов по зонам DPT_ZONE_OKS.
+
+        Все полигоны ZEL_ZU/PARK_ZU, находящиеся в границах одной зоны OKS,
+        объединяются в один мультиполигон через unaryUnion.
+
+        Привязка к зоне: площадь пересечения >= 98% площади полигона.
+        Полигоны без привязки пропускаются с warning.
+
+        Args:
+            features: Список features для объединения
+            dpt_name: Имя DPT слоя (DPT_ZEL_ZU или DPT_PARK_ZU)
+            mem_layer: Memory layer с DPT схемой полей
+
+        Returns:
+            Список merged features (или исходный список если merge не нужен)
+        """
+        if dpt_name not in _MERGE_BY_ZONE_LAYERS:
+            return features
+
+        if not features:
+            return features
+
+        # Получаем слой зон из проекта
+        zone_layers = QgsProject.instance().mapLayersByName(
+            _ZONE_OKS_LAYER_NAME
+        )
+        if not zone_layers:
+            log_warning(
+                f"Fsm_5_1_3: Слой {_ZONE_OKS_LAYER_NAME} не найден "
+                f"в проекте, объединение {dpt_name} пропущено"
+            )
+            return features
+
+        zone_layer = zone_layers[0]
+        if zone_layer.featureCount() == 0:
+            log_warning(
+                f"Fsm_5_1_3: Слой {_ZONE_OKS_LAYER_NAME} пуст, "
+                f"объединение {dpt_name} пропущено"
+            )
+            return features
+
+        # Строим пространственный индекс на зонах OKS
+        zone_index = QgsSpatialIndex()
+        zone_features: Dict[int, QgsFeature] = {}
+        for zone_feat in zone_layer.getFeatures():
+            if zone_feat.hasGeometry():
+                zone_index.addFeature(zone_feat)
+                zone_features[zone_feat.id()] = QgsFeature(zone_feat)
+
+        if not zone_features:
+            log_warning(
+                f"Fsm_5_1_3: Нет валидных зон в {_ZONE_OKS_LAYER_NAME}, "
+                f"объединение {dpt_name} пропущено"
+            )
+            return features
+
+        # Привязываем каждый feature к зоне по площади наложения
+        # zone_id -> [features]
+        zone_groups: Dict[int, List[QgsFeature]] = {}
+        skipped = 0
+
+        for feat in features:
+            feat_geom = feat.geometry()
+            if not feat_geom or feat_geom.isEmpty():
+                skipped += 1
+                continue
+
+            feat_area = feat_geom.area()
+            if feat_area <= 0:
+                skipped += 1
+                continue
+
+            # Поиск кандидатов через пространственный индекс
+            candidate_ids = zone_index.intersects(feat_geom.boundingBox())
+            assigned_zone_id = None
+            best_overlap = 0.0
+
+            for zone_id in candidate_ids:
+                zone_feat = zone_features[zone_id]
+                zone_geom = zone_feat.geometry()
+
+                intersection = feat_geom.intersection(zone_geom)
+                if intersection.isEmpty():
+                    continue
+
+                overlap_pct = (intersection.area() / feat_area) * 100.0
+
+                if overlap_pct > best_overlap:
+                    best_overlap = overlap_pct
+                    if overlap_pct >= _OVERLAP_THRESHOLD:
+                        assigned_zone_id = zone_id
+
+            if assigned_zone_id is not None:
+                if assigned_zone_id not in zone_groups:
+                    zone_groups[assigned_zone_id] = []
+                zone_groups[assigned_zone_id].append(feat)
+            else:
+                log_warning(
+                    f"Fsm_5_1_3: {dpt_name}: полигон пропущен "
+                    f"(наложение {best_overlap:.1f}% < {_OVERLAP_THRESHOLD}%)"
+                )
+                skipped += 1
+
+        # Создаем merged features
+        merged_features: List[QgsFeature] = []
+        for zone_id, group in zone_groups.items():
+            # Объединяем геометрии
+            geometries = [f.geometry() for f in group]
+            merged_geom = QgsGeometry.unaryUnion(geometries)
+
+            if merged_geom.isEmpty():
+                log_warning(
+                    f"Fsm_5_1_3: {dpt_name}: пустая геометрия после "
+                    f"unaryUnion для зоны {zone_id}"
+                )
+                continue
+
+            # Создаем новый feature с пустыми атрибутами
+            new_feat = QgsFeature(mem_layer.fields())
+            new_feat.setGeometry(merged_geom)
+
+            # Инициализируем строковые поля пустой строкой
+            dpt_fields = get_layer_fields(dpt_name)
+            for i, field_def in enumerate(dpt_fields):
+                if field_def['type'] == 'string':
+                    new_feat.setAttribute(i, '')
+
+            merged_features.append(new_feat)
+
+        original_count = len(features)
+        merged_count = len(merged_features)
+
+        log_info(
+            f"Fsm_5_1_3: {dpt_name}: объединение по зонам: "
+            f"{len(zone_groups)} зон, {merged_count} merged features "
+            f"(было {original_count}, пропущено {skipped})"
+        )
+
+        return merged_features
 
     def _calculate_areas(
         self,
