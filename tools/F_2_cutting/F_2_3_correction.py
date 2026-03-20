@@ -190,9 +190,12 @@ class F_2_3_Correction(BaseTool):
         # Обновляем список слоёв после пересчёта НГС
         existing_layers = self._find_existing_layers()
 
-        # 4. Сброс глобальных счётчиков КН/ЕЗ
+        # 4. Сброс глобальных счётчиков КН/ЕЗ и ID
         self._attribute_mapper.reset_kn_counters()
-        log_info("F_2_3: Сброс глобальных счётчиков КН/ЕЗ")
+        # Сброс сквозных счётчиков ID по типам ЗПР
+        for zpr_type in ('ОКС', 'ПО', 'ВО'):
+            self._attribute_mapper.reset_zpr_id_counter(zpr_type)
+        log_info("F_2_3: Сброс глобальных счётчиков КН/ЕЗ/ID")
 
         # 5. Обработка слоёв в порядке приоритета
         total_features = 0
@@ -292,10 +295,6 @@ class F_2_3_Correction(BaseTool):
         log_info(f"F_2_3: Обработка слоя {layer_name}"
                 f"{' (Без_Меж - без точек)' if is_bez_mezh else ''}")
 
-        # Сброс счётчика ID для этого слоя
-        if self._attribute_mapper:
-            self._attribute_mapper.reset_id_counter(layer_name)
-
         # Получаем объекты отсортированные по северо-западу (П/0592)
         features_data = self._collect_features_sorted_by_northwest(layer)
 
@@ -306,12 +305,24 @@ class F_2_3_Correction(BaseTool):
         # Проверка целостности ID: сохранить или перенумеровать
         preserve_ids = self._check_ids_integrity(layer, layer_name)
 
+        # Синхронизация ZPR counter при сохранении существующих ID
+        # Чтобы следующий слой (НГС после Раздел) продолжил нумерацию
+        if preserve_ids and self._attribute_mapper:
+            existing_ids = [item['attributes'].get('ID', 0) for item in features_data]
+            existing_ids = [i for i in existing_ids if isinstance(i, int) and i > 0]
+            if existing_ids:
+                max_existing = max(existing_ids)
+                current_zpr = self._attribute_mapper.get_current_zpr_id(zpr_type)
+                if max_existing > current_zpr:
+                    self._attribute_mapper._zpr_id_counter[zpr_type] = max_existing
+                    log_info(f"F_2_3: ZPR counter ({zpr_type}) синхронизирован до {max_existing}")
+
         if is_bez_mezh:
             # СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ БЕЗ_МЕЖ
             # Только пересчёт ID, НЕ пересчитываем Услов_КН/ЕЗ и План_*
             # Эти атрибуты уже установлены в F_2_2
             updated_features = self._recalculate_bez_mezh_attributes(
-                features_data, layer_name, preserve_ids
+                features_data, layer_name, zpr_type, preserve_ids
             )
 
             # Поле "Точки" = "" (пустое)
@@ -398,6 +409,7 @@ class F_2_3_Correction(BaseTool):
         self,
         features_data: List[Dict[str, Any]],
         layer_name: str,
+        zpr_type: str,
         preserve_ids: bool = False
     ) -> List[Dict[str, Any]]:
         """Пересчёт атрибутов для слоёв Без_Меж
@@ -409,6 +421,7 @@ class F_2_3_Correction(BaseTool):
         Args:
             features_data: Исходные данные объектов
             layer_name: Имя слоя
+            zpr_type: Тип ЗПР (ОКС, ПО, ВО)
             preserve_ids: True = сохранить существующие ID
 
         Returns:
@@ -420,8 +433,9 @@ class F_2_3_Correction(BaseTool):
         for item in features_data:
             attrs = item['attributes']
 
+            # Сквозная нумерация по типу ЗПР: Раздел -> НГС -> Без_Меж
             if not preserve_ids:
-                attrs['ID'] = self._attribute_mapper.generate_id(layer_name)
+                attrs['ID'] = self._attribute_mapper.generate_zpr_id(zpr_type)
 
             # contour_id для совместимости (хотя точки не создаются)
             item['contour_id'] = attrs['ID']
@@ -520,14 +534,22 @@ class F_2_3_Correction(BaseTool):
             log_info(f"F_2_3: {layer_name} - дубликаты ID: {dupes}, требуется перенумерация")
             return False
 
-        # Проверка пропусков (1,2,4,5 -> нет 3)
-        expected = set(range(1, max(ids) + 1))
-        missing = expected - set(ids)
-        if missing:
-            log_info(f"F_2_3: {layer_name} - пропуски в ID: {sorted(missing)}, требуется перенумерация")
+        # Проверка внутренних пропусков (в пределах собственного диапазона)
+        # НГС может начинаться с 350 (после Раздел 1-349) — это нормально
+        min_id = min(ids)
+        max_id = max(ids)
+        expected_count = max_id - min_id + 1
+
+        if len(ids) != expected_count:
+            # Есть внутренние пропуски в диапазоне min..max
+            expected = set(range(min_id, max_id + 1))
+            missing = sorted(expected - set(ids))
+            log_info(f"F_2_3: {layer_name} - внутренние пропуски в ID "
+                    f"(диапазон {min_id}-{max_id}): {missing}, требуется перенумерация")
             return False
 
-        log_info(f"F_2_3: {layer_name} - ID корректны ({len(ids)} шт.), сохранены без перенумерации")
+        log_info(f"F_2_3: {layer_name} - ID корректны "
+                f"({len(ids)} шт., диапазон {min_id}-{max_id}), сохранены без перенумерации")
         return True
 
     def _sort_features_by_northwest(
@@ -611,8 +633,9 @@ class F_2_3_Correction(BaseTool):
             geom = item['geometry']
 
             # ID: сохранить или перенумеровать
+            # Сквозная нумерация по типу ЗПР: Раздел -> НГС -> Без_Меж
             if not preserve_ids:
-                attrs['ID'] = self._attribute_mapper.generate_id(layer_name)
+                attrs['ID'] = self._attribute_mapper.generate_zpr_id(zpr_type)
 
             # contour_id для PointNumberingManager (ID_Контура в точечном слое)
             item['contour_id'] = attrs['ID']
