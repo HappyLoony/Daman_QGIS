@@ -366,7 +366,12 @@ class DxfImporter(BaseImporter):
 
             # Определяем тип слоя
             is_polygon_layer = expected_geom_type in ['Polygon', 'MultiPolygon', None]
-            is_boundaries_layer = '1_1_1' in target_layer_name or 'граница' in target_layer_name.lower()
+            # Границы работ: L_1_1_1_* или Le_1_1_1_*
+            # НЕ Le_2_1_1_1_* (это раздел ЗПР, другой слой)
+            is_boundaries_layer = (
+                target_layer_name.startswith(('L_1_1_1', 'Le_1_1_1'))
+                or 'граница' in target_layer_name.lower()
+            )
 
             if is_polygon_layer:
                 if is_boundaries_layer:
