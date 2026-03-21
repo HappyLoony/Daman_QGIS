@@ -32,7 +32,9 @@ M_14: API Manager - Менеджер API endpoints для загрузки сл�
 
 import os
 import json
-from typing import List, Dict, Optional, Any, Union
+import time
+from typing import List, Dict, Optional, Any, Union, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from Daman_QGIS.utils import log_info, log_error, log_warning, log_debug
 
 __all__ = ['APIManager']
@@ -220,6 +222,67 @@ class APIManager:
 
         # Сортируем по endpoint_id (меньший = выше приоритет)
         return sorted(fallback_endpoints, key=lambda x: x.get('endpoint_id', 999))
+
+    def ping_and_sort_overpass_servers(self) -> List[str]:
+        """
+        Пинг всех Overpass серверов параллельно, возврат отсортированных по латентности URL.
+
+        Использует GET запрос к /status (легковесный endpoint Overpass API).
+        Серверы пингуются параллельно через ThreadPoolExecutor.
+        Недоступные серверы исключаются из результата.
+
+        Returns:
+            List[str]: URL серверов от быстрого к медленному (только живые).
+                       Если все недоступны - возвращает полный список без сортировки.
+        """
+        from Daman_QGIS.constants import OVERPASS_SERVERS, OVERPASS_PING_TIMEOUT
+        import requests as req
+
+        servers = OVERPASS_SERVERS
+        results: List[Tuple[str, str, float, bool]] = []  # (name, url, latency, alive)
+
+        def _ping_server(server: Dict[str, str]) -> Tuple[str, str, float, bool]:
+            """Пинг одного сервера, возврат (name, url, latency_sec, alive)."""
+            name = server['name']
+            url = server['url']
+            status_url = url.rstrip('/') + '/status'
+            try:
+                start = time.monotonic()
+                resp = req.get(status_url, timeout=OVERPASS_PING_TIMEOUT)
+                latency = time.monotonic() - start
+                if resp.status_code < 500:
+                    return (name, url, latency, True)
+                return (name, url, float('inf'), False)
+            except Exception:
+                return (name, url, float('inf'), False)
+
+        log_info(f"M_14: Пинг {len(servers)} Overpass серверов...")
+
+        with ThreadPoolExecutor(max_workers=len(servers)) as executor:
+            futures = {executor.submit(_ping_server, s): s for s in servers}
+            for future in as_completed(futures):
+                results.append(future.result())
+
+        # Сортируем по латентности (живые первыми, затем мёртвые)
+        results.sort(key=lambda x: x[2])
+
+        # Логируем результаты
+        alive_servers: List[str] = []
+        for name, url, latency, alive in results:
+            if alive:
+                log_info(f"M_14: Overpass ping: {name} -> {latency * 1000:.0f}ms")
+                alive_servers.append(url)
+            else:
+                log_warning(f"M_14: Overpass ping: {name} -> НЕДОСТУПЕН")
+
+        if alive_servers:
+            names = [r[0] for r in results if r[3]]
+            log_info(f"M_14: Overpass серверы отсортированы: {', '.join(names)}")
+            return alive_servers
+
+        # Все серверы недоступны - возвращаем полный список (пусть retry логика разбирается)
+        log_error("M_14: Все Overpass серверы недоступны, возвращаем полный список")
+        return [s['url'] for s in servers]
 
     def parse_timeout(self, timeout_sec: Any) -> Union[List[int], int, None]:
         """

@@ -3,7 +3,7 @@
 Fsm_4_2_T_1_2_4_schema - Верификация структуры данных ФГИС ЛК
 
 Standalone скрипт, который:
-1. Скачивает реальный PBF тайл с pub4.fgislk.gov.ru
+1. Скачивает реальный PBF тайл с map.fgislk.gov.ru (gwc-01)
 2. Извлекает полные схемы ВСЕХ слоёв через osgeo.ogr
 3. Запрашивает REST API attributesinfo с реальным mvt_id
 4. Сравнивает результаты с кодом Fsm_1_2_4 (LAYER_MAPPING, ENRICHMENT_FIELDS)
@@ -132,7 +132,7 @@ CUSTOM_RESOLUTIONS = [
 TEST_LON = 37.8877122
 TEST_LAT = 55.7276567
 
-PBF_BASE_URL = "https://pub4.fgislk.gov.ru/plk/gwc/geowebcache/service/tms/1.0.0/FOREST_LAYERS:FOREST@EPSG:3857@pbf"
+PBF_BASE_URL = "https://map.fgislk.gov.ru/plk/gwc-01/geowebcache/service/tms/1.0.0/FOREST_LAYERS:FOREST@EPSG:3857@pbf"
 REST_API_URL = "https://map.fgislk.gov.ru/map/geo/map_api/layer/attributesinfo"
 REFERER = "https://map.fgislk.gov.ru/map/"
 

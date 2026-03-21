@@ -1205,19 +1205,11 @@ class Fsm_1_2_3_QuickOSMLoader:
             log_error("Fsm_1_2_3: OVERPASS endpoints не найдены в Base_api_endpoints.json")
             return False, 0
 
-        # 2. Получить fallback серверы (дедупликация URL)
-        fallback_servers = self.api_manager.get_fallback_servers("overpass_group")
-        if not fallback_servers:
-            log_error("Fsm_1_2_3: Overpass серверы не найдены (fallback_group='overpass_group')")
+        # 2. Пинг серверов и сортировка по латентности
+        server_urls = self.api_manager.ping_and_sort_overpass_servers()
+        if not server_urls:
+            log_error("Fsm_1_2_3: Все Overpass серверы недоступны")
             return False, 0
-
-        seen: set = set()
-        server_urls: List[str] = []
-        for ep in fallback_servers:
-            url = ep['base_url']
-            if url not in seen:
-                seen.add(url)
-                server_urls.append(url)
 
         log_info(f"Fsm_1_2_3: Найдено {len(overpass_endpoints)} OSM endpoint(ов), {len(server_urls)} сервер(ов)")
 
@@ -1293,19 +1285,11 @@ class Fsm_1_2_3_QuickOSMLoader:
             log_error("Fsm_1_2_3: OVERPASS endpoints не найдены в Base_api_endpoints.json")
             return 0, []
 
-        # 2. Получить fallback серверы (дедупликация URL)
-        fallback_servers = self.api_manager.get_fallback_servers("overpass_group")
-        if not fallback_servers:
-            log_error("Fsm_1_2_3: Overpass серверы не найдены (fallback_group='overpass_group')")
+        # 2. Пинг серверов и сортировка по латентности
+        server_urls = self.api_manager.ping_and_sort_overpass_servers()
+        if not server_urls:
+            log_error("Fsm_1_2_3: Все Overpass серверы недоступны")
             return 0, []
-
-        seen: set = set()
-        server_urls: List[str] = []
-        for ep in fallback_servers:
-            url = ep['base_url']
-            if url not in seen:
-                seen.add(url)
-                server_urls.append(url)
 
         log_info(f"Fsm_1_2_3: [BG] Найдено {len(overpass_endpoints)} OSM endpoint(ов), {len(server_urls)} сервер(ов)")
 

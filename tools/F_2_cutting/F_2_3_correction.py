@@ -305,15 +305,25 @@ class F_2_3_Correction(BaseTool):
         # Проверка целостности ID: сохранить или перенумеровать
         preserve_ids = self._check_ids_integrity(layer, layer_name)
 
-        # Синхронизация ZPR counter при сохранении существующих ID
-        # Чтобы следующий слой (НГС после Раздел) продолжил нумерацию
+        # Проверка конфликта диапазонов и синхронизация ZPR counter
+        # Раздел 1-348 → ZPR=348, НГС должен начинаться с 349+
         if preserve_ids and self._attribute_mapper:
             existing_ids = [item['attributes'].get('ID', 0) for item in features_data]
             existing_ids = [i for i in existing_ids if isinstance(i, int) and i > 0]
             if existing_ids:
+                min_existing = min(existing_ids)
                 max_existing = max(existing_ids)
                 current_zpr = self._attribute_mapper.get_current_zpr_id(zpr_type)
-                if max_existing > current_zpr:
+
+                if current_zpr > 0 and min_existing <= current_zpr:
+                    # IDs конфликтуют с предыдущим слоем
+                    # Например: Раздел 1-348 (ZPR=348), НГС 1-47 → перекрытие
+                    log_info(f"F_2_3: {layer_name} - диапазон ID {min_existing}-{max_existing} "
+                            f"конфликтует с предыдущим слоем (ZPR counter={current_zpr}), "
+                            f"требуется перенумерация")
+                    preserve_ids = False
+                elif max_existing > current_zpr:
+                    # IDs корректны, синхронизируем ZPR counter
                     self._attribute_mapper._zpr_id_counter[zpr_type] = max_existing
                     log_info(f"F_2_3: ZPR counter ({zpr_type}) синхронизирован до {max_existing}")
 

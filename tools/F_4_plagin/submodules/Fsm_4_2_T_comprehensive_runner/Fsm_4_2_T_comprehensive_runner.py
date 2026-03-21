@@ -61,22 +61,7 @@ class ComprehensiveTestRunner:
         # Добавить при необходимости
     }
 
-    # Модули, требующие сетевого подключения (могут зависать на timeouts)
-    NETWORK_DEPENDENT_MODULES = {
-        'Fsm_4_2_T_1_2.py',              # OSM Loader / Overpass API (может зависать на timeouts)
-        'Fsm_4_2_T_1_2_2.py',            # OSM Loader unit tests (запрос к 127.0.0.1 в секции 6)
-        'Fsm_4_2_T_api.py',              # API тесты (Yandex Cloud)
-        'Fsm_4_2_T_network.py',          # Сетевые тесты
-        'Fsm_4_2_T_security.py',         # Тесты безопасности API
-        'Fsm_4_2_T_telemetry.py',        # Телеметрия (API endpoint)
-        'Fsm_4_2_T_dadata.py',           # DaData API (M_39)
-        'Fsm_4_2_T_nspd.py',             # NSPD API stability monitoring
-        'Fsm_4_2_T_heartbeat.py',        # Heartbeat (License Revocation)
-        'Fsm_4_2_T_4_4.py',              # Feedback API тесты (Yandex Cloud)
-    }
-
     def __init__(self, iface, log_level: int = TestLogger.LOG_LEVEL_ERROR,
-                 skip_network_tests: bool = False,
                  progress_callback: Optional[Callable[[int, int, str], None]] = None):
         """
         Инициализация comprehensive runner
@@ -84,12 +69,10 @@ class ComprehensiveTestRunner:
         Args:
             iface: QGIS interface
             log_level: Уровень логирования (по умолчанию ERROR - только ошибки)
-            skip_network_tests: Пропустить тесты, требующие сетевого подключения (по умолчанию False)
             progress_callback: Callback прогресса (current_index, total_count, test_name)
         """
         self.iface = iface
         self.logger = TestLogger(log_level=log_level)
-        self.skip_network_tests = skip_network_tests
         self._progress_callback = progress_callback
 
         # Результаты тестов
@@ -112,29 +95,14 @@ class ComprehensiveTestRunner:
         pattern = os.path.join(test_dir, 'Fsm_4_2_T_*.py')
         test_files = glob.glob(pattern)
 
-        # Фильтрация исключённых файлов и сетевых тестов
+        # Фильтрация исключённых файлов
         filtered_tests = []
-        skipped_network = []
 
         for test_path in test_files:
             filename = os.path.basename(test_path)
 
-            # Пропускаем исключённые файлы
             if filename in self.EXCLUDED_FILES:
                 continue
-
-            # Пропускаем сетевые тесты если включен skip_network_tests
-            if self.skip_network_tests:
-                # Проверяем точное совпадение с NETWORK_DEPENDENT_MODULES
-                if filename in self.NETWORK_DEPENDENT_MODULES:
-                    skipped_network.append(filename)
-                    continue
-
-                # Проверяем паттерн для ВСЕХ тестов F_1_2 (API запросы)
-                # Паттерн: Fsm_4_2_T_1_2*.py (все тесты F_1_2)
-                if filename.startswith('Fsm_4_2_T_1_2'):
-                    skipped_network.append(filename)
-                    continue
 
             filtered_tests.append(test_path)
 
@@ -142,8 +110,6 @@ class ComprehensiveTestRunner:
         filtered_tests.sort()
 
         log_info(f"ComprehensiveRunner: Обнаружено {len(filtered_tests)} тестовых модулей")
-        if skipped_network:
-            log_info(f"ComprehensiveRunner: Пропущено {len(skipped_network)} сетевых тестов (F_1_2 API): {skipped_network}")
 
         return filtered_tests
 
@@ -188,8 +154,6 @@ class ComprehensiveTestRunner:
             return
 
         self.logger.log_lines.append(f"Запуск {len(test_files)} тестовых модулей...")
-        if self.skip_network_tests:
-            self.logger.log_lines.append("(сетевые тесты пропущены)")
         self.logger.log_lines.append("")
 
         # Запуск тестов последовательно (без вывода каждого)
@@ -241,8 +205,6 @@ class ComprehensiveTestRunner:
             return
 
         self.logger.log_lines.append(f"Запуск {len(test_files)} тестовых модулей...")
-        if self.skip_network_tests:
-            self.logger.log_lines.append("(сетевые тесты пропущены)")
         self.logger.log_lines.append("")
 
         total = len(test_files)

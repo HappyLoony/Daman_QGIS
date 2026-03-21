@@ -638,6 +638,16 @@ DEFAULT_RETRY_DELAY = 1.0             # Используется в request hand
 # Ограничение частоты запросов (запросов в секунду)
 DEFAULT_RATE_LIMIT = 10               # Защита от 429 ошибок и блокировки IP
 
+# Пул Overpass API серверов для динамического выбора по латентности
+OVERPASS_SERVERS = [
+    {"name": "Overpass DE",    "url": "https://overpass-api.de/api/"},
+    {"name": "Overpass RU",    "url": "https://overpass.openstreetmap.ru/api/"},
+    {"name": "VK Maps",        "url": "https://maps.mail.ru/osm/tools/overpass/api/"},
+    {"name": "Private.coffee", "url": "https://overpass.private.coffee/api/"},
+    {"name": "Kumi Systems",   "url": "https://overpass.kumi.systems/api/"},
+]
+OVERPASS_PING_TIMEOUT = (2, 3)        # (connect, read) секунды для пинга серверов
+
 # Задержки для file system операций (в секундах)
 FILE_RELEASE_DELAY = 0.5              # Ожидание освобождения файла после операций
 THREAD_POLL_INTERVAL = 0.01           # Интервал опроса для thread safety checks

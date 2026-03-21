@@ -106,7 +106,6 @@ class TestTabWidget(QWidget):
             self._runner = ComprehensiveTestRunner(
                 self.iface,
                 log_level=TestLogger.LOG_LEVEL_ERROR,
-                skip_network_tests=False,
                 progress_callback=self._on_test_progress
             )
 

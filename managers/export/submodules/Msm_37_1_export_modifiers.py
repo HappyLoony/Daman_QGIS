@@ -364,7 +364,7 @@ class Region78FormatModifier(ExportModifier):
                 'extra_context': {
                     **merged_base,
                     'show_area_per_feature': True,
-                    'filename_override': 'Перечень_координат_ЗУ',
+                    'filename_override': '_Перечень_координат_ЗУ',
                 },
             })
             # Без площади
@@ -374,7 +374,7 @@ class Region78FormatModifier(ExportModifier):
                 'extra_context': {
                     **merged_base,
                     'show_area_per_feature': False,
-                    'filename_override': 'Перечень_координат_ЗУ_без_площади',
+                    'filename_override': '_Перечень_координат_ЗУ_без_площади',
                 },
             })
             log_info(
@@ -383,7 +383,7 @@ class Region78FormatModifier(ExportModifier):
                 f"из {len(zu_layers)} слоёв"
             )
 
-        # Создаём merged item для ПС (1 файл)
+        # Создаём merged items для ПС (2 файла: с площадью и без)
         if ps_layers and first_ps_template:
             merged_title_ps = self._build_merged_title(
                 metadata, is_ps=True
@@ -392,24 +392,38 @@ class Region78FormatModifier(ExportModifier):
                 self.PS_SUBFOLDER_EXTENDED if self._extended_ps
                 else self.PS_SUBFOLDER
             )
+            merged_base_ps = {
+                'merged_export': True,
+                'spb_format': True,
+                'close_contours': False,
+                'merged_layers': list(ps_layers.values()),
+                'title_override': merged_title_ps,
+                'subfolder': ps_subfolder,
+                'is_ps': True,
+                'extended_servitude_name': self._extended_ps,
+            }
+            # С площадью
             result.append({
                 'layer': None,
                 'template': first_ps_template,
                 'extra_context': {
-                    'merged_export': True,
-                    'spb_format': True,
-                    'close_contours': False,
-                    'merged_layers': list(ps_layers.values()),
+                    **merged_base_ps,
                     'show_area_per_feature': True,
-                    'title_override': merged_title_ps,
-                    'filename_override': 'Перечень_координат_ПС',
-                    'subfolder': ps_subfolder,
-                    'is_ps': True,
-                    'extended_servitude_name': self._extended_ps,
+                    'filename_override': '_Перечень_координат_ПС',
+                },
+            })
+            # Без площади
+            result.append({
+                'layer': None,
+                'template': first_ps_template,
+                'extra_context': {
+                    **merged_base_ps,
+                    'show_area_per_feature': False,
+                    'filename_override': '_Перечень_координат_ПС_без_площади',
                 },
             })
             log_info(
-                f"Msm_37_1: Объединённый перечень ПС: "
+                f"Msm_37_1: Объединённые перечни ПС: "
                 f"{sum(l.featureCount() for l in ps_layers.values())} features "
                 f"из {len(ps_layers)} слоёв"
             )

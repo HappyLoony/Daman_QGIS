@@ -99,8 +99,8 @@ def find_existing_user_crs(crs) -> Optional[int]:
             existing_proj = normalize_proj4(user_crs_details.crs.toProj())
             if existing_proj == target_proj:
                 return user_crs_details.id
-    except Exception:
-        pass
+    except Exception as e:
+        log_warning(f"crs_utils (find_existing_user_crs): {e}")
 
     return None
 
@@ -130,8 +130,8 @@ def find_existing_user_crs_by_name(name: str) -> Optional[int]:
         for user_crs_details in registry.userCrsList():
             if user_crs_details.name.strip() == name.strip():
                 return user_crs_details.id
-    except Exception:
-        pass
+    except Exception as e:
+        log_warning(f"crs_utils (find_existing_user_crs_by_name): {e}")
 
     return None
 
@@ -186,59 +186,40 @@ def deduplicate_by_name() -> List[int]:
 
 
 def cleanup_recent_projections() -> int:
-    """Удалить unknown записи из кэша недавних проекций в QGIS3.ini.
+    """Удалить unknown записи из кэша недавних проекций.
 
     Unknown записи появляются когда слой загружается с CRS без authid
     (например, из PRJ с пользовательскими параметрами). QGIS сохраняет
     их в recentProjectionsAuthId как пустые строки.
 
-    Чистит три параллельных списка в [Sketches]/[general]:
-    - recentProjectionsAuthId
-    - recentProjectionsWkt
-    - recentProjectionsProj4
+    Использует QgsSettings API для чтения/записи in-memory кэша,
+    чтобы изменения сохранялись при выходе QGIS (QSettings::sync).
+
+    Чистит три параллельных списка в секции [UI]:
+    - UI/recentProjectionsAuthId
+    - UI/recentProjectionsWkt
+    - UI/recentProjectionsProj4
 
     Returns:
         Количество удалённых unknown записей.
     """
-    from qgis.core import QgsApplication
+    from qgis.core import QgsSettings
 
-    ini_path = Path(QgsApplication.qgisSettingsDirPath()) / "QGIS" / "QGIS3.ini"
-    if not ini_path.exists():
+    settings = QgsSettings()
+
+    # Читаем списки из in-memory кэша QSettings
+    auth_ids = settings.value("UI/recentProjectionsAuthId", [], type=list)
+    wkt_list = settings.value("UI/recentProjectionsWkt", [], type=list)
+    proj4_list = settings.value("UI/recentProjectionsProj4", [], type=list)
+
+    if not auth_ids:
         return 0
-
-    try:
-        with open(ini_path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
-    except OSError as e:
-        log_warning(f"crs_utils (cleanup_recent_projections): {e}")
-        return 0
-
-    lines = content.split("\n")
-
-    # Найти индексы трёх параллельных списков
-    auth_idx = None
-    wkt_idx = None
-    proj4_idx = None
-
-    for i, line in enumerate(lines):
-        if line.startswith("recentProjectionsAuthId="):
-            auth_idx = i
-        elif line.startswith("recentProjectionsWkt="):
-            wkt_idx = i
-        elif line.startswith("recentProjectionsProj4="):
-            proj4_idx = i
-
-    if auth_idx is None:
-        return 0
-
-    # Парсинг auth IDs (простые строки через ', ')
-    auth_ids = lines[auth_idx].split("=", 1)[1].strip().split(", ")
 
     # Позиции для сохранения (непустой authid, без дубликатов)
     keep_positions: List[int] = []
     seen: set = set()
     for j, aid in enumerate(auth_ids):
-        aid_clean = aid.strip().rstrip(",")
+        aid_clean = str(aid).strip() if aid else ""
         if aid_clean and aid_clean not in seen:
             seen.add(aid_clean)
             keep_positions.append(j)
@@ -247,54 +228,17 @@ def cleanup_recent_projections() -> int:
     if removed_count == 0:
         return 0
 
-    # Парсинг WKT/Proj4 (значения в кавычках могут содержать запятые)
-    def _parse_ini_list(raw: str) -> List[str]:
-        """Парсинг списка из QGIS INI с учётом кавычек в WKT."""
-        entries: List[str] = []
-        current: List[str] = []
-        in_quotes = False
-        i = 0
-        while i < len(raw):
-            ch = raw[i]
-            if ch == "\\" and i + 1 < len(raw) and raw[i + 1] == '"':
-                current.append('\\"')
-                i += 2
-                continue
-            elif ch == '"':
-                in_quotes = not in_quotes
-                current.append(ch)
-            elif ch == "," and not in_quotes:
-                entries.append("".join(current).strip())
-                current = []
-            else:
-                current.append(ch)
-            i += 1
-        if current:
-            entries.append("".join(current).strip())
-        return entries
+    # Фильтрация параллельных списков по сохранённым позициям
+    new_auth = [str(auth_ids[j]).strip() for j in keep_positions]
+    new_wkt = [wkt_list[j] for j in keep_positions if j < len(wkt_list)]
+    new_proj4 = [proj4_list[j] for j in keep_positions if j < len(proj4_list)]
 
-    # Фильтрация параллельных списков
-    new_auth = [auth_ids[j].strip().rstrip(",") for j in keep_positions]
-    lines[auth_idx] = "recentProjectionsAuthId=" + ", ".join(new_auth)
-
-    if wkt_idx is not None:
-        wkt_raw = lines[wkt_idx].split("=", 1)[1].strip()
-        wkt_entries = _parse_ini_list(wkt_raw)
-        new_wkt = [wkt_entries[j] for j in keep_positions if j < len(wkt_entries)]
-        lines[wkt_idx] = "recentProjectionsWkt=" + ", ".join(new_wkt)
-
-    if proj4_idx is not None:
-        proj4_raw = lines[proj4_idx].split("=", 1)[1].strip()
-        proj4_entries = _parse_ini_list(proj4_raw)
-        new_proj4 = [proj4_entries[j] for j in keep_positions if j < len(proj4_entries)]
-        lines[proj4_idx] = "recentProjectionsProj4=" + ", ".join(new_proj4)
-
-    try:
-        with open(ini_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
-    except OSError as e:
-        log_warning(f"crs_utils (cleanup_recent_projections): write failed: {e}")
-        return 0
+    # Запись через QgsSettings (модификация in-memory кэша)
+    settings.setValue("UI/recentProjectionsAuthId", new_auth)
+    if wkt_list:
+        settings.setValue("UI/recentProjectionsWkt", new_wkt)
+    if proj4_list:
+        settings.setValue("UI/recentProjectionsProj4", new_proj4)
 
     log_info(
         f"crs_utils: cleanup_recent_projections -- "

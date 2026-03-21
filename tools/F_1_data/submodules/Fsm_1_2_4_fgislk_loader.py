@@ -345,7 +345,8 @@ class Fsm_1_2_4_FgislkLoader:
                 requests.exceptions.Timeout,
                 requests.exceptions.SSLError):
             return None
-        except Exception:
+        except Exception as e:
+            log_warning(f"Fsm_1_2_4 (_fetch_attributes): {type(e).__name__}: {str(e)[:200]}")
             return None
 
     def _enrich_attributes(self, mvt_id_map: Dict[str, int]) -> Dict[str, dict]:
@@ -389,8 +390,13 @@ class Fsm_1_2_4_FgislkLoader:
                         fail_count += 1
                 except TimeoutError:
                     fail_count += 1
-                except Exception:
+                except Exception as e:
                     fail_count += 1
+                    if fail_count == 1:
+                        log_warning(
+                            f"Fsm_1_2_4 (_enrich_attributes): первая ошибка: "
+                            f"{type(e).__name__}: {str(e)[:200]}"
+                        )
 
         if fail_count > 0:
             log_warning(
@@ -638,9 +644,13 @@ class Fsm_1_2_4_FgislkLoader:
                 if lyr.fields().indexFromName("externalid") == -1:
                     continue
 
+                skipped_no_eid = 0
+                total_feats = 0
                 for feat in lyr.getFeatures():
+                    total_feats += 1
                     eid = feat.attribute("externalid")
                     if eid is None:
+                        skipped_no_eid += 1
                         continue
 
                     # Трансформируем геометрию
@@ -651,6 +661,15 @@ class Fsm_1_2_4_FgislkLoader:
                     new_feat.setGeometry(g)
                     new_feat.setAttributes(feat.attributes())
                     tile_data[lname].append(new_feat)
+
+                if skipped_no_eid > 0 and total_feats > 0:
+                    skip_ratio = skipped_no_eid / total_feats
+                    if skip_ratio > 0.5:
+                        log_warning(
+                            f"Fsm_1_2_4: Слой {lname} тайл {x}/{y}: "
+                            f"{skipped_no_eid}/{total_feats} объектов без externalid "
+                            f"({skip_ratio:.0%})"
+                        )
 
             return tile_data
 
@@ -751,7 +770,11 @@ class Fsm_1_2_4_FgislkLoader:
             return {}
 
         # Трансформируем границы в EPSG:3857
-        source_crs = QgsProject.instance().mapLayersByName('L_1_1_1_Границы_работ')[0].crs()
+        boundary_layers = QgsProject.instance().mapLayersByName('L_1_1_1_Границы_работ')
+        if not boundary_layers:
+            log_error("Fsm_1_2_4: Слой L_1_1_1_Границы_работ не найден для определения CRS")
+            return {}
+        source_crs = boundary_layers[0].crs()
         dest_crs = QgsCoordinateReferenceSystem("EPSG:3857")
         transform = QgsCoordinateTransform(source_crs, dest_crs, QgsProject.instance())
         boundaries_geom.transform(transform)
@@ -1014,6 +1037,9 @@ class Fsm_1_2_4_FgislkLoader:
                 # Валидация и полировка геометрий перед объединением
                 raw_parts = []
                 for g in data["geom"]:
+                    # Привязка к сетке 0.01м (1 см) -- обеспечивает совпадение вершин
+                    # на границах тайлов для корректного unaryUnion (ref: Fadeev v2.1)
+                    g = g.snappedToGrid(0.01, 0.01, 0, 0)
                     # Исправляем невалидные геометрии
                     if not g.isGeosValid():
                         g = g.makeValid()
