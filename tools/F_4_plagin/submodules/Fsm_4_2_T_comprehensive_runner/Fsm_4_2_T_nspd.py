@@ -46,24 +46,26 @@ class TestNSPD:
     BUFFER_KM = 5.0  # Буфер вокруг тестовой точки (км)
 
     # Все известные группы endpoint'ов в Base_api_endpoints.json
+    # OVERPASS_FALLBACK удалена: серверный пул теперь в constants.py (OVERPASS_SERVERS),
+    # выбор сервера через M_14.ping_and_sort_overpass_servers()
     KNOWN_GROUPS = [
         'EGRN_WFS', 'EGRN_WMTS', 'OVERPASS',
-        'OVERPASS_FALLBACK', 'FGISLK', 'GOOGLE'
+        'FGISLK', 'GOOGLE'
     ]
 
     # Обязательные поля по группам (помимо общих endpoint_id, api_group)
     # base_url -- основной URL, url_template -- шаблон с {base_url} + {z}/{x}/{y}
+    # OVERPASS: base_url="dynamic" (сервер выбирается кодом через пинг)
     GROUP_REQUIRED_FIELDS: Dict[str, List[str]] = {
         'EGRN_WFS': ['category_id', 'test_extent'],
         'EGRN_WMTS': ['base_url', 'url_template'],
-        'OVERPASS': ['base_url', 'url_template', 'osm_values'],
-        'OVERPASS_FALLBACK': ['base_url', 'url_template'],
+        'OVERPASS': ['osm_values'],
         'FGISLK': ['base_url', 'url_template'],
         'GOOGLE': ['base_url', 'url_template'],
     }
 
-    # Группы, где layer_name может быть null (fallback-серверы)
-    GROUPS_OPTIONAL_LAYER_NAME = {'OVERPASS_FALLBACK'}
+    # Группы, где layer_name может быть null
+    GROUPS_OPTIONAL_LAYER_NAME: set = set()
 
     def __init__(self, iface, logger):
         self.iface = iface

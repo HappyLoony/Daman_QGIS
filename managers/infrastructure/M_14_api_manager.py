@@ -227,30 +227,44 @@ class APIManager:
         """
         Пинг всех Overpass серверов параллельно, возврат отсортированных по латентности URL.
 
-        Использует GET запрос к /status (легковесный endpoint Overpass API).
+        Использует POST к /interpreter с минимальным OQL запросом ([out:csv(::count)];
+        node[nonexistent_key_12345];out count;) чтобы проверить реальную доступность
+        сервера (включая авторизацию, rate limiting, блокировки).
         Серверы пингуются параллельно через ThreadPoolExecutor.
-        Недоступные серверы исключаются из результата.
 
         Returns:
             List[str]: URL серверов от быстрого к медленному (только живые).
                        Если все недоступны - возвращает полный список без сортировки.
         """
-        from Daman_QGIS.constants import OVERPASS_SERVERS, OVERPASS_PING_TIMEOUT
+        from Daman_QGIS.constants import (
+            OVERPASS_SERVERS, OVERPASS_PING_TIMEOUT, PLUGIN_VERSION
+        )
         import requests as req
 
         servers = OVERPASS_SERVERS
         results: List[Tuple[str, str, float, bool]] = []  # (name, url, latency, alive)
 
+        # Минимальный запрос: CSV count несуществующего ключа (~0ms на сервере)
+        ping_query = '[out:csv(::count)];node[nonexistent_key_12345];out count;'
+        headers = {
+            'User-Agent': f'Daman_QGIS/{PLUGIN_VERSION} (QGIS Plugin; overpass-ping)'
+        }
+
         def _ping_server(server: Dict[str, str]) -> Tuple[str, str, float, bool]:
-            """Пинг одного сервера, возврат (name, url, latency_sec, alive)."""
+            """Пинг одного сервера через POST /interpreter."""
             name = server['name']
             url = server['url']
-            status_url = url.rstrip('/') + '/status'
+            interpreter_url = url.rstrip('/') + '/interpreter'
             try:
                 start = time.monotonic()
-                resp = req.get(status_url, timeout=OVERPASS_PING_TIMEOUT)
+                resp = req.post(
+                    interpreter_url,
+                    data={'data': ping_query},
+                    timeout=OVERPASS_PING_TIMEOUT,
+                    headers=headers
+                )
                 latency = time.monotonic() - start
-                if resp.status_code < 500:
+                if resp.status_code < 400:
                     return (name, url, latency, True)
                 return (name, url, float('inf'), False)
             except Exception:

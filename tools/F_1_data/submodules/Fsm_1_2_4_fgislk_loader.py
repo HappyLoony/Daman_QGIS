@@ -1022,7 +1022,7 @@ class Fsm_1_2_4_FgislkLoader:
             else:
                 # Временное название: _TEMP_FGISLK_QUARTER_линия или _TEMP_FGISLK_CLEARCUT_полигон
                 final_layer_name = f"{self.TEMP_LAYER_PREFIX}{base_layer_key}_{geom_type_ru}"
-                log_warning(f"Fsm_1_2_4: Слой '{base_layer_key}' ({geom_type_ru}) -> временное название '{final_layer_name}'")
+                log_info(f"Fsm_1_2_4: Слой '{base_layer_key}' ({geom_type_ru}) -> временное название '{final_layer_name}'")
 
             # Создаём memory layer
             layer = QgsVectorLayer(f"{geom_type}?crs=EPSG:3857", final_layer_name, "memory")
