@@ -218,7 +218,7 @@ class BaseLayersManager:
                     'enabled': nspd_layers.get('admin', False),
                     'category_name': 'Населённые пункты',  # АТД полигоны
                     'category_id': 36832,
-                    'layer_name': 'Le_1_2_3_5_АТД_НП_poly'
+                    'layer_name': 'Le_1_2_3_4_АТД_НП_poly'
                 },
                 {
                     'enabled': nspd_layers.get('economic', False),

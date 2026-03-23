@@ -7,6 +7,7 @@
 import os
 from typing import List, Tuple
 from qgis.core import QgsProject, QgsVectorLayer
+from Daman_QGIS.constants import LAYER_SELECTION_ZU, LAYER_SELECTION_OKS
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
@@ -39,9 +40,9 @@ class CadnumListExporter:
             return False, ""
 
         # Собираем кадастровые номера из слоев
-        # ВАЖНО: Для ЗУ используем слой Le_2_1_1_1_Выборка_ЗУ (без буфера 10м),
+        # ВАЖНО: Для ЗУ используем слой Le_1_9_1_1_Выборка_ЗУ (без буфера 10м),
         # а НЕ L_1_2_1_WFS_ЗУ (который загружается с буфером для WFS запросов)
-        land_plots = self._collect_cadnums_from_layer('Le_2_1_1_1_Выборка_ЗУ')
+        land_plots = self._collect_cadnums_from_layer(LAYER_SELECTION_ZU)
         capital_objects = self._collect_capital_objects_cadnums()
         cadastral_quarters = self._collect_cadnums_from_layer('L_1_2_2_WFS_КК')
 
@@ -242,13 +243,13 @@ class CadnumListExporter:
 
     def _collect_capital_objects_cadnums(self) -> List[str]:
         """
-        Собрать кадастровые номера ОКС из слоя выборки L_2_1_2_Выборка_ОКС
+        Собрать кадастровые номера ОКС из слоя выборки L_1_9_2_Выборка_ОКС
 
         Returns:
             list: Список кадастровых номеров всех ОКС (может содержать дубликаты, дедупликация происходит позже)
         """
         # Используем слой выборки ОКС (согласован с Fsm_1_3_4 для единообразия подсчёта)
-        return self._collect_cadnums_from_layer('L_2_1_2_Выборка_ОКС')
+        return self._collect_cadnums_from_layer(LAYER_SELECTION_OKS)
 
     def _sort_cadastral_numbers(self, cadnums: List[str]) -> List[str]:
         """

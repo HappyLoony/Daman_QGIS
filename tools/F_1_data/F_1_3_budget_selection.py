@@ -14,7 +14,10 @@ from qgis.core import QgsProject, Qgis
 
 from Daman_QGIS.core.base_tool import BaseTool
 from Daman_QGIS.managers import LayerManager, get_reference_managers, registry, FolderType
-from Daman_QGIS.constants import PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION, MESSAGE_WARNING_DURATION
+from Daman_QGIS.constants import (
+    PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION, MESSAGE_WARNING_DURATION,
+    LAYER_SELECTION_ZU, LAYER_WFS_NP
+)
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 # Async Task для M_17 (новая реализация)
@@ -69,7 +72,7 @@ class F_1_3_BudgetSelection(BaseTool):
         """УСТАРЕВШИЙ МЕТОД: Получение списка required слоёв из Base_layers.json
 
         ВАЖНО: Этот метод не используется в текущей реализации.
-        Для земельных участков используется округленный слой Le_2_1_1_1_Выборка_ЗУ из F_2_1.
+        Для земельных участков используется округленный слой Le_1_9_1_1_Выборка_ЗУ из F_2_1.
 
         Returns:
             Dict[str, str]: Словарь {описание: имя_слоя} для слоёв групп L_1_2 и Le_1_2
@@ -93,12 +96,12 @@ class F_1_3_BudgetSelection(BaseTool):
             if full_name.startswith('L_1_2_') or full_name.startswith('Le_1_2_'):
                 # Создаем понятное описание
                 if 'ЗУ' in full_name:
-                    # УСТАРЕЛО: Используется Le_2_1_1_1_Выборка_ЗУ вместо L_1_2_1_WFS_ЗУ
-                    layers_dict["Загрузка земельных участков..."] = 'Le_2_1_1_1_Выборка_ЗУ'
+                    # УСТАРЕЛО: Используется LAYER_SELECTION_ZU вместо L_1_2_1_WFS_ЗУ
+                    layers_dict["Загрузка земельных участков..."] = LAYER_SELECTION_ZU
                 elif 'КК' in full_name:
                     layers_dict["Загрузка кадастровых кварталов..."] = 'L_1_2_2_WFS_КК'
                 elif 'НП' in full_name:
-                    layers_dict["Загрузка населенных пунктов..."] = 'Le_1_2_3_5_АТД_НП_poly'
+                    layers_dict["Загрузка населенных пунктов..."] = LAYER_WFS_NP
 
         log_info(f"F_1_3_Бюджет: Загружено {len(layers_dict)} слоёв из БД")
         return layers_dict

@@ -6,7 +6,7 @@ Msm_24_4 - Обработка связей ЕЗ (Единое землеполь
     1. Находит все выписки ЕЗ (Le_1_6_3_*)
     2. Извлекает список дочерних участков из поля "Обособленные_участки_ЕЗ"
        (working_name из Base_field_mapping_EGRN.json, unified_land_record)
-    3. Находит эти участки в выборке (Le_2_1_1_1_Выборка_ЗУ)
+    3. Находит эти участки в выборке (Le_1_9_1_1_Выборка_ЗУ)
     4. Проверяет что участки имеют тип "Обособленный участок" или "Условный участок"
     5. Проставляет поле "ЕЗ" = КН родительского ЕЗ
     6. Копирует сведения из ЕЗ в дочерние участки (всегда replace)
@@ -74,7 +74,7 @@ class Msm_24_4_EzProcessor:
         # ШАГ 2: Найти слой выборки ЗУ
         selection_layer = self._find_selection_zu_layer()
         if selection_layer is None:
-            log_warning("Msm_24_4: Не найден слой выборки Le_2_1_1_1_Выборка_ЗУ")
+            log_warning(f"Msm_24_4: Не найден слой выборки {LAYER_SELECTION_ZU}")
             return stats
 
         # ШАГ 3: Обработать каждый слой выписок ЕЗ
@@ -109,7 +109,7 @@ class Msm_24_4_EzProcessor:
 
     def _find_selection_zu_layer(self) -> Optional[QgsVectorLayer]:
         """Найти слой выборки ЗУ"""
-        # Реальное название из Base_layers.json: Le_2_1_1_1_Выборка_ЗУ
+        # Реальное название из Base_layers.json: Le_1_9_1_1_Выборка_ЗУ
         for layer in QgsProject.instance().mapLayers().values():
             if isinstance(layer, QgsVectorLayer):
                 # Ищем по полному имени или по вхождению

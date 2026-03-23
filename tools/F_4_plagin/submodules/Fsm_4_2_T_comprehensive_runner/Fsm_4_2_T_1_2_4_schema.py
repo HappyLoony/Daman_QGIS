@@ -34,26 +34,30 @@ urllib3.disable_warnings(InsecureRequestWarning)
 # --------------------------------------------------------------------------
 
 LAYER_MAPPING = {
-    "FORESTRY": "Le_1_7_2_0",
-    "FORESTRY_APPROVE": "Le_1_7_2_0a",
-    "FORESTRY_TAXATION_DATE": "Le_1_7_2_1",
-    "DISTRICT_FORESTRY_TAXATION_DATE": "Le_1_7_2_2",
-    "QUARTER": "Le_1_7_2_3",
-    "TAXATION_PIECE": "Le_1_7_2_4",
+    "FORESTRY_APPROVE": "Le_1_7_2_1",
+    "FORESTRY_TAXATION_DATE": "Le_1_7_2_2",
+    "DISTRICT_FORESTRY_TAXATION_DATE": "Le_1_7_2_3",
+    "QUARTER": "Le_1_7_2_4",
+    "TAXATION_PIECE": "Le_1_7_2_5",
     "FOREST_STEAD": "Le_1_7_2_6",
     "PART_FOREST_STEAD": "Le_1_7_2_7",
-    # SUBJECT_BOUNDARY -- исключён: дубликат АТД из ЕГРН, нет externalid
-    "TIMBER_YARD": "Le_1_7_12",
-    "FOREST_PURPOSE": "Le_1_7_6",
-    "PROTECTIVE_FOREST": "Le_1_7_7",
-    "PROTECTIVE_FOREST_SUBCATEGORY": "Le_1_7_8",
-    "SPECIAL_PROTECT_STEAD": "Le_1_7_9",
-    "CLEARCUT": "Le_1_7_10",
-    "PROCESSING_OBJECT": "Le_1_7_11",
+    "FOREST_PURPOSE": "Le_1_7_2_8",
+    "PROTECTIVE_FOREST": "Le_1_7_2_9",
+    "PROTECTIVE_FOREST_SUBCATEGORY": "Le_1_7_2_10",
+    "SPECIAL_PROTECT_STEAD": "Le_1_7_2_11",
+    "CLEARCUT": "Le_1_7_2_12",
+}
+
+# Слои, которые не загружаются, но мониторятся
+MONITORED_LAYERS = {
+    "FORESTRY",              # Дубль FORESTRY_TAXATION_DATE без taxation_date
+    "DISTRICT_FORESTRY",     # Дубль DISTRICT_FORESTRY_TAXATION_DATE без taxation_date
+    "SUBJECT_BOUNDARY",      # Дубликат АТД из ЕГРН, нет externalid
+    "TIMBER_YARD",           # Склады древесины (Point)
+    "PROCESSING_OBJECT",     # Лесопереработка (Point)
 }
 
 LAYER_EXTRAS = {
-    "FORESTRY": set(),
     "FORESTRY_APPROVE": set(),
     "FORESTRY_TAXATION_DATE": set(),
     "DISTRICT_FORESTRY_TAXATION_DATE": set(),
@@ -67,13 +71,11 @@ LAYER_EXTRAS = {
     },
     "FOREST_STEAD": set(),
     "PART_FOREST_STEAD": set(),
-    "TIMBER_YARD": set(),
     "FOREST_PURPOSE": set(),
     "PROTECTIVE_FOREST": set(),
     "PROTECTIVE_FOREST_SUBCATEGORY": set(),
     "SPECIAL_PROTECT_STEAD": set(),
     "CLEARCUT": set(),
-    "PROCESSING_OBJECT": set(),
 }
 
 ENRICHMENT_FIELDS_CODE = {

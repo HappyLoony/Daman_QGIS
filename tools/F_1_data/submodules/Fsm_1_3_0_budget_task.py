@@ -12,6 +12,7 @@ IMPORTANT: Некоторые операции (показ диалога рез
 from typing import Any, Dict, Optional, TYPE_CHECKING
 from qgis.core import QgsProject
 from Daman_QGIS.managers import BaseAsyncTask
+from Daman_QGIS.constants import LAYER_WFS_NP
 from Daman_QGIS.utils import log_info, log_error, log_warning
 
 if TYPE_CHECKING:
@@ -161,7 +162,7 @@ class Fsm_1_3_0_BudgetTask(BaseAsyncTask):
 
         self.report_progress(40, "Проверка населенных пунктов...")
         log_info("Fsm_1_3_0: Шаг 4 - Проверка НП")
-        self.vector_loader.load_single_layer('Le_1_2_3_5_АТД_НП_poly', boundaries_geometry)
+        self.vector_loader.load_single_layer(LAYER_WFS_NP, boundaries_geometry)
 
         # Шаг 5: Проверка лесных кварталов (55%)
         if self.is_cancelled():

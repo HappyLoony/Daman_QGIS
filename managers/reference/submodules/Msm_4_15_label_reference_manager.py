@@ -104,7 +104,7 @@ class LabelReferenceManager(BaseReferenceLoader):
             Приоритет (0-10, где 10=максимальный)
 
         Example:
-            >>> priority = manager.get_label_priority("Le_1_2_3_5_АТД_НП_poly")
+            >>> priority = manager.get_label_priority("Le_1_2_3_4_АТД_НП_poly")
             >>> print(f"Приоритет: {priority}")  # 10
         """
         config = self.get_label_config(full_name)

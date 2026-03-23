@@ -4,7 +4,7 @@ Msm_33_1_HLU_DataProcessor - Процессор данных для докуме
 
 Отвечает за:
 - Извлечение данных из слоёв ЗПР (7 типов)
-- Группировку по муниципальным округам (Le_1_2_3_12_АТД_МО_poly)
+- Группировку по муниципальным округам (Le_1_2_3_10_АТД_МО_poly)
 - Подготовку контекста для всех 6 таблиц ХЛУ
 - Расчёт промежуточных итогов и подытогов
 - Форматирование данных (площади с запятой, 4 знака)
@@ -40,6 +40,7 @@ from Daman_QGIS.constants import (
     LAYERS_ZPR_ALL,
     LAYER_ZPR_OKS, LAYER_ZPR_PO, LAYER_ZPR_VO,
     LAYER_ZPR_REK_AD, LAYER_ZPR_SETI_PO, LAYER_ZPR_SETI_VO, LAYER_ZPR_NE,
+    LAYER_ATD_MO,
 )
 
 
@@ -58,7 +59,7 @@ ZPR_FULL_NAMES = {
 }
 
 # Слой муниципальных округов
-MO_LAYER_NAME = "Le_1_2_3_12_АТД_МО_poly"
+MO_LAYER_NAME = LAYER_ATD_MO
 
 # Константы слоёв Le_3_* (результат F_3_1)
 LE4_LAYERS = [

@@ -19,6 +19,7 @@ from qgis.core import (
 from qgis.PyQt.QtCore import QMetaType
 
 from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.constants import LAYER_SELECTION_ZU
 from Daman_QGIS.managers import StyleManager, DataCleanupManager
 from .Fsm_1_1_4_4_layer_creator import set_field_aliases
 
@@ -1096,7 +1097,7 @@ def supplement_selection_from_extracts(created_layers: List[QgsVectorLayer]) -> 
     существующую выборку данными из новых выписок.
 
     Логика:
-    1. Проверить существование слоя выборки (Le_2_1_1_1_Выборка_ЗУ)
+    1. Проверить существование слоя выборки (Le_1_9_1_1_Выборка_ЗУ)
     2. Извлечь атрибуты из созданных слоёв выписок
     3. Дополнить пустые поля в выборке по КН
 
@@ -1107,7 +1108,7 @@ def supplement_selection_from_extracts(created_layers: List[QgsVectorLayer]) -> 
         int: Количество обновлённых записей в выборке
     """
     # Слой выборки ЗУ
-    SELECTION_LAYER_NAME = 'Le_2_1_1_1_Выборка_ЗУ'
+    SELECTION_LAYER_NAME = LAYER_SELECTION_ZU
 
     # Поля для дополнения
     FIELDS_TO_SUPPLEMENT = [

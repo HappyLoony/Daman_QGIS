@@ -184,7 +184,7 @@ COORD_ZU_SELECTION = DocumentTemplate(
     template_id='coord_zu_selection',
     doc_type='coordinate_list',
     name='Перечень координат существующих ЗУ',
-    source_layers=['L_2_1_1_Выборка_ЗУ'],
+    source_layers=['L_1_9_1_Выборка_ЗУ'],
     title_template='Перечень координат характерных точек границ существующих земельных участков',
     contour_format='Контур {№}',
     supports_wgs84=True,
@@ -220,7 +220,7 @@ VEDOMOST_ZU_SELECTION = DocumentTemplate(
     template_id='vedomost_zu_selection',
     doc_type='attribute_list',
     name='Ведомость существующих ЗУ',
-    source_layers=['L_2_1_1_Выборка_ЗУ'],
+    source_layers=['L_1_9_1_Выборка_ЗУ'],
     title_template='Ведомость земельных участков в границах {1_3_object_type}',
     column_source={'database': 'Base_selection_ZU', 'field': 'full_name'},
     filename_template='Ведомость_ЗУ',
@@ -262,12 +262,12 @@ CADNUM_ZU = DocumentTemplate(
     template_id='cadnum_zu',
     doc_type='cadnum_list',
     name='Перечень КН земельных участков',
-    source_layers=['Le_2_1_1_1_Выборка_ЗУ'],
+    source_layers=['Le_1_9_1_1_Выборка_ЗУ'],
     title_template='Кадастровый номер ЗУ',
     filename_template='Перечень_КН',
     cadnum_field='cad_num',
     cadnum_sheet_name='Земельные участки',
-    cadnum_fallback_layer='L_2_1_1_Выборка_ЗУ',
+    cadnum_fallback_layer='L_1_9_1_Выборка_ЗУ',
 )
 
 CADNUM_OKS = DocumentTemplate(
@@ -440,7 +440,7 @@ class TemplateRegistry:
         Проверить соответствие имени слоя списку паттернов
 
         Поддерживает:
-        - Точное совпадение: "L_2_1_1_Выборка_ЗУ"
+        - Точное совпадение: "L_1_9_1_Выборка_ЗУ"
         - Префикс: "Le_2_1_1_" (если кончается на _)
         - Wildcard: "Le_2_1_1_*_Раздел"
         - Глобальный: "*"

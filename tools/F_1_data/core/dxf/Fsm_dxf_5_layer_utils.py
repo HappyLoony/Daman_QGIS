@@ -34,7 +34,7 @@ class DxfLayerUtils:
         Получить информацию о слое из Base_layers.json по full_name
 
         Args:
-            full_name: Полное имя слоя (например, "Le_2_1_1_1_Выборка_ЗУ")
+            full_name: Полное имя слоя (например, "Le_1_9_1_1_Выборка_ЗУ")
 
         Returns:
             Словарь с данными слоя или None

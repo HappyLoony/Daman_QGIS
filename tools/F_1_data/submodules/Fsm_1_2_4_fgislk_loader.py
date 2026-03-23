@@ -81,33 +81,38 @@ class TileCache:
 class Fsm_1_2_4_FgislkLoader:
     """Загрузчик данных ФГИС ЛК через vector tiles"""
 
-    # Маппинг слоёв ФГИС ЛК на слои проекта
-    # Верифицировано через PBF тайлы 2026-03-13 (Fsm_4_2_T_1_2_4_schema.py)
+    # Слои для загрузки в проект (от большего к меньшему)
+    # Верифицировано через PBF тайлы 2026-03-22 (25 тайлов Подмосковья, QGIS MCP)
     LAYER_MAPPING = {
-        # Основные слои (соответствуют Base_layers.json, подтверждены в PBF)
-        "FORESTRY": "Le_1_7_2_0_ФГИС_ЛК_Лесничества_базовые",              # Базовые границы лесничеств
-        "FORESTRY_APPROVE": "Le_1_7_2_0a_ФГИС_ЛК_Лесничества_утверж",       # Утверждённые границы лесничеств
-        "FORESTRY_TAXATION_DATE": "Le_1_7_2_1_ФГИС_ЛК_Лесничества",         # Лесничества с датой таксации
-        "DISTRICT_FORESTRY_TAXATION_DATE": "Le_1_7_2_2_ФГИС_ЛК_Уч_Лесничества",  # Уч. лесничества
-        "QUARTER": "Le_1_7_2_3_ФГИС_ЛК_Кварталы",
-        "TAXATION_PIECE": "Le_1_7_2_4_ФГИС_ЛК_Выделы",
-        "FOREST_STEAD": "Le_1_7_2_6_ФГИС_ЛК_Участки",                       # Лесные участки
-        "PART_FOREST_STEAD": "Le_1_7_2_7_ФГИС_ЛК_Части_участков",           # Части лесных участков (кадастровые)
-        # SUBJECT_BOUNDARY -- исключён: дубликат Le_1_2_3_14_АТД_Суб_РФ_poly (ЕГРН), нет externalid
-        "TIMBER_YARD": "Le_1_7_12_ФГИС_ЛК_Склады_древесины",                # Склады древесины (данные есть в z10+)
-        # Тематические слои (заглушки - не обнаружены в PBF z10/z12, возможно на других зумах)
-        "FOREST_PURPOSE": "Le_1_7_6_ФГИС_ЛК_Целевое_назначение",            # Виды лесов согласно целевому назначению
-        "PROTECTIVE_FOREST": "Le_1_7_7_ФГИС_ЛК_Защитные_леса",              # Категории защитных лесов
-        "PROTECTIVE_FOREST_SUBCATEGORY": "Le_1_7_8_ФГИС_ЛК_Ценные_леса",    # Запись о ценных лесах
-        "SPECIAL_PROTECT_STEAD": "Le_1_7_9_ФГИС_ЛК_ОЗУ",                    # Особо защитные участки лесов
-        "CLEARCUT": "Le_1_7_10_ФГИС_ЛК_Лесосеки",                           # Лесосека
-        "PROCESSING_OBJECT": "Le_1_7_11_ФГИС_ЛК_Лесопереработка",           # Пункт лесопереработки
+        # Административная иерархия (Polygon, от большего к меньшему)
+        "FORESTRY_APPROVE": "Le_1_7_2_1_ФГИС_ЛК_УТВ_Лесничества",
+        "FORESTRY_TAXATION_DATE": "Le_1_7_2_2_ФГИС_ЛК_Лесничества",
+        "DISTRICT_FORESTRY_TAXATION_DATE": "Le_1_7_2_3_ФГИС_ЛК_Уч_Лесничества",
+        "QUARTER": "Le_1_7_2_4_ФГИС_ЛК_Кварталы",
+        "TAXATION_PIECE": "Le_1_7_2_5_ФГИС_ЛК_Выделы",
+        "FOREST_STEAD": "Le_1_7_2_6_ФГИС_ЛК_Участки",
+        "PART_FOREST_STEAD": "Le_1_7_2_7_ФГИС_ЛК_Части_участков",
+        # Тематические (Polygon) — не обнаружены в PBF z12, возможно на других зумах/районах
+        "FOREST_PURPOSE": "Le_1_7_2_8_ФГИС_ЛК_Целевое_назначение",
+        "PROTECTIVE_FOREST": "Le_1_7_2_9_ФГИС_ЛК_Защитные_леса",
+        "PROTECTIVE_FOREST_SUBCATEGORY": "Le_1_7_2_10_ФГИС_ЛК_Ценные_леса",
+        "SPECIAL_PROTECT_STEAD": "Le_1_7_2_11_ФГИС_ЛК_ОЗУ",
+        "CLEARCUT": "Le_1_7_2_12_ФГИС_ЛК_Лесосеки",
+    }
+
+    # Слои, которые НЕ загружаются, но мониторятся в логах (log_info)
+    # Позволяет отслеживать изменения на сервере ФГИС ЛК без засорения проекта
+    MONITORED_LAYERS = {
+        "FORESTRY",              # Дубль FORESTRY_TAXATION_DATE без taxation_date
+        "DISTRICT_FORESTRY",     # Дубль DISTRICT_FORESTRY_TAXATION_DATE без taxation_date
+        "SUBJECT_BOUNDARY",      # Дубликат АТД из ЕГРН, нет externalid
+        "TIMBER_YARD",           # Склады древесины (Point)
+        "PROCESSING_OBJECT",     # Лесопереработка (Point)
     }
 
     # Слои, для которых уже существуют полигональные определения в Base_layers.json
     # Остальные слои (линии, точки или новые полигоны) получат временные названия
     POLYGON_LAYERS_IN_DB = {
-        "FORESTRY",
         "FORESTRY_APPROVE",
         "FORESTRY_TAXATION_DATE",
         "DISTRICT_FORESTRY_TAXATION_DATE",
@@ -123,7 +128,6 @@ class Fsm_1_2_4_FgislkLoader:
     # Дополнительные слои для обогащения данных (атрибуты из связанных слоёв PBF)
     # Верифицировано через PBF тайлы 2026-03-13
     LAYER_EXTRAS = {
-        "FORESTRY": set(),
         "FORESTRY_APPROVE": set(),
         "FORESTRY_TAXATION_DATE": set(),
         "DISTRICT_FORESTRY_TAXATION_DATE": set(),
@@ -137,14 +141,11 @@ class Fsm_1_2_4_FgislkLoader:
         },
         "FOREST_STEAD": set(),
         "PART_FOREST_STEAD": set(),
-        "TIMBER_YARD": set(),
-        # Тематические слои - не обнаружены в PBF, extras пока пустые
         "FOREST_PURPOSE": set(),
         "PROTECTIVE_FOREST": set(),
         "PROTECTIVE_FOREST_SUBCATEGORY": set(),
         "SPECIAL_PROTECT_STEAD": set(),
         "CLEARCUT": set(),
-        "PROCESSING_OBJECT": set(),
     }
 
     # Параметры тайловой сетки
@@ -727,16 +728,27 @@ class Fsm_1_2_4_FgislkLoader:
             log_warning(f"Fsm_1_2_4: Ошибка диагностики PBF: {str(e)}")
             return layer_info
 
-        # Собираем все известные слои (основные + extras)
-        known_layers = set(self.LAYER_MAPPING.keys())
+        # Собираем все известные слои (загружаемые + extras + мониторинг)
+        loadable_layers = set(self.LAYER_MAPPING.keys())
         for extras in self.LAYER_EXTRAS.values():
-            known_layers |= extras
+            loadable_layers |= extras
+        all_known = loadable_layers | self.MONITORED_LAYERS
 
         found_layers = set(layer_info.keys())
 
-        # Находим новые неизвестные слои
-        unknown_layers = found_layers - known_layers
+        # 1. Мониторинг: известные слои, которые не загружаются (log_info)
+        monitored_found = found_layers & self.MONITORED_LAYERS
+        if monitored_found:
+            for lname in sorted(monitored_found):
+                info = layer_info[lname]
+                field_names = [f[0] for f in info["fields"]]
+                log_info(
+                    f"Fsm_1_2_4: [{lname}] {info['feature_count']} фичей, "
+                    f"поля: {field_names} (мониторинг, не загружается)"
+                )
 
+        # 2. Действительно новые слои (log_warning)
+        unknown_layers = found_layers - all_known
         if unknown_layers:
             log_warning("Fsm_1_2_4: ОБНАРУЖЕНЫ НОВЫЕ СЛОИ В PBF!")
             for lname in sorted(unknown_layers):
@@ -746,7 +758,7 @@ class Fsm_1_2_4_FgislkLoader:
                     f"Fsm_1_2_4: Неизвестный слой '{lname}': "
                     f"{info['feature_count']} фичей, поля: {field_names}"
                 )
-            log_warning("Fsm_1_2_4: Проверьте - возможно нужно добавить в LAYER_MAPPING или LAYER_EXTRAS")
+            log_warning("Fsm_1_2_4: Проверьте - возможно нужно добавить в LAYER_MAPPING или MONITORED_LAYERS")
 
         return layer_info
 

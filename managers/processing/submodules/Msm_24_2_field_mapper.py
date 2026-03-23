@@ -93,13 +93,13 @@ class Msm_24_2_FieldMapper:
             pair_id = f"{vypiska_layer.name()}->{selection_layer.name()}"
 
             # Определяем какой маппинг использовать
-            # Слой ЗУ: Le_2_1_1_1_Выборка_ЗУ
-            # Слой ОКС: L_2_1_2_Выборка_ОКС
+            # Слой ЗУ: Le_1_9_1_1_Выборка_ЗУ
+            # Слой ОКС: L_1_9_2_Выборка_ОКС
             layer_name = selection_layer.name()
-            if 'Выборка_ЗУ' in layer_name or 'Le_2_1_1_1' in layer_name:
+            if 'Выборка_ЗУ' in layer_name or 'Le_1_9_1_1' in layer_name:
                 field_map = self.ZU_FIELD_MAPPINGS
                 log_info(f"Msm_24_2: [{pair_id}] Используется маппинг для ЗУ")
-            elif 'Выборка_ОКС' in layer_name or 'L_2_1_2' in layer_name:
+            elif 'Выборка_ОКС' in layer_name or 'L_1_9_2' in layer_name:
                 field_map = self.OKS_FIELD_MAPPINGS
                 log_info(f"Msm_24_2: [{pair_id}] Используется маппинг для ОКС")
             else:

@@ -9,7 +9,7 @@ from qgis.core import (
     QgsGeometry, QgsFeatureRequest,
     QgsSpatialIndex, QgsCoordinateTransform
 )
-from Daman_QGIS.constants import PLUGIN_NAME
+from Daman_QGIS.constants import PLUGIN_NAME, LAYER_SELECTION_ZU, LAYER_SELECTION_OKS, LAYER_WFS_NP, LAYER_ATD_MO
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
@@ -66,7 +66,7 @@ class SpatialAnalyzer:
             log_info(f"Fsm_1_3_4: Кадастровые кварталы - {count} из {total}")
 
         # 2. Земельные участки (используем округленный слой из F_2_1)
-        layer = self._get_layer_by_name('Le_2_1_1_1_Выборка_ЗУ')
+        layer = self._get_layer_by_name(LAYER_SELECTION_ZU)
         if layer:
             total = layer.featureCount()
             count = self._count_intersecting_features(layer, boundaries_geom)
@@ -78,12 +78,12 @@ class SpatialAnalyzer:
             results['land_plots_forest_fund'] = forest_fund_count
             log_info(f"Fsm_1_3_4: ЗУ в лесном фонде - {forest_fund_count} из {count}")
         else:
-            log_warning("Fsm_1_3_4: Слой Le_2_1_1_1_Выборка_ЗУ не найден - количество ЗУ будет 0")
+            log_warning(f"Fsm_1_3_4: Слой {LAYER_SELECTION_ZU} не найден - количество ЗУ будет 0")
             results['land_plots'] = 0
             results['land_plots_forest_fund'] = 0
 
-        # 3. Объекты капитального строительства (используем слой выборки L_2_1_2_Выборка_ОКС)
-        layer = self._get_layer_by_name('L_2_1_2_Выборка_ОКС')
+        # 3. Объекты капитального строительства (используем слой выборки)
+        layer = self._get_layer_by_name(LAYER_SELECTION_OKS)
         if layer:
             total = layer.featureCount()
             count = self._count_intersecting_features(layer, boundaries_geom)
@@ -91,29 +91,29 @@ class SpatialAnalyzer:
             log_info(f"Fsm_1_3_4: Объекты капитального строительства (выборка) - {count} из {total}")
         else:
             results['capital_objects'] = 0
-            log_warning("Fsm_1_3_4: Слой L_2_1_2_Выборка_ОКС не найден - количество ОКС будет 0")
+            log_warning(f"Fsm_1_3_4: Слой {LAYER_SELECTION_OKS} не найден - количество ОКС будет 0")
 
         # 4. Населенные пункты (список наименований)
-        layer = self._get_layer_by_name('Le_1_2_3_5_АТД_НП_poly')
+        layer = self._get_layer_by_name(LAYER_WFS_NP)
         if layer:
             layer_count = layer.featureCount()
-            log_info(f"Fsm_1_3_4: Слой Le_1_2_3_5_АТД_НП_poly содержит {layer_count} объектов")
+            log_info(f"Fsm_1_3_4: Слой {LAYER_WFS_NP} содержит {layer_count} объектов")
             settlements = self._get_intersecting_settlements(layer, boundaries_geom)
             results['settlements'] = settlements
             log_info(f"Fsm_1_3_4: Населенные пункты - {len(settlements)} шт.")
         else:
-            log_warning("Fsm_1_3_4: Слой Le_1_2_3_5_АТД_НП_poly не найден")
+            log_warning(f"Fsm_1_3_4: Слой {LAYER_WFS_NP} не найден")
 
         # 5. Муниципальные образования (список наименований)
-        layer = self._get_layer_by_name('Le_1_2_3_12_АТД_МО_poly')
+        layer = self._get_layer_by_name(LAYER_ATD_MO)
         if layer:
             layer_count = layer.featureCount()
-            log_info(f"Fsm_1_3_4: Слой Le_1_2_3_12_АТД_МО_poly содержит {layer_count} объектов")
+            log_info(f"Fsm_1_3_4: Слой {LAYER_ATD_MO} содержит {layer_count} объектов")
             municipal_districts = self._get_intersecting_municipal_districts(layer, boundaries_geom)
             results['municipal_districts'] = municipal_districts
             log_info(f"Fsm_1_3_4: Муниципальные образования - {len(municipal_districts)} шт.")
         else:
-            log_warning("Fsm_1_3_4: Слой Le_1_2_3_12_АТД_МО_poly не найден")
+            log_warning(f"Fsm_1_3_4: Слой {LAYER_ATD_MO} не найден")
 
         # 6. ООПТ (особо охраняемые природные территории)
         layer = self._get_layer_by_name('Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ')
@@ -530,7 +530,7 @@ class SpatialAnalyzer:
         """Подсчет земельных участков с категорией 'Земли лесного фонда' (только уникальные кадастровые номера)
 
         Args:
-            layer: Слой земельных участков (Le_2_1_1_1_Выборка_ЗУ - округленный слой из F_2_1)
+            layer: Слой земельных участков (Le_1_9_1_1_Выборка_ЗУ - округленный слой из F_2_1)
             boundaries_geom: Подготовленная геометрия границ
 
         Returns:
@@ -542,7 +542,7 @@ class SpatialAnalyzer:
                 return 0
 
             # Поиск поля категории земель (разные названия в разных слоях)
-            # Le_2_1_1_1_Выборка_ЗУ использует working_name "Категория" из Base_selection_ZU.json
+            # Le_1_9_1_1_Выборка_ЗУ использует working_name "Категория" из Base_selection_ZU.json
             # WFS слои используют "land_record_category_type"
             field_name = None
             for candidate in ['Категория', 'land_record_category_type']:

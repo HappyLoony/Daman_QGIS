@@ -6,6 +6,7 @@
 """
 
 from qgis.core import QgsProject, QgsVectorLayer
+from Daman_QGIS.constants import LAYER_WFS_NP, LAYER_SELECTION_OKS
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
@@ -42,8 +43,8 @@ class VectorLoader:
                 'category_name': 'Земельные участки из ЕГРН',
                 'category_id': 36368
             },
-            'Le_1_2_3_5_АТД_НП_poly': {
-                'parent_layer': 'Le_1_2_3_5_АТД_НП_poly',  # Родительский слой для НП (АТД полигоны)
+            LAYER_WFS_NP: {
+                'parent_layer': LAYER_WFS_NP,  # Родительский слой для НП (АТД полигоны)
                 'category_name': 'Населённые пункты',
                 'category_id': 36832
             }
@@ -71,7 +72,7 @@ class VectorLoader:
         return False
 
     def load_capital_objects(self, boundaries_geometry):
-        """Проверка наличия слоя выборки ОКС (L_2_1_2_Выборка_ОКС)
+        """Проверка наличия слоя выборки ОКС (L_1_9_2_Выборка_ОКС)
 
         Args:
             boundaries_geometry: Геометрия границ (не используется, для совместимости)
@@ -80,7 +81,7 @@ class VectorLoader:
             bool: True если слой выборки ОКС найден, False если отсутствует
         """
         # Проверяем слой выборки ОКС (создаётся через F_2_1)
-        selection_oks_layer = 'L_2_1_2_Выборка_ОКС'
+        selection_oks_layer = LAYER_SELECTION_OKS
         if self._check_existing_layer(selection_oks_layer):
             log_info(f"Fsm_1_3_2: Слой выборки ОКС {selection_oks_layer} найден")
             return True

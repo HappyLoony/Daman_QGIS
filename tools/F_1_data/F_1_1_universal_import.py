@@ -203,8 +203,14 @@ class F_1_1_UniversalImport(BaseTool):
             self.layer_manager.sort_all_layers()
             log_info("F_1_1: Применена сортировка слоёв по order_layers (direct import)")
 
-            # Авто-ребилд ГПМТ если импортирован слой ЗПР
+            # Валидация и ребилд ГПМТ если импортирован слой ЗПР
             if layer_id and layer_id.startswith(ZPR_PREFIXES):
+                # Валидация атрибутов ЗПР (per-feature GUI)
+                if not params.get('skip_attribute_validation', False):
+                    for imported_layer in result.get('layers', []):
+                        if imported_layer.isValid() and imported_layer.featureCount() > 0:
+                            self._validate_zpr_attributes(imported_layer)
+
                 self._rebuild_gpmt_after_zpr_import()
 
         return result
@@ -350,6 +356,10 @@ class F_1_1_UniversalImport(BaseTool):
                 # Проверяем, является ли слой слоем ЗПР
                 if layer_id.startswith(ZPR_PREFIXES):
                     zpr_imported = True
+                    # Валидация атрибутов ЗПР (per-feature GUI)
+                    for imported_layer in result.get('layers', []):
+                        if imported_layer.isValid() and imported_layer.featureCount() > 0:
+                            self._validate_zpr_attributes(imported_layer)
             else:
                 results['success'] = False
                 results['errors'].extend(result.get('errors', []))
@@ -550,6 +560,42 @@ class F_1_1_UniversalImport(BaseTool):
 
         except Exception as e:
             log_warning(f"F_1_1: Ошибка финальной санитизации выборки: {e}")
+
+    def _validate_zpr_attributes(self, layer) -> None:
+        """
+        Валидация и интерактивное заполнение атрибутов контуров ЗПР.
+
+        Вызывается после сохранения ЗПР в GPKG и добавления в проект.
+        Показывает per-feature GUI для features с невалидными/пустыми атрибутами.
+
+        Args:
+            layer: Слой ЗПР (уже в GPKG и проекте)
+        """
+        try:
+            from .submodules.Fsm_1_1_7_zpr_attribute_validator import (
+                Fsm_1_1_7_ZprAttributeValidator,
+            )
+
+            validator = Fsm_1_1_7_ZprAttributeValidator()
+            result = validator.run_validation_flow(
+                layer=layer,
+                parent_widget=self.iface.mainWindow(),
+                iface=self.iface,
+            )
+
+            if result['filled'] > 0:
+                log_info(
+                    f"F_1_1: Заполнены атрибуты {result['filled']} "
+                    f"контуров ЗПР в слое {layer.name()}"
+                )
+            if result['skipped'] > 0:
+                log_info(
+                    f"F_1_1: Пропущено {result['skipped']} контуров ЗПР "
+                    f"(пользователь принял без заполнения)"
+                )
+
+        except Exception as e:
+            log_warning(f"F_1_1: Ошибка валидации атрибутов ЗПР: {e}")
 
     def _rebuild_gpmt_after_zpr_import(self) -> None:
         """

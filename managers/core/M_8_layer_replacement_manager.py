@@ -274,7 +274,7 @@ class LayerReplacementManager:
         Args:
             pattern: Полное имя слоя ИЛИ префикс (если заканчивается на '_')
                     Примеры:
-                    - "L_2_1_2_Выборка_ОКС" - точное совпадение
+                    - "L_1_9_2_Выборка_ОКС" - точное совпадение
                     - "Le_1_2_5_" - все слои, начинающиеся с Le_1_2_5_
             layer_type: Опциональный фильтр по типу слоя (QgsVectorLayer, QgsRasterLayer)
 
@@ -285,7 +285,7 @@ class LayerReplacementManager:
             >>> # Найти все ЗОУИТ слои
             >>> zouit_layers = manager.find_layers_by_pattern("Le_1_2_5_")
             >>> # Найти конкретный слой
-            >>> layer = manager.find_layers_by_pattern("L_2_1_2_Выборка_ОКС")
+            >>> layer = manager.find_layers_by_pattern("L_1_9_2_Выборка_ОКС")
             >>> # Только векторные слои
             >>> vectors = manager.find_layers_by_pattern("L_1_", QgsVectorLayer)
         """

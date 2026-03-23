@@ -123,9 +123,9 @@ class Fsm_2_1_8_SelectionEngine:
                 raise ValueError(f"Не удалось создать слой {LAYER_SELECTION_ZU_500M}")
 
             # Выполняем выборку для слоёв с РАЗНЫМИ границами
-            selected_count_1 = 0  # Счетчик для Le_2_1_1_1 (точные границы)
-            selected_count_2 = 0  # Счетчик для Le_2_1_1_2 (буфер 10м)
-            selected_count_3 = 0  # Счетчик для Le_2_1_1_3 (буфер 500м)
+            selected_count_1 = 0  # Счетчик для Le_1_9_1_1 (точные границы)
+            selected_count_2 = 0  # Счетчик для Le_1_9_1_2 (буфер 10м)
+            selected_count_3 = 0  # Счетчик для Le_1_9_1_3 (буфер 500м)
 
             result_layer_1.startEditing()
             result_layer_2.startEditing()
@@ -152,7 +152,7 @@ class Fsm_2_1_8_SelectionEngine:
                 intersects_exact = test_geom.intersects(boundaries_geom_exact)
                 intersects_10m = test_geom.intersects(boundaries_geom_10m)
 
-                # Проверка 1: Пересечение с точными границами (для Le_2_1_1_1)
+                # Проверка 1: Пересечение с точными границами (для Le_1_9_1_1)
                 if intersects_exact:
                     new_feature_1 = QgsFeature(result_layer_1.fields())
                     new_feature_1.setGeometry(QgsGeometry(final_geom))
@@ -167,7 +167,7 @@ class Fsm_2_1_8_SelectionEngine:
                     result_layer_1.addFeature(new_feature_1)
                     selected_count_1 += 1
 
-                # Проверка 2: Пересечение с границами 10м (для Le_2_1_1_2)
+                # Проверка 2: Пересечение с границами 10м (для Le_1_9_1_2)
                 # ВСЕ объекты, пересекающиеся с расширенными границами (включая те, что в точных)
                 if intersects_10m:
                     new_feature_2 = QgsFeature(result_layer_2.fields())
@@ -183,7 +183,7 @@ class Fsm_2_1_8_SelectionEngine:
                     result_layer_2.addFeature(new_feature_2)
                     selected_count_2 += 1
 
-                # Проверка 3: Пересечение с границами 500м (для Le_2_1_1_3)
+                # Проверка 3: Пересечение с границами 500м (для Le_1_9_1_3)
                 intersects_500m = test_geom.intersects(boundaries_geom_500m)
                 if intersects_500m:
                     new_feature_3 = QgsFeature(result_layer_3.fields())
@@ -201,9 +201,9 @@ class Fsm_2_1_8_SelectionEngine:
             result_layer_3.commitChanges()
 
             log_info(f"Fsm_2_1_8: Первичная выборка завершена:")
-            log_info(f"Fsm_2_1_8:   Le_2_1_1_1_Выборка_ЗУ (точная): {selected_count_1} объектов")
-            log_info(f"Fsm_2_1_8:   Le_2_1_1_2_Выборка_ЗУ_10_м: {selected_count_2} объектов")
-            log_info(f"Fsm_2_1_8:   Le_2_1_1_3_Выборка_ЗУ_500_м: {selected_count_3} объектов")
+            log_info(f"Fsm_2_1_8:   {LAYER_SELECTION_ZU} (точная): {selected_count_1} объектов")
+            log_info(f"Fsm_2_1_8:   {LAYER_SELECTION_ZU_10M}: {selected_count_2} объектов")
+            log_info(f"Fsm_2_1_8:   {LAYER_SELECTION_ZU_500M}: {selected_count_3} объектов")
 
             # ========== ЭТАП 2: ЭТАП ПОВТОРНОЙ ПРОВЕРКИ ПОСЛЕ ОКРУГЛЕНИЯ ==========
             # Проверяем слои с границами -2см
@@ -216,18 +216,18 @@ class Fsm_2_1_8_SelectionEngine:
             if selected_count_1 > 0:
                 removed_1 = self.geo_processor.recheck_intersection_after_rounding(result_layer_1, boundaries_geom_minus2cm)
                 count_after_recheck_1 = result_layer_1.featureCount()
-                log_info(f"Fsm_2_1_8: Le_2_1_1_1: после повторной проверки осталось {count_after_recheck_1} (удалено {removed_1})")
+                log_info(f"Fsm_2_1_8: {LAYER_SELECTION_ZU}: после повторной проверки осталось {count_after_recheck_1} (удалено {removed_1})")
 
             if selected_count_2 > 0:
                 # Для слоя 10м используем границы 10м с буфером -2см
                 removed_2 = self.geo_processor.recheck_intersection_after_rounding(result_layer_2, boundaries_geom_10m_minus2cm)
                 count_after_recheck_2 = result_layer_2.featureCount()
-                log_info(f"Fsm_2_1_8: Le_2_1_1_2: после повторной проверки осталось {count_after_recheck_2} (удалено {removed_2})")
+                log_info(f"Fsm_2_1_8: {LAYER_SELECTION_ZU_10M}: после повторной проверки осталось {count_after_recheck_2} (удалено {removed_2})")
 
             if selected_count_3 > 0:
                 removed_3 = self.geo_processor.recheck_intersection_after_rounding(result_layer_3, boundaries_geom_500m_minus2cm)
                 count_after_recheck_3 = result_layer_3.featureCount()
-                log_info(f"Fsm_2_1_8: Le_2_1_1_3: после повторной проверки осталось {count_after_recheck_3} (удалено {removed_3})")
+                log_info(f"Fsm_2_1_8: {LAYER_SELECTION_ZU_500M}: после повторной проверки осталось {count_after_recheck_3} (удалено {removed_3})")
 
             # Этап 2.5 удалён - нумерация "№ п/п" больше не используется
 

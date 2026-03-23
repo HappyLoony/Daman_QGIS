@@ -142,7 +142,7 @@ class TestMsm331:
 
             # Проверяем слой МО
             self.logger.check(
-                MO_LAYER_NAME == "Le_1_2_3_12_АТД_МО_poly",
+                MO_LAYER_NAME == "Le_1_2_3_10_АТД_МО_poly",
                 f"MO_LAYER_NAME корректен: {MO_LAYER_NAME}",
                 f"MO_LAYER_NAME некорректен: {MO_LAYER_NAME}"
             )

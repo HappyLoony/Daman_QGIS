@@ -42,7 +42,7 @@ class CuttingSync:
         синхронизирует поля по КН.
 
         Args:
-            zu_layer: Слой выборки ЗУ (Le_2_1_1_1_Выборка_ЗУ)
+            zu_layer: Слой выборки ЗУ (Le_1_9_1_1_Выборка_ЗУ)
 
         Returns:
             dict: {'layers_synced': N, 'features_synced': N}

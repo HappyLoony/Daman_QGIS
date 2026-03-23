@@ -200,17 +200,9 @@ class MergedTimesheetGenerator:
 
             target_row += 1
 
-        # Копируем ширины колонок (если доступны)
-        try:
-            for col in range(1, COL_DAYS_END + 1):
-                col_letter = get_column_letter(col)
-                if hasattr(source_ws, 'column_dimensions') and col_letter in source_ws.column_dimensions:
-                    width = source_ws.column_dimensions[col_letter].width
-                    if width:
-                        target_ws.column_dimensions[col_letter].width = width
-        except Exception:
-            # Если не удалось скопировать ширины - используем дефолтные
-            pass
+        # Ширины колонок задаются явно в generate() ПОСЛЕ delete_cols,
+        # т.к. delete_cols не сдвигает column_dimensions (баг openpyxl),
+        # а чтение из шаблона не работает для range-based dimensions
 
     def _write_project_row(
         self,
@@ -562,7 +554,22 @@ class MergedTimesheetGenerator:
             # Удаляем пустые колонки E, F, G (договор, дата, заказчик) со сдвигом влево
             ws.delete_cols(5, 3)
 
-            # Закрепляем первые 2 колонки (A, B - ФИО) и 7 строк заголовка
+            # Ширины колонок задаём ПОСЛЕ delete_cols, т.к.:
+            # 1) delete_cols сдвигает ячейки, но НЕ column_dimensions
+            # 2) Чтение из шаблона ненадёжно (range-based dimensions)
+            # После удаления E/F/G структура: A=ФИО, B=Вид работ, C=Шифр,
+            # D=Название, E=Итого, F+=Дни (1..days_in_month)
+            from openpyxl.utils import get_column_letter
+
+            ws.column_dimensions['A'].width = 35   # ФИО
+            ws.column_dimensions['B'].width = 15   # Вид работ
+            ws.column_dimensions['C'].width = 12   # Шифр
+            ws.column_dimensions['D'].width = 20   # Название
+            ws.column_dimensions['E'].width = 10   # Итого
+            for day_col in range(6, 6 + days_in_month):
+                ws.column_dimensions[get_column_letter(day_col)].width = 4.5
+
+            # Закрепляем первые 2 колонки (A, B) и 7 строк заголовка
             ws.freeze_panes = 'C8'
 
             # Сохраняем файл

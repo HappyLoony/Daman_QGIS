@@ -234,7 +234,7 @@ LAYER_MASK = "L_0_0_0_Mask"
 LAYER_WFS_ZU = "L_1_2_1_WFS_ЗУ"
 LAYER_WFS_KK = "L_1_2_2_WFS_КК"  # WFS кадастровые кварталы
 LAYER_WFS_OKS = "L_1_2_4_WFS_ОКС"
-LAYER_WFS_NP = "Le_1_2_3_5_АТД_НП_poly"  # WFS полигоны населённых пунктов
+LAYER_WFS_NP = "Le_1_2_3_4_АТД_НП_poly"  # WFS полигоны населённых пунктов
 # TODO: Добавить WFS слои для ТерЗоны и Вода когда будет найден API
 # LAYER_WFS_TERZONY = "???"  # WFS API не найден
 # LAYER_WFS_VODA = "???"     # WFS API не найден
@@ -293,7 +293,7 @@ LAYER_GPMT_VNES_IZM_POINTS = "L_1_14_4_Т_ГПМТ_ВНЕС_ИЗМ"
 # Слои границ нарезки (overlay)
 LAYER_SELECTION_NP = "L_1_9_4_Выборка_НП"
 LAYER_SELECTION_TERZONY = "L_1_9_6_Выборка_ТерЗоны"
-LAYER_ATD_MO = "Le_1_2_3_12_АТД_МО_poly"
+LAYER_ATD_MO = "Le_1_2_3_10_АТД_МО_poly"
 LAYER_EGRN_LES = "Le_1_8_1_1_ЕГРН_Лесничества"
 LAYER_WFS_OOPT = "Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ"  # ООПТ для overlay нарезки
 LAYER_ZOUIT_PREFIX = "Le_1_2_5_"  # Общий префикс всех ЗОУИТ слоёв
