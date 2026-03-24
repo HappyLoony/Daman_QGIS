@@ -714,8 +714,11 @@ class Fsm_2_7_2_MergeProcessor:
                 contour_type = 'Внешний' if is_outer else 'Внутренний'
                 contour_number = ring_idx + 1
 
-                # Пропускаем последнюю точку (дублирует первую)
-                for pt_idx, point in enumerate(ring[:-1]):
+                # Убираем замыкающую точку и нормализуем от СЗ угла
+                ring_points = list(ring[:-1])
+                ring_points = self._rotate_ring_to_nw(ring_points)
+
+                for pt_idx, point in enumerate(ring_points):
                     x_math = point.x()
                     y_math = point.y()
 
@@ -739,3 +742,36 @@ class Fsm_2_7_2_MergeProcessor:
                     point_id += 1
 
         return points_data
+
+    @staticmethod
+    def _rotate_ring_to_nw(points: list) -> list:
+        """Ротация кольца чтобы нумерация начиналась с СЗ точки
+
+        Находит точку ближайшую к СЗ углу MBR кольца
+        и ротирует список, чтобы она стала первой.
+        Аналог PointNumberingManager.find_nw_point_index + normalize_ring.
+
+        Args:
+            points: Список QgsPointXY (без замыкающей точки)
+
+        Returns:
+            Ротированный список
+        """
+        if len(points) <= 1:
+            return points
+
+        min_x = min(p.x() for p in points)
+        max_y = max(p.y() for p in points)
+
+        best_idx = 0
+        best_dist_sq = float('inf')
+        for idx, pt in enumerate(points):
+            dist_sq = (pt.x() - min_x) ** 2 + (pt.y() - max_y) ** 2
+            if dist_sq < best_dist_sq:
+                best_dist_sq = dist_sq
+                best_idx = idx
+
+        if best_idx > 0:
+            points = points[best_idx:] + points[:best_idx]
+
+        return points
