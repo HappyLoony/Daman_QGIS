@@ -189,6 +189,21 @@ class Fsm_2_7_1_MergeDialog(BaseResponsiveDialog):
         self.layer_combo.currentIndexChanged.connect(self._on_layer_changed)
         self.table.cellDoubleClicked.connect(self._on_row_double_clicked)
 
+    def _rebuild_layer_combo(self) -> None:
+        """Перестроить ComboBox после удаления слоя"""
+        self.layer_combo.blockSignals(True)
+        self.layer_combo.clear()
+        for layer in self.layers:
+            self.layer_combo.addItem(layer.name(), layer)
+        self.layer_combo.blockSignals(False)
+
+        if self.layers:
+            self.layer_combo.setCurrentIndex(0)
+            self._on_layer_changed(0)
+        else:
+            self.table.setRowCount(0)
+            self._update_count()
+
     def _on_layer_changed(self, index: int) -> None:
         """Обработка смены слоя в ComboBox
 
@@ -530,13 +545,26 @@ class Fsm_2_7_1_MergeDialog(BaseResponsiveDialog):
             # Ошибка обрабатывается в F_2_7
             pass
         else:
-            # Успешно - перезагрузить таблицу
-            self._load_features()
-
             # Очистить подсветку
             if self._rubber_band:
                 self._rubber_band.reset()
                 self._rubber_band = None
+
+            # Если source слой удалён (все features перенесены в Раздел)
+            if result.get('source_removed'):
+                # Удалить слой из списка и combo
+                if self.current_layer in self.layers:
+                    self.layers.remove(self.current_layer)
+                self.current_layer = None
+                self._rebuild_layer_combo()
+
+                # Если больше нет слоёв - закрыть диалог
+                if not self.layers:
+                    self.accept()
+                    return
+            else:
+                # Перезагрузить таблицу
+                self._load_features()
 
     def closeEvent(self, event) -> None:
         """Обработка закрытия диалога"""
