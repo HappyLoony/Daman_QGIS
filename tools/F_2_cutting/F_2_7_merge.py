@@ -41,7 +41,7 @@ from Daman_QGIS.constants import (
     LAYER_CUTTING_PO_BEZ_MEZH,
     LAYER_CUTTING_VO_BEZ_MEZH,
 )
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, safe_refresh_layer
 
 # Импорт субмодулей
 from .submodules.Fsm_2_7_1_merge_dialog import Fsm_2_7_1_MergeDialog
@@ -229,9 +229,9 @@ class F_2_7_Merge(BaseTool):
                 duration=MESSAGE_SUCCESS_DURATION
             )
 
-            # Обновить слои в QGIS
+            # Обновить слои в QGIS (source может быть удалён если опустел)
             self._refresh_layers(
-                source_layer,
+                source_layer if not result.get('source_removed') else None,
                 result.get('points_layer'),
                 result.get('razdel_layer'),
                 result.get('razdel_points_layer')
@@ -254,18 +254,18 @@ class F_2_7_Merge(BaseTool):
             razdel_layer: Целевой слой Раздел (при cross-layer объединении)
             razdel_points_layer: Точечный слой Раздел (при cross-layer)
         """
-        # Обновить источник
-        source_layer.triggerRepaint()
+        # Безопасное обновление через QTimer (предотвращает проблемы с отрисовкой)
+        if source_layer is not None:
+            safe_refresh_layer(source_layer)
 
-        # Обновить точечный слой если есть
         if points_layer is not None:
-            points_layer.triggerRepaint()
+            safe_refresh_layer(points_layer)
 
         # Обновить слой Раздел если cross-layer
         if razdel_layer is not None:
-            razdel_layer.triggerRepaint()
+            safe_refresh_layer(razdel_layer)
         if razdel_points_layer is not None:
-            razdel_points_layer.triggerRepaint()
+            safe_refresh_layer(razdel_points_layer)
 
         # Обновить канву
         self.iface.mapCanvas().refresh()

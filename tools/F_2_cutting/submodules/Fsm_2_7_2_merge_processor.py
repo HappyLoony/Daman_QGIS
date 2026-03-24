@@ -41,9 +41,6 @@ from Daman_QGIS.constants import COORDINATE_PRECISION
 from .Fsm_2_1_6_point_layer_creator import Fsm_2_1_6_PointLayerCreator
 from .Fsm_2_7_3_attribute_handler import Fsm_2_7_3_AttributeHandler
 
-# Импорт менеджеров
-from Daman_QGIS.managers import registry
-
 if TYPE_CHECKING:
     from Daman_QGIS.managers import LayerManager
 
@@ -193,9 +190,7 @@ class Fsm_2_7_2_MergeProcessor:
                 self._renumber_ids(target_layer)
 
                 # Нумерация характерных точек в target
-                points_field = self._number_points(target_layer, merged_geom, new_uslov_kn)
-                if points_field:
-                    self._update_points_field(target_layer, new_uslov_kn, points_field)
+                self._number_all_points(target_layer)
 
                 # Commit target
                 target_layer.commitChanges()
@@ -214,9 +209,8 @@ class Fsm_2_7_2_MergeProcessor:
 
                 self._renumber_ids(target_layer)
 
-                points_field = self._number_points(target_layer, merged_geom, new_uslov_kn)
-                if points_field:
-                    self._update_points_field(target_layer, new_uslov_kn, points_field)
+                # Нумерация характерных точек
+                self._number_all_points(target_layer)
 
                 source_layer.commitChanges()
                 source_layer.updateExtents()
@@ -227,6 +221,12 @@ class Fsm_2_7_2_MergeProcessor:
             if is_cross_layer:
                 razdel_points_layer = self._recreate_point_layer(target_layer)
 
+            # 10. Удаление пустого source слоя из проекта (cross-layer)
+            source_removed = False
+            if is_cross_layer and source_layer.featureCount() == 0:
+                self._remove_empty_layer(source_layer)
+                source_removed = True
+
             log_info(f"Fsm_2_7_2: Успешно объединено {len(feature_ids)} контуров, "
                      f"новый Услов_КН: {new_uslov_kn}")
 
@@ -236,6 +236,7 @@ class Fsm_2_7_2_MergeProcessor:
                 'new_area': new_area,
                 'new_uslov_kn': new_uslov_kn,
                 'points_layer': source_points_layer,
+                'source_removed': source_removed,
             }
             if is_cross_layer:
                 result['razdel_layer'] = target_layer
@@ -350,17 +351,11 @@ class Fsm_2_7_2_MergeProcessor:
                 log_error(f"Fsm_2_7_2: Не удалось загрузить слой из {uri}")
                 return None
 
-            # Добавляем в проект
-            project = QgsProject.instance()
-            project.addMapLayer(layer)
-
-            # Применяем стили
+            # Добавляем в проект через LayerManager (стили + подписи + visibility)
             if self.layer_manager:
-                try:
-                    self.layer_manager.apply_style_to_layer(layer)
-                    self.layer_manager.apply_labels_to_layer(layer)
-                except Exception as e:
-                    log_warning(f"Fsm_2_7_2: Не удалось применить стили к {layer_name}: {e}")
+                self.layer_manager.add_layer(layer, check_precision=False)
+            else:
+                QgsProject.instance().addMapLayer(layer)
 
             log_info(f"Fsm_2_7_2: Создан пустой слой {layer_name} в GPKG")
             return layer
@@ -482,7 +477,10 @@ class Fsm_2_7_2_MergeProcessor:
     # ------------------------------------------------------------------
 
     def _renumber_ids(self, layer: QgsVectorLayer) -> None:
-        """Перенумеровать ID в слое (1, 2, 3...)
+        """Перенумеровать ID в слое (1, 2, 3...) в порядке СЗ -> ЮВ
+
+        Сортирует контуры по расстоянию от центроида до северо-западного
+        угла общего MBR (как в нарезке M_26/M_20).
 
         Args:
             layer: Слой для перенумерации
@@ -495,87 +493,99 @@ class Fsm_2_7_2_MergeProcessor:
             log_warning(f"Fsm_2_7_2: Поле ID не найдено в слое {layer.name()}")
             return
 
-        # Сортировка features по текущему ID
         features = list(layer.getFeatures())
+        if not features:
+            return
 
-        def get_id(f: QgsFeature) -> int:
-            try:
-                return int(f['ID']) if f['ID'] else 0
-            except (ValueError, TypeError):
-                return 0
+        # Сортировка по расстоянию от центроида до СЗ угла MBR
+        global_min_x = float('inf')
+        global_max_y = float('-inf')
 
-        features.sort(key=get_id)
+        centroids = []
+        for f in features:
+            geom = f.geometry()
+            if geom and not geom.isEmpty():
+                centroid = geom.centroid().asPoint()
+                centroids.append((centroid.x(), centroid.y()))
+                bbox = geom.boundingBox()
+                global_min_x = min(global_min_x, bbox.xMinimum())
+                global_max_y = max(global_max_y, bbox.yMaximum())
+            else:
+                centroids.append(None)
 
-        # Перенумерация
-        for new_id, feature in enumerate(features, start=1):
+        nw_x, nw_y = global_min_x, global_max_y
+
+        def nw_sort_key(idx_feature):
+            idx, _ = idx_feature
+            c = centroids[idx]
+            if c is None:
+                return float('inf')
+            return (c[0] - nw_x) ** 2 + (c[1] - nw_y) ** 2
+
+        indexed = list(enumerate(features))
+        indexed.sort(key=nw_sort_key)
+
+        # Перенумерация в порядке СЗ -> ЮВ
+        for new_id, (_, feature) in enumerate(indexed, start=1):
             layer.changeAttributeValue(feature.id(), id_idx, new_id)
 
-        log_info(f"Fsm_2_7_2: Перенумерованы ID в {layer.name()} ({len(features)} объектов)")
+        log_info(f"Fsm_2_7_2: Перенумерованы ID в {layer.name()} "
+                 f"({len(features)} объектов, СЗ -> ЮВ)")
 
-    def _number_points(
-        self,
-        layer: QgsVectorLayer,
-        merged_geom: QgsGeometry,
-        uslov_kn: str
-    ) -> Optional[str]:
-        """Пронумеровать характерные точки объединённого контура
+    def _number_all_points(self, layer: QgsVectorLayer) -> None:
+        """Пронумеровать характерные точки всех контуров в слое
+
+        Использует number_layer_points() для обработки всего слоя.
+        Обновляет поле Точки для каждого feature.
 
         Args:
-            layer: Слой с объединённым контуром
-            merged_geom: Геометрия объединённого контура
-            uslov_kn: Условный КН для поиска контура
-
-        Returns:
-            Строка с номерами точек (например, "н1-н8") или None
+            layer: Слой с контурами (должен быть в режиме редактирования)
         """
         try:
-            point_manager = registry.get('M_20')
-            if not point_manager:
-                log_warning("Fsm_2_7_2: Не удалось получить PointNumberingManager")
-                return None
+            from Daman_QGIS.managers.geometry.M_20_point_numbering_manager import (
+                number_layer_points,
+            )
 
-            for feature in layer.getFeatures():
-                if feature['Услов_КН'] == uslov_kn:
-                    points_str = point_manager.number_points_for_feature(
-                        feature,
-                        layer.crs()
-                    )
-                    return points_str
+            points_dict, _ = number_layer_points(layer)
 
-            return None
+            if not points_dict:
+                log_warning(f"Fsm_2_7_2: Нет данных нумерации точек для {layer.name()}")
+                return
+
+            if not layer.isEditable():
+                layer.startEditing()
+
+            points_idx = layer.fields().indexOf('Точки')
+            if points_idx < 0:
+                return
+
+            for fid, points_str in points_dict.items():
+                layer.changeAttributeValue(fid, points_idx, points_str)
+
+            log_info(f"Fsm_2_7_2: Пронумерованы точки для {len(points_dict)} "
+                     f"контуров в {layer.name()}")
 
         except Exception as e:
             log_warning(f"Fsm_2_7_2: Ошибка нумерации точек: {e}")
-            return None
-
-    def _update_points_field(
-        self,
-        layer: QgsVectorLayer,
-        uslov_kn: str,
-        points_value: str
-    ) -> None:
-        """Обновить поле Точки для контура
-
-        Args:
-            layer: Слой
-            uslov_kn: Условный КН контура
-            points_value: Значение для поля Точки
-        """
-        if not layer.isEditable():
-            layer.startEditing()
-
-        points_idx = layer.fields().indexOf('Точки')
-        if points_idx < 0:
-            return
-
-        for feature in layer.getFeatures():
-            if feature['Услов_КН'] == uslov_kn:
-                layer.changeAttributeValue(feature.id(), points_idx, points_value)
-                break
 
     # ------------------------------------------------------------------
     # Пересоздание точечного слоя
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _remove_empty_layer(layer: QgsVectorLayer) -> None:
+        """Удалить пустой слой из проекта
+
+        Вызывается при cross-layer merge, когда все features
+        из source (Без_Меж) перенесены в target (Раздел).
+
+        Args:
+            layer: Пустой слой для удаления
+        """
+        layer_name = layer.name()
+        project = QgsProject.instance()
+        project.removeMapLayer(layer.id())
+        log_info(f"Fsm_2_7_2: Пустой слой {layer_name} удалён из проекта")
 
     def _recreate_point_layer(
         self,
@@ -607,11 +617,6 @@ class Fsm_2_7_2_MergeProcessor:
             return None
 
         try:
-            point_manager = registry.get('M_20')
-            if not point_manager:
-                log_warning("Fsm_2_7_2: Не удалось получить PointNumberingManager")
-                return None
-
             # Генерируем данные точек для всех контуров слоя
             points_data = []
             global_point_id = 1
@@ -655,14 +660,11 @@ class Fsm_2_7_2_MergeProcessor:
             )
 
             if point_layer and point_layer.isValid():
-                project.addMapLayer(point_layer)
-
+                # Добавляем через LayerManager (стили + подписи + visibility)
                 if self.layer_manager:
-                    try:
-                        self.layer_manager.apply_style_to_layer(point_layer)
-                        self.layer_manager.apply_labels_to_layer(point_layer)
-                    except Exception as e:
-                        log_warning(f"Fsm_2_7_2: Не удалось применить стили: {e}")
+                    self.layer_manager.add_layer(point_layer, check_precision=False)
+                else:
+                    project.addMapLayer(point_layer)
 
                 log_info(f"Fsm_2_7_2: Пересоздан точечный слой {point_layer_name}")
                 return point_layer
