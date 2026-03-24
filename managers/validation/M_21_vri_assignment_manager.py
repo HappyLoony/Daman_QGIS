@@ -240,6 +240,9 @@ class VRIAssignmentManager:
         Returns:
             True если ВРИ найден в базе данных
         """
+        if not self._loaded:
+            self._load_vri_database()
+
         # Удаляем ВСЕ кавычки из строки (они могут быть внутри из-за данных ЕГРН)
         cleaned = vri_str.replace('"', '').replace("'", '').strip()
         normalized = cleaned.lower()
@@ -272,6 +275,9 @@ class VRIAssignmentManager:
         Returns:
             Словарь с данными ВРИ или None
         """
+        if not self._loaded:
+            self._load_vri_database()
+
         # Удаляем ВСЕ кавычки из строки (они могут быть внутри из-за данных ЕГРН)
         # Пример: "Растениеводство" (код 1.1) → Растениеводство (код 1.1)
         cleaned = vri_str.replace('"', '').replace("'", '').strip()
