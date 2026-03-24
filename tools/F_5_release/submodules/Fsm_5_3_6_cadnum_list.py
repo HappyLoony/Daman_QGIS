@@ -47,16 +47,16 @@ class Fsm_5_3_6_CadnumList:
     def export(
         self,
         output_folder: Optional[str] = None,
-        filter_by_boundaries: bool = True
+        filter_by_boundaries: bool = True,
+        template: Optional[DocumentTemplate] = None
     ) -> Tuple[bool, str]:
         """
         Экспорт перечней кадастровых номеров в Excel
 
-        Автоматически находит все cadnum_list шаблоны и экспортирует данные.
-
         Args:
             output_folder: Папка для сохранения (если None - папка Документы проекта)
             filter_by_boundaries: Фильтровать по границам L_1_1_1
+            template: Конкретный шаблон для экспорта (если None - все cadnum_list)
 
         Returns:
             Tuple[bool, str]: (успешность, путь к файлу)
@@ -80,8 +80,8 @@ class Fsm_5_3_6_CadnumList:
         if filter_by_boundaries:
             self._cache_boundaries_geometry()
 
-        # Получаем все cadnum_list шаблоны
-        templates = TemplateRegistry.get_templates_by_type('cadnum_list')
+        # Получаем шаблоны: конкретный или все cadnum_list
+        templates = [template] if template else TemplateRegistry.get_templates_by_type('cadnum_list')
 
         # Собираем данные по каждому шаблону
         data: Dict[str, Tuple[DocumentTemplate, List[str]]] = {}
@@ -333,7 +333,7 @@ class Fsm_5_3_6_CadnumList:
 
         Args:
             layer: Игнорируется (используем фиксированные слои из шаблонов)
-            template: Шаблон документа
+            template: Шаблон документа (экспортируется только этот шаблон)
             output_folder: Папка для сохранения
             **kwargs: Дополнительные параметры
 
@@ -342,6 +342,7 @@ class Fsm_5_3_6_CadnumList:
         """
         success, _ = self.export(
             output_folder=output_folder,
-            filter_by_boundaries=kwargs.get('filter_by_boundaries', True)
+            filter_by_boundaries=kwargs.get('filter_by_boundaries', True),
+            template=template
         )
         return success

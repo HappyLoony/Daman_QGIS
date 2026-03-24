@@ -289,10 +289,14 @@ class Msm_26_4_CuttingEngine:
                 all_features_for_category.extend(razdel_features)
             if ngs_features:
                 all_features_for_category.extend(ngs_features)
+
+            # Сохраняем исходную категорию ЗУ перед M_36 для Изм и Без_Меж
+            izm_original_categories: Dict[int, str] = {}
             if izm_features:
+                for idx, feat in enumerate(izm_features):
+                    izm_original_categories[idx] = feat['attributes'].get('План_категория', '-')
                 all_features_for_category.extend(izm_features)
 
-            # Для Без_Меж: сохраняем исходную категорию ЗУ перед M_36
             bez_mezh_original_categories: Dict[int, str] = {}
             if bez_mezh_features:
                 for idx, feat in enumerate(bez_mezh_features):
@@ -302,11 +306,20 @@ class Msm_26_4_CuttingEngine:
             if all_features_for_category:
                 self.land_category_manager.assign_land_category(all_features_for_category)
 
-            # 3.3.1 Пост-проверка категории для Без_Меж
-            # Если M_36 назначила категорию, отличную от исходной ЗУ,
-            # значит ЗУ нуждается в изменении характеристик -> переносим в Изм
+            # 3.3.1 Пост-проверка категории для initial ИЗМ (VRI mismatch)
+            # Если M_36 назначила иную категорию -> добавляем флаг category
+            if izm_features and izm_original_categories:
+                for idx, feat in enumerate(izm_features):
+                    original_cat = izm_original_categories.get(idx, '-')
+                    m36_cat = feat['attributes'].get('План_категория', '-')
+                    if original_cat != m36_cat and m36_cat != '-':
+                        feat.setdefault('_izm_flags', {})['category'] = True
+                        log_info(f"Msm_26_4: Изм (VRI): категория также изменилась "
+                                f"'{original_cat}' -> '{m36_cat}'")
+
+            # 3.3.2 Пост-проверка категории для Без_Меж
+            # Если M_36 назначила категорию, отличную от исходной ЗУ -> переносим в Изм
             if bez_mezh_features and bez_mezh_original_categories:
-                from Daman_QGIS.constants import WORK_TYPE_IZM
                 moved_to_izm = []
                 remaining_bez_mezh = []
 
@@ -316,8 +329,8 @@ class Msm_26_4_CuttingEngine:
 
                     if original_cat != m36_cat and m36_cat != '-':
                         # Категория изменилась -> перенос в Изм
-                        feat['attributes']['Вид_Работ'] = WORK_TYPE_IZM
                         feat['attributes']['Точки'] = '-'
+                        feat.setdefault('_izm_flags', {})['category'] = True
                         moved_to_izm.append(feat)
                         log_info(f"Msm_26_4: Без_Меж -> Изм: категория изменилась "
                                 f"'{original_cat}' -> '{m36_cat}'")
@@ -334,11 +347,28 @@ class Msm_26_4_CuttingEngine:
 
                 bez_mezh_features = remaining_bez_mezh
 
-            # 3.3.2 Пост-проверка площади для Без_Меж
+            # 3.3.3 Пост-проверка площади для initial ИЗМ
+            # Реестровая ошибка как модификатор к основной причине
+            if izm_features:
+                for feat in izm_features:
+                    geom = feat.get('geometry')
+                    if not geom or geom.isEmpty():
+                        continue
+                    actual_area = geom.area()
+                    try:
+                        egrn_area = float(feat['attributes'].get('Площадь_ОЗУ', 0) or 0)
+                    except (ValueError, TypeError):
+                        egrn_area = 0.0
+                    if round(egrn_area) != round(actual_area):
+                        feat.setdefault('_izm_flags', {})['area'] = True
+                        feat['attributes']['Площадь_ОЗУ'] = int(round(actual_area))
+                        log_info(f"Msm_26_4: Изм: реестровая ошибка площади "
+                                f"ЕГРН={round(egrn_area)} м2 -> факт={round(actual_area)} м2")
+
+            # 3.3.4 Пост-проверка площади для Без_Меж
             # Если фактическая площадь геометрии отличается от площади из выписки (ЕГРН)
-            # на >= 1 м2 (округлённо), ЗУ нуждается в корректировке -> переносим в Изм
+            # на >= 1 м2 (округлённо) -> переносим в Изм (реестровая ошибка)
             if bez_mezh_features:
-                from Daman_QGIS.constants import WORK_TYPE_IZM
                 moved_area = []
                 remaining_area = []
 
@@ -355,10 +385,10 @@ class Msm_26_4_CuttingEngine:
                         egrn_area = 0.0
 
                     if round(egrn_area) != round(actual_area):
-                        # Площадь отличается -> перенос в Изм
-                        feat['attributes']['Вид_Работ'] = WORK_TYPE_IZM
+                        # Площадь отличается -> перенос в Изм (реестровая ошибка)
                         feat['attributes']['Точки'] = '-'
                         feat['attributes']['Площадь_ОЗУ'] = int(round(actual_area))
+                        feat.setdefault('_izm_flags', {})['area'] = True
                         moved_area.append(feat)
                         log_info(f"Msm_26_4: Без_Меж -> Изм: площадь изменилась "
                                 f"ЕГРН={round(egrn_area)} м2 -> факт={round(actual_area)} м2")
@@ -371,6 +401,22 @@ class Msm_26_4_CuttingEngine:
                             f"(несовпадение площади)")
 
                 bez_mezh_features = remaining_area
+
+            # 3.3.5 Компоновка Вид_Работ для всех ИЗМ из флагов причин
+            if izm_features:
+                from Daman_QGIS.constants import compose_work_type_izm
+                for feat in izm_features:
+                    flags = feat.pop('_izm_flags', {})
+                    feat['attributes']['Вид_Работ'] = compose_work_type_izm(
+                        vri_changed=flags.get('vri', False),
+                        category_changed=flags.get('category', False),
+                        area_mismatch=flags.get('area', False)
+                    )
+
+            # Очистка _izm_flags у Без_Меж (не нужны дальше)
+            if bez_mezh_features:
+                for feat in bez_mezh_features:
+                    feat.pop('_izm_flags', None)
 
             # 3.4 Присвоение План_ВРИ и Общая_земля по геометрическому пересечению с ЗПР
             if razdel_features:
@@ -714,6 +760,9 @@ class Msm_26_4_CuttingEngine:
                 layer_name=izm_layer_name,
                 zpr_type=zpr_type
             )
+            # Initial ИЗМ = VRI mismatch (из Fsm_2_1_7)
+            for feat in izm_features:
+                feat['_izm_flags'] = {'vri': True, 'category': False, 'area': False}
 
         # Процессор для Без_Меж
         bez_mezh_features = []
@@ -728,6 +777,9 @@ class Msm_26_4_CuttingEngine:
                 layer_name=bez_mezh_layer_name,
                 zpr_type=zpr_type
             )
+            # Без_Меж изначально без флагов (могут перейти в ИЗМ позже)
+            for feat in bez_mezh_features:
+                feat['_izm_flags'] = {'vri': False, 'category': False, 'area': False}
 
         log_info(f"Msm_26_4: Детекция no_change для {zpr_type}: "
                 f"Изм={len(izm_features)}, Без_Меж={len(bez_mezh_features)}, "

@@ -490,8 +490,42 @@ USE_FIELD_ALIASES = False  # Установка алиасов из full_name (B
 
 # Виды кадастровых работ для слоёв нарезки
 # Используется: F_2_1 (нарезка, включая автоматическое определение Изменяемых), F_3_2 (Без_Меж)
-WORK_TYPE_IZM = "Изменение характеристик земельного участка"
 WORK_TYPE_BEZ_MEZH = "Существующий (сохраняемый) земельный участок"
+
+# Детализация причин ИЗМ (атрибутивные изменения без изменения геометрии)
+WORK_TYPE_IZM_VRI = "Изменение вида разрешенного использования"
+WORK_TYPE_IZM_KAT = "Изменение категории"
+WORK_TYPE_IZM_KAT_VRI = "Изменение категории и вида разрешенного использования"
+WORK_TYPE_IZM_REESTR = "Исправление реестровой ошибки"
+# Fallback (если причина не определена)
+WORK_TYPE_IZM = "Изменение характеристик земельного участка"
+
+
+def compose_work_type_izm(
+    vri_changed: bool = False,
+    category_changed: bool = False,
+    area_mismatch: bool = False
+) -> str:
+    """Составить значение Вид_Работ для ИЗМ из флагов причин.
+
+    Формат: "Причина1. Причина2." - каждая причина заканчивается точкой.
+    Реестровая ошибка (площадь) - модификатор, добавляется после основной причины.
+    """
+    parts = []
+    if category_changed and vri_changed:
+        parts.append(WORK_TYPE_IZM_KAT_VRI)
+    elif category_changed:
+        parts.append(WORK_TYPE_IZM_KAT)
+    elif vri_changed:
+        parts.append(WORK_TYPE_IZM_VRI)
+
+    if area_mismatch:
+        parts.append(WORK_TYPE_IZM_REESTR)
+
+    if not parts:
+        return WORK_TYPE_IZM  # fallback
+
+    return ". ".join(parts) + "."
 
 # ============================================================================
 # КОНСТАНТЫ СТИЛЕЙ

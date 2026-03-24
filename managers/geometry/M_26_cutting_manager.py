@@ -338,7 +338,9 @@ class CuttingManager:
             'zpr': {},
             'zpr_rek': {},
             'total_razdel': 0,
-            'total_ngs': 0
+            'total_ngs': 0,
+            'total_izm': 0,
+            'total_bez_mezh': 0
         }
 
         # Нарезка стандартных ЗПР
@@ -347,6 +349,8 @@ class CuttingManager:
             result['zpr'] = zpr_result
             result['total_razdel'] += zpr_result.get('total_razdel', 0)
             result['total_ngs'] += zpr_result.get('total_ngs', 0)
+            result['total_izm'] += zpr_result.get('total_izm', 0)
+            result['total_bez_mezh'] += zpr_result.get('total_bez_mezh', 0)
 
         # Нарезка ЗПР_РЕК
         rek_result = self.cut_zpr_rek()
@@ -354,9 +358,12 @@ class CuttingManager:
             result['zpr_rek'] = rek_result
             result['total_razdel'] += rek_result.get('total_razdel', 0)
             result['total_ngs'] += rek_result.get('total_ngs', 0)
+            result['total_izm'] += rek_result.get('total_izm', 0)
+            result['total_bez_mezh'] += rek_result.get('total_bez_mezh', 0)
 
         log_success(f"M_26: Полная нарезка завершена. "
-                   f"Всего: {result['total_razdel']} Раздел, {result['total_ngs']} НГС")
+                   f"Всего: {result['total_razdel']} Раздел, {result['total_ngs']} НГС, "
+                   f"{result['total_izm']} Изм, {result['total_bez_mezh']} Без_Меж")
 
         return result
 
@@ -381,6 +388,8 @@ class CuttingManager:
             'types_processed': [],
             'total_razdel': 0,
             'total_ngs': 0,
+            'total_izm': 0,
+            'total_bez_mezh': 0,
             'details': {}
         }
 
@@ -435,6 +444,8 @@ class CuttingManager:
                 result['types_processed'].append(zpr_type)
                 result['total_razdel'] += cut_result.get('razdel_count', 0)
                 result['total_ngs'] += cut_result.get('ngs_count', 0)
+                result['total_izm'] += cut_result.get('izm_count', 0)
+                result['total_bez_mezh'] += cut_result.get('bez_mezh_count', 0)
                 result['details'][zpr_type] = cut_result
 
                 # Добавляем слои в проект
@@ -452,7 +463,8 @@ class CuttingManager:
             log_info("M_26: Слои отсортированы")
 
         log_success(f"M_26: Нарезка {mode} завершена. "
-                   f"Всего: {result['total_razdel']} Раздел, {result['total_ngs']} НГС")
+                   f"Всего: {result['total_razdel']} Раздел, {result['total_ngs']} НГС, "
+                   f"{result['total_izm']} Изм, {result['total_bez_mezh']} Без_Меж")
 
         return result
 

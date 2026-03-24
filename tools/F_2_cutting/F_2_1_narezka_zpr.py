@@ -160,16 +160,31 @@ class F_2_1_NarezkaZPR(BaseTool):
             # Показываем результат
             total_razdel = result.get('total_razdel', 0)
             total_ngs = result.get('total_ngs', 0)
+            total_izm = result.get('total_izm', 0)
+            total_bez_mezh = result.get('total_bez_mezh', 0)
+            total_all = total_razdel + total_ngs + total_izm + total_bez_mezh
 
-            if total_razdel == 0 and total_ngs == 0:
+            if total_all == 0:
                 self._show_error("Нарезка не создала объектов. Проверьте входные данные.")
                 return
 
-            log_info(f"F_2_1: Нарезка завершена. Создано: {total_razdel} Раздел, {total_ngs} НГС")
+            # Формируем сообщение с ненулевыми категориями
+            parts = []
+            if total_razdel:
+                parts.append(f"{total_razdel} Раздел")
+            if total_ngs:
+                parts.append(f"{total_ngs} НГС")
+            if total_izm:
+                parts.append(f"{total_izm} Изм")
+            if total_bez_mezh:
+                parts.append(f"{total_bez_mezh} Без_Меж")
+            summary = ", ".join(parts)
+
+            log_info(f"F_2_1: Нарезка завершена. Создано: {summary}")
 
             self.iface.messageBar().pushMessage(
                 PLUGIN_NAME,
-                f"Нарезка ЗПР завершена. Создано: {total_razdel} Раздел, {total_ngs} НГС",
+                f"Нарезка ЗПР завершена. Создано: {summary}",
                 level=Qgis.Success,
                 duration=MESSAGE_SUCCESS_DURATION
             )

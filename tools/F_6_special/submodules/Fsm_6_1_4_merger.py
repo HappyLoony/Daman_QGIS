@@ -447,7 +447,13 @@ class MergedTimesheetGenerator:
 
         try:
             # Создаем новую книгу
+            from openpyxl.styles import Font as _Font
             wb = Workbook()
+
+            # Устанавливаем дефолтный шрифт Workbook (влияет на единицы ширины колонок)
+            normal_style = wb._named_styles['Normal']
+            normal_style.font = _Font(name=DEFAULT_FONT_NAME, size=DEFAULT_FONT_SIZE)
+
             ws = wb.active
             ws.title = "табель"
 
@@ -561,13 +567,13 @@ class MergedTimesheetGenerator:
             # D=Название, E=Итого, F+=Дни (1..days_in_month)
             from openpyxl.utils import get_column_letter
 
-            ws.column_dimensions['A'].width = 35   # ФИО
-            ws.column_dimensions['B'].width = 15   # Вид работ
-            ws.column_dimensions['C'].width = 12   # Шифр
-            ws.column_dimensions['D'].width = 20   # Название
-            ws.column_dimensions['E'].width = 10   # Итого
+            for col_letter, w in [('A', 35), ('B', 15), ('C', 12), ('D', 20), ('E', 10)]:
+                ws.column_dimensions[col_letter].width = w
+                ws.column_dimensions[col_letter].customWidth = True
             for day_col in range(6, 6 + days_in_month):
-                ws.column_dimensions[get_column_letter(day_col)].width = 4.5
+                col_letter = get_column_letter(day_col)
+                ws.column_dimensions[col_letter].width = 4.5
+                ws.column_dimensions[col_letter].customWidth = True
 
             # Закрепляем первые 2 колонки (A, B) и 7 строк заголовка
             ws.freeze_panes = 'C8'

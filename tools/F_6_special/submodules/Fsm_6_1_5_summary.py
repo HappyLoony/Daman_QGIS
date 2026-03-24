@@ -329,6 +329,11 @@ class SummaryTimesheetGenerator:
 
             # Создаем книгу
             wb = Workbook()
+
+            # Устанавливаем дефолтный шрифт Workbook (влияет на единицы ширины колонок)
+            normal_style = wb._named_styles['Normal']
+            normal_style.font = Font(name=DEFAULT_FONT_NAME, size=DEFAULT_FONT_SIZE)
+
             ws = wb.active
             ws.title = "Сводка"
 
@@ -554,6 +559,7 @@ class SummaryTimesheetGenerator:
 
             # Колонка A - ФИО
             ws.column_dimensions['A'].width = 35
+            ws.column_dimensions['A'].customWidth = True
 
             # Шифры проектов - ширина 12, специальные категории - по словарю
             for col_idx, column in enumerate(all_columns, start=2):
@@ -561,16 +567,19 @@ class SummaryTimesheetGenerator:
                 # Проверяем, есть ли фиксированная ширина для этой категории
                 if column in self.CATEGORY_COLUMN_WIDTHS:
                     width = self.CATEGORY_COLUMN_WIDTHS[column]
-                    ws.column_dimensions[col_letter].width = width
                 else:
                     # Шифры проектов (и все остальное) - ширина 12
-                    ws.column_dimensions[col_letter].width = 12
+                    width = 12
+                ws.column_dimensions[col_letter].width = width
+                ws.column_dimensions[col_letter].customWidth = True
 
             # Итого и Отклонение - фиксированные ширины
             total_letter = get_column_letter(total_col)
             deviation_letter = get_column_letter(deviation_col)
             ws.column_dimensions[total_letter].width = self.TOTAL_COL_WIDTH
+            ws.column_dimensions[total_letter].customWidth = True
             ws.column_dimensions[deviation_letter].width = self.DEVIATION_COL_WIDTH
+            ws.column_dimensions[deviation_letter].customWidth = True
 
             # === Высота строки с названиями ===
             ws.row_dimensions[current_row].height = 60
