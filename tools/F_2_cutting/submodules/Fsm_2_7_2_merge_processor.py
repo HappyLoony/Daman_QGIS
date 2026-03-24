@@ -117,6 +117,9 @@ class Fsm_2_7_2_MergeProcessor:
             if merged_geom.isEmpty():
                 return {'error': "Не удалось объединить геометрии"}
 
+            # Нормализация геометрии: кольца начинаются с СЗ точки (П/0592)
+            merged_geom = self._normalize_polygon_geometry(merged_geom)
+
             is_multipart = merged_geom.isMultipart()
             new_area = merged_geom.area()
 
@@ -226,6 +229,10 @@ class Fsm_2_7_2_MergeProcessor:
             if is_cross_layer and source_layer.featureCount() == 0:
                 self._remove_empty_layer(source_layer)
                 source_removed = True
+
+            # 11. Перезагрузка dataProvider всех слоёв из того же GPKG
+            # writeAsVectorFormatV3 инвалидирует OGR file handles
+            self._reload_gpkg_layers()
 
             log_info(f"Fsm_2_7_2: Успешно объединено {len(feature_ids)} контуров, "
                      f"новый Услов_КН: {new_uslov_kn}")
@@ -587,6 +594,29 @@ class Fsm_2_7_2_MergeProcessor:
         project.removeMapLayer(layer.id())
         log_info(f"Fsm_2_7_2: Пустой слой {layer_name} удалён из проекта")
 
+    def _reload_gpkg_layers(self) -> None:
+        """Перезагрузить dataProvider всех слоёв из того же GPKG
+
+        После writeAsVectorFormatV3 OGR file handles других слоёв
+        из того же GPKG становятся невалидными. Вызов reloadData()
+        восстанавливает соединение.
+        """
+        gpkg_norm = os.path.normpath(self.gpkg_path).lower()
+        project = QgsProject.instance()
+        reloaded = 0
+
+        for layer in project.mapLayers().values():
+            if not isinstance(layer, QgsVectorLayer):
+                continue
+            source = layer.source().split('|')[0]
+            if os.path.normpath(source).lower() == gpkg_norm:
+                layer.dataProvider().reloadData()
+                layer.triggerRepaint()
+                reloaded += 1
+
+        if reloaded:
+            log_info(f"Fsm_2_7_2: Перезагружено {reloaded} GPKG-слоёв")
+
     def _recreate_point_layer(
         self,
         source_layer: QgsVectorLayer
@@ -742,6 +772,65 @@ class Fsm_2_7_2_MergeProcessor:
                     point_id += 1
 
         return points_data
+
+    @staticmethod
+    def _normalize_polygon_geometry(geom: QgsGeometry) -> QgsGeometry:
+        """Нормализовать геометрию полигона: кольца начинаются с СЗ точки
+
+        После unaryUnion() первая вершина оказывается на стыке
+        объединённых полигонов. Эта функция ротирует каждое кольцо
+        чтобы обход начинался с СЗ точки (стандарт П/0592).
+
+        Args:
+            geom: Исходная геометрия (Polygon или MultiPolygon)
+
+        Returns:
+            Новая геометрия с нормализованными кольцами
+        """
+        from qgis.core import QgsPointXY
+
+        if geom.isEmpty():
+            return geom
+
+        if geom.isMultipart():
+            polygons = geom.asMultiPolygon()
+        else:
+            polygons = [geom.asPolygon()]
+
+        new_polygons = []
+        for polygon in polygons:
+            new_rings = []
+            for ring in polygon:
+                # Убираем замыкающую точку
+                pts = list(ring[:-1])
+                if len(pts) < 3:
+                    new_rings.append(ring)
+                    continue
+
+                # Находим СЗ точку
+                min_x = min(p.x() for p in pts)
+                max_y = max(p.y() for p in pts)
+                best_idx = 0
+                best_dist = float('inf')
+                for i, p in enumerate(pts):
+                    d = (p.x() - min_x) ** 2 + (p.y() - max_y) ** 2
+                    if d < best_dist:
+                        best_dist = d
+                        best_idx = i
+
+                # Ротация
+                if best_idx > 0:
+                    pts = pts[best_idx:] + pts[:best_idx]
+
+                # Замыкаем кольцо
+                pts.append(QgsPointXY(pts[0]))
+                new_rings.append(pts)
+            new_polygons.append(new_rings)
+
+        if geom.isMultipart():
+            return QgsGeometry.fromMultiPolygonXY(new_polygons)
+        else:
+            return QgsGeometry.fromPolygonXY(new_polygons[0])
 
     @staticmethod
     def _rotate_ring_to_nw(points: list) -> list:
