@@ -569,11 +569,8 @@ class MergedTimesheetGenerator:
 
             for col_letter, w in [('A', 35), ('B', 15), ('C', 12), ('D', 20), ('E', 10)]:
                 ws.column_dimensions[col_letter].width = w
-                ws.column_dimensions[col_letter].customWidth = True
             for day_col in range(6, 6 + days_in_month):
-                col_letter = get_column_letter(day_col)
-                ws.column_dimensions[col_letter].width = 4.5
-                ws.column_dimensions[col_letter].customWidth = True
+                ws.column_dimensions[get_column_letter(day_col)].width = 4.5
 
             # Закрепляем первые 2 колонки (A, B) и 7 строк заголовка
             ws.freeze_panes = 'C8'

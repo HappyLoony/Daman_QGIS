@@ -2,8 +2,9 @@
 """
 F_2_7_Объединение - Ручное объединение контуров нарезки
 
-Позволяет вручную выбрать земельные участки из слоёв Раздел
+Позволяет вручную выбрать земельные участки из слоёв Раздел или Без_Меж
 и объединить их в единый земельный участок (Polygon или MultiPolygon).
+При объединении из Без_Меж результат попадает в слой Раздел (cross-layer).
 
 Особенности:
 - Объединение геометрий через QgsGeometry.unaryUnion()
@@ -35,6 +36,10 @@ from Daman_QGIS.constants import (
     LAYER_CUTTING_OKS_RAZDEL,
     LAYER_CUTTING_PO_RAZDEL,
     LAYER_CUTTING_VO_RAZDEL,
+    # Слои Без_Меж (источник для объединения -> результат в Раздел)
+    LAYER_CUTTING_OKS_BEZ_MEZH,
+    LAYER_CUTTING_PO_BEZ_MEZH,
+    LAYER_CUTTING_VO_BEZ_MEZH,
 )
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
@@ -50,15 +55,26 @@ class F_2_7_Merge(BaseTool):
     """Инструмент объединения контуров нарезки
 
     Позволяет пользователю выбрать несколько контуров из слоёв Раздел
-    и объединить их в единый земельный участок.
+    или Без_Меж и объединить их в единый земельный участок.
+    При объединении из Без_Меж результат помещается в слой Раздел.
     """
 
-    # Слои-источники для объединения (только Раздел)
+    # Слои-источники для объединения (Раздел + Без_Меж)
     SOURCE_LAYERS: List[str] = [
         LAYER_CUTTING_OKS_RAZDEL,
         LAYER_CUTTING_PO_RAZDEL,
         LAYER_CUTTING_VO_RAZDEL,
+        LAYER_CUTTING_OKS_BEZ_MEZH,
+        LAYER_CUTTING_PO_BEZ_MEZH,
+        LAYER_CUTTING_VO_BEZ_MEZH,
     ]
+
+    # Маппинг Без_Меж -> Раздел (для cross-layer объединения)
+    BEZ_MEZH_TO_RAZDEL: Dict[str, str] = {
+        LAYER_CUTTING_OKS_BEZ_MEZH: LAYER_CUTTING_OKS_RAZDEL,
+        LAYER_CUTTING_PO_BEZ_MEZH: LAYER_CUTTING_PO_RAZDEL,
+        LAYER_CUTTING_VO_BEZ_MEZH: LAYER_CUTTING_VO_RAZDEL,
+    }
 
     def __init__(self, iface: Any) -> None:
         """Инициализация инструмента
@@ -93,16 +109,16 @@ class F_2_7_Merge(BaseTool):
         if not self.check_project_opened():
             return
 
-        # Поиск существующих слоёв Раздел
-        available_layers = self._find_razdel_layers()
+        # Поиск существующих слоёв для объединения (Раздел + Без_Меж)
+        available_layers = self._find_source_layers()
         if not available_layers:
             self.iface.messageBar().pushMessage(
                 PLUGIN_NAME,
-                "Не найдены слои Раздел. Сначала выполните нарезку (F_2_1).",
+                "Не найдены слои для объединения. Сначала выполните нарезку (F_2_1).",
                 level=Qgis.Warning,
                 duration=MESSAGE_INFO_DURATION
             )
-            log_warning("F_2_7: Не найдены слои Раздел для объединения")
+            log_warning("F_2_7: Не найдены слои Раздел/Без_Меж для объединения")
             return
 
         # Инициализация процессора
@@ -125,11 +141,11 @@ class F_2_7_Merge(BaseTool):
         # Показать диалог выбора контуров
         self._show_dialog(available_layers)
 
-    def _find_razdel_layers(self) -> List[QgsVectorLayer]:
-        """Найти существующие слои Раздел в проекте
+    def _find_source_layers(self) -> List[QgsVectorLayer]:
+        """Найти существующие слои для объединения (Раздел + Без_Меж)
 
         Returns:
-            Список найденных слоёв Раздел с минимум 2 объектами
+            Список найденных слоёв с минимум 2 объектами
         """
         project = QgsProject.instance()
         available_layers = []
@@ -168,7 +184,7 @@ class F_2_7_Merge(BaseTool):
         """Callback для выполнения объединения из диалога
 
         Args:
-            source_layer: Слой-источник (Раздел)
+            source_layer: Слой-источник (Раздел или Без_Меж)
             feature_ids: ID объектов для объединения
 
         Returns:
@@ -178,10 +194,14 @@ class F_2_7_Merge(BaseTool):
             log_error("F_2_7: Процессор не инициализирован")
             return {'error': 'Processor not initialized'}
 
+        # Определить целевой слой Раздел (если source = Без_Меж)
+        target_razdel_name = self.BEZ_MEZH_TO_RAZDEL.get(source_layer.name())
+
         # Выполнение объединения
         result = self._processor.execute(
             source_layer=source_layer,
-            feature_ids=feature_ids
+            feature_ids=feature_ids,
+            target_razdel_name=target_razdel_name
         )
 
         if result.get('error'):
@@ -210,20 +230,29 @@ class F_2_7_Merge(BaseTool):
             )
 
             # Обновить слои в QGIS
-            self._refresh_layers(source_layer, result.get('points_layer'))
+            self._refresh_layers(
+                source_layer,
+                result.get('points_layer'),
+                result.get('razdel_layer'),
+                result.get('razdel_points_layer')
+            )
 
         return result
 
     def _refresh_layers(
         self,
         source_layer: QgsVectorLayer,
-        points_layer: Optional[QgsVectorLayer]
+        points_layer: Optional[QgsVectorLayer],
+        razdel_layer: Optional[QgsVectorLayer] = None,
+        razdel_points_layer: Optional[QgsVectorLayer] = None
     ) -> None:
         """Обновить отображение слоёв после объединения
 
         Args:
-            source_layer: Слой-источник
-            points_layer: Точечный слой (если пересоздан)
+            source_layer: Слой-источник (Раздел или Без_Меж)
+            points_layer: Точечный слой источника (если пересоздан)
+            razdel_layer: Целевой слой Раздел (при cross-layer объединении)
+            razdel_points_layer: Точечный слой Раздел (при cross-layer)
         """
         # Обновить источник
         source_layer.triggerRepaint()
@@ -231,6 +260,12 @@ class F_2_7_Merge(BaseTool):
         # Обновить точечный слой если есть
         if points_layer is not None:
             points_layer.triggerRepaint()
+
+        # Обновить слой Раздел если cross-layer
+        if razdel_layer is not None:
+            razdel_layer.triggerRepaint()
+        if razdel_points_layer is not None:
+            razdel_points_layer.triggerRepaint()
 
         # Обновить канву
         self.iface.mapCanvas().refresh()

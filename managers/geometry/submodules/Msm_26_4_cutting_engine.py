@@ -403,6 +403,9 @@ class Msm_26_4_CuttingEngine:
                 bez_mezh_features = remaining_area
 
             # 3.3.5 Компоновка Вид_Работ для всех ИЗМ из флагов причин
+            # Также разделяем ИЗМ: кому нужна смена ВРИ, а кому нет
+            izm_need_vri_reassign: List[Dict[str, Any]] = []
+            izm_keep_vri: List[Dict[str, Any]] = []
             if izm_features:
                 from Daman_QGIS.constants import compose_work_type_izm
                 for feat in izm_features:
@@ -412,6 +415,11 @@ class Msm_26_4_CuttingEngine:
                         category_changed=flags.get('category', False),
                         area_mismatch=flags.get('area', False)
                     )
+                    # ВРИ менять только если мягкая валидация НЕ прошла (vri_changed)
+                    if flags.get('vri', False):
+                        izm_need_vri_reassign.append(feat)
+                    else:
+                        izm_keep_vri.append(feat)
 
             # Очистка _izm_flags у Без_Меж (не нужны дальше)
             if bez_mezh_features:
@@ -427,11 +435,15 @@ class Msm_26_4_CuttingEngine:
                 ngs_features = self.vri_manager.reassign_vri_by_geometry(
                     ngs_features, zpr_layer
                 )
-            # Для Изменяемых - пересчитываем ВРИ по геометрическому пересечению с ЗПР
-            if izm_features:
-                izm_features = self.vri_manager.reassign_vri_by_geometry(
-                    izm_features, zpr_layer
+            # Для ИЗМ с несовпавшим ВРИ - пересчитываем ВРИ по геометрии ЗПР
+            if izm_need_vri_reassign:
+                izm_need_vri_reassign = self.vri_manager.reassign_vri_by_geometry(
+                    izm_need_vri_reassign, zpr_layer
                 )
+            # Для ИЗМ с совпавшим ВРИ (только категория/площадь) - ВРИ остаётся как у ЗУ
+            # Аналогично Без_Меж: мягкая валидация прошла, План_ВРИ = исходный ВРИ
+            izm_features = izm_need_vri_reassign + izm_keep_vri
+
             # ВАЖНО: Для Без_Меж НЕ вызываем reassign_vri_by_geometry!
             # План_ВРИ и План_категория уже установлены в Fsm_2_1_9_BezMezhProcessor
             # как ТОЧНЫЕ КОПИИ исходных атрибутов ЗУ (без нормализации).

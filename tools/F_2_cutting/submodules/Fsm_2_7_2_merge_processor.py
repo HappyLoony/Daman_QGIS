@@ -2,11 +2,15 @@
 """
 Fsm_2_7_2_MergeProcessor - Логика объединения контуров нарезки
 
+Поддерживает два режима:
+1. Same-layer: объединение внутри слоя Раздел (source = target)
+2. Cross-layer: объединение Без_Меж -> результат в Раздел
+
 Выполняет:
 1. Объединение геометрий через QgsGeometry.unaryUnion()
 2. Генерацию атрибутов объединённого контура
-3. Удаление исходных контуров из слоя
-4. Добавление объединённого контура
+3. Удаление исходных контуров из слоя-источника
+4. Добавление объединённого контура в целевой слой
 5. Перенумерование ID
 6. Пересоздание точечного слоя
 7. Сохранение в GPKG
@@ -19,11 +23,13 @@ Fsm_2_7_2_MergeProcessor - Логика объединения контуров 
 - Многоконтурный = "Да" / "Нет"
 """
 
+import os
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 
 from qgis.core import (
     QgsProject,
     QgsVectorLayer,
+    QgsVectorFileWriter,
     QgsFeature,
     QgsGeometry,
 )
@@ -69,26 +75,24 @@ class Fsm_2_7_2_MergeProcessor:
     def execute(
         self,
         source_layer: QgsVectorLayer,
-        feature_ids: List[int]
+        feature_ids: List[int],
+        target_razdel_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """Выполнить объединение контуров
 
         Args:
-            source_layer: Слой-источник (Раздел)
+            source_layer: Слой-источник (Раздел или Без_Меж)
             feature_ids: Список fid объектов для объединения
+            target_razdel_name: Имя целевого слоя Раздел (если source = Без_Меж).
+                None означает same-layer merge (source = Раздел).
 
         Returns:
-            Словарь с результатом:
-            {
-                'merged_count': int,        # Количество объединённых
-                'is_multipart': bool,       # Многоконтурный ли результат
-                'new_area': float,          # Площадь нового контура
-                'new_uslov_kn': str,        # Новый Услов_КН
-                'points_layer': QgsVectorLayer,  # Точечный слой (или None)
-                'error': str                # Ошибка (если есть)
-            }
+            Словарь с результатом
         """
-        log_info(f"Fsm_2_7_2: Объединение {len(feature_ids)} контуров из {source_layer.name()}")
+        is_cross_layer = target_razdel_name is not None
+        mode = "cross-layer" if is_cross_layer else "same-layer"
+        log_info(f"Fsm_2_7_2: Объединение {len(feature_ids)} контуров "
+                 f"из {source_layer.name()} ({mode})")
 
         if len(feature_ids) < 2:
             return {'error': "Для объединения нужно минимум 2 контура"}
@@ -102,7 +106,6 @@ class Fsm_2_7_2_MergeProcessor:
                 feature = source_layer.getFeature(fid)
                 if feature and feature.hasGeometry():
                     features_to_merge.append(feature)
-                    # Создаём копию геометрии для unaryUnion
                     geometries.append(QgsGeometry(feature.geometry()))
 
             if len(features_to_merge) < 2:
@@ -110,7 +113,6 @@ class Fsm_2_7_2_MergeProcessor:
 
             # 2. Объединить геометрии
             merged_geom = QgsGeometry.unaryUnion(geometries)
-            # Округляем координаты до стандартной точности
             merged_geom = merged_geom.snappedToGrid(
                 COORDINATE_PRECISION, COORDINATE_PRECISION
             )
@@ -118,23 +120,37 @@ class Fsm_2_7_2_MergeProcessor:
             if merged_geom.isEmpty():
                 return {'error': "Не удалось объединить геометрии"}
 
-            # Проверяем, многоконтурный ли результат
             is_multipart = merged_geom.isMultipart()
             new_area = merged_geom.area()
 
             log_info(f"Fsm_2_7_2: Объединённая геометрия - "
-                    f"{'MultiPolygon' if is_multipart else 'Polygon'}, "
-                    f"площадь {new_area:.0f} м2")
+                     f"{'MultiPolygon' if is_multipart else 'Polygon'}, "
+                     f"площадь {new_area:.0f} м2")
 
-            # 3. Сбор существующих Услов_КН для корректной нумерации :ЗУ{N}
-            existing_uslov_kns = self._collect_existing_uslov_kns(
-                source_layer, feature_ids
-            )
+            # 3. Определить целевой слой
+            if is_cross_layer:
+                target_layer = self._find_or_create_razdel_layer(
+                    target_razdel_name, source_layer
+                )
+                if not target_layer:
+                    return {'error': f"Не удалось создать слой {target_razdel_name}"}
+            else:
+                target_layer = source_layer
 
-            # 4. Генерация атрибутов для объединённого контура
+            # 4. Сбор существующих Услов_КН для нумерации :ЗУ{N}
+            if is_cross_layer:
+                existing_uslov_kns = self._collect_uslov_kns_for_razdel(
+                    target_layer, target_razdel_name
+                )
+            else:
+                existing_uslov_kns = self._collect_existing_uslov_kns(
+                    source_layer, feature_ids
+                )
+
+            # 5. Генерация атрибутов
             merged_attrs = self._attribute_handler.generate_merged_attributes(
                 features_to_merge,
-                source_layer.fields(),
+                target_layer.fields(),
                 new_area,
                 is_multipart,
                 existing_uslov_kns=existing_uslov_kns
@@ -145,63 +161,217 @@ class Fsm_2_7_2_MergeProcessor:
 
             new_uslov_kn = merged_attrs.get('Услов_КН', '')
 
-            # 5. Создать новый feature
-            new_feature = QgsFeature(source_layer.fields())
+            # 6. Создать новый feature
+            new_feature = QgsFeature(target_layer.fields())
             new_feature.setGeometry(merged_geom)
 
-            # Установить атрибуты
             for field_name, value in merged_attrs.items():
-                idx = source_layer.fields().indexOf(field_name)
+                idx = target_layer.fields().indexOf(field_name)
                 if idx >= 0:
                     new_feature.setAttribute(idx, value)
 
-            # 6. Редактирование слоя: удаление старых + добавление нового
+            # 7. Удаление исходных контуров из source
             if not source_layer.isEditable():
                 source_layer.startEditing()
 
-            # Удаление исходных контуров
             if not source_layer.deleteFeatures(feature_ids):
                 source_layer.rollBack()
                 return {'error': "Ошибка удаления исходных контуров"}
 
-            # Добавление объединённого контура (через edit buffer, не dataProvider)
-            if not source_layer.addFeature(new_feature):
-                source_layer.rollBack()
-                return {'error': "Ошибка добавления объединённого контура"}
+            # 8. Добавление объединённого контура в target
+            if is_cross_layer:
+                # Cross-layer: target отличается от source
+                if not target_layer.isEditable():
+                    target_layer.startEditing()
 
-            # 7. Перенумерация ID
-            self._renumber_ids(source_layer)
+                if not target_layer.addFeature(new_feature):
+                    source_layer.rollBack()
+                    target_layer.rollBack()
+                    return {'error': "Ошибка добавления объединённого контура в Раздел"}
 
-            # 8. Нумерация характерных точек
-            points_field = self._number_points(source_layer, merged_geom, new_uslov_kn)
+                # Перенумерация target (Раздел)
+                self._renumber_ids(target_layer)
 
-            # Обновляем поле Точки для объединённого контура
-            if points_field:
-                self._update_points_field(source_layer, new_uslov_kn, points_field)
+                # Нумерация характерных точек в target
+                points_field = self._number_points(target_layer, merged_geom, new_uslov_kn)
+                if points_field:
+                    self._update_points_field(target_layer, new_uslov_kn, points_field)
 
-            # 9. Сохранение изменений
-            source_layer.commitChanges()
-            source_layer.updateExtents()
+                # Commit target
+                target_layer.commitChanges()
+                target_layer.updateExtents()
 
-            # 10. Пересоздание точечного слоя
-            points_layer = self._recreate_point_layer(source_layer)
+                # Перенумерация source (Без_Меж) и commit
+                self._renumber_ids(source_layer)
+                source_layer.commitChanges()
+                source_layer.updateExtents()
+
+            else:
+                # Same-layer: source = target
+                if not target_layer.addFeature(new_feature):
+                    source_layer.rollBack()
+                    return {'error': "Ошибка добавления объединённого контура"}
+
+                self._renumber_ids(target_layer)
+
+                points_field = self._number_points(target_layer, merged_geom, new_uslov_kn)
+                if points_field:
+                    self._update_points_field(target_layer, new_uslov_kn, points_field)
+
+                source_layer.commitChanges()
+                source_layer.updateExtents()
+
+            # 9. Пересоздание точечных слоёв
+            source_points_layer = self._recreate_point_layer(source_layer)
+            razdel_points_layer = None
+            if is_cross_layer:
+                razdel_points_layer = self._recreate_point_layer(target_layer)
 
             log_info(f"Fsm_2_7_2: Успешно объединено {len(feature_ids)} контуров, "
-                    f"новый Услов_КН: {new_uslov_kn}")
+                     f"новый Услов_КН: {new_uslov_kn}")
 
-            return {
+            result: Dict[str, Any] = {
                 'merged_count': len(feature_ids),
                 'is_multipart': is_multipart,
                 'new_area': new_area,
                 'new_uslov_kn': new_uslov_kn,
-                'points_layer': points_layer
+                'points_layer': source_points_layer,
             }
+            if is_cross_layer:
+                result['razdel_layer'] = target_layer
+                result['razdel_points_layer'] = razdel_points_layer
+
+            return result
 
         except Exception as e:
             log_error(f"Fsm_2_7_2: Исключение при объединении: {e}")
             if source_layer.isEditable():
                 source_layer.rollBack()
+            if is_cross_layer and target_razdel_name:
+                # target_layer может не существовать при ранней ошибке
+                project = QgsProject.instance()
+                layers = project.mapLayersByName(target_razdel_name)
+                if layers and layers[0].isEditable():
+                    layers[0].rollBack()
             return {'error': str(e)}
+
+    # ------------------------------------------------------------------
+    # Поиск / создание целевого слоя Раздел
+    # ------------------------------------------------------------------
+
+    def _find_or_create_razdel_layer(
+        self,
+        razdel_name: str,
+        source_layer: QgsVectorLayer
+    ) -> Optional[QgsVectorLayer]:
+        """Найти или создать слой Раздел в проекте
+
+        Args:
+            razdel_name: Имя слоя Раздел
+            source_layer: Слой-источник (для CRS и полей)
+
+        Returns:
+            QgsVectorLayer или None
+        """
+        project = QgsProject.instance()
+        existing = project.mapLayersByName(razdel_name)
+        if existing and isinstance(existing[0], QgsVectorLayer) and existing[0].isValid():
+            log_info(f"Fsm_2_7_2: Найден существующий слой {razdel_name}")
+            return existing[0]
+
+        # Создаём новый пустой слой в GPKG
+        log_info(f"Fsm_2_7_2: Создание нового слоя {razdel_name} в GPKG")
+        return self._create_empty_razdel_layer(razdel_name, source_layer)
+
+    def _create_empty_razdel_layer(
+        self,
+        layer_name: str,
+        source_layer: QgsVectorLayer
+    ) -> Optional[QgsVectorLayer]:
+        """Создать пустой слой Раздел в GPKG
+
+        Использует паттерн из Msm_26_3_layer_creator.
+
+        Args:
+            layer_name: Имя слоя
+            source_layer: Слой-источник (для CRS и структуры полей)
+
+        Returns:
+            Загруженный QgsVectorLayer или None
+        """
+        try:
+            crs = source_layer.crs()
+            fields = source_layer.fields()
+
+            # Создаём memory layer с полями
+            mem_layer = QgsVectorLayer(
+                f"MultiPolygon?crs={crs.authid()}",
+                layer_name,
+                "memory"
+            )
+
+            if not mem_layer.isValid():
+                log_error(f"Fsm_2_7_2: Не удалось создать memory layer для {layer_name}")
+                return None
+
+            mem_layer.dataProvider().addAttributes(fields.toList())
+            mem_layer.updateFields()
+
+            # Сохраняем в GPKG (пустой слой)
+            options = QgsVectorFileWriter.SaveVectorOptions()
+            options.driverName = "GPKG"
+            options.layerName = layer_name
+
+            if os.path.exists(self.gpkg_path):
+                options.actionOnExistingFile = (
+                    QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
+                )
+            else:
+                options.actionOnExistingFile = (
+                    QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile
+                )
+
+            error = QgsVectorFileWriter.writeAsVectorFormatV3(
+                mem_layer,
+                self.gpkg_path,
+                QgsProject.instance().transformContext(),
+                options
+            )
+
+            if error[0] != QgsVectorFileWriter.WriterError.NoError:
+                log_error(f"Fsm_2_7_2: Ошибка записи слоя {layer_name} в GPKG: {error[1]}")
+                return None
+
+            # Загружаем из GPKG
+            uri = f"{self.gpkg_path}|layername={layer_name}"
+            layer = QgsVectorLayer(uri, layer_name, "ogr")
+
+            if not layer.isValid():
+                log_error(f"Fsm_2_7_2: Не удалось загрузить слой из {uri}")
+                return None
+
+            # Добавляем в проект
+            project = QgsProject.instance()
+            project.addMapLayer(layer)
+
+            # Применяем стили
+            if self.layer_manager:
+                try:
+                    self.layer_manager.apply_style_to_layer(layer)
+                    self.layer_manager.apply_labels_to_layer(layer)
+                except Exception as e:
+                    log_warning(f"Fsm_2_7_2: Не удалось применить стили к {layer_name}: {e}")
+
+            log_info(f"Fsm_2_7_2: Создан пустой слой {layer_name} в GPKG")
+            return layer
+
+        except Exception as e:
+            log_error(f"Fsm_2_7_2: Ошибка создания слоя {layer_name}: {e}")
+            return None
+
+    # ------------------------------------------------------------------
+    # Сбор Услов_КН
+    # ------------------------------------------------------------------
 
     def _collect_existing_uslov_kns(
         self,
@@ -210,7 +380,7 @@ class Fsm_2_7_2_MergeProcessor:
     ) -> List[str]:
         """Собрать существующие Услов_КН из слоя и соответствующего НГС
 
-        Нужно для корректной генерации :ЗУ{N} при объединении.
+        Используется при same-layer merge (source = Раздел).
 
         Args:
             source_layer: Слой Раздел
@@ -238,8 +408,49 @@ class Fsm_2_7_2_MergeProcessor:
                     existing.append(str(uslov_kn))
 
         log_info(f"Fsm_2_7_2: Найдено {len(existing)} существующих Услов_КН "
-                f"для нумерации :ЗУ")
+                 f"для нумерации :ЗУ")
         return existing
+
+    def _collect_uslov_kns_for_razdel(
+        self,
+        razdel_layer: QgsVectorLayer,
+        razdel_name: str
+    ) -> List[str]:
+        """Собрать существующие Услов_КН для целевого слоя Раздел
+
+        Используется при cross-layer merge (source = Без_Меж).
+        Собирает из Раздел (все features) + НГС.
+
+        Args:
+            razdel_layer: Целевой слой Раздел
+            razdel_name: Имя слоя Раздел
+
+        Returns:
+            Список всех существующих Услов_КН
+        """
+        existing = []
+
+        # 1. Собрать из Раздел (все features, ничего не исключаем)
+        for feature in razdel_layer.getFeatures():
+            uslov_kn = feature['Услов_КН'] if 'Услов_КН' in feature.fields().names() else None
+            if uslov_kn:
+                existing.append(str(uslov_kn))
+
+        # 2. Найти НГС слой (по имени Раздел, не Без_Меж)
+        ngs_layer = self._find_ngs_layer(razdel_name)
+        if ngs_layer:
+            for feature in ngs_layer.getFeatures():
+                uslov_kn = feature['Услов_КН'] if 'Услов_КН' in feature.fields().names() else None
+                if uslov_kn:
+                    existing.append(str(uslov_kn))
+
+        log_info(f"Fsm_2_7_2: Найдено {len(existing)} существующих Услов_КН "
+                 f"в Раздел+НГС для нумерации :ЗУ")
+        return existing
+
+    # ------------------------------------------------------------------
+    # Поиск НГС слоя
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _find_ngs_layer(razdel_name: str) -> Optional[QgsVectorLayer]:
@@ -265,6 +476,10 @@ class Fsm_2_7_2_MergeProcessor:
             return layers[0]
 
         return None
+
+    # ------------------------------------------------------------------
+    # Перенумерация и точки
+    # ------------------------------------------------------------------
 
     def _renumber_ids(self, layer: QgsVectorLayer) -> None:
         """Перенумеровать ID в слое (1, 2, 3...)
@@ -314,16 +529,13 @@ class Fsm_2_7_2_MergeProcessor:
             Строка с номерами точек (например, "н1-н8") или None
         """
         try:
-            # Получаем менеджер нумерации точек
             point_manager = registry.get('M_20')
             if not point_manager:
                 log_warning("Fsm_2_7_2: Не удалось получить PointNumberingManager")
                 return None
 
-            # Находим feature по Услов_КН
             for feature in layer.getFeatures():
                 if feature['Услов_КН'] == uslov_kn:
-                    # Нумеруем точки для этого контура
                     points_str = point_manager.number_points_for_feature(
                         feature,
                         layer.crs()
@@ -361,6 +573,10 @@ class Fsm_2_7_2_MergeProcessor:
                 layer.changeAttributeValue(feature.id(), points_idx, points_value)
                 break
 
+    # ------------------------------------------------------------------
+    # Пересоздание точечного слоя
+    # ------------------------------------------------------------------
+
     def _recreate_point_layer(
         self,
         source_layer: QgsVectorLayer
@@ -380,8 +596,17 @@ class Fsm_2_7_2_MergeProcessor:
             log_warning(f"Fsm_2_7_2: Не найдено имя точечного слоя для {source_name}")
             return None
 
+        # Если в слое нет features, удаляем точечный слой и выходим
+        if source_layer.featureCount() == 0:
+            project = QgsProject.instance()
+            existing = project.mapLayersByName(point_layer_name)
+            for layer in existing:
+                project.removeMapLayer(layer.id())
+            log_info(f"Fsm_2_7_2: Слой {source_name} пуст, "
+                     f"точечный слой {point_layer_name} удалён")
+            return None
+
         try:
-            # Получаем менеджер нумерации точек для генерации данных
             point_manager = registry.get('M_20')
             if not point_manager:
                 log_warning("Fsm_2_7_2: Не удалось получить PointNumberingManager")
@@ -400,7 +625,6 @@ class Fsm_2_7_2_MergeProcessor:
                 uslov_kn = feature['Услов_КН'] or ''
                 kn = feature['КН'] or ''
 
-                # Извлекаем точки из геометрии
                 feature_points = self._extract_points_from_geometry(
                     geom,
                     contour_id,
@@ -431,10 +655,8 @@ class Fsm_2_7_2_MergeProcessor:
             )
 
             if point_layer and point_layer.isValid():
-                # Добавляем в проект
                 project.addMapLayer(point_layer)
 
-                # Применяем стили если есть менеджер
                 if self.layer_manager:
                     try:
                         self.layer_manager.apply_style_to_layer(point_layer)
