@@ -377,7 +377,8 @@ class DamanQGIS:
         self._build_full_toolbar()
 
         # --- Default tool: Select Features (instead of Pan) ---
-        QTimer.singleShot(0, self.iface.actionSelect().trigger)
+        # Delay needed: map canvas sets Pan tool after all plugins finish initGui
+        QTimer.singleShot(500, self.iface.actionSelect().trigger)
 
     def _init_nspd_statusbar(self) -> None:
         """Инициализация индикатора авторизации НСПД в statusbar."""
