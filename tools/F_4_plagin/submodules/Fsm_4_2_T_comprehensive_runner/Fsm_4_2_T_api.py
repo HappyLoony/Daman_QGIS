@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Субмодуль Fsm_4_2_T_api - Комплексное тестирование Yandex Cloud API
+Субмодуль Fsm_4_2_T_api - Комплексное тестирование Daman API
 
 Тестирует:
 - BaseReferenceLoader (загрузка справочных данных)
@@ -20,7 +20,7 @@ from typing import Dict, Any, Optional
 
 
 class TestAPI:
-    """Комплексные тесты Yandex Cloud API"""
+    """Комплексные тесты Daman API"""
 
     # Тестовые данные
     INVALID_API_KEY = "INVALID-KEY-12345-FAKE"
@@ -52,7 +52,7 @@ class TestAPI:
 
     def run_all_tests(self):
         """Запуск всех тестов API"""
-        self.logger.section("ТЕСТ API: Yandex Cloud Function")
+        self.logger.section("ТЕСТ API: Daman API")
 
         try:
             # Инициализация
@@ -155,8 +155,8 @@ class TestAPI:
             )
 
             self.logger.check(
-                "yandexcloud" in API_BASE_URL or "functions" in API_BASE_URL,
-                "URL указывает на Yandex Cloud",
+                "daman.tools" in API_BASE_URL,
+                "URL указывает на daman.tools",
                 f"Неожиданный URL: {API_BASE_URL}"
             )
 

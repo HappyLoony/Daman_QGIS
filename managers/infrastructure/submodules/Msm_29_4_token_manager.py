@@ -155,8 +155,8 @@ class TokenManager:
             {"X-Auth-Token": "Bearer eyJ...", "X-Hardware-Id": "abc..."} или {}
 
         Note:
-            Используем X-Auth-Token вместо Authorization, т.к. Yandex Cloud Functions
-            перехватывает Authorization заголовок для IAM-авторизации.
+            Используем X-Auth-Token вместо Authorization для совместимости
+            с серверной инфраструктурой.
         """
         if not self._access_token:
             return {}

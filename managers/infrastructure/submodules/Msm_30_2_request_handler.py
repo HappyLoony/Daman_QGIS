@@ -225,8 +225,8 @@ class RequestHandler:
         if auth and self._token_provider:
             token = self._token_provider()
             if token:
-                # X-Auth-Token вместо Authorization: Yandex Cloud Functions
-                # перехватывает Authorization для IAM-авторизации
+                # X-Auth-Token вместо Authorization для совместимости
+                # с серверной инфраструктурой
                 headers["X-Auth-Token"] = f"Bearer {token}"
 
         return headers

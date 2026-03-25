@@ -6,7 +6,7 @@ Fsm_4_4_1_FeedbackDialog - GUI диалог обратной связи
 - Ввода описания проблемы/предложения
 - Указания email (опционально)
 - Автоматического прикрепления логов последних 3 сессий
-- Отправки через Yandex Cloud API (action=feedback)
+- Отправки через Daman API (/feedback)
 """
 
 import sys
@@ -328,7 +328,7 @@ class FeedbackDialog(BaseResponsiveDialog):
             "session_logs": session_logs
         }
 
-        # Проверяем размер payload (лимит ~1MB для Yandex Cloud Function)
+        # Проверяем размер payload
         import json
         log_info("Fsm_4_4_1: Сериализация payload для проверки размера...")
         payload_json = json.dumps(payload, ensure_ascii=False).encode('utf-8')

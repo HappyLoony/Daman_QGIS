@@ -72,7 +72,7 @@ def create_reference_managers() -> ReferenceManagers:
     """
     Создать и инициализировать все менеджеры справочных данных
 
-    Данные загружаются через Yandex Cloud API (BaseReferenceLoader).
+    Данные загружаются через Daman API (BaseReferenceLoader).
 
     Returns:
         ReferenceManagers: NamedTuple со всеми менеджерами

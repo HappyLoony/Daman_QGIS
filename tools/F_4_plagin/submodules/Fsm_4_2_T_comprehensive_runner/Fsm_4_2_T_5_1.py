@@ -139,13 +139,14 @@ CUSTOM_RESOLUTIONS = [
     13.999999999998, 6.999999999999999, 2.8,
 ]
 
-# Ожидаемые слои LAYER_MAPPING (15 основных)
+# Ожидаемые слои LAYER_MAPPING (12 загружаемых)
+# FORESTRY, TIMBER_YARD, PROCESSING_OBJECT перенесены в MONITORED_LAYERS
 EXPECTED_MAIN_LAYERS = {
-    "FORESTRY", "FORESTRY_APPROVE", "FORESTRY_TAXATION_DATE",
+    "FORESTRY_APPROVE", "FORESTRY_TAXATION_DATE",
     "DISTRICT_FORESTRY_TAXATION_DATE", "QUARTER", "TAXATION_PIECE",
-    "FOREST_STEAD", "PART_FOREST_STEAD", "TIMBER_YARD",
+    "FOREST_STEAD", "PART_FOREST_STEAD",
     "FOREST_PURPOSE", "PROTECTIVE_FOREST", "PROTECTIVE_FOREST_SUBCATEGORY",
-    "SPECIAL_PROTECT_STEAD", "CLEARCUT", "PROCESSING_OBJECT",
+    "SPECIAL_PROTECT_STEAD", "CLEARCUT",
 }
 
 # Ожидаемые extra-слои (для TAXATION_PIECE)
@@ -701,9 +702,9 @@ class TestFgislkMonitoring:
 
             # Проверяем количество
             self.logger.check(
-                len(mapping) == 15,
-                f"LAYER_MAPPING: {len(mapping)} слоёв (ожидалось 15)",
-                f"LAYER_MAPPING: {len(mapping)} != 15"
+                len(mapping) == 12,
+                f"LAYER_MAPPING: {len(mapping)} слоёв (ожидалось 12)",
+                f"LAYER_MAPPING: {len(mapping)} != 12"
             )
 
             # Проверяем что все ожидаемые слои есть

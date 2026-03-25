@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-Msm_29_3_LicenseValidator - Валидатор лицензии через Yandex Cloud API.
+Msm_29_3_LicenseValidator - Валидатор лицензии через Daman API.
 
 Выполняет:
-- Активацию новой лицензии (POST ?action=validate&mode=activate)
-- Проверку существующей лицензии (POST ?action=validate&mode=verify)
-- Деактивацию лицензии (POST ?action=deactivate)
-- Отчёт об использовании offline кэша (POST ?action=report_offline)
+- Активацию новой лицензии (POST /validate или ?action=validate&mode=activate)
+- Проверку существующей лицензии (POST /validate или ?action=validate&mode=verify)
+- Деактивацию лицензии (POST /deactivate или ?action=deactivate)
+- Отчёт об использовании offline кэша (POST /report-offline или ?action=report_offline)
 
 Безопасность:
 - HMAC-SHA256 подпись запросов с API ключом пользователя как secret
 - Каждый пользователь имеет уникальный ключ подписи
 - Защита от replay attacks (timestamp validation на сервере)
 
-API: https://functions.yandexcloud.net/d4e9nvs008lt7sd87s7m
+API: constants.API_BASE_URL (daman.tools)
 """
 
 import hashlib
@@ -26,7 +26,7 @@ from Daman_QGIS.utils import log_info, log_error, log_warning
 
 class LicenseValidator:
     """
-    Валидатор лицензии через Yandex Cloud API.
+    Валидатор лицензии через Daman API.
 
     API endpoints (query params):
     - POST ?action=validate - активация/верификация лицензии
@@ -52,8 +52,8 @@ class LicenseValidator:
     def _create_session(self):
         """Создание новой requests session.
 
-        Connection: close отключает keep-alive. Yandex Cloud Functions
-        (serverless) агрессивно закрывает idle-соединения, что приводит к
+        Connection: close отключает keep-alive. Serverless-бэкенды
+        агрессивно закрывают idle-соединения, что приводит к
         [CRYPTO] unknown error при SSL resumption на мёртвом TCP.
         """
         try:
@@ -133,7 +133,7 @@ class LicenseValidator:
 
     def activate(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
         """
-        Активация лицензии через Yandex Cloud API.
+        Активация лицензии через Daman API.
 
         Args:
             api_key: Ключ активации
@@ -229,7 +229,7 @@ class LicenseValidator:
 
     def verify(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
         """
-        Проверка лицензии через Yandex Cloud API.
+        Проверка лицензии через Daman API.
 
         При SSL ошибке (типично для OSGeo4W + протухшее соединение)
         пересоздаёт session и делает одну повторную попытку.
@@ -309,7 +309,7 @@ class LicenseValidator:
 
     def deactivate(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
         """
-        Деактивация лицензии через Yandex Cloud API.
+        Деактивация лицензии через Daman API.
 
         Освобождает привязку к Hardware ID.
         """

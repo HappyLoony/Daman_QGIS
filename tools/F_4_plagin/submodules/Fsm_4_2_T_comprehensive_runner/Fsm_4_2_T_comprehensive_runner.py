@@ -27,6 +27,7 @@ STRUCTURE:
       └── project_fixtures.py
 """
 
+import inspect
 import os
 import sys
 import glob
@@ -62,7 +63,8 @@ class ComprehensiveTestRunner:
     }
 
     def __init__(self, iface, log_level: int = TestLogger.LOG_LEVEL_ERROR,
-                 progress_callback: Optional[Callable[[int, int, str], None]] = None):
+                 progress_callback: Optional[Callable[[int, int, str], None]] = None,
+                 parent_widget=None):
         """
         Инициализация comprehensive runner
 
@@ -70,10 +72,13 @@ class ComprehensiveTestRunner:
             iface: QGIS interface
             log_level: Уровень логирования (по умолчанию ERROR - только ошибки)
             progress_callback: Callback прогресса (current_index, total_count, test_name)
+            parent_widget: Родительский виджет (DiagnosticsDialog) для корректного
+                фокуса после модальных диалогов (авторизация НСПД и др.)
         """
         self.iface = iface
         self.logger = TestLogger(log_level=log_level)
         self._progress_callback = progress_callback
+        self._parent_widget = parent_widget
 
         # Результаты тестов
         self.test_results = []  # List[Dict] - результаты каждого теста
@@ -268,7 +273,12 @@ class ComprehensiveTestRunner:
                 return result
 
             # Инициализация и запуск теста
-            test_instance = test_class(self.iface, self.logger)
+            # Передаём parent_widget если конструктор его принимает (TestNSPD)
+            sig = inspect.signature(test_class.__init__)
+            if 'parent_widget' in sig.parameters:
+                test_instance = test_class(self.iface, self.logger, parent_widget=self._parent_widget)
+            else:
+                test_instance = test_class(self.iface, self.logger)
 
             if hasattr(test_instance, 'run_all_tests'):
                 test_instance.run_all_tests()

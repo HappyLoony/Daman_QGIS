@@ -106,7 +106,8 @@ class TestTabWidget(QWidget):
             self._runner = ComprehensiveTestRunner(
                 self.iface,
                 log_level=TestLogger.LOG_LEVEL_ERROR,
-                progress_callback=self._on_test_progress
+                progress_callback=self._on_test_progress,
+                parent_widget=self.window()
             )
 
             # Запускаем генератор — каждый шаг = один тест

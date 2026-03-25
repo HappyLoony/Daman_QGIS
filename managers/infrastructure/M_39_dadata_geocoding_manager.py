@@ -55,8 +55,8 @@ class DaDataGeocodingManager:
     # QSettings
     SETTINGS_KEY = "daman_qgis/dadata_api_key"
 
-    # TODO: Перенести API-ключ в Yandex Cloud Function (proxy).
-    #  План: клиент -> Yandex CF -> DaData, ключ хранится в env vars функции.
+    # TODO: Перенести API-ключ на серверный proxy (daman.tools).
+    #  План: клиент -> daman.tools -> DaData, ключ хранится в env vars.
     #  Пользователи получают доступ через лицензию (M_29), без прямого ключа.
     _BUNDLED_KEY = "377b9daf9e16b5f733a0380b1839e2b7115e4aca"
 

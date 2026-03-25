@@ -117,14 +117,24 @@ class Fsm_2_7_2_MergeProcessor:
             if merged_geom.isEmpty():
                 return {'error': "Не удалось объединить геометрии"}
 
+            # Проверка: многоконтурные ЗУ запрещены
+            # unaryUnion возвращает MultiPolygon если контуры:
+            # - не смежны (0 общих точек)
+            # - касаются в одной точке (GEOS: self-touching ring невалиден)
+            # Допускается только Polygon (общая грань = 2+ общих точки)
+            if merged_geom.isMultipart():
+                log_error("Fsm_2_7_2: Выбранные контуры не смежны - "
+                         "объединение невозможно (MultiPolygon)")
+                return {'error': "Выбранные контуры не смежны. "
+                        "Для объединения контуры должны иметь "
+                        "общую границу (не менее 2 общих точек)"}
+
             # Нормализация геометрии: кольца начинаются с СЗ точки (П/0592)
             merged_geom = self._normalize_polygon_geometry(merged_geom)
 
-            is_multipart = merged_geom.isMultipart()
             new_area = merged_geom.area()
 
-            log_info(f"Fsm_2_7_2: Объединённая геометрия - "
-                     f"{'MultiPolygon' if is_multipart else 'Polygon'}, "
+            log_info(f"Fsm_2_7_2: Объединённая геометрия - Polygon, "
                      f"площадь {new_area:.0f} м2")
 
             # 3. Определить целевой слой
@@ -152,7 +162,7 @@ class Fsm_2_7_2_MergeProcessor:
                 features_to_merge,
                 target_layer.fields(),
                 new_area,
-                is_multipart,
+                False,  # MultiPolygon запрещён (проверка выше)
                 existing_uslov_kns=existing_uslov_kns
             )
 
@@ -239,7 +249,7 @@ class Fsm_2_7_2_MergeProcessor:
 
             result: Dict[str, Any] = {
                 'merged_count': len(feature_ids),
-                'is_multipart': is_multipart,
+                'is_multipart': False,
                 'new_area': new_area,
                 'new_uslov_kn': new_uslov_kn,
                 'points_layer': source_points_layer,

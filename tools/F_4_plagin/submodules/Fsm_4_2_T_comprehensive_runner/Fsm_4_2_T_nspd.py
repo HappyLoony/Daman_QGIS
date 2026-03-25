@@ -67,9 +67,10 @@ class TestNSPD:
     # Группы, где layer_name может быть null
     GROUPS_OPTIONAL_LAYER_NAME: set = set()
 
-    def __init__(self, iface, logger):
+    def __init__(self, iface, logger, parent_widget=None):
         self.iface = iface
         self.logger = logger
+        self._parent_widget = parent_widget
         self.api_manager = None
         self.session = None  # requests.Session с cookies НСПД (если авторизован)
         self.egrn_endpoints = []  # EGRN_WFS endpoints with expected_fields + test_extent
@@ -203,7 +204,16 @@ class TestNSPD:
                 self.logger.info(
                     "НСПД: не авторизован. Запуск авторизации..."
                 )
-                login_ok = nspd_auth.login(parent=self.iface.mainWindow())
+                # Используем parent_widget (DiagnosticsDialog) вместо mainWindow,
+                # чтобы после закрытия auth диалога фокус вернулся к DiagnosticsDialog
+                auth_parent = self._parent_widget or self.iface.mainWindow()
+                login_ok = nspd_auth.login(parent=auth_parent)
+
+                # После закрытия auth диалога (Edge) поднимаем родительское окно,
+                # чтобы DiagnosticsDialog не остался за главным окном QGIS
+                if self._parent_widget:
+                    self._parent_widget.raise_()
+                    self._parent_widget.activateWindow()
 
                 if not login_ok:
                     self.logger.warning(

@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-Базовый класс для загрузки справочных данных из JSON через Yandex Cloud API.
+Базовый класс для загрузки справочных данных из JSON через Daman API.
 
 Требует интернет-соединение. Кэширование только в памяти на время сессии.
 
 Предоставляет общую функциональность для всех менеджеров справочных данных:
-- Загрузка JSON через API (Yandex Cloud Function)
+- Загрузка JSON через API (daman.tools)
 - Кэширование в памяти на время сессии
 - Построение индексов для быстрого поиска
 
-API URL: https://functions.yandexcloud.net/d4e9nvs008lt7sd87s7m
-Формат запроса: ?action=data&file={filename}
+API URL: constants.API_BASE_URL
+Формат запроса: /data/{filename} или ?action=data&file={filename}
 """
 
 import json
@@ -19,7 +19,7 @@ from Daman_QGIS.utils import log_warning, log_error, log_info
 
 
 class BaseReferenceLoader:
-    """Базовый класс для загрузки справочных данных через Yandex Cloud API.
+    """Базовый класс для загрузки справочных данных через Daman API.
 
     Кэш общий для всех экземпляров (на уровне класса).
     Данные загружаются один раз за сессию.
@@ -32,13 +32,13 @@ class BaseReferenceLoader:
     def __init__(self):
         """Инициализация базового загрузчика.
 
-        Данные загружаются через Yandex Cloud API, локальные пути не используются.
+        Данные загружаются через Daman API, локальные пути не используются.
         """
         pass
 
     def _load_json(self, filename: str) -> Any:
         """
-        Загружает JSON файл через Yandex Cloud API с кэшированием в памяти.
+        Загружает JSON файл через Daman API с кэшированием в памяти.
 
         Требует интернет-соединение. Кэш хранится только на время сессии.
 
@@ -57,7 +57,7 @@ class BaseReferenceLoader:
         if filename in BaseReferenceLoader._shared_cache:
             return BaseReferenceLoader._shared_cache[filename]
 
-        # Загрузка через Yandex Cloud API (требует интернет)
+        # Загрузка через Daman API (требует интернет)
         data = self._load_from_remote(filename)
 
         if data is not None:
@@ -67,7 +67,7 @@ class BaseReferenceLoader:
 
     def _load_from_remote(self, filename: str) -> Optional[Any]:
         """
-        Загрузить JSON через Yandex Cloud API с JWT авторизацией.
+        Загрузить JSON через Daman API с JWT авторизацией.
 
         Добавляет JWT Authorization header если токены доступны.
         При 401 ответе пытается обновить токен и повторить запрос.
