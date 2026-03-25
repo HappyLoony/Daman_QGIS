@@ -732,7 +732,10 @@ DATA_REFERENCE_PATH = _get_data_reference_path()
 # Используется: BaseReferenceLoader, M_29_LicenseManager
 API_BASE_URL = "https://daman.tools/api/plugin"
 
-# Маппинг action -> endpoint path (для совместимости action names с URL paths)
+# Формат URL: True = path-based (/validate), False = query-based (?action=validate)
+_USE_PATH_ROUTING = "daman.tools" in API_BASE_URL
+
+# Маппинг action -> endpoint path (только для path-based routing)
 _ACTION_PATH_MAP: dict[str, str] = {
     "report_offline": "report-offline",
 }
@@ -741,16 +744,20 @@ _ACTION_PATH_MAP: dict[str, str] = {
 def get_api_url(action: str, **params: str) -> str:
     """Построить URL для Plugin API endpoint.
 
-    Примеры:
-        get_api_url("validate")           -> https://daman.tools/api/plugin/validate
-        get_api_url("data", file="Base_X") -> https://daman.tools/api/plugin/data?file=Base_X
-        get_api_url("profile", info="1")  -> https://daman.tools/api/plugin/profile?info=1
+    Автоматически выбирает формат в зависимости от API_BASE_URL:
+    - daman.tools:  /api/plugin/validate?file=X  (path-based)
+    - Yandex CF:    ?action=validate&file=X       (query-based)
     """
-    path = _ACTION_PATH_MAP.get(action, action)
-    url = f"{API_BASE_URL}/{path}"
-    if params:
-        query = "&".join(f"{k}={v}" for k, v in params.items())
-        url = f"{url}?{query}"
+    if _USE_PATH_ROUTING:
+        path = _ACTION_PATH_MAP.get(action, action)
+        url = f"{API_BASE_URL}/{path}"
+        if params:
+            query = "&".join(f"{k}={v}" for k, v in params.items())
+            url = f"{url}?{query}"
+    else:
+        all_params = {"action": action, **params}
+        query = "&".join(f"{k}={v}" for k, v in all_params.items())
+        url = f"{API_BASE_URL}?{query}"
     return url
 
 # Таймаут API запросов
