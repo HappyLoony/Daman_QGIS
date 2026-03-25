@@ -491,6 +491,14 @@ class Msm_26_4_CuttingEngine:
                 )
 
             # 6. Создание слоёв Изм и Без_Меж (если detect_no_change включён)
+            # Переназначение ID после миграций Без_Меж -> Изм (3.3.2, 3.3.4)
+            if izm_features:
+                for idx, feat in enumerate(izm_features, start=1):
+                    feat['attributes']['ID'] = idx
+            if bez_mezh_features:
+                for idx, feat in enumerate(bez_mezh_features, start=1):
+                    feat['attributes']['ID'] = idx
+
             izm_layer_result = None
             bez_mezh_layer_result = None
 

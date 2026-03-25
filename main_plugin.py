@@ -376,6 +376,9 @@ class DamanQGIS:
         # --- Полная инициализация тулбара ---
         self._build_full_toolbar()
 
+        # --- Default tool: Select Features (instead of Pan) ---
+        QTimer.singleShot(0, self.iface.actionSelect().trigger)
+
     def _init_nspd_statusbar(self) -> None:
         """Инициализация индикатора авторизации НСПД в statusbar."""
         try:

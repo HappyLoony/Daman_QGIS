@@ -50,7 +50,6 @@ class Msm_26_2_AttributeMapper:
         self._id_counter: Dict[str, int] = {}  # Счётчики ID по слоям
         self._zpr_id_counter: Dict[str, int] = {}  # Счётчики ID по типу ЗПР (ОКС, ЛО, ВО)
         self._kn_counter: Dict[str, int] = {}  # Счётчики по базовому КН
-        self._ez_counter: Dict[str, int] = {}  # Счётчики по базовому ЕЗ
 
     def load_schema(self) -> List[Dict]:
         """Загрузка схемы атрибутов из Base_cutting.json
@@ -214,9 +213,8 @@ class Msm_26_2_AttributeMapper:
         return self._zpr_id_counter.get(zpr_type, 0)
 
     def reset_kn_counters(self) -> None:
-        """Сброс счётчиков КН и ЕЗ (вызывать перед обработкой нового слоя)"""
+        """Сброс счётчиков КН (вызывать перед обработкой нового слоя)"""
         self._kn_counter.clear()
-        self._ez_counter.clear()
 
     def generate_conditional_kn(self, base_kn: Optional[str]) -> str:
         """Генерация условного кадастрового номера
@@ -247,27 +245,6 @@ class Msm_26_2_AttributeMapper:
                 self._kn_counter[placeholder] = 0
             self._kn_counter[placeholder] += 1
             return f"{placeholder}:ЗУ{self._kn_counter[placeholder]}"
-
-    def generate_conditional_ez(self, base_ez: Optional[str]) -> str:
-        """Генерация условного номера единого землепользования
-
-        Формат: "ЕЗ:ЗУ{index}" где index уникален для каждого базового ЕЗ
-
-        Args:
-            base_ez: Базовый ЕЗ
-
-        Returns:
-            str: Условный ЕЗ или "-" если ЕЗ пустой
-        """
-        if base_ez and str(base_ez).strip() and str(base_ez).strip() != '-':
-            ez_key = str(base_ez).strip()
-            # Инкрементируем счётчик для этого ЕЗ
-            if ez_key not in self._ez_counter:
-                self._ez_counter[ez_key] = 0
-            self._ez_counter[ez_key] += 1
-            return f"{ez_key}:ЗУ{self._ez_counter[ez_key]}"
-        else:
-            return "-"
 
     def calculate_area(self, geometry: QgsGeometry) -> int:
         """Расчёт площади геометрии
@@ -315,10 +292,6 @@ class Msm_26_2_AttributeMapper:
         # Услов_КН - счётчик уникален для каждого базового КН
         base_kn = attributes.get('КН')
         result['Услов_КН'] = self.generate_conditional_kn(base_kn)
-
-        # Услов_ЕЗ - счётчик уникален для каждого базового ЕЗ
-        base_ez = attributes.get('ЕЗ')
-        result['Услов_ЕЗ'] = self.generate_conditional_ez(base_ez)
 
         # Площадь_ОЗУ
         result['Площадь_ОЗУ'] = self.calculate_area(geometry)

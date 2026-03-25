@@ -120,6 +120,10 @@ class Fsm_2_1_9_BezMezhProcessor:
         # Сортировка от СЗ к ЮВ для корректной нумерации ID
         features_data = self._sort_by_northwest(features_data)
 
+        # Переназначение ID после сортировки (1, 2, 3... в порядке СЗ -> ЮВ)
+        for idx, feat in enumerate(features_data, start=1):
+            feat['attributes']['ID'] = idx
+
         log_info(f"Fsm_2_1_9: Создано {len(features_data)} Без_Меж features")
         return features_data
 
@@ -190,10 +194,6 @@ class Fsm_2_1_9_BezMezhProcessor:
         # Услов_КН = КН (сохраняем оригинальный кадастровый номер)
         kn = zu_attrs.get('КН', '-')
         attributes['Услов_КН'] = kn if kn else '-'
-
-        # Услов_ЕЗ = ЕЗ (единое землепользование)
-        ez = zu_attrs.get('ЕЗ', '-')
-        attributes['Услов_ЕЗ'] = ez if ez else '-'
 
         # План_ВРИ = ВРИ из ЗУ (не меняется, БЕЗ нормализации)
         # ВАЖНО: Для Без_Меж берём ТОЧНУЮ копию ВРИ из исходного ЗУ

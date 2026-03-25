@@ -142,6 +142,10 @@ class Fsm_2_1_8_IzmenyaemyeProcessor:
         # Сортировка от СЗ к ЮВ для корректной нумерации ID
         result = self._sort_by_northwest(result)
 
+        # Переназначение ID после сортировки (1, 2, 3... в порядке СЗ -> ЮВ)
+        for idx, feat in enumerate(result, start=1):
+            feat['attributes']['ID'] = idx
+
         log_info(f"Fsm_2_1_8: Создано {len(result)} features для Изменяемых")
         return result
 
@@ -168,13 +172,6 @@ class Fsm_2_1_8_IzmenyaemyeProcessor:
             attributes['Услов_КН'] = kn
         else:
             attributes['Услов_КН'] = '-'
-
-        # Услов_ЕЗ = ЕЗ
-        ez = zu_attrs.get('ЕЗ', '-')
-        if ez and ez != '-':
-            attributes['Услов_ЕЗ'] = ez
-        else:
-            attributes['Услов_ЕЗ'] = '-'
 
         # План_ВРИ = ВРИ из ЗПР (строгий, "причёсанный")
         # Изменяемые = ЗУ где ВРИ не совпадает с ЗПР, поэтому берём ВРИ из ЗПР
