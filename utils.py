@@ -485,6 +485,64 @@ def safe_refresh_layer_symbology(layer, delay_ms: int = 50) -> None:
     QTimer.singleShot(delay_ms, do_refresh)
 
 
+def safe_refresh_attribute_tables(layer=None, delay_ms: int = 50) -> None:
+    """
+    Обновление открытых таблиц атрибутов.
+
+    Находит все открытые таблицы через Qt introspection (QgsDualView)
+    и перезагружает модель данных. Закрывает осиротевшие таблицы
+    (привязанные к удалённым слоям).
+
+    Args:
+        layer: Конкретный слой для обновления (None = все открытые таблицы)
+        delay_ms: Задержка в миллисекундах (по умолчанию 50)
+
+    Example:
+        >>> safe_refresh_attribute_tables()  # Обновить все открытые таблицы
+        >>> safe_refresh_attribute_tables(my_layer)  # Обновить конкретную таблицу
+    """
+    from qgis.PyQt.QtCore import QTimer
+
+    def do_refresh():
+        try:
+            from qgis.PyQt.QtWidgets import QApplication
+            from qgis.gui import QgsDualView
+            from qgis.core import QgsProject
+
+            project_layer_ids = set(QgsProject.instance().mapLayers().keys())
+
+            for widget in QApplication.topLevelWidgets():
+                if not widget.isVisible():
+                    continue
+
+                dual_view = widget.findChild(QgsDualView, "mMainView")
+                if dual_view is None:
+                    continue
+
+                model = dual_view.masterModel()
+                if model is None:
+                    continue
+
+                table_layer = model.layer()
+
+                # Осиротевшая таблица (слой удалён из проекта) - закрываем
+                if table_layer is None or table_layer.id() not in project_layer_ids:
+                    widget.close()
+                    continue
+
+                # Если указан конкретный слой - обновляем только его
+                if layer is not None and table_layer.id() != layer.id():
+                    continue
+
+                # Перезагрузка модели таблицы
+                model.loadLayer()
+
+        except Exception as e:
+            log_warning(f"safe_refresh_attribute_tables: {e}")
+
+    QTimer.singleShot(delay_ms, do_refresh)
+
+
 # ============================================================================
 # ФУНКЦИИ РАБОТЫ С CRS
 # ============================================================================

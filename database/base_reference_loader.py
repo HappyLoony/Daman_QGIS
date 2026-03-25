@@ -78,7 +78,7 @@ class BaseReferenceLoader:
         Returns:
             Данные из файла или None при ошибке
         """
-        from Daman_QGIS.constants import API_BASE_URL, DEFAULT_REQUEST_TIMEOUT
+        from Daman_QGIS.constants import DEFAULT_REQUEST_TIMEOUT, get_api_url
 
         try:
             import requests
@@ -89,7 +89,7 @@ class BaseReferenceLoader:
         # Убираем .json для API запроса (API добавит сам)
         file_param = filename.replace('.json', '')
 
-        url = f"{API_BASE_URL}?action=data&file={file_param}"
+        url = get_api_url("data", file=file_param)
 
         # Получаем JWT заголовки если доступны
         auth_headers = self._get_jwt_auth_headers()

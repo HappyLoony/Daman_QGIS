@@ -15,7 +15,7 @@ from qgis.core import (
     QgsProject, QgsVectorLayer, QgsRasterLayer, QgsMapLayer,
     QgsLayerTreeLayer
 )
-from Daman_QGIS.utils import log_info, log_warning
+from Daman_QGIS.utils import log_info, log_warning, safe_refresh_attribute_tables
 
 __all__ = ['LayerReplacementManager']
 
@@ -95,6 +95,11 @@ class LayerReplacementManager:
         else:
             # Слой не существует, просто добавляем
             self.project.addMapLayer(new_layer)
+
+        # Закрываем осиротевшие таблицы атрибутов (привязанные к удалённому слою)
+        # и обновляем таблицу нового слоя если она открыта
+        if existing_layer:
+            safe_refresh_attribute_tables()
 
         return new_layer
 

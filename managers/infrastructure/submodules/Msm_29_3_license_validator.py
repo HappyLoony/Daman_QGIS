@@ -21,7 +21,7 @@ import hmac
 import time
 from typing import Dict, Any, List
 
-from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT, get_api_url
 from Daman_QGIS.utils import log_info, log_error, log_warning
 
 class LicenseValidator:
@@ -149,7 +149,7 @@ class LicenseValidator:
             if not session:
                 return {"status": "error", "message": "requests library not available"}
 
-            url = f"{self.base_url}?action=validate"
+            url = get_api_url("validate")
             payload = self._build_signed_payload(api_key, hardware_id, mode="activate")
 
             response = session.post(
@@ -203,7 +203,7 @@ class LicenseValidator:
                     session = self._get_session()
                     if session:
                         response = session.post(
-                            f"{self.base_url}?action=validate",
+                            get_api_url("validate"),
                             json=self._build_signed_payload(api_key, hardware_id, mode="activate"),
                             timeout=API_TIMEOUT
                         )
@@ -259,7 +259,7 @@ class LicenseValidator:
             if not session:
                 return {"status": "error", "message": "requests library not available"}
 
-            url = f"{self.base_url}?action=validate"
+            url = get_api_url("validate")
             payload = self._build_signed_payload(api_key, hardware_id, mode="verify")
 
             response = session.post(
@@ -320,7 +320,7 @@ class LicenseValidator:
             if not session:
                 return {"status": "error", "message": "requests library not available"}
 
-            url = f"{self.base_url}?action=deactivate"
+            url = get_api_url("deactivate")
             payload = self._build_signed_payload(api_key, hardware_id)
 
             response = session.post(
@@ -391,7 +391,7 @@ class LicenseValidator:
                 # Нет сети - ожидаемо, просто логируем локально
                 return {"status": "offline"}
 
-            url = f"{self.base_url}?action=report_offline"
+            url = get_api_url("report_offline")
             payload = self._build_signed_payload(api_key, hardware_id)
 
             response = session.post(

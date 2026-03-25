@@ -70,7 +70,7 @@ class TelemetryTests:
         self.logger.section("API: базовая отправка события")
 
         try:
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
         except ImportError:
             self.logger.skip("constants не доступны")
             return
@@ -80,7 +80,7 @@ class TelemetryTests:
             self.logger.skip("requests library not available")
             return
 
-        url = f"{API_BASE_URL}?action=telemetry"
+        url = get_api_url("telemetry")
         payload = {
             "uid": "DAMAN-TEST-XXXX-XXXX",
             "hardware_id": "TEST-HARDWARE-ID-12345",
@@ -125,7 +125,7 @@ class TelemetryTests:
         self.logger.section("API: отправка batch событий")
 
         try:
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
         except ImportError:
             self.logger.skip("constants не доступны")
             return
@@ -135,7 +135,7 @@ class TelemetryTests:
             self.logger.skip("requests library not available")
             return
 
-        url = f"{API_BASE_URL}?action=telemetry"
+        url = get_api_url("telemetry")
 
         # Создаём batch из 10 событий
         events = []
@@ -177,7 +177,7 @@ class TelemetryTests:
         self.logger.section("API: ошибка при отсутствии uid")
 
         try:
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
         except ImportError:
             self.logger.skip("constants не доступны")
             return
@@ -187,7 +187,7 @@ class TelemetryTests:
             self.logger.skip("requests library not available")
             return
 
-        url = f"{API_BASE_URL}?action=telemetry"
+        url = get_api_url("telemetry")
         payload = {
             "events": [{"ts": int(time.time()), "event": "test"}]
         }
@@ -214,7 +214,7 @@ class TelemetryTests:
         self.logger.section("API: ошибка при отсутствии events")
 
         try:
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
         except ImportError:
             self.logger.skip("constants не доступны")
             return
@@ -224,7 +224,7 @@ class TelemetryTests:
             self.logger.skip("requests library not available")
             return
 
-        url = f"{API_BASE_URL}?action=telemetry"
+        url = get_api_url("telemetry")
         payload = {
             "uid": "TEST-NOEVENTS"
         }
@@ -251,7 +251,7 @@ class TelemetryTests:
         self.logger.section("API: ограничение на количество событий")
 
         try:
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
         except ImportError:
             self.logger.skip("constants не доступны")
             return
@@ -261,7 +261,7 @@ class TelemetryTests:
             self.logger.skip("requests library not available")
             return
 
-        url = f"{API_BASE_URL}?action=telemetry"
+        url = get_api_url("telemetry")
 
         # Создаём 150 событий (лимит 100)
         events = [{"ts": int(time.time()), "event": f"test_{i}"} for i in range(150)]

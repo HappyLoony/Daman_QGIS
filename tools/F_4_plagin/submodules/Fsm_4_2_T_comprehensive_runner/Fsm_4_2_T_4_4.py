@@ -519,7 +519,7 @@ class FeedbackTests:
         self.logger.section("API: отправка feedback")
 
         try:
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
         except ImportError:
             self.logger.skip("constants не доступны")
             return
@@ -529,7 +529,7 @@ class FeedbackTests:
             self.logger.skip("requests library not available")
             return
 
-        url = f"{API_BASE_URL}?action=feedback"
+        url = get_api_url("feedback")
         payload = {
             "uid": "DAMAN-TEST-FEED-XXXX",
             "hardware_id": "TEST-HARDWARE-FEEDBACK",
@@ -583,7 +583,7 @@ class FeedbackTests:
         self.logger.section("API: ошибка при пустом описании")
 
         try:
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
         except ImportError:
             self.logger.skip("constants не доступны")
             return
@@ -593,7 +593,7 @@ class FeedbackTests:
             self.logger.skip("requests library not available")
             return
 
-        url = f"{API_BASE_URL}?action=feedback"
+        url = get_api_url("feedback")
         payload = {
             "uid": "DAMAN-TEST-EMPTY-DESC",
             "description": "",
@@ -625,7 +625,7 @@ class FeedbackTests:
         self.logger.section("API: feedback от anonymous")
 
         try:
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
         except ImportError:
             self.logger.skip("constants не доступны")
             return
@@ -635,7 +635,7 @@ class FeedbackTests:
             self.logger.skip("requests library not available")
             return
 
-        url = f"{API_BASE_URL}?action=feedback"
+        url = get_api_url("feedback")
         payload = {
             "uid": "anonymous",
             "hardware_id": "unknown",
@@ -668,7 +668,7 @@ class FeedbackTests:
         self.logger.section("API: feedback_list без ключа")
 
         try:
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
         except ImportError:
             self.logger.skip("constants не доступны")
             return
@@ -678,7 +678,7 @@ class FeedbackTests:
             self.logger.skip("requests library not available")
             return
 
-        url = f"{API_BASE_URL}?action=feedback_list&key=WRONG_KEY&days=1"
+        url = get_api_url("feedback_list", key="WRONG_KEY", days="1")
 
         try:
             response = session.get(url, timeout=API_TIMEOUT)

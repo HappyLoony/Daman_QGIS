@@ -19,7 +19,7 @@ from qgis.core import (
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QColor
 
-from Daman_QGIS.utils import log_warning, log_error, log_debug
+from Daman_QGIS.utils import log_warning, log_error, log_debug, safe_refresh_attribute_tables
 from Daman_QGIS.constants import DEFAULT_LAYER_ORDER
 from Daman_QGIS.database.schemas import LayerInfo
 
@@ -282,6 +282,12 @@ class LayerManager:
             from qgis.utils import iface as _iface
             if _iface and _iface.mapCanvas():
                 _iface.mapCanvas().redrawAllLayers()
+
+            # 8. Обновление открытых таблиц атрибутов.
+            # redrawAllLayers() обновляет только canvas, но не таблицы атрибутов.
+            # safe_refresh_attribute_tables() перезагружает модели открытых таблиц
+            # и закрывает осиротевшие (привязанные к удалённым слоям).
+            safe_refresh_attribute_tables()
 
         except Exception as e:
             log_error(f"M_2_LayerManager: Ошибка при сортировке: {str(e)}")

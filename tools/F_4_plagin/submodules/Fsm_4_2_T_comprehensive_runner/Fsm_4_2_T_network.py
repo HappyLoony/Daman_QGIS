@@ -138,14 +138,14 @@ class TestNetwork:
 
         try:
             import requests
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
 
             headers = self._get_auth_headers()
             if not headers:
                 self.logger.warning("JWT токен отсутствует -- тест пропущен (требуется лицензия)")
                 return
 
-            url = f"{API_BASE_URL}?action=list"
+            url = get_api_url("list")
             response = requests.get(url, headers=headers, timeout=API_TIMEOUT)
 
             if response.status_code == 200:
@@ -192,14 +192,14 @@ class TestNetwork:
 
         try:
             import requests
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
 
             headers = self._get_auth_headers()
             if not headers:
                 self.logger.warning("JWT токен отсутствует -- тест пропущен (требуется лицензия)")
                 return
 
-            url = f"{API_BASE_URL}?action=list"
+            url = get_api_url("list")
             response = requests.get(url, headers=headers, timeout=API_TIMEOUT)
 
             if response.status_code == 200:
@@ -226,7 +226,7 @@ class TestNetwork:
 
         try:
             import requests
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
 
             headers = self._get_auth_headers()
             if not headers:
@@ -234,7 +234,7 @@ class TestNetwork:
                 return
 
             # Запрос несуществующего файла
-            url = f"{API_BASE_URL}?action=data&file=NonExistentFile123456"
+            url = get_api_url("data", file="NonExistentFile123456")
             response = requests.get(url, headers=headers, timeout=API_TIMEOUT)
 
             self.logger.info(f"HTTP статус для несуществующего файла: {response.status_code}")
@@ -262,7 +262,7 @@ class TestNetwork:
 
         try:
             import requests
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
 
             headers = self._get_auth_headers()
             if not headers:
@@ -270,7 +270,7 @@ class TestNetwork:
                 return
 
             # Запрос защищённого файла (с JWT -- должен получить 403, а не 401)
-            url = f"{API_BASE_URL}?action=data&file=Base_licenses"
+            url = get_api_url("data", file="Base_licenses")
             response = requests.get(url, headers=headers, timeout=API_TIMEOUT)
 
             self.logger.info(f"HTTP статус для Base_licenses: {response.status_code}")

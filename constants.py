@@ -728,9 +728,30 @@ DATA_REFERENCE_PATH = _get_data_reference_path()
 # КОНСТАНТЫ API И ЛИЦЕНЗИРОВАНИЯ (M_29, M_30)
 # ============================================================================
 
-# URL API сервера (Yandex Cloud Function)
+# URL API сервера
 # Используется: BaseReferenceLoader, M_29_LicenseManager
-API_BASE_URL = "https://functions.yandexcloud.net/d4e9nvs008lt7sd87s7m"
+API_BASE_URL = "https://daman.tools/api/plugin"
+
+# Маппинг action -> endpoint path (для совместимости action names с URL paths)
+_ACTION_PATH_MAP: dict[str, str] = {
+    "report_offline": "report-offline",
+}
+
+
+def get_api_url(action: str, **params: str) -> str:
+    """Построить URL для Plugin API endpoint.
+
+    Примеры:
+        get_api_url("validate")           -> https://daman.tools/api/plugin/validate
+        get_api_url("data", file="Base_X") -> https://daman.tools/api/plugin/data?file=Base_X
+        get_api_url("profile", info="1")  -> https://daman.tools/api/plugin/profile?info=1
+    """
+    path = _ACTION_PATH_MAP.get(action, action)
+    url = f"{API_BASE_URL}/{path}"
+    if params:
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        url = f"{url}?{query}"
+    return url
 
 # Таймаут API запросов
 API_TIMEOUT = DEFAULT_REQUEST_TIMEOUT  # Использует общий таймаут
@@ -783,8 +804,8 @@ DEFAULT_PROFILE_NAME = "default"
 DAMAN_PROFILE_NAME = "Daman_QGIS"
 
 # API endpoints для скачивания/проверки референсного профиля
-PROFILE_API_ENDPOINT = f"{API_BASE_URL}?action=profile"
-PROFILE_INFO_ENDPOINT = f"{API_BASE_URL}?action=profile&info=1"
+PROFILE_API_ENDPOINT = get_api_url("profile")
+PROFILE_INFO_ENDPOINT = get_api_url("profile", info="1")
 
 # Паттерны для исключения при копировании плагина между профилями
 PROFILE_COPY_IGNORE = ['__pycache__', '*.pyc', '.git', '.gitignore']

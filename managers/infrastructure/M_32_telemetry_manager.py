@@ -54,8 +54,8 @@ from functools import wraps
 from qgis.core import Qgis, QgsApplication
 
 from Daman_QGIS.constants import (
-    API_BASE_URL, API_TIMEOUT, PLUGIN_VERSION, DEFAULT_MAX_RETRIES,
-    TELEMETRY_LEVEL, TELEMETRY_SAMPLING_RATE
+    API_TIMEOUT, PLUGIN_VERSION, DEFAULT_MAX_RETRIES,
+    TELEMETRY_LEVEL, TELEMETRY_SAMPLING_RATE, get_api_url
 )
 from Daman_QGIS.utils import log_info, log_error, log_warning
 
@@ -455,7 +455,7 @@ class TelemetryManager:
             return
 
         try:
-            url = f"{API_BASE_URL}?action=telemetry"
+            url = get_api_url("telemetry")
             payload = {
                 'uid': self._uid,
                 'hardware_id': self._hardware_id,

@@ -851,10 +851,10 @@ class TestSecurity:
         # Тест через прямой HTTP запрос
         try:
             import requests
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
 
             # Множественные параметры action
-            url = f"{API_BASE_URL}?action=data&action=validate&file=Base_layers"
+            url = get_api_url("data") + "&action=validate&file=Base_layers"
             response = requests.get(url, timeout=API_TIMEOUT)
 
             # Любой HTTP ответ допустим - главное что сервер не упал
@@ -918,9 +918,9 @@ class TestSecurity:
         # Тест через прямой HTTP запрос с дополнительными полями
         try:
             import requests
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
 
-            url = f"{API_BASE_URL}?action=validate"
+            url = get_api_url("validate")
             payload = {
                 "api_key": "DAMAN-TEST-TEST-TEST",
                 "hardware_id": "test",
@@ -1018,9 +1018,9 @@ class TestSecurity:
 
         try:
             import requests
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
 
-            url = f"{API_BASE_URL}?action=validate"
+            url = get_api_url("validate")
 
             # 1MB payload
             large_payload = {
@@ -1242,9 +1242,9 @@ class TestSecurity:
         try:
             import requests
             import time
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
 
-            url = f"{API_BASE_URL}?action=validate"
+            url = get_api_url("validate")
 
             # Запрос с неверной подписью
             payload = {
@@ -1282,9 +1282,9 @@ class TestSecurity:
             import time
             import hmac as hmac_lib
             import hashlib
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
 
-            url = f"{API_BASE_URL}?action=validate"
+            url = get_api_url("validate")
 
             # Запрос с устаревшим timestamp (10 минут назад)
             old_timestamp = int(time.time()) - 600

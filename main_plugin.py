@@ -542,7 +542,7 @@ class DamanQGIS:
             import hmac
             import hashlib
             import requests
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
 
             timestamp = int(_time.time())
             signature = hmac.new(
@@ -560,7 +560,7 @@ class DamanQGIS:
                         file_hashes[key] = hashlib.sha256(f.read()).hexdigest()
 
             response = requests.post(
-                f"{API_BASE_URL}?action=heartbeat",
+                get_api_url("heartbeat"),
                 json={
                     "api_key": api_key,
                     "hardware_id": hardware_id,

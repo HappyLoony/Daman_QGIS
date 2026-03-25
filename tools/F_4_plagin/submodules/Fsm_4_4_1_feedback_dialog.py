@@ -24,7 +24,7 @@ from qgis.core import Qgis
 
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
-from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT, PLUGIN_VERSION
+from Daman_QGIS.constants import API_TIMEOUT, PLUGIN_VERSION, get_api_url
 from Daman_QGIS.utils import log_info, log_error, log_warning
 
 
@@ -354,7 +354,7 @@ class FeedbackDialog(BaseResponsiveDialog):
             log_info(f"Fsm_4_4_1: Payload после truncation: {payload_size / 1024:.0f} KB")
 
         # Отправляем
-        url = f"{API_BASE_URL}?action=feedback"
+        url = get_api_url("feedback")
         t3 = _time.time()
         # Раздельные таймауты: connect=10s, read=API_TIMEOUT
         timeout_tuple = (10, API_TIMEOUT)

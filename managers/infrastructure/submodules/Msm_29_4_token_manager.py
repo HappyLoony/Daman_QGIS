@@ -21,11 +21,11 @@ import time
 from typing import Dict, Any, Optional, Callable
 
 from Daman_QGIS.constants import (
-    API_BASE_URL,
     API_TIMEOUT,
     TOKEN_REFRESH_THRESHOLD_SECONDS,
     TOKEN_MAX_RETRY_COUNT,
     TOKEN_RETRY_DELAY_SECONDS,
+    get_api_url,
 )
 from Daman_QGIS.utils import log_info, log_error, log_warning
 
@@ -238,7 +238,7 @@ class TokenManager:
             if not session:
                 return False
 
-            url = f"{API_BASE_URL}?action=refresh"
+            url = get_api_url("refresh")
             payload = {
                 'refresh_token': self._refresh_token,
                 'hardware_id': self._hardware_id

@@ -157,10 +157,10 @@ class TestHeartbeat:
     def _send_heartbeat(self, payload: Dict[str, Any]) -> Any:
         """Отправить heartbeat запрос"""
         import requests
-        from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+        from Daman_QGIS.constants import API_TIMEOUT, get_api_url
 
         return requests.post(
-            f"{API_BASE_URL}?action=heartbeat",
+            get_api_url("heartbeat"),
             json=payload,
             timeout=API_TIMEOUT
         )
@@ -248,11 +248,11 @@ class TestHeartbeat:
 
         try:
             import requests
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
 
             # GET должен вернуть 405
             response = requests.get(
-                f"{API_BASE_URL}?action=heartbeat",
+                get_api_url("heartbeat"),
                 timeout=API_TIMEOUT
             )
 
@@ -381,11 +381,11 @@ class TestHeartbeat:
 
         try:
             import requests
-            from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT
+            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
 
             # Пустой payload
             response = requests.post(
-                f"{API_BASE_URL}?action=heartbeat",
+                get_api_url("heartbeat"),
                 json={},
                 timeout=API_TIMEOUT
             )
@@ -398,7 +398,7 @@ class TestHeartbeat:
 
             # Только api_key (без hardware_id)
             response = requests.post(
-                f"{API_BASE_URL}?action=heartbeat",
+                get_api_url("heartbeat"),
                 json={"api_key": "DAMAN-TEST-TEST-TEST"},
                 timeout=API_TIMEOUT
             )
