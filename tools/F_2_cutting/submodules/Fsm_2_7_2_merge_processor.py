@@ -132,9 +132,11 @@ class Fsm_2_7_2_MergeProcessor:
             # Нормализация геометрии: кольца начинаются с СЗ точки (П/0592)
             merged_geom = self._normalize_polygon_geometry(merged_geom)
 
+            is_multipart = merged_geom.isMultipart()
             new_area = merged_geom.area()
 
-            log_info(f"Fsm_2_7_2: Объединённая геометрия - Polygon, "
+            log_info(f"Fsm_2_7_2: Объединённая геометрия - "
+                     f"{'MultiPolygon' if is_multipart else 'Polygon'}, "
                      f"площадь {new_area:.0f} м2")
 
             # 3. Определить целевой слой
@@ -162,7 +164,7 @@ class Fsm_2_7_2_MergeProcessor:
                 features_to_merge,
                 target_layer.fields(),
                 new_area,
-                False,  # MultiPolygon запрещён (проверка выше)
+                is_multipart,
                 existing_uslov_kns=existing_uslov_kns
             )
 
@@ -249,7 +251,7 @@ class Fsm_2_7_2_MergeProcessor:
 
             result: Dict[str, Any] = {
                 'merged_count': len(feature_ids),
-                'is_multipart': False,
+                'is_multipart': is_multipart,
                 'new_area': new_area,
                 'new_uslov_kn': new_uslov_kn,
                 'points_layer': source_points_layer,
