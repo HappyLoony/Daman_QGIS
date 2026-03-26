@@ -155,8 +155,8 @@ class TestAPI:
             )
 
             self.logger.check(
-                "daman.tools" in API_BASE_URL,
-                "URL указывает на daman.tools",
+                "daman.tools" in API_BASE_URL or "damantools.ru" in API_BASE_URL,
+                "URL указывает на daman.tools или damantools.ru",
                 f"Неожиданный URL: {API_BASE_URL}"
             )
 

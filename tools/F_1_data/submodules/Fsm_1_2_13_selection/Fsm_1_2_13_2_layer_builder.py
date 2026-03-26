@@ -27,9 +27,7 @@ class Fsm_2_1_6_LayerBuilder:
         Args:
             plugin_dir: Путь к директории плагина
         """
-        # Используем централизованный путь к справочникам
-        from Daman_QGIS.constants import DATA_REFERENCE_PATH
-        self.reference_dir = DATA_REFERENCE_PATH
+        pass
 
     def create_result_layer(self, source_layer: QgsVectorLayer, layer_name: str,
                            object_type: str = 'ZU', target_crs=None) -> Optional[QgsVectorLayer]:

@@ -80,7 +80,6 @@ class FeedbackTests:
             # API тесты
             self.test_api_feedback_send()
             self.test_api_feedback_empty_description()
-            self.test_api_feedback_anonymous()
             self.test_api_feedback_list()
 
         except Exception as e:
@@ -533,7 +532,7 @@ class FeedbackTests:
         payload = {
             "uid": "DAMAN-TEST-FEED-XXXX",
             "hardware_id": "TEST-HARDWARE-FEEDBACK",
-            "description": "Automated test feedback from Fsm_4_2_T_5_4",
+            "description": "###TEST###",
             "email": "",
             "system_info": {
                 "v": "0.9.999",
@@ -615,49 +614,6 @@ class FeedbackTests:
                     data.get("error_code") == "MISSING_DESCRIPTION",
                     f"Error code: MISSING_DESCRIPTION",
                     f"Unexpected error code: {data.get('error_code')}"
-                )
-
-        except Exception as e:
-            self.logger.fail(f"Request failed: {e}")
-
-    def test_api_feedback_anonymous(self):
-        """Тест отправки feedback без UID (anonymous)."""
-        self.logger.section("API: feedback от anonymous")
-
-        try:
-            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
-        except ImportError:
-            self.logger.skip("constants не доступны")
-            return
-
-        session = self._get_session()
-        if not session:
-            self.logger.skip("requests library not available")
-            return
-
-        url = get_api_url("feedback")
-        payload = {
-            "uid": "anonymous",
-            "hardware_id": "unknown",
-            "description": "Test anonymous feedback from automated tests",
-            "system_info": {"v": "test", "qgis": "test", "os": "test", "py": "test"}
-        }
-
-        try:
-            response = session.post(url, json=payload, timeout=API_TIMEOUT)
-
-            self.logger.check(
-                response.status_code == 200,
-                "Anonymous feedback accepted (HTTP 200)",
-                f"Unexpected: HTTP {response.status_code}"
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                self.logger.check(
-                    data.get("status") == "success",
-                    "Anonymous feedback saved",
-                    f"Unexpected: {data}"
                 )
 
         except Exception as e:

@@ -51,14 +51,6 @@ class APIManager:
     - Google Maps (спутниковые снимки и подписи)
     """
 
-    # Путь к JSON базе данных
-    @staticmethod
-    def _get_db_path():
-        from Daman_QGIS.constants import DATA_REFERENCE_PATH
-        return os.path.join(DATA_REFERENCE_PATH, 'Base_api_endpoints.json')
-
-    _DB_PATH = None  # Будет установлен при первом вызове
-
     # Список слоёв для объединённой загрузки ОКС (Здания + Сооружения + ОНС)
     OKS_LAYER_NAMES = [
         "L_1_2_4_WFS_ОКС_Здания",
@@ -72,7 +64,6 @@ class APIManager:
         self._cache_by_id: Dict[int, Dict] = {}
         self._cache_by_layer: Dict[str, Dict] = {}
         self._cache_by_group: Dict[str, List[Dict]] = {}
-        self._db_path = self._get_db_path()
 
         self._load_database()
 

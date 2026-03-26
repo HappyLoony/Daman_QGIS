@@ -9,10 +9,8 @@
 - Формирование отчетов о найденных проблемах
 """
 
-import os
 from typing import Dict, List
 from Daman_QGIS.utils import log_info, log_warning
-from Daman_QGIS.constants import DATA_REFERENCE_PATH
 
 # Импорт всех необходимых менеджеров (относительные импорты внутри домена)
 from .Msm_4_5_function_reference_manager import FunctionReferenceManager
@@ -46,58 +44,31 @@ class DataValidationManager:
         self.layer_manager = layer_manager
         self.employee_manager = employee_manager
 
-        # Список всех файлов баз данных для проверки
-        self.db_files = {
-            'vri': 'VRI.json',
-            'work_types': 'Work_types.json',
-            'project_metadata': 'Project_Metadata.json',
-            'zouit': 'ZOUIT.json',
-            'base_functions': 'Base_Functions.json',
-            'base_layers': 'Base_layers.json',
-            'base_selection_zu': 'Base_selection_ZU.json',
-            'base_cutting': 'Base_cutting.json',
-            'base_employee': 'Base_employee.json',
-            'base_drawings': 'Base_drawings.json',
-            'offset_redline': 'Offset_redline.json',
-            'other': 'Other.json',
-            'public_easement': 'Public_easement.json',
-            'redline': 'Redline.json',
-        }
-
     def validate_consistency(self) -> Dict[str, List[str]]:
         """
         Проверка целостности и консистентности баз данных
 
         Проверяет:
-        1. Существование файлов баз данных
-        2. Уникальность full_name в Base_Functions
-        3. Уникальность full_name в Base_layers
-        4. Корректность ссылок creating_function в Base_layers -> Base_Functions
-        5. Корректность ссылок work_layer_name в Land_Categories -> Base_layers
-        6. Уникальность кодов в Land_Categories (code, code_code, rosreestr_code)
-        7. Уникальность сотрудников в Base_employee (по ФИО)
+        1. Уникальность full_name в Base_Functions
+        2. Уникальность full_name в Base_layers
+        3. Корректность ссылок creating_function в Base_layers -> Base_Functions
+        4. Корректность ссылок work_layer_name в Land_Categories -> Base_layers
+        5. Уникальность кодов в Land_Categories (code, code_code, rosreestr_code)
+        6. Уникальность сотрудников в Base_employee (по ФИО)
 
         Returns:
             Словарь с найденными проблемами по категориям:
             {
-                'missing_files': [...],
                 'duplicate_keys': [...],
                 'invalid_references': [...]
             }
         """
         issues: Dict[str, List[str]] = {
-            'missing_files': [],
             'duplicate_keys': [],
             'invalid_references': []
         }
 
-        # 1. Проверка существования файлов (локально, для отладки)
-        for db_name, filename in self.db_files.items():
-            filepath = os.path.join(DATA_REFERENCE_PATH, filename)
-            if not os.path.exists(filepath):
-                issues['missing_files'].append(f"{db_name}: {filename}")
-
-        # 2. Проверка уникальности full_name в Base_Functions
+        # 1. Проверка уникальности full_name в Base_Functions
         functions = self.function_manager.get_all_functions()
         function_names: set = set()
         for func in functions:
@@ -109,7 +80,7 @@ class DataValidationManager:
                     )
                 function_names.add(full_name)
 
-        # 3. Проверка уникальности full_name в Base_layers
+        # 2. Проверка уникальности full_name в Base_layers
         layers = self.layer_manager.get_base_layers()
         layer_names: set = set()
         for layer in layers:
@@ -121,7 +92,7 @@ class DataValidationManager:
                     )
                 layer_names.add(full_name)
 
-        # 4. Проверка ссылок: creating_function в Base_layers -> Base_Functions
+        # 3. Проверка ссылок: creating_function в Base_layers -> Base_Functions
         for layer in layers:
             creating_func = layer.get('creating_function')
             if creating_func and creating_func not in ['Авто (при импорте L_1_1_1)', '-']:
@@ -130,7 +101,7 @@ class DataValidationManager:
                         f"Base_layers '{layer.get('full_name')}': функция '{creating_func}' не найдена"
                     )
 
-        # 5. Проверка ссылок: work_layer_name в Land_Categories -> Base_layers
+        # 4. Проверка ссылок: work_layer_name в Land_Categories -> Base_layers
         categories = self.layer_manager.get_land_categories()
         for category in categories:
             work_layer = category.get('work_layer_name')
@@ -140,7 +111,7 @@ class DataValidationManager:
                         f"Land_Categories '{category.get('code')}': слой '{work_layer}' не найден"
                     )
 
-        # 6. Проверка уникальности кодов в Land_Categories
+        # 5. Проверка уникальности кодов в Land_Categories
         seen_codes: set = set()
         seen_code_codes: set = set()
         seen_rosreestr_codes: set = set()
@@ -169,7 +140,7 @@ class DataValidationManager:
                     )
                 seen_rosreestr_codes.add(rosreestr_code)
 
-        # 7. Проверка уникальности сотрудников в Base_employee (по ФИО)
+        # 6. Проверка уникальности сотрудников в Base_employee (по ФИО)
         employees = self.employee_manager.get_employees()
         seen_employees: set = set()
         for employee in employees:
@@ -204,11 +175,6 @@ class DataValidationManager:
 
         # Выводим найденные проблемы
         log_warning("Msm_4_14: Проверка целостности баз данных: найдены проблемы")
-
-        if issues['missing_files']:
-            log_warning(f"Msm_4_14: Отсутствующие файлы ({len(issues['missing_files'])}):")
-            for issue in issues['missing_files']:
-                log_warning(f"Msm_4_14:   - {issue}")
 
         if issues['duplicate_keys']:
             log_warning(f"Msm_4_14: Дублирующиеся ключи ({len(issues['duplicate_keys'])}):")

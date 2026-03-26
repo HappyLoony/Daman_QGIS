@@ -699,57 +699,21 @@ TELEMETRY_LEVEL = 'SAMPLING'          # Уровень телеметрии
 TELEMETRY_SAMPLING_RATE = 0.01        # Процент success событий для отправки (1%)
 
 # ============================================================================
-# КОНСТАНТЫ СПРАВОЧНЫХ ДАННЫХ (Data Reference)
-# ============================================================================
-
-# Путь к справочным данным (JSON файлы)
-# ВАЖНО: Данные хранятся в ОТДЕЛЬНОМ репозитории Daman_QGIS_data_reference
-# GitHub: https://github.com/HappyLoony/Daman_QGIS_data_reference
-#
-# Логика определения пути:
-# 1. DEV режим: папка Daman_QGIS_data_reference рядом с плагином
-# 2. PROD режим: data/reference/ внутри плагина (копируется при deploy)
-def _get_data_reference_path():
-    """Определить путь к справочным данным (DEV или PROD)"""
-    plugin_dir = os.path.dirname(os.path.abspath(__file__))
-
-    # DEV: проверяем внешний репозиторий рядом с плагином
-    dev_path = os.path.join(os.path.dirname(plugin_dir), "Daman_QGIS_data_reference")
-    if os.path.exists(dev_path) and os.path.isdir(dev_path):
-        return dev_path
-
-    # PROD: используем data/reference/ внутри плагина
-    prod_path = os.path.join(plugin_dir, "data", "reference")
-    return prod_path
-
-DATA_REFERENCE_PATH = _get_data_reference_path()
-
-# ============================================================================
 # КОНСТАНТЫ API И ЛИЦЕНЗИРОВАНИЯ (M_29, M_30)
 # ============================================================================
 
 # URL API сервера
-# Используется: BaseReferenceLoader, M_29_LicenseManager
 API_BASE_URL = "https://daman.tools/api/plugin"
 
 # Формат URL: True = path-based (/validate), False = query-based (?action=validate)
-_USE_PATH_ROUTING = "daman.tools" in API_BASE_URL
+_USE_PATH_ROUTING = "daman.tools" in API_BASE_URL or "damantools.ru" in API_BASE_URL
 
-# Маппинг action -> endpoint path (только для path-based routing)
-_ACTION_PATH_MAP: dict[str, str] = {
-    "report_offline": "report-offline",
-}
 
 
 def get_api_url(action: str, **params: str) -> str:
-    """Построить URL для Plugin API endpoint.
-
-    Автоматически выбирает формат в зависимости от API_BASE_URL:
-    - daman.tools:  /api/plugin/validate?file=X  (path-based)
-    - Yandex CF:    ?action=validate&file=X       (query-based)
-    """
+    """Построить URL для Plugin API endpoint."""
     if _USE_PATH_ROUTING:
-        path = _ACTION_PATH_MAP.get(action, action)
+        path = action.replace("_", "-")
         url = f"{API_BASE_URL}/{path}"
         if params:
             query = "&".join(f"{k}={v}" for k, v in params.items())

@@ -52,11 +52,6 @@ class ExpressionManager:
 
     def __init__(self):
         """Инициализация менеджера выражений"""
-        # Путь к файлу с выражениями
-        from Daman_QGIS.constants import DATA_REFERENCE_PATH
-        self.expressions_file = os.path.join(DATA_REFERENCE_PATH, 'Base_expressions.json')
-        self._reference_path = DATA_REFERENCE_PATH
-
         # Загружаем выражения
         self.expressions: Dict[str, str] = self._load()
 
@@ -309,7 +304,7 @@ class ExpressionManager:
         valid, invalid = self.validate_all(include_raw=True)
 
         lines = [
-            f"Отчёт валидации выражений ({self.expressions_file})",
+            "Отчёт валидации выражений (Base_expressions.json)",
             "-" * 60,
             f"Валидных выражений: {len(valid)}",
             f"С ошибками: {len(invalid)}",
