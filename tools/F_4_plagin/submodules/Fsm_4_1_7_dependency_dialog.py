@@ -423,7 +423,7 @@ class DependencyTabWidget(QWidget):
                     "1. Запустите QGIS от имени администратора\n"
                     "2. Или установите шрифты вручную из папки: resources/styles/fonts\n\n"
                     "<b>Библиотеки Python через OSGeo4W Shell:</b>\n"
-                    "python -m pip install --user ezdxf>=1.4.2 xlsxwriter>=3.0.0 requests cryptography"
+                    "python -m pip install --user ezdxf>=1.4.2 xlsxwriter>=3.0.0 requests"
                 )
             self.install_button.setEnabled(True)
             self.update_button.setEnabled(True)

@@ -343,8 +343,6 @@ class DamanQGIS:
             log_warning(f"Не удалось проверить зависимости: {str(e)}")
 
         # --- DEPENDENCY GATE: критические зависимости нужны для работы ---
-        # Без cryptography Msm_29_2 не может прочитать файл лицензии.
-        # Показать диалог активации бессмысленно -- данные не сохранятся.
         if not deps_ok:
             log_warning("Daman_QGIS: Missing dependencies, showing emergency toolbar")
             self._init_managers()

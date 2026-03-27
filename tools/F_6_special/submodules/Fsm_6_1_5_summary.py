@@ -330,9 +330,10 @@ class SummaryTimesheetGenerator:
             # Создаем книгу
             wb = Workbook()
 
-            # Устанавливаем дефолтный шрифт Workbook (влияет на единицы ширины колонок)
-            normal_style = wb._named_styles['Normal']
-            normal_style.font = Font(name=DEFAULT_FONT_NAME, size=DEFAULT_FONT_SIZE)
+            # Заменяем Font 0 (дефолтный Calibri) на Times New Roman.
+            # Именно Font 0 Excel использует для расчёта единиц ширины колонок.
+            # _named_styles['Normal'].font создаёт НОВЫЙ font, не заменяет Font 0.
+            wb._fonts[0] = Font(name=DEFAULT_FONT_NAME, size=DEFAULT_FONT_SIZE)
 
             ws = wb.active
             ws.title = "Сводка"

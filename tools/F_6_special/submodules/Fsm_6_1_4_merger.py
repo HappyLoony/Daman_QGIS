@@ -450,9 +450,9 @@ class MergedTimesheetGenerator:
             from openpyxl.styles import Font as _Font
             wb = Workbook()
 
-            # Устанавливаем дефолтный шрифт Workbook (влияет на единицы ширины колонок)
-            normal_style = wb._named_styles['Normal']
-            normal_style.font = _Font(name=DEFAULT_FONT_NAME, size=DEFAULT_FONT_SIZE)
+            # Заменяем Font 0 (дефолтный Calibri) на Times New Roman.
+            # Именно Font 0 Excel использует для расчёта единиц ширины колонок.
+            wb._fonts[0] = _Font(name=DEFAULT_FONT_NAME, size=DEFAULT_FONT_SIZE)
 
             ws = wb.active
             ws.title = "табель"

@@ -268,7 +268,8 @@ class LicenseDialog(BaseResponsiveDialog):
         license_info = self.license_manager.get_license_info()
         if license_info:
             self.subscription_label.setText(license_info.get("subscription_type", "-"))
-            self.owner_label.setText(license_info.get("user_name", "-"))
+            user_name = license_info.get("user_name", "")
+            self.owner_label.setText(user_name if user_name else "Не указан")
 
             expires = license_info.get("expires_at")
             if expires:

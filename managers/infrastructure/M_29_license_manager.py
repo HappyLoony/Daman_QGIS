@@ -4,13 +4,13 @@ M_29_LicenseManager - Менеджер лицензирования Daman QGIS.
 
 Отвечает за:
 - Генерацию Hardware ID (привязка к оборудованию)
-- Хранение API ключа и JWT токенов
-- Проверку лицензии на сервере
+- Хранение API ключа (QSettings)
+- Проверку лицензии на сервере (fail-closed)
 - Управление подпиской
 
 Зависимости:
 - Msm_29_1_HardwareIDGenerator - генерация Hardware ID
-- Msm_29_2_LicenseStorage - хранение данных лицензии
+- Msm_29_2_LicenseStorage - хранение API ключа (QSettings)
 - Msm_29_3_LicenseValidator - валидация на сервере
 """
 
@@ -52,15 +52,14 @@ class LicenseManager(QObject):
 
     Отвечает за:
     - Генерацию Hardware ID
-    - Хранение API ключа
-    - Проверку лицензии на сервере
+    - Хранение API ключа (QSettings)
+    - Проверку лицензии на сервере (fail-closed)
     - Управление подпиской
     """
 
     # Сигналы
     license_validated = pyqtSignal(bool)           # is_valid
     license_expired = pyqtSignal(str)              # expiry_date
-    hardware_changed = pyqtSignal(str, str)        # old_id, new_id
 
     def __init__(self):
         super().__init__()
@@ -83,7 +82,7 @@ class LicenseManager(QObject):
             return True
 
         try:
-            # Инициализация хранилища
+            # Инициализация хранилища (QSettings)
             if not self._storage.initialize():
                 log_error("M_29: Failed to initialize storage")
                 return False
@@ -94,12 +93,6 @@ class LicenseManager(QObject):
                 log_error("M_29: Failed to generate Hardware ID")
                 return False
 
-            # Проверка fallback файла (восстановление при сбое профиля)
-            self._check_hardware_fallback()
-
-            # Сохранение Hardware ID в fallback файл
-            self._storage.save_fallback_hardware_id(self._hardware_id)
-
             self._initialized = True
             log_info(f"M_29: Initialized (Hardware ID: {self._hardware_id[:16]}...)")
             return True
@@ -107,14 +100,6 @@ class LicenseManager(QObject):
         except Exception as e:
             log_error(f"M_29: Initialization failed: {e}")
             return False
-
-    def _check_hardware_fallback(self):
-        """Проверка совпадения Hardware ID с fallback файлом."""
-        stored_hwid = self._storage.get_fallback_hardware_id()
-        if stored_hwid and stored_hwid != self._hardware_id:
-            # Hardware ID изменился - возможно смена оборудования
-            log_warning(f"M_29: Hardware ID mismatch detected")
-            self.hardware_changed.emit(stored_hwid, self._hardware_id)
 
     def get_api_key(self) -> Optional[str]:
         """Получение API ключа."""
@@ -188,25 +173,16 @@ class LicenseManager(QObject):
             )
 
             if result["status"] == "success":
-                # Сохранение ключа
+                # Сохранение ключа в QSettings
                 self._storage.save_api_key(api_key)
-
-                # Сохранение компонентов оборудования для check_hardware_changes()
-                self._storage.save_hardware_components(self._hardware.get_components())
-
-                # Сохранение public key для offline валидации
-                public_key = result.get("public_key")
-                if public_key:
-                    self._storage.save_public_key(public_key)
 
                 self._license_info = result.get("license_info")
                 self._status = LicenseStatus.VALID
 
                 # Инициализация телеметрии после успешной активации
-                # (если плагин был запущен без лицензии, телеметрия была пропущена)
                 self._init_telemetry_after_activation(api_key)
 
-                # JWT: сохранение токенов если сервер их выдал
+                # JWT: сохранение токенов в RAM если сервер их выдал
                 self._store_jwt_tokens(result, self._hardware_id)
 
                 log_info("M_29: License activated successfully")
@@ -256,11 +232,6 @@ class LicenseManager(QObject):
                 self._license_info = result.get("license_info")
                 self._status = LicenseStatus.VALID
 
-                # Обновляем public key если получен
-                public_key = result.get("public_key")
-                if public_key:
-                    self._storage.save_public_key(public_key)
-
                 # Проверка срока
                 expires_at = result.get("expires_at")
                 if expires_at:
@@ -273,10 +244,7 @@ class LicenseManager(QObject):
                     except Exception:
                         pass
 
-                # Сохраняем время успешной проверки
-                self._storage.save_last_verification()
-
-                # JWT: сохранение/обновление токенов если сервер их выдал
+                # JWT: сохранение/обновление токенов в RAM если сервер их выдал
                 self._store_jwt_tokens(result, self._hardware_id)
 
                 self.license_validated.emit(True)
@@ -350,52 +318,18 @@ class LicenseManager(QObject):
         return None
 
     def get_user_email(self) -> Optional[str]:
-        """Email пользователя из лицензии."""
+        """Email пользователя из лицензии.
+
+        API daman.tools возвращает user_email из таблицы user (JOIN).
+        Если лицензия не привязана к аккаунту -- пустая строка "".
+        """
         if self._license_info:
             email = self._license_info.get("user_email", "")
-            if email and email != "-":
+            if email and email not in ("", "-"):
                 return email
         return None
 
-    # === JWT Token Management (для M_30_NetworkManager) ===
-
-    def get_stored_tokens(self) -> Dict[str, Any]:
-        """
-        Получение сохранённых JWT токенов.
-
-        Используется NetworkManager при инициализации для
-        восстановления токенов между сессиями.
-
-        Returns:
-            Dict с ключами: access_token, refresh_token, access_expires_at
-        """
-        return {
-            "access_token": self._storage.get_access_token(),
-            "refresh_token": self._storage.get_refresh_token(),
-            "access_expires_at": self._storage.get_access_expires_at()
-        }
-
-    def store_tokens(self, tokens: Dict[str, Any]):
-        """
-        Сохранение JWT токенов.
-
-        Вызывается NetworkManager после получения/обновления токенов.
-
-        Args:
-            tokens: Dict с ключами access_token, refresh_token, access_expires_at
-        """
-        access_token = tokens.get("access_token")
-        refresh_token = tokens.get("refresh_token")
-        access_expires_at = tokens.get("access_expires_at")
-
-        if access_token and refresh_token:
-            self._storage.save_tokens(access_token, refresh_token, access_expires_at)
-        elif access_token:
-            self._storage.update_access_token(access_token, access_expires_at)
-
-    def get_public_key(self) -> Optional[str]:
-        """Получение RS256 public key для offline валидации JWT."""
-        return self._storage.get_public_key()
+    # === JWT Token Management ===
 
     def _init_telemetry_after_activation(self, api_key: str) -> None:
         """
@@ -431,10 +365,10 @@ class LicenseManager(QObject):
 
     def _store_jwt_tokens(self, server_result: Dict[str, Any], hardware_id: str) -> None:
         """
-        Сохранение JWT токенов из ответа сервера в TokenManager.
+        Сохранение JWT токенов из ответа сервера в TokenManager (RAM).
 
         Вызывается после успешной activate() и verify().
-        Если сервер не выдал токены - игнорируем (обратная совместимость Phase 2).
+        Если сервер не выдал токены - игнорируем.
 
         Args:
             server_result: Ответ сервера с опциональным ключом "tokens"
@@ -469,7 +403,6 @@ class LicenseManager(QObject):
         Деактивация лицензии на текущем ПК.
 
         Очищает локальные данные лицензии и JWT токены.
-        Для переноса на другой компьютер свяжитесь с разработчиком.
         """
         try:
             api_key = self.get_api_key()
@@ -482,10 +415,12 @@ class LicenseManager(QObject):
             )
 
             if result["status"] == "success":
-                # Очистка JWT токенов
+                # Очистка JWT токенов (RAM)
                 TokenManager.reset_instance()
 
+                # Очистка QSettings
                 self._storage.clear()
+
                 self._license_info = None
                 self._status = LicenseStatus.NOT_ACTIVATED
                 self._session_verified = False
@@ -500,31 +435,3 @@ class LicenseManager(QObject):
         except Exception as e:
             log_error(f"M_29: Deactivation failed: {e}")
             return False
-
-    def check_hardware_changes(self) -> Optional[Dict[str, Any]]:
-        """
-        Проверка изменений в оборудовании.
-
-        Returns:
-            Dict с информацией об изменениях или None
-        """
-        stored_components = self._storage.get_hardware_components()
-        if not stored_components:
-            return None
-
-        current_components = self._hardware.get_components()
-
-        changes = {}
-        for key, stored_value in stored_components.items():
-            current_value = current_components.get(key)
-            if current_value != stored_value:
-                changes[key] = {
-                    "old": stored_value,
-                    "new": current_value
-                }
-
-        if changes:
-            log_warning(f"M_29: Hardware changes detected: {list(changes.keys())}")
-            return changes
-
-        return None

@@ -3,10 +3,9 @@
 Msm_30_1_TokenManager - Управление JWT токенами.
 
 Отвечает за:
-- Хранение access/refresh токенов
+- Хранение access/refresh токенов (RAM only)
 - Проверку срока действия
-- Offline валидация через RS256 public key
-- Интеграция с M_29_LicenseManager для персистентного хранения
+- Базовая валидация по exp claim
 """
 
 import time
@@ -23,41 +22,21 @@ class TokenManager:
     """
     Менеджер JWT токенов.
 
-    Особенности:
-    - RS256 offline валидация (если доступен public key)
-    - Автоматическая проверка срока действия
-    - Интеграция с LicenseManager для хранения
+    Токены хранятся только в RAM. При перезапуске QGIS
+    verify() получает новые токены от сервера.
     """
 
     def __init__(self):
         self._access_token: Optional[str] = None
         self._refresh_token: Optional[str] = None
         self._access_expires_at: Optional[float] = None
-        self._public_key: Optional[str] = None
         self._initialized: bool = False
 
     def initialize(self) -> bool:
-        """Инициализация с загрузкой сохранённых токенов."""
+        """Инициализация менеджера токенов."""
         try:
-            # Получаем токены из LicenseManager
-            from Daman_QGIS.managers._registry import registry
-
-            license_mgr = registry.get('M_29')
-            if not license_mgr.is_activated():
-                log_warning("Msm_30_1: License not activated")
-                return False
-
-            # Загрузка сохранённых токенов
-            stored = license_mgr.get_stored_tokens()
-            self._access_token = stored.get("access_token")
-            self._refresh_token = stored.get("refresh_token")
-            self._access_expires_at = stored.get("access_expires_at")
-
-            # Загрузка public key для offline валидации
-            self._public_key = license_mgr.get_public_key()
-
             self._initialized = True
-            log_info("Msm_30_1: Initialized")
+            log_info("Msm_30_1: Initialized (RAM-only mode)")
             return True
 
         except Exception as e:
@@ -96,7 +75,7 @@ class TokenManager:
         access_expires_at: Optional[float] = None
     ):
         """
-        Сохранение токенов.
+        Сохранение токенов в RAM.
 
         Args:
             access_token: Новый access token
@@ -119,9 +98,6 @@ class TokenManager:
                 # Fallback: текущее время + TTL
                 self._access_expires_at = time.time() + ACCESS_TOKEN_LIFETIME_MINUTES * 60
 
-        # Сохранение в LicenseManager
-        self._persist_tokens()
-
         log_info("Msm_30_1: Tokens stored")
 
     def clear_tokens(self):
@@ -130,62 +106,23 @@ class TokenManager:
         self._refresh_token = None
         self._access_expires_at = None
 
-        # Очистка в LicenseManager
-        try:
-            from Daman_QGIS.managers._registry import registry
-            license_mgr = registry.get('M_29')
-            license_mgr.store_tokens({})
-        except Exception:
-            pass
-
         log_info("Msm_30_1: Tokens cleared")
 
-    def validate_offline(self, token: Optional[str] = None) -> bool:
+    def validate_token(self, token: Optional[str] = None) -> bool:
         """
-        Offline валидация JWT через RS256 public key.
+        Валидация JWT по сроку действия (exp claim).
 
         Args:
             token: Токен для проверки (по умолчанию текущий access)
 
         Returns:
-            True если токен валиден
+            True если токен не истёк
         """
         token = token or self._access_token
         if not token:
             return False
 
-        if not self._public_key:
-            log_warning("Msm_30_1: No public key for offline validation")
-            # Без public key проверяем только срок действия
-            return not self._is_token_expired()
-
-        try:
-            # Попытка использовать PyJWT для RS256
-            import jwt
-            decoded = jwt.decode(
-                token,
-                self._public_key,
-                algorithms=["RS256"],
-                options={"verify_exp": True}
-            )
-            return True
-
-        except ImportError:
-            # PyJWT не установлен - только проверка exp
-            log_warning("Msm_30_1: PyJWT not installed, using basic validation")
-            return not self._is_token_expired()
-
-        except jwt.ExpiredSignatureError:
-            log_warning("Msm_30_1: Token expired (offline check)")
-            return False
-
-        except jwt.InvalidTokenError as e:
-            log_error(f"Msm_30_1: Invalid token: {e}")
-            return False
-
-        except Exception as e:
-            log_error(f"Msm_30_1: Validation error: {e}")
-            return False
+        return not self._is_token_expired()
 
     def get_token_payload(self, token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
@@ -265,18 +202,3 @@ class TokenManager:
         if payload and "exp" in payload:
             return float(payload["exp"])
         return None
-
-    def _persist_tokens(self):
-        """Сохранение токенов в LicenseManager."""
-        try:
-            from Daman_QGIS.managers._registry import registry
-
-            license_mgr = registry.get('M_29')
-            license_mgr.store_tokens({
-                "access_token": self._access_token,
-                "refresh_token": self._refresh_token,
-                "access_expires_at": self._access_expires_at
-            })
-
-        except Exception as e:
-            log_error(f"Msm_30_1: Failed to persist tokens: {e}")
