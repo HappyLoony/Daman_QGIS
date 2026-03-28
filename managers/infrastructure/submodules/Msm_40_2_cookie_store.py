@@ -10,9 +10,13 @@ Cookies хранятся ТОЛЬКО в памяти -- не сохраняют
 """
 
 import threading
-from typing import Dict
+import time
+from typing import Dict, Optional
 
 from Daman_QGIS.utils import log_info
+
+# ЕСИА access tokens expire after 3 hours
+_ESIA_SESSION_TIMEOUT = 3 * 60 * 60  # 10800 секунд
 
 
 class Msm_40_2_CookieStore:
@@ -25,6 +29,7 @@ class Msm_40_2_CookieStore:
     def __init__(self) -> None:
         self._cookies: Dict[str, str] = {}
         self._lock = threading.Lock()
+        self._auth_timestamp: Optional[float] = None
 
     def set_cookies(self, cookies: Dict[str, str]) -> None:
         """Сохранить cookies.
@@ -34,6 +39,7 @@ class Msm_40_2_CookieStore:
         """
         with self._lock:
             self._cookies = dict(cookies)
+            self._auth_timestamp = time.time()
 
     def get_cookies(self) -> Dict[str, str]:
         """Получить копию cookies.
@@ -45,21 +51,38 @@ class Msm_40_2_CookieStore:
             return dict(self._cookies)
 
     def is_valid(self) -> bool:
-        """Проверка наличия cookies.
+        """Проверка наличия cookies и актуальности сессии.
 
         Returns:
-            True если есть хотя бы один cookie
+            True если есть cookies и сессия ЕСИА не истекла (3 часа)
         """
         with self._lock:
-            return len(self._cookies) > 0
+            if len(self._cookies) == 0:
+                return False
+            if self._auth_timestamp is None:
+                return True
+            return (time.time() - self._auth_timestamp) < _ESIA_SESSION_TIMEOUT
 
     def get_cookie_count(self) -> int:
         """Количество сохраненных cookies."""
         with self._lock:
             return len(self._cookies)
 
+    def get_remaining_seconds(self) -> Optional[int]:
+        """Секунды до истечения сессии ЕСИА.
+
+        Returns:
+            Оставшееся время в секундах, или None если не авторизован
+        """
+        with self._lock:
+            if self._auth_timestamp is None:
+                return None
+            remaining = _ESIA_SESSION_TIMEOUT - (time.time() - self._auth_timestamp)
+            return max(0, int(remaining))
+
     def clear(self) -> None:
         """Очистить все cookies."""
         with self._lock:
             self._cookies.clear()
+            self._auth_timestamp = None
             log_info("Msm_40_2: Cookies очищены")

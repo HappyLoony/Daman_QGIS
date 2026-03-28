@@ -752,38 +752,32 @@ class TestSecurity:
 
     # === IDOR И ACCESS CONTROL ===
 
-    def test_50_idor_license_access(self):
-        """ТЕСТ 50: IDOR - доступ к чужим лицензиям"""
-        self.logger.section("50. IDOR License Access")
+    def test_50_idor_path_traversal(self):
+        """ТЕСТ 50: IDOR - попытки path traversal"""
+        self.logger.section("50. IDOR Path Traversal")
 
         if not self.loader:
             self.logger.fail("Loader не инициализирован")
             return
 
         try:
-            # Попытка доступа к файлу лицензий напрямую
-            sensitive_files = [
-                "Base_licenses",
-                "base_licenses",
-                "BASE_LICENSES",
-                "licenses",
-                "Licenses",
-                "../Base_licenses",
+            # Попытки path traversal и доступа к системным файлам
+            traversal_attempts = [
+                "../.env",
+                "../../etc/passwd",
+                "..\\..\\windows\\system32",
+                ".env.local",
+                "hashes",
             ]
 
-            for filename in sensitive_files:
+            for filename in traversal_attempts:
                 data = self.loader._load_from_remote(filename)
 
-                # Не должен вернуть данные с api_key
-                if data and isinstance(data, (list, dict)):
-                    has_api_key = "api_key" in str(data)
-                    self.logger.check(
-                        not has_api_key,
-                        f"Файл '{filename}' не раскрывает api_key",
-                        f"УЯЗВИМОСТЬ IDOR: '{filename}' раскрывает api_key!"
-                    )
-                else:
-                    self.logger.success(f"Файл '{filename}' недоступен (403/404)")
+                self.logger.check(
+                    data is None,
+                    f"Path traversal '{filename}' заблокирован",
+                    f"УЯЗВИМОСТЬ: '{filename}' вернул данные!"
+                )
 
         except Exception as e:
             self.logger.error(f"Ошибка IDOR: {str(e)}")

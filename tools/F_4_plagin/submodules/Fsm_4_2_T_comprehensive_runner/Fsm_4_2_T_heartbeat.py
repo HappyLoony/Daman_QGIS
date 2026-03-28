@@ -5,7 +5,7 @@
 Тестирует:
 - Endpoint ?action=heartbeat доступность и формат ответа
 - HMAC подпись heartbeat запросов
-- Обработку статусов (active, revoked)
+- Обработку статусов (active, revoked, INTEGRITY_MISSING, INTEGRITY_MISMATCH)
 - Heartbeat с невалидными данными (ключ, hardware_id, подпись)
 - Защиту от replay attacks (timestamp)
 - Клиентскую интеграцию (таймер, константы)
@@ -62,7 +62,7 @@ class TestHeartbeat:
             # Server-side integrity check
             self.test_50_heartbeat_with_valid_hashes()
             self.test_51_heartbeat_with_tampered_hashes()
-            self.test_52_heartbeat_without_hashes_backward_compat()
+            self.test_52_heartbeat_without_hashes_integrity_missing()
             self.test_53_heartbeat_with_partial_hashes()
             self.test_54_heartbeat_with_invalid_hash_types()
             self.test_55_client_sends_hashes_in_payload()
@@ -535,8 +535,8 @@ class TestHeartbeat:
     def test_50_heartbeat_with_valid_hashes(self):
         """ТЕСТ 50: Heartbeat с валидными file_hashes -> active
 
-        Отправляем реальные хеши файлов. Если S3 содержит эталоны
-        и они совпадают, сервер вернёт active.
+        Отправляем реальные хеши файлов. Сервер сверяет с S3 эталонами
+        и возвращает active при совпадении.
         """
         self.logger.section("50. Server-side integrity: валидные хеши")
 
@@ -559,29 +559,29 @@ class TestHeartbeat:
             self.logger.info(f"HTTP статус: {response.status_code}, "
                              f"хешей отправлено: {len(file_hashes)}")
 
+            self.logger.check(
+                response.status_code == 200,
+                "Heartbeat вернул 200",
+                f"Неожиданный статус: {response.status_code}"
+            )
+
             if response.status_code == 200:
                 data = response.json()
-                status = data.get('status')
-                reason = data.get('reason', '')
-
-                if status == 'active':
-                    self.logger.success("Валидные хеши -> active")
-                elif status == 'revoked' and reason == 'INTEGRITY_MISMATCH':
-                    self.logger.warning(
-                        "Валидные хеши -> INTEGRITY_MISMATCH "
-                        "(S3 эталоны не обновлены для текущей версии?)"
-                    )
-                else:
-                    self.logger.info(f"Статус: {status}, reason: {reason}")
+                self.logger.check(
+                    data.get('status') == 'active',
+                    "Валидные хеши -> active",
+                    f"Валидные хеши -> {data.get('status')} "
+                    f"(reason: {data.get('reason', '-')})"
+                )
 
         except Exception as e:
             self.logger.error(f"Ошибка теста: {str(e)}")
 
     def test_51_heartbeat_with_tampered_hashes(self):
-        """ТЕСТ 51: Heartbeat с подменёнными file_hashes -> revoked
+        """ТЕСТ 51: Heartbeat с подменёнными file_hashes -> INTEGRITY_MISMATCH
 
-        Отправляем заведомо неправильные хеши. Сервер должен вернуть
-        INTEGRITY_MISMATCH (если S3 эталоны существуют).
+        Отправляем заведомо неправильные хеши. Сервер возвращает
+        revoked с reason=INTEGRITY_MISMATCH.
         """
         self.logger.section("51. Server-side integrity: подменённые хеши")
 
@@ -606,33 +606,32 @@ class TestHeartbeat:
             response = self._send_heartbeat(payload)
             self.logger.info(f"HTTP статус: {response.status_code}")
 
+            self.logger.check(
+                response.status_code == 200,
+                "Heartbeat вернул 200",
+                f"Неожиданный статус: {response.status_code}"
+            )
+
             if response.status_code == 200:
                 data = response.json()
-                status = data.get('status')
-                reason = data.get('reason', '')
-
-                if status == 'revoked' and reason == 'INTEGRITY_MISMATCH':
-                    self.logger.success(
-                        "Подменённые хеши -> revoked (INTEGRITY_MISMATCH)"
-                    )
-                elif status == 'active':
-                    self.logger.warning(
-                        "Подменённые хеши -> active "
-                        "(S3 эталоны отсутствуют -- проверка пропущена сервером)"
-                    )
-                else:
-                    self.logger.info(f"Статус: {status}, reason: {reason}")
+                self.logger.check(
+                    data.get('status') == 'revoked'
+                    and data.get('reason') == 'INTEGRITY_MISMATCH',
+                    "Подменённые хеши -> revoked (INTEGRITY_MISMATCH)",
+                    f"Подменённые хеши -> {data.get('status')} "
+                    f"(reason: {data.get('reason', '-')})"
+                )
 
         except Exception as e:
             self.logger.error(f"Ошибка теста: {str(e)}")
 
-    def test_52_heartbeat_without_hashes_backward_compat(self):
-        """ТЕСТ 52: Heartbeat без file_hashes -> active (обратная совместимость)
+    def test_52_heartbeat_without_hashes_integrity_missing(self):
+        """ТЕСТ 52: Heartbeat без file_hashes -> INTEGRITY_MISSING
 
-        Старые клиенты не отправляют file_hashes. Сервер должен
-        пропустить проверку и вернуть active.
+        Сервер требует file_hashes если на сервере есть integrity hashes.
+        Без file_hashes вернётся revoked с reason=INTEGRITY_MISSING.
         """
-        self.logger.section("52. Обратная совместимость: без file_hashes")
+        self.logger.section("52. Без file_hashes: INTEGRITY_MISSING")
 
         if not self.api_key:
             self.logger.warning("API key отсутствует -- тест пропущен")
@@ -643,24 +642,32 @@ class TestHeartbeat:
             payload = self._build_heartbeat_payload()
             response = self._send_heartbeat(payload)
 
+            self.logger.check(
+                response.status_code == 200,
+                "Heartbeat вернул 200",
+                f"Неожиданный статус: {response.status_code}"
+            )
+
             if response.status_code == 200:
                 data = response.json()
                 self.logger.check(
-                    data.get('status') == 'active',
-                    "Без file_hashes -> active (backward compat)",
-                    f"Без file_hashes -> {data.get('status')} (обратная совместимость нарушена!)"
+                    data.get('status') == 'revoked'
+                    and data.get('reason') == 'INTEGRITY_MISSING',
+                    "Без file_hashes -> revoked (INTEGRITY_MISSING)",
+                    f"Без file_hashes -> {data.get('status')} "
+                    f"(reason: {data.get('reason', '-')})"
                 )
 
         except Exception as e:
             self.logger.error(f"Ошибка теста: {str(e)}")
 
     def test_53_heartbeat_with_partial_hashes(self):
-        """ТЕСТ 53: Heartbeat с неполным набором хешей
+        """ТЕСТ 53: Heartbeat с неполным набором хешей -> INTEGRITY_MISMATCH
 
-        Отправляем хеш только одного файла. Сервер должен проверить
-        только те ключи, которые есть и в payload, и в эталоне.
+        Отправляем хеш только одного файла. Сервер требует ВСЕ файлы
+        из серверного списка, отсутствие файла = INTEGRITY_MISMATCH.
         """
-        self.logger.section("53. Частичные хеши")
+        self.logger.section("53. Частичные хеши -> INTEGRITY_MISMATCH")
 
         if not self.api_key:
             self.logger.warning("API key отсутствует -- тест пропущен")
@@ -676,16 +683,27 @@ class TestHeartbeat:
             first_key = next(iter(file_hashes))
             partial = {first_key: file_hashes[first_key]}
 
+            from Daman_QGIS.constants import PLUGIN_VERSION
             payload = self._build_heartbeat_payload()
             payload['file_hashes'] = partial
+            payload['version'] = PLUGIN_VERSION
 
             response = self._send_heartbeat(payload)
 
+            self.logger.check(
+                response.status_code == 200,
+                "Heartbeat вернул 200",
+                f"Неожиданный статус: {response.status_code}"
+            )
+
             if response.status_code == 200:
                 data = response.json()
-                self.logger.info(
-                    f"Частичные хеши ({first_key}): "
-                    f"status={data.get('status')}, reason={data.get('reason', '-')}"
+                self.logger.check(
+                    data.get('status') == 'revoked'
+                    and data.get('reason') == 'INTEGRITY_MISMATCH',
+                    f"Частичные хеши ({first_key}) -> revoked (INTEGRITY_MISMATCH)",
+                    f"Частичные хеши ({first_key}) -> {data.get('status')} "
+                    f"(reason: {data.get('reason', '-')})"
                 )
 
         except Exception as e:

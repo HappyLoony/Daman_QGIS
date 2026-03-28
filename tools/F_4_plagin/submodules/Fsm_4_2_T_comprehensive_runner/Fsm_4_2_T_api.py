@@ -641,20 +641,18 @@ class TestAPI:
             return
 
         try:
-            # Запрос файла который может быть пустым
-            data = self.loader._load_from_remote("Base_licenses.json")
+            # Запрос заведомо несуществующего файла
+            data = self.loader._load_from_remote("NonExistentFile_test_32.json")
 
-            # Base_licenses.json должен вернуть 403 (защищён)
-            # или None (если API правильно скрывает)
             self.logger.check(
                 data is None,
-                "Base_licenses.json защищён (403 или None)",
-                f"Base_licenses.json доступен публично - УЯЗВИМОСТЬ! {type(data)}"
+                "Несуществующий файл возвращает None",
+                f"Несуществующий файл вернул данные: {type(data)}"
             )
 
         except Exception as e:
-            # Исключение тоже допустимо для защищённого файла
-            self.logger.success(f"Base_licenses.json защищён: {type(e).__name__}")
+            # Исключение тоже допустимо для несуществующего файла
+            self.logger.success(f"Несуществующий файл обработан: {type(e).__name__}")
 
     def test_33_large_payloads(self):
         """ТЕСТ 33: Большие данные"""

@@ -574,7 +574,10 @@ class DamanQGIS:
                 data = response.json()
                 if data.get('status') == 'revoked':
                     reason = data.get('reason', 'unknown')
-                    log_warning(f"Main: Лицензия отозвана сервером ({reason})")
+                    if reason in ('INTEGRITY_MISSING', 'INTEGRITY_MISMATCH'):
+                        log_error(f"Main: Heartbeat integrity check failed ({reason})")
+                    else:
+                        log_warning(f"Main: Лицензия отозвана сервером ({reason})")
                     self._on_license_revoked()
 
         except Exception as e:

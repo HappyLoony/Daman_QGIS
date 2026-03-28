@@ -68,14 +68,13 @@ def find_edge_executable() -> Optional[str]:
     # 2. Реестр Windows
     try:
         import winreg
-        key = winreg.OpenKey(
+        with winreg.OpenKey(
             winreg.HKEY_LOCAL_MACHINE,
             r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe"
-        )
-        value, _ = winreg.QueryValueEx(key, "")
-        winreg.CloseKey(key)
-        if value and os.path.isfile(value):
-            return value
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "")
+            if value and os.path.isfile(value):
+                return value
     except Exception:
         pass
 
@@ -391,7 +390,12 @@ class _EdgeCdpSession:
 
         for cookie in all_cookies:
             cookie_domain = cookie.get("domain", "")
-            if any(d in cookie_domain for d in domains):
+            if any(
+                cookie_domain == d
+                or cookie_domain == '.' + d
+                or (d.startswith('.') and (cookie_domain.endswith(d) or cookie_domain == d[1:]))
+                for d in domains
+            ):
                 cookies[cookie["name"]] = cookie["value"]
 
         log_info(f"Msm_40_3: После фильтрации: {len(cookies)} cookies "
@@ -457,11 +461,15 @@ class _EdgeCdpSession:
     def _cleanup_temp_dir(self) -> None:
         """Удалить временную директорию Edge."""
         if self._temp_dir and os.path.isdir(self._temp_dir):
+            path = self._temp_dir
             try:
-                shutil.rmtree(self._temp_dir, onerror=lambda *_: None)
-                log_info(f"Msm_40_3: Temp директория удалена: {self._temp_dir}")
+                shutil.rmtree(path, onerror=lambda *_: None)
+                if os.path.isdir(path):
+                    log_warning(f"Msm_40_3: Temp директория частично очищена: {path}")
+                else:
+                    log_info(f"Msm_40_3: Temp директория удалена: {path}")
             except Exception as e:
-                log_warning(f"Msm_40_3: Не удалось удалить {self._temp_dir}: {e}")
+                log_warning(f"Msm_40_3: Не удалось удалить {path}: {e}")
             self._temp_dir = None
 
 

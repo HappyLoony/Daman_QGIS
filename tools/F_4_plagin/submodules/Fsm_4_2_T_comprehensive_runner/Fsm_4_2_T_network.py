@@ -187,7 +187,7 @@ class TestNetwork:
             self.logger.error(f"Ошибка проверки формата: {str(e)}")
 
     def test_12_api_action_list(self):
-        """ТЕСТ 12: Действие list (проверка скрытия Base_licenses)"""
+        """ТЕСТ 12: Действие list (проверка списка файлов)"""
         self.logger.section("12. API action=list")
 
         try:
@@ -207,13 +207,22 @@ class TestNetwork:
 
                 if 'files' in data:
                     files = data['files']
-                    has_licenses = any('licenses' in f.lower() for f in files)
-
                     self.logger.check(
-                        not has_licenses,
-                        "Base_licenses скрыт из списка (безопасность)",
-                        "ВНИМАНИЕ: Base_licenses виден в списке!"
+                        len(files) > 0,
+                        f"Список файлов получен ({len(files)} шт.)",
+                        "Список файлов пуст"
                     )
+
+                    # Проверяем наличие ключевых файлов
+                    expected = ['Base_layers', 'Base_Functions']
+                    for name in expected:
+                        self.logger.check(
+                            name in files,
+                            f"{name} присутствует в списке",
+                            f"{name} отсутствует в списке"
+                        )
+                else:
+                    self.logger.fail("Ответ не содержит поле 'files'")
             else:
                 self.logger.fail(f"API вернул {response.status_code}")
 
@@ -256,9 +265,9 @@ class TestNetwork:
         except Exception as e:
             self.logger.error(f"Ошибка теста 404: {str(e)}")
 
-    def test_21_http_403_handling(self):
-        """ТЕСТ 21: Обработка 403 (защищённые файлы, с JWT)"""
-        self.logger.section("21. Обработка HTTP 403")
+    def test_21_http_404_nonexistent_file(self):
+        """ТЕСТ 21: Обработка 404 для несуществующего файла (с JWT)"""
+        self.logger.section("21. Обработка HTTP 404 (несуществующий файл)")
 
         try:
             import requests
@@ -269,31 +278,16 @@ class TestNetwork:
                 self.logger.warning("JWT токен отсутствует -- тест пропущен (требуется лицензия)")
                 return
 
-            # Запрос защищённого файла (с JWT -- должен получить 403, а не 401)
-            url = get_api_url("data", file="Base_licenses")
+            url = get_api_url("data", file="NonExistentFile_test_21")
             response = requests.get(url, headers=headers, timeout=API_TIMEOUT)
 
-            self.logger.info(f"HTTP статус для Base_licenses: {response.status_code}")
+            self.logger.info(f"HTTP статус для несуществующего файла: {response.status_code}")
 
             self.logger.check(
-                response.status_code in [403, 404],
-                f"Защищённый файл обработан: {response.status_code}",
+                response.status_code == 404,
+                f"Несуществующий файл вернул 404",
                 f"Неожиданный статус: {response.status_code}"
             )
-
-            # Если 200 (не должно быть), проверяем что данные не раскрыты
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                    if isinstance(data, dict):
-                        has_api_key = 'api_key' in str(data)
-                        self.logger.check(
-                            not has_api_key,
-                            "Ключи API не раскрыты",
-                            "УЯЗВИМОСТЬ: api_key виден в ответе!"
-                        )
-                except Exception:
-                    pass
 
         except Exception as e:
             self.logger.error(f"Ошибка теста 403: {str(e)}")

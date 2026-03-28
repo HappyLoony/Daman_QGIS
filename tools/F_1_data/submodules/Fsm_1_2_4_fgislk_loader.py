@@ -242,6 +242,9 @@ class Fsm_1_2_4_FgislkLoader:
         # HTTP Session для REST API обогащения атрибутов (отдельный хост map.fgislk.gov.ru)
         self._rest_session = self._create_rest_session()
 
+        # Флаг: проверка серверной сетки выполнена (один раз за сессию загрузки)
+        self._grid_verified = False
+
     def _create_session(self) -> requests.Session:
         """Создание HTTP Session с connection pooling и exponential backoff.
 
@@ -529,6 +532,45 @@ class Fsm_1_2_4_FgislkLoader:
 
         return QgsGeometry()
 
+    def _verify_grid(self, response: requests.Response, x: int, y: int) -> None:
+        """Сравнить наш расчёт границ тайла с серверным заголовком geowebcache-tile-bounds.
+
+        Вызывается один раз на первом успешном тайле. Если сервер изменил сетку
+        (CUSTOM_RESOLUTIONS устарели), разница будет ненулевой — логируем warning.
+        """
+        self._grid_verified = True
+        bounds_header = response.headers.get("geowebcache-tile-bounds")
+        if not bounds_header:
+            return
+
+        try:
+            srv_xmin, srv_ymin, srv_xmax, srv_ymax = map(float, bounds_header.split(","))
+        except (ValueError, AttributeError):
+            return
+
+        res = self.CUSTOM_RESOLUTIONS[self.TILE_ZOOM_SERVER]
+        merc_origin = 20037508.34
+        our_xmin = x * res * self.TILE_SIZE_PIXELS - merc_origin
+        our_ymin = y * res * self.TILE_SIZE_PIXELS - merc_origin
+        our_xmax = (x + 1) * res * self.TILE_SIZE_PIXELS - merc_origin
+        our_ymax = (y + 1) * res * self.TILE_SIZE_PIXELS - merc_origin
+
+        max_diff = max(
+            abs(our_xmin - srv_xmin), abs(our_ymin - srv_ymin),
+            abs(our_xmax - srv_xmax), abs(our_ymax - srv_ymax),
+        )
+
+        if max_diff > 0.01:
+            log_warning(
+                f"Fsm_1_2_4: СЕТКА ФГИС ЛК ИЗМЕНИЛАСЬ! "
+                f"Расхождение {max_diff:.3f} м на тайле ({x},{y}). "
+                f"Наш: [{our_xmin:.2f},{our_ymin:.2f},{our_xmax:.2f},{our_ymax:.2f}], "
+                f"Сервер: [{srv_xmin:.2f},{srv_ymin:.2f},{srv_xmax:.2f},{srv_ymax:.2f}]. "
+                f"Требуется обновление CUSTOM_RESOLUTIONS!"
+            )
+        else:
+            log_info(f"Fsm_1_2_4: Серверная сетка верифицирована (diff={max_diff:.6f} м)")
+
     def download_tile_file(self, x: int, y: int, temp_dir: str) -> Optional[str]:
         """
         Загрузка тайла с сервера (thread-safe)
@@ -573,6 +615,10 @@ class Fsm_1_2_4_FgislkLoader:
             response = self._session.get(url, headers=headers, timeout=self.timeout)
 
             if response.status_code == 200 and response.content:
+                # Верификация серверной сетки (один раз за сессию)
+                if not self._grid_verified:
+                    self._verify_grid(response, x, y)
+
                 pbf_data = response.content
                 with open(pbf_path, "wb") as f:
                     f.write(pbf_data)

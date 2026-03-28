@@ -200,7 +200,8 @@ class Fsm_1_2_3_QuickOSMLoader:
                 raise Exception(f"Overpass out of memory на {server_url}")
             if 'rate_limited' in content_str.lower():
                 raise Exception(f"Overpass rate limit на {server_url}")
-            raise Exception(f"Overpass runtime error на {server_url}")
+            error_snippet = content_str[:200].replace('\n', ' ')
+            raise Exception(f"Overpass runtime error на {server_url}: {error_snippet}")
 
         # Проверяем что получили XML, а не HTML с ошибкой
         if not content_str.strip().startswith('<?xml'):
@@ -751,7 +752,7 @@ class Fsm_1_2_3_QuickOSMLoader:
             error_msg = str(e)
 
             # Сетевые ошибки -- пробуем следующий сервер
-            if any(kw in error_msg for kw in ("timeout", "Timeout", "ConnectionError", "Connection")):
+            if any(kw in error_msg for kw in ("timeout", "Timeout", "ConnectionError", "Connection", "runtime error", "out of memory")):
                 log_warning(f"Fsm_1_2_3: Сервер {server_url} недоступен: {error_msg}")
             else:
                 log_error(f"Fsm_1_2_3: Ошибка загрузки OSM '{layer_name}' с {server_url}: {error_msg}")
