@@ -317,6 +317,33 @@ class LicenseManager(QObject):
             return self._license_info.get("subscription_type")
         return None
 
+    def get_access_list(self) -> list:
+        """Список доступов пользователя."""
+        if self._license_info:
+            return self._license_info.get("access_list", ["qgis"])
+        return []
+
+    def is_admin(self) -> bool:
+        """Является ли пользователь администратором."""
+        if self._license_info:
+            return self._license_info.get("is_admin", False)
+        return False
+
+    def has_access(self, required_access: str) -> bool:
+        """Проверка доступа к функции по уровню.
+
+        Args:
+            required_access: Требуемый уровень доступа (qgis, qgis_super, admin)
+
+        Returns:
+            True если доступ разрешён
+        """
+        if self.is_admin():
+            return True
+        if required_access == "qgis":
+            return True
+        return required_access in self.get_access_list()
+
     def get_user_email(self) -> Optional[str]:
         """Email пользователя из лицензии.
 

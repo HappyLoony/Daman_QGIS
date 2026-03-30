@@ -48,8 +48,17 @@ def _build_menu_from_database() -> dict:
 
     sorted_functions = sorted(functions, key=sort_key)
 
+    # Проверка доступа пользователя
+    from Daman_QGIS.managers._registry import registry
+    license_manager = registry.get("M_29")
+
     menu = {}
     for func in sorted_functions:
+        # Фильтрация по уровню доступа
+        required = func.get("required_access", "qgis")
+        if license_manager and not license_manager.has_access(required):
+            continue
+
         # Группировка по разделам: "F_2" → "2" + "Обработка" → "2_Обработка"
         section_num = func.get('section_num', '')
         section_name = func.get('section', '')

@@ -61,13 +61,19 @@ class BaseTool:
         try:
             license_manager = registry.get('M_29')
 
-            if license_manager.check_access():
-                return True
+            if not license_manager.check_access():
+                # Лицензия не активна - показываем диалог
+                log_warning("BaseTool: License check failed, access denied")
+                self._show_license_required_dialog()
+                return False
 
-            # Лицензия не активна - показываем диалог
-            log_warning("BaseTool: License check failed, access denied")
-            self._show_license_required_dialog()
-            return False
+            # Проверка уровня доступа к конкретной функции
+            required = getattr(self, 'required_access', 'qgis')
+            if not license_manager.has_access(required):
+                log_warning(f"BaseTool: Недостаточный уровень доступа: {required}")
+                return False
+
+            return True
 
         except Exception as e:
             # FAIL-CLOSED: при ошибке проверки - блокируем доступ (OWASP Fail Securely)

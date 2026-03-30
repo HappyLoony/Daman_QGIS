@@ -21,7 +21,7 @@ import hmac
 import time
 from typing import Dict, Any, List
 
-from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT, get_api_url
+from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT, PLUGIN_VERSION, get_api_url
 from Daman_QGIS.utils import log_info, log_error, log_warning
 
 class LicenseValidator:
@@ -127,6 +127,7 @@ class LicenseValidator:
             "hardware_id": hardware_id,
             "timestamp": timestamp,
             "signature": signature,
+            "plugin_version": PLUGIN_VERSION,
             **extra
         }
         return payload
@@ -276,6 +277,8 @@ class LicenseValidator:
                     "status": "active",
                     "expires_at": license_info.get("expires_at"),
                     "subscription_type": license_info.get("subscription_type"),
+                    "access_list": license_info.get("access_list", ["qgis"]),
+                    "is_admin": license_info.get("is_admin", False),
                     "license_info": license_info
                 }
                 # JWT: прокидываем токены если сервер их выдал

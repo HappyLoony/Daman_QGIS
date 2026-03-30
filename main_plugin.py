@@ -565,7 +565,7 @@ class DamanQGIS:
                     "timestamp": timestamp,
                     "signature": signature,
                     "file_hashes": file_hashes,
-                    "version": PLUGIN_VERSION,
+                    "plugin_version": PLUGIN_VERSION,
                 },
                 timeout=API_TIMEOUT
             )
@@ -924,14 +924,29 @@ class DamanQGIS:
         """Аварийная панель (делегирует M_43)."""
         self._fallback_mgr.show_emergency()
 
-    def register_tool(self, F_id: str, F_class: type) -> None:
+    def _build_access_map(self) -> Dict[str, str]:
+        """Построить маппинг tool_id -> required_access из Base_Functions.json."""
+        from Daman_QGIS.managers import FunctionReferenceManager
+        functions_manager = FunctionReferenceManager()
+        access_map = {}
+        for func in functions_manager.get_all_functions():
+            tool_id = func.get("tool_id", "")
+            if tool_id:
+                access_map[tool_id] = func.get("required_access", "qgis")
+        return access_map
+
+    def register_tool(self, F_id: str, F_class: type, required_access: str = "qgis") -> None:
         """Регистрация инструмента в нумерованном меню
 
         :param F_id: ID инструмента из MENU_STRUCTURE
         :param F_class: Класс инструмента
+        :param required_access: Требуемый уровень доступа (qgis, qgis_super, admin)
         """
         # Создаем экземпляр инструмента
         tool = F_class(self.iface)
+
+        # Устанавливаем уровень доступа из Base_Functions.json
+        tool.required_access = required_access
 
         # Устанавливаем ссылки на менеджеры через цикл
         managers = {
@@ -960,6 +975,9 @@ class DamanQGIS:
         registered_count = 0
         failed_tools = []
 
+        # Маппинг tool_id -> required_access из Base_Functions.json
+        access_map = self._build_access_map()
+
         # Автоматическая регистрация инструментов из конфигурации
         for tool_id, (module_path, class_name) in TOOLS_CONFIG.items():
             # Пропускаем инструменты скрытые из меню
@@ -971,7 +989,8 @@ class DamanQGIS:
                 tool_class = getattr(module, class_name)
 
                 # Регистрация инструмента
-                self.register_tool(tool_id, tool_class)
+                required_access = access_map.get(tool_id, "qgis")
+                self.register_tool(tool_id, tool_class, required_access)
                 registered_count += 1
             except Exception as e:
                 tool_name = tool_id.upper().replace('_', ' ')
