@@ -51,6 +51,7 @@ def _build_menu_from_database() -> dict:
     # Проверка доступа пользователя
     from Daman_QGIS.managers._registry import registry
     license_manager = registry.get("M_29")
+    show_numbers = license_manager.is_admin() if license_manager else False
 
     menu = {}
     for func in sorted_functions:
@@ -59,16 +60,24 @@ def _build_menu_from_database() -> dict:
         if license_manager and not license_manager.has_access(required):
             continue
 
-        # Группировка по разделам: "F_2" → "2" + "Обработка" → "2_Обработка"
+        # Группировка по разделам
         section_num = func.get('section_num', '')
         section_name = func.get('section', '')
-        section_key = section_num.replace('F_', '') + '_' + section_name
+        if show_numbers:
+            section_key = section_num.replace('F_', '') + '_' + section_name
+        else:
+            section_key = section_name
 
         if section_key not in menu:
             menu[section_key] = {}
 
-        # Название пункта меню из full_name
-        item_name = func.get('full_name', '')
+        # Название пункта меню
+        full_name = func.get('full_name', '')
+        if show_numbers:
+            item_name = full_name
+        else:
+            # "3_Заливки" → "Заливки"
+            item_name = full_name.split('_', 1)[1] if '_' in full_name else full_name
 
         # tool_id напрямую из базы данных
         tool_id = func.get('tool_id', '')
