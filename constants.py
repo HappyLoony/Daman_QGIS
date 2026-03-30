@@ -571,7 +571,7 @@ EXPORT_DPI_ROSREESTR = 300
 
 # QGIS провайдеры
 # PROVIDER_OGR: 2 файла, ~9 использований
-# PROVIDER_WMS: 1 файл (F_1_2_load_wms.py), ~3 использования
+# PROVIDER_WMS: 1 файл (F_1_2_load_web.py), ~3 использования
 PROVIDER_OGR = "ogr"
 PROVIDER_WMS = "wms"
 
@@ -584,12 +584,12 @@ DRIVER_GPKG = "GPKG"
 # ============================================================================
 
 # Google Satellite
-# Используется: 1 файл (F_1_2_load_wms.py)
+# Используется: 1 файл (F_1_2_load_web.py)
 LAYER_GOOGLE_SATELLITE = "L_1_3_1_Google_Satellite"
 WMS_GOOGLE_SATELLITE = 'type=xyz&url=https://mt1.google.com/vt/lyrs%3Ds%26x%3D%7Bx%7D%26y%3D%7By%7D%26z%3D%7Bz%7D&zmax=22&zmin=0'
 
 # NSPD (Национальная система пространственных данных)
-# Используется: 1 файл (F_1_2_load_wms.py)
+# Используется: 1 файл (F_1_2_load_web.py)
 LAYER_NSPD_BASE = "L_1_3_2_Справочный_слой"
 NSPD_TILE_URL = 'https://nspd.gov.ru/api/aeggis/v2/235/wmts/%7Bz%7D/%7Bx%7D/%7By%7D.png'
 NSPD_SEARCH_URL = 'https://nspd.gov.ru/api/geoportal/v2/search/geoportal'

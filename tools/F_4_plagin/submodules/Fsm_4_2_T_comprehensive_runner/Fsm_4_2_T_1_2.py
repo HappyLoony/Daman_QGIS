@@ -446,7 +446,7 @@ class TestF12:
         try:
             # Подготовка
             from Daman_QGIS.managers import APIManager, ProjectManager, LayerManager
-            from Daman_QGIS.tools.F_1_data.F_1_2_load_wms import F_1_2_LoadWMS
+            from Daman_QGIS.tools.F_1_data.F_1_2_load_web import F_1_2_LoadWeb
 
             import os
             project = QgsProject.instance()
@@ -468,7 +468,7 @@ class TestF12:
             project_manager.init_from_native_project()
             layer_manager = LayerManager(self.iface)
 
-            f_1_2 = F_1_2_LoadWMS(self.iface)
+            f_1_2 = F_1_2_LoadWeb(self.iface)
             f_1_2.set_project_manager(project_manager)
             f_1_2.set_layer_manager(layer_manager)
 

@@ -54,30 +54,6 @@ class DependencyChecker:
             'description': 'Библиотека для быстрой обработки XML',
             'usage': 'Импорт выписок ЕГРН в формате XML (F_1_1)'
         },
-        'debugpy': {
-            'description': 'Библиотека для удалённой отладки Python через VSCode',
-            'usage': 'Отладка плагина в реальном времени с breakpoints (см. DEBUG_SETUP.md)'
-        },
-        'pytest': {
-            'description': 'Фреймворк для тестирования Python',
-            'usage': 'Автоматическое тестирование плагина (pytest tests/)'
-        },
-        'pytest-qgis': {
-            'description': 'Плагин pytest для тестирования QGIS плагинов',
-            'usage': 'Фикстуры qgis_app, qgis_iface, qgis_new_project для тестов'
-        },
-        'pytest-cov': {
-            'description': 'Плагин pytest для отчётов покрытия кода',
-            'usage': 'Coverage отчёты (--cov=Daman_QGIS --cov-report=html)'
-        },
-        'pytest-qt': {
-            'description': 'Плагин pytest для тестирования Qt GUI',
-            'usage': 'Тестирование диалогов, кнопок, ожидание Qt сигналов'
-        },
-        'qgis-stubs': {
-            'description': 'Type stubs для PyQGIS (статическая типизация)',
-            'usage': 'Type hints для pyright/pylance, автодополнение в IDE'
-        },
         'docxtpl': {
             'description': 'Библиотека для Word шаблонов с Jinja2',
             'usage': 'Экспорт документов (ХЛУ, акты) в формат Word'

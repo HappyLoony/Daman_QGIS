@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
 
 
-class F_1_2_LoadWMS(BaseTool):
+class F_1_2_LoadWeb(BaseTool):
     """Инструмент загрузки Web слоев
 
     Использует async режим (M_17): Фоновая обработка через QgsTask, не блокирует UI.

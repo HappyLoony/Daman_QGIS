@@ -177,6 +177,14 @@ class TestHeartbeat:
 
         try:
             payload = self._build_heartbeat_payload()
+
+            # Включаем file_hashes — сервер требует integrity check
+            file_hashes = self._compute_real_file_hashes()
+            if file_hashes:
+                from Daman_QGIS.constants import PLUGIN_VERSION
+                payload['file_hashes'] = file_hashes
+                payload['version'] = PLUGIN_VERSION
+
             response = self._send_heartbeat(payload)
 
             self.logger.info(f"HTTP статус: {response.status_code}")

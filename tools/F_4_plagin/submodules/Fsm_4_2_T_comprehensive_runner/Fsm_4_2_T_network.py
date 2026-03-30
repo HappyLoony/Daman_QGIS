@@ -42,7 +42,7 @@ class TestNetwork:
 
             # Тесты HTTP кодов
             self.test_20_http_404_handling()
-            self.test_21_http_403_handling()
+            self.test_21_http_404_nonexistent_file()
 
             # Тесты requests библиотеки
             self.test_30_requests_session()

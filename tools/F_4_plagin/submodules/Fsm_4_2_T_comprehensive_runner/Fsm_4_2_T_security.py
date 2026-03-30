@@ -73,7 +73,7 @@ class TestSecurity:
             self.test_43_double_encoding()
 
             # IDOR и Access Control
-            self.test_50_idor_license_access()
+            self.test_50_idor_path_traversal()
             self.test_51_horizontal_privilege_escalation()
             self.test_52_vertical_privilege_escalation()
 

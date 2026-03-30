@@ -89,7 +89,7 @@ PROJECT_FOLDERS = {
         "parent": FolderType.SERVICE,
         "user_visible": False,
         "description": "Кэш данных API и WFS",
-        "created_by": "F_1_2_LoadWMS, M_14_APIManager"
+        "created_by": "F_1_2_LoadWeb, M_14_APIManager"
     },
 
     # Предварительные материалы (00_Предварительно/)

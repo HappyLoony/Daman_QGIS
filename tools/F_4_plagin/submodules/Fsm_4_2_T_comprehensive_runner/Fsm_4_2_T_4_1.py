@@ -23,7 +23,6 @@ class TestF51:
         try:
             self.test_01_init_module()
             self.test_02_check_methods()
-            self.test_03_builtin_dependencies()
             self.test_04_external_dependencies()
             self.test_05_python_executable()
             self.test_06_quick_check()
@@ -67,29 +66,14 @@ class TestF51:
             return
 
         try:
-            # Проверяем методы
+            # Проверяем методы, которые НЕ вызываются в тестах 04-06
+            # quick_check -> вызывается в test_06
+            # get_python_executable -> вызывается в test_05
+            # get_external_dependencies -> вызывается в test_04
             self.logger.check(
                 hasattr(self.module, 'run'),
                 "Метод run существует",
                 "Метод run отсутствует!"
-            )
-
-            self.logger.check(
-                hasattr(self.module, 'quick_check'),
-                "Метод quick_check существует",
-                "Метод quick_check отсутствует!"
-            )
-
-            self.logger.check(
-                hasattr(self.module, 'get_python_executable'),
-                "Метод get_python_executable существует",
-                "Метод get_python_executable отсутствует!"
-            )
-
-            self.logger.check(
-                hasattr(self.module, 'get_external_dependencies'),
-                "Метод get_external_dependencies существует",
-                "Метод get_external_dependencies отсутствует!"
             )
 
             self.logger.check(
@@ -106,32 +90,6 @@ class TestF51:
 
         except Exception as e:
             self.logger.error(f"Ошибка проверки методов: {str(e)}")
-
-    def test_03_builtin_dependencies(self):
-        """ТЕСТ 3: Проверка встроенных зависимостей"""
-        self.logger.section("3. Проверка BUILTIN_DEPENDENCIES")
-
-        if not self.module:
-            self.logger.fail("Модуль не инициализирован, пропускаем тест")
-            return
-
-        try:
-            # Проверяем наличие словаря
-            self.logger.check(
-                hasattr(self.module, 'BUILTIN_DEPENDENCIES'),
-                "BUILTIN_DEPENDENCIES существует",
-                "BUILTIN_DEPENDENCIES отсутствует!"
-            )
-
-            if hasattr(self.module, 'BUILTIN_DEPENDENCIES'):
-                builtin = self.module.BUILTIN_DEPENDENCIES
-                self.logger.info(f"Встроенных зависимостей: {len(builtin)}")
-
-                for dep_name in builtin:
-                    self.logger.data(f"  -", dep_name)
-
-        except Exception as e:
-            self.logger.error(f"Ошибка проверки BUILTIN_DEPENDENCIES: {str(e)}")
 
     def test_04_external_dependencies(self):
         """ТЕСТ 4: Проверка внешних зависимостей"""

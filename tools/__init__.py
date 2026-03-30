@@ -22,7 +22,7 @@ _exported_classes = [
 
     # Раздел F_1 - Данные
     'F_1_1_UniversalImport',
-    'F_1_2_LoadWMS',
+    'F_1_2_LoadWeb',
     'F_1_3_BudgetSelection',
     'F_1_4_GraphicsRequest',
     'F_1_5_UniversalExport',

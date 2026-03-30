@@ -223,11 +223,15 @@ class ProjectDB:
         # Валидация имени слоя для предотвращения SQL injection
         self._validate_layer_name(layer_name)
 
-        # Используем SQL для удаления таблицы
+        # Используем SQL для удаления таблицы и метаданных GPKG
         md = QgsProviderRegistry.instance().providerMetadata(PROVIDER_OGR)
         conn = md.createConnection(self.gpkg_path, {})
 
-        # Удаляем таблицу (имя уже провалидировано)
+        # Удаляем из служебных таблиц GeoPackage (имя уже провалидировано)
+        conn.executeSql(f"DELETE FROM gpkg_contents WHERE table_name = \"{layer_name}\"")
+        conn.executeSql(f"DELETE FROM gpkg_geometry_columns WHERE table_name = \"{layer_name}\"")
+
+        # Удаляем саму таблицу
         conn.executeSql(f"DROP TABLE IF EXISTS \"{layer_name}\"")
 
         # Удаляем из кэша

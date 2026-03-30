@@ -25,9 +25,6 @@ certifi
 # XML парсинг (выписки ЕГРН)
 lxml>=5.0.0
 
-# Шифрование (AES-256-GCM для локального хранилища лицензий)
-cryptography>=41.0.0
-
 # Word экспорт (шаблоны с Jinja2)
 docxtpl>=0.19.0
 
@@ -37,16 +34,3 @@ comtypes>=1.4.0
 # Слияние PDF файлов
 pypdf>=4.0.0
 
-# === ОПЦИОНАЛЬНЫЕ ЗАВИСИМОСТИ (для разработки) ===
-
-# [optional] Отладка в VS Code
-debugpy>=1.6.0
-
-# [optional] Тестирование
-pytest>=7.0.0
-pytest-qgis>=2.1.0
-pytest-cov>=4.0.0
-pytest-qt>=4.2.0
-
-# [optional] Статическая типизация (type hints для PyQGIS)
-qgis-stubs>=0.2.0
