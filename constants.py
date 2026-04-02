@@ -297,6 +297,7 @@ LAYER_ATD_MO = "Le_1_2_3_10_АТД_МО_poly"
 LAYER_EGRN_LES = "Le_1_8_1_1_ЕГРН_Лесничества"
 LAYER_WFS_OOPT = "Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ"  # ООПТ для overlay нарезки
 LAYER_ZOUIT_PREFIX = "Le_1_2_5_"  # Общий префикс всех ЗОУИТ слоёв
+LAYER_SELECTION_ZOUIT = "Le_1_9_5_1_ЕГРН_ЗОУИТ_Перечень"
 LAYER_SELECTION_VODA = "L_1_9_7_Выборка_Вода"
 LAYER_SELECTION_MO = "L_1_9_8_Выборка_МО"
 

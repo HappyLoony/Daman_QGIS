@@ -22,7 +22,8 @@ from Daman_QGIS.constants import (
     LAYER_ATD_MO,
     LAYER_SELECTION_ZU, LAYER_SELECTION_ZU_10M, LAYER_SELECTION_ZU_500M,
     LAYER_SELECTION_OKS, LAYER_SELECTION_KK,
-    LAYER_SELECTION_NP, LAYER_SELECTION_TERZONY, LAYER_SELECTION_VODA, LAYER_SELECTION_MO
+    LAYER_SELECTION_NP, LAYER_SELECTION_TERZONY, LAYER_SELECTION_VODA, LAYER_SELECTION_MO,
+    LAYER_SELECTION_ZOUIT
 )
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
 from Daman_QGIS.managers import FeatureSortManager, OksZuAnalysisManager, SyncManager, registry
@@ -30,6 +31,7 @@ from Daman_QGIS.managers.infrastructure.M_17_async_task_manager import MessageBa
 
 # Импорт субмодулей
 from .Fsm_1_2_13_3_selection_engine import Fsm_2_1_8_SelectionEngine
+from .Fsm_1_2_13_6_zouit_selection import Fsm_2_1_10_ZouitSelection
 
 
 def pluralize_plots(count: int) -> str:
@@ -205,8 +207,8 @@ class F_2_1_LandSelection(BaseTool):
 
         log_info(f"F_2_1: Найдено {len(available_source_layers)} исходных слоёв для выборки")
 
-        # Прогресс-бар: выборка слоёв + 4 постобработки
-        total_steps = len(available_source_layers) + 4
+        # Прогресс-бар: выборка слоёв + ЗОУИТ + 4 постобработки
+        total_steps = len(available_source_layers) + 1 + 4
         step = 0
         reporter = MessageBarReporter(self.iface, "Выборка объектов")
         reporter.show()
@@ -326,6 +328,17 @@ class F_2_1_LandSelection(BaseTool):
                 step += 1
 
             log_info(f"F_2_1: Выборка завершена успешно. Обработано слоёв: {len(available_source_layers)}")
+
+            # Выборка ЗОУИТ — из всех Le_1_2_5_* слоёв в один перечень
+            if boundaries_layer_exact:
+                reporter.update(int((step / total_steps) * 100), "Выборка ЗОУИТ")
+                QApplication.processEvents()
+                progress_cb = _make_progress_cb(step, "ЗОУИТ")
+                self._reload_boundaries_if_needed(boundaries_layer_exact)
+                self._perform_selection_workflow_zouit(boundaries_layer_exact, progress_callback=progress_cb)
+            else:
+                log_warning("F_2_1: Пропущена выборка ЗОУИТ - слой точных границ недоступен")
+            step += 1
 
             # Синхронизация с выписками (M_24) - если выписки уже загружены
             # Заменяет WFS-данные на более точные данные из выписок (категория, права, площадь)
@@ -676,6 +689,56 @@ class F_2_1_LandSelection(BaseTool):
 
         # Результат логируется, но НЕ показывается в messageBar —
         # чтобы не перебивать общий прогресс-бар из _perform_selection_workflow_all()
+
+    def _perform_selection_workflow_zouit(self, boundaries_layer_exact: QgsVectorLayer,
+                                           progress_callback=None) -> None:
+        """Выборка ЗОУИТ из всех Le_1_2_5_* слоёв в один перечень
+
+        Args:
+            boundaries_layer_exact: Слой точных границ работ
+            progress_callback: Callback прогресса
+        """
+        # Проверяем существование слоя
+        existing_layer = self._get_layer_by_name(LAYER_SELECTION_ZOUIT)
+        if existing_layer:
+            reply = QMessageBox.warning(
+                self.iface.mainWindow(),
+                "Подтверждение замены",
+                f"Слой '{LAYER_SELECTION_ZOUIT}' уже существует и будет заменён.\n\nПродолжить?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                log_info("F_2_1: Пропущена выборка ЗОУИТ (отмена пользователем)")
+                return
+
+            QgsProject.instance().removeMapLayer(existing_layer.id())
+            log_info(f"F_2_1: Удален существующий слой {LAYER_SELECTION_ZOUIT}")
+
+        # Инициализируем модуль выборки ЗОУИТ
+        gpkg_path = self._get_gpkg_path()
+        if not gpkg_path:
+            log_error("F_2_1: Не удалось получить путь к GeoPackage для выборки ЗОУИТ")
+            return
+
+        zouit_selection = Fsm_2_1_10_ZouitSelection(self.iface, self.plugin_dir, gpkg_path)
+
+        log_info("F_2_1: Запуск выборки ЗОУИТ")
+        final_layer = zouit_selection.perform(
+            boundaries_layer_exact, progress_callback=progress_callback
+        )
+
+        if not final_layer:
+            log_info("F_2_1: Слой ЗОУИТ пуст - нет объектов в границах работ")
+            return
+
+        if not self.layer_manager:
+            raise ValueError("layer_manager не инициализирован")
+
+        self.layer_manager.add_layer(final_layer, make_readonly=False, auto_number=False, check_precision=False)
+        log_info(f"F_2_1: Слой ЗОУИТ добавлен: {final_layer.featureCount()} объектов")
+
+        self.layer_manager.sort_all_layers()
 
     def _run_oks_zu_analysis(self) -> None:
         """Автоматический анализ связей ОКС-ЗУ через M_23
