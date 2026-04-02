@@ -215,8 +215,8 @@ class ProjectionOptimizer:
                     log_error(f"Fsm_0_5_3: Ошибка в методе {method.name} [LDP]: {e}")
 
         # Сортируем по RMSE (лучший первый)
-        # При равном RMSE предпочтение Calibration (approach_type="calibration" < "ldp")
-        results.sort(key=lambda r: (r.rmse, r.approach_type))
+        # При равном RMSE предпочтение LDP (самодостаточная CRS с зональным префиксом)
+        results.sort(key=lambda r: (r.rmse, 0 if r.approach_type == "ldp" else 1))
 
         # Выводим сводку
         self._log_results_summary(results)

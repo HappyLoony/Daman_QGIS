@@ -30,7 +30,7 @@ from Daman_QGIS.constants import (
     RMSE_THRESHOLD_OK, RMSE_THRESHOLD_WARNING, RMSE_THRESHOLD_WRONG_CRS,
     RMS_ERROR_THRESHOLD
 )
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
