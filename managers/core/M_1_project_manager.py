@@ -457,10 +457,14 @@ class ProjectManager:
                     gpkg_layers = self.project_db.list_layers()
                     srid = new_crs.postgisSrid()
 
-                    # Проверяем SRID один раз
+                    # Для кастомных CRS (МСК) postgisSrid() == 0
+                    # Регистрируем в gpkg_spatial_ref_sys с srs_id >= 100000
                     if srid <= 0:
-                        log_warning(f"M_1_ProjectManager: Invalid SRID {srid}, обновление GPKG пропущено")
-                    else:
+                        srid = self._register_custom_crs_in_gpkg(new_crs)
+                        if srid <= 0:
+                            log_warning(f"M_1_ProjectManager: Не удалось зарегистрировать кастомную CRS в GPKG")
+
+                    if srid > 0:
                         for layer_name in gpkg_layers:
                             if layer_name.startswith('_'):  # Пропускаем служебные
                                 continue
@@ -489,10 +493,11 @@ class ProjectManager:
                                         "UPDATE gpkg_contents SET srs_id = ? WHERE table_name = ?",
                                         (srid, layer_name)
                                     )
-
-                                    if cursor.rowcount == 0:
-                                        layers_failed.append(layer_name)
-                                        continue
+                                    # Update srs_id in gpkg_geometry_columns
+                                    cursor.execute(
+                                        "UPDATE gpkg_geometry_columns SET srs_id = ? WHERE table_name = ?",
+                                        (srid, layer_name)
+                                    )
 
                                     conn.commit()
 
@@ -516,10 +521,61 @@ class ProjectManager:
 
         return True, "Синхронизация завершена"
     
+    def _register_custom_crs_in_gpkg(self, crs) -> int:
+        """
+        Регистрация кастомной CRS (МСК) в gpkg_spatial_ref_sys.
+
+        Для CRS без EPSG-кода (postgisSrid() == 0) генерирует srs_id >= 100000
+        на основе хеша WKT-определения (детерминированный ID).
+
+        Returns:
+            srs_id > 0 при успехе, 0 при ошибке
+        """
+        import hashlib
+
+        wkt = crs.toWkt()
+        if not wkt:
+            log_warning("M_1_ProjectManager: Пустое WKT для кастомной CRS")
+            return 0
+
+        # Детерминированный srs_id из хеша WKT (диапазон 100000-999999)
+        wkt_hash = int(hashlib.md5(wkt.encode('utf-8')).hexdigest()[:6], 16)
+        srid = 100000 + (wkt_hash % 900000)
+
+        srs_name = crs.description() or "Custom CRS"
+
+        try:
+            with self.project_db.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Проверяем, не зарегистрирована ли уже эта CRS
+                cursor.execute(
+                    "SELECT srs_id FROM gpkg_spatial_ref_sys WHERE srs_id = ?",
+                    (srid,)
+                )
+                if cursor.fetchone():
+                    log_info(f"M_1_ProjectManager: Кастомная CRS уже зарегистрирована (srs_id={srid})")
+                    return srid
+
+                cursor.execute(
+                    "INSERT INTO gpkg_spatial_ref_sys "
+                    "(srs_name, srs_id, organization, organization_coordsys_id, definition) "
+                    "VALUES (?, ?, 'QGIS', ?, ?)",
+                    (srs_name, srid, srid, wkt)
+                )
+                conn.commit()
+
+            log_info(f"M_1_ProjectManager: Кастомная CRS зарегистрирована в GPKG (srs_id={srid}, {srs_name})")
+            return srid
+
+        except Exception as e:
+            log_warning(f"M_1_ProjectManager: Ошибка регистрации кастомной CRS: {e}")
+            return 0
+
     def get_current_version_path(self) -> Optional[str]:
         """
         Получение пути к папке текущей версии
-        
+
         Returns:
             Путь к папке или None
         """
