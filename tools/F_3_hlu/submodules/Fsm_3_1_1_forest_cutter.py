@@ -18,6 +18,7 @@ from qgis.core import (
     QgsFeature,
     QgsGeometry,
     QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform,
     QgsSpatialIndex,
     QgsFields,
     QgsVectorFileWriter,
@@ -196,6 +197,23 @@ class Fsm_3_1_1_ForestCutter:
 
         self.statistics['input_features'] = le3_layer.featureCount()
 
+        # CRS-трансформация: слои могут иметь разную CRS после калибровки (F_0_5)
+        project_crs = QgsProject.instance().crs()
+        le3_crs = le3_layer.crs()
+        forest_crs = forest_layer.crs()
+        need_le3_transform = le3_crs.authid() != project_crs.authid()
+        need_forest_transform = forest_crs.authid() != project_crs.authid()
+
+        if need_le3_transform:
+            log_warning(f"Fsm_3_1_1: CRS Le_2 ({le3_crs.authid()}) != проект ({project_crs.authid()}), трансформация")
+        if need_forest_transform:
+            log_warning(f"Fsm_3_1_1: CRS лесных выделов ({forest_crs.authid()}) != проект ({project_crs.authid()}), трансформация")
+
+        le3_to_project = QgsCoordinateTransform(le3_crs, project_crs, QgsProject.instance()) if need_le3_transform else None
+        forest_to_project = QgsCoordinateTransform(forest_crs, project_crs, QgsProject.instance()) if need_forest_transform else None
+        # Обратный трансформ для запроса в spatial index (индекс в native CRS леса)
+        project_to_forest = QgsCoordinateTransform(project_crs, forest_crs, QgsProject.instance()) if need_forest_transform else None
+
         # Собираем данные для создания слоя
         output_data: List[Dict[str, Any]] = []
 
@@ -209,8 +227,19 @@ class Fsm_3_1_1_ForestCutter:
             if le3_geom.isEmpty():
                 continue
 
-            # Находим пересекающиеся выделы
-            intersecting_vydels = self._find_intersecting_vydels(le3_geom)
+            # Трансформация Le_2 в CRS проекта
+            if le3_to_project:
+                le3_geom = QgsGeometry(le3_geom)
+                le3_geom.transform(le3_to_project)
+
+            # Находим пересекающиеся выделы (запрос в native CRS леса)
+            if need_forest_transform or need_le3_transform:
+                query_geom = QgsGeometry(le3_geom)
+                if project_to_forest:
+                    query_geom.transform(project_to_forest)
+                intersecting_vydels = self._find_intersecting_vydels(query_geom)
+            else:
+                intersecting_vydels = self._find_intersecting_vydels(le3_geom)
 
             if not intersecting_vydels:
                 self.statistics['skipped_no_intersection'] += 1
@@ -227,6 +256,11 @@ class Fsm_3_1_1_ForestCutter:
                     continue
 
                 vydel_geom = self._validate_and_fix_geometry(vydel_geom)
+
+                # Трансформация выдела в CRS проекта
+                if forest_to_project:
+                    vydel_geom = QgsGeometry(vydel_geom)
+                    vydel_geom.transform(forest_to_project)
 
                 # Вычисляем пересечение
                 intersection = le3_geom.intersection(vydel_geom)

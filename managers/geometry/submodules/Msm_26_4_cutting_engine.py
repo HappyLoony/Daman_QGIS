@@ -121,6 +121,16 @@ class Msm_26_4_CuttingEngine:
             self._vri_manager = VRIAssignmentManager()
         return self._vri_manager
 
+    def _ensure_project_crs(self, geom: QgsGeometry, layer_crs: QgsCoordinateReferenceSystem) -> QgsGeometry:
+        """Трансформирует геометрию в CRS проекта если нужно"""
+        project_crs = QgsProject.instance().crs()
+        if layer_crs.authid() != project_crs.authid():
+            g = QgsGeometry(geom)  # deep copy
+            transform = QgsCoordinateTransform(layer_crs, project_crs, QgsProject.instance())
+            g.transform(transform)
+            return g
+        return geom
+
     def _reset_statistics(self) -> None:
         """Сброс статистики перед обработкой"""
         self.statistics = {
@@ -571,10 +581,30 @@ class Msm_26_4_CuttingEngine:
         razdel_data = []  # Части внутри ЗУ
         ngs_data = []  # Части вне ЗУ
 
+        # CRS-трансформация: слои могут иметь старую CRS после калибровки (F_0_5)
+        project_crs = QgsProject.instance().crs()
+        zu_crs = zu_layer.crs()
+        zpr_crs = zpr_layer.crs()
+        need_zu_transform = zu_crs.authid() != project_crs.authid()
+        need_zpr_transform = zpr_crs.authid() != project_crs.authid()
+
+        if need_zu_transform:
+            log_warning(f"Msm_26_4: CRS ЗУ ({zu_crs.authid()}) != проект ({project_crs.authid()}), трансформация геометрий")
+        if need_zpr_transform:
+            log_warning(f"Msm_26_4: CRS ЗПР ({zpr_crs.authid()}) != проект ({project_crs.authid()}), трансформация геометрий")
+
+        # Создаём трансформы один раз (оптимизация)
+        zu_to_project = QgsCoordinateTransform(zu_crs, project_crs, QgsProject.instance()) if need_zu_transform else None
+        project_to_zu = QgsCoordinateTransform(project_crs, zu_crs, QgsProject.instance()) if need_zu_transform else None
+        zpr_to_project = QgsCoordinateTransform(zpr_crs, project_crs, QgsProject.instance()) if need_zpr_transform else None
+
         # Создаём union всех ЗУ
         zu_union = self.geometry_processor.create_union(zu_layer)
+        if zu_to_project and not zu_union.isEmpty():
+            zu_union = QgsGeometry(zu_union)
+            zu_union.transform(zu_to_project)
 
-        # Индекс ЗУ для быстрого поиска пересечений
+        # Индекс ЗУ для быстрого поиска пересечений (в native CRS слоя)
         zu_index = self._build_spatial_index(zu_layer)
 
         # Обрабатываем каждый полигон ЗПР
@@ -589,6 +619,11 @@ class Msm_26_4_CuttingEngine:
             if zpr_geom.isEmpty():
                 continue
 
+            # Трансформация ЗПР в CRS проекта
+            if zpr_to_project:
+                zpr_geom = QgsGeometry(zpr_geom)
+                zpr_geom.transform(zpr_to_project)
+
             # Извлекаем ВРИ из ЗПР для передачи в Раздел/НГС
             zpr_vri = None
             for vri_field in ['ВРИ', 'VRI', 'vri']:
@@ -596,8 +631,14 @@ class Msm_26_4_CuttingEngine:
                     zpr_vri = zpr_feature[vri_field]
                     break
 
-            # Находим пересекающиеся ЗУ
-            intersecting_zu = self._find_intersecting_features(zpr_geom, zu_layer, zu_index)
+            # Находим пересекающиеся ЗУ (запрос в native CRS слоя ЗУ)
+            if need_zu_transform or need_zpr_transform:
+                query_geom = QgsGeometry(zpr_geom)
+                if project_to_zu:
+                    query_geom.transform(project_to_zu)
+                intersecting_zu = self._find_intersecting_features(query_geom, zu_layer, zu_index)
+            else:
+                intersecting_zu = self._find_intersecting_features(zpr_geom, zu_layer, zu_index)
 
             # Нарезка по каждому пересекающемуся ЗУ
             processed_area = QgsGeometry()  # Уже обработанная область
@@ -613,6 +654,11 @@ class Msm_26_4_CuttingEngine:
                     continue
 
                 zu_geom = self.geometry_processor.validate_and_fix(zu_geom)
+
+                # Трансформация ЗУ в CRS проекта
+                if zu_to_project:
+                    zu_geom = QgsGeometry(zu_geom)
+                    zu_geom.transform(zu_to_project)
 
                 # Пересечение ЗПР с этим ЗУ
                 intersection = self.geometry_processor.intersection(zpr_geom, zu_geom)
@@ -896,6 +942,7 @@ class Msm_26_4_CuttingEngine:
             List[Dict]: Обновлённые данные после нарезки
         """
         result = data
+        project_crs = QgsProject.instance().crs()
 
         for overlay_type, overlay_config in overlay_layers.items():
             overlay_layer = overlay_config['layer']
@@ -907,7 +954,17 @@ class Msm_26_4_CuttingEngine:
             log_info(f"Msm_26_4: Индивидуальная нарезка по {overlay_type} "
                     f"({overlay_layer.featureCount()} features)")
 
-            # Spatial index для быстрого поиска пересекающихся overlay features
+            # CRS-трансформация overlay слоя
+            overlay_crs = overlay_layer.crs()
+            need_overlay_transform = overlay_crs.authid() != project_crs.authid()
+            if need_overlay_transform:
+                log_warning(f"Msm_26_4: CRS overlay {overlay_type} ({overlay_crs.authid()}) != проект ({project_crs.authid()}), трансформация")
+
+            # Создаём трансформы один раз (оптимизация)
+            overlay_to_project = QgsCoordinateTransform(overlay_crs, project_crs, QgsProject.instance()) if need_overlay_transform else None
+            project_to_overlay = QgsCoordinateTransform(project_crs, overlay_crs, QgsProject.instance()) if need_overlay_transform else None
+
+            # Spatial index для быстрого поиска пересекающихся overlay features (native CRS)
             overlay_index = self._build_spatial_index(overlay_layer)
 
             new_result = []
@@ -922,10 +979,17 @@ class Msm_26_4_CuttingEngine:
                 overlays = item.get('overlays', {}).copy()
                 zpr_vri = item.get('zpr_vri')
 
-                # Находим overlay features, пересекающие этот контур
-                intersecting = self._find_intersecting_features(
-                    geom, overlay_layer, overlay_index
-                )
+                # Находим overlay features (запрос в native CRS overlay слоя)
+                if need_overlay_transform:
+                    query_geom = QgsGeometry(geom)
+                    query_geom.transform(project_to_overlay)
+                    intersecting = self._find_intersecting_features(
+                        query_geom, overlay_layer, overlay_index
+                    )
+                else:
+                    intersecting = self._find_intersecting_features(
+                        geom, overlay_layer, overlay_index
+                    )
 
                 if not intersecting:
                     # Контур вне всех overlay features этого типа
@@ -948,6 +1012,11 @@ class Msm_26_4_CuttingEngine:
                     ov_geom = ov_feature.geometry()
                     if ov_geom.isEmpty():
                         continue
+
+                    # Трансформация overlay геометрии в CRS проекта
+                    if overlay_to_project:
+                        ov_geom = QgsGeometry(ov_geom)
+                        ov_geom.transform(overlay_to_project)
 
                     # Извлечение названия из overlay feature
                     ov_name = self._get_overlay_name(ov_feature, name_field)
