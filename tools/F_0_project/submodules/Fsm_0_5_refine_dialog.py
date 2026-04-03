@@ -1790,9 +1790,13 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             std_rmse = standard_result['rmse']
             int_rmse = interzonal_result['rmse']
 
-            # Выбираем лучший по RMSE
-            # Если перерасчёт СК значительно лучше (на 20% или более) - используем его
-            if int_rmse < std_rmse * 0.8:
+            # Если оба RMSE ниже порога точности (1 мм) — различие несущественно,
+            # предпочитаем стандартный (проверенный pipeline, стабильный x_0)
+            RMSE_EQUIVALENT_THRESHOLD = 0.001  # 1 мм
+            if std_rmse < RMSE_EQUIVALENT_THRESHOLD and int_rmse < RMSE_EQUIVALENT_THRESHOLD:
+                use_interzonal = False
+                comparison_text = "Оба RMSE < 1мм, выбран стандартный (стабильнее)"
+            elif int_rmse < std_rmse * 0.8:
                 use_interzonal = True
                 improvement = (std_rmse - int_rmse) / std_rmse * 100
                 comparison_text = f"Перерасчёт СК точнее на {improvement:.0f}%"

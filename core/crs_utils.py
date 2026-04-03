@@ -1,6 +1,26 @@
 # -*- coding: utf-8 -*-
 """
-Утилиты для работы с системами координат
+Утилиты для работы с системами координат.
+
+Архитектура CRS в плагине — два независимых хранилища:
+
+1. QGIS User CRS Registry (qgis.db на машине пользователя)
+   - Управляется: M_37_profile_setup + crs_utils
+   - Конвенция именования:
+     * '_Название' (с подчёркиванием) — кастомные (проектные) CRS,
+       созданные через F_0_5. Сохраняются при обновлении профиля.
+     * 'Название' (начинается с буквы) — reference CRS из профиля Daman.
+       Перезаписываются при обновлении qgis.db.
+   - Функции: is_custom_crs(), find_existing_user_crs*(), deduplicate_by_name()
+
+2. GPKG gpkg_spatial_ref_sys (внутри каждого project.gpkg)
+   - Управляется: M_1_project_manager._register_custom_crs_in_gpkg()
+   - Для стандартных CRS (EPSG) srs_id == EPSG-код
+   - Для кастомных CRS (МСК) postgisSrid() == 0, поэтому:
+     srs_id генерируется из хеша WKT (диапазон 100000-999999,
+     конвенция GDAL для user-defined CRS)
+   - srs_id — внутренний ключ связи gpkg_contents <-> gpkg_geometry_columns,
+     пользователь его не видит. QGIS/GDAL восстанавливает CRS из WKT definition.
 """
 
 import re

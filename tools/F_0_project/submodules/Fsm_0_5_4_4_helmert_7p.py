@@ -291,13 +291,13 @@ class Fsm_0_5_4_4_Helmert7P(BaseCalculationMethod):
         initial_lon_0: float
     ) -> Optional[CalculationResult]:
         """
-        LDP-расчёт с ОПТИМИЗАЦИЕЙ lon_0.
+        LDP-расчёт с ФИКСИРОВАННЫМ lon_0 на центре объекта.
 
         ВАЖНО: Использует ПРЯМУЮ трансформацию EPSG:3857 -> test_proj.
         Это критически важно для визуального совпадения с WFS слоями.
 
-        lon_0 оптимизируется грубым поиском + золотым сечением (как calibration),
-        но x_0/y_0 вычисляются абсолютно (LDP) — с зональным префиксом.
+        lon_0 фиксируется на центре объекта (НЕ оптимизируется).
+        LDP создаёт "проекцию под данные" - lon_0 должен быть в центре объекта по определению.
         """
         if len(raw_wrong_coords) < self.min_points:
             log_warning(f"Fsm_0_5_4_4 [LDP]: Нужно минимум {self.min_points} точек")
@@ -321,65 +321,39 @@ class Fsm_0_5_4_4_Helmert7P(BaseCalculationMethod):
             ellps_param = base_params.get('ellps_param', ELLPS_KRASS)
             towgs84_param = base_params.get('towgs84_param', TOWGS84_SK42_PROJ)
 
-            # Функция для вычисления RMSE при заданном lon_0
+            # LDP: ФИКСИРУЕМ lon_0 на центре объекта (НЕ оптимизируем!)
+            object_center_lon = base_params.get('object_center_lon', None)
+            if object_center_lon is None:
+                log_error("Fsm_0_5_4_4 [LDP]: object_center_lon не задан, используем initial_lon_0")
+                object_center_lon = initial_lon_0
+
+            fixed_lon_0 = object_center_lon
+
+            # Вычисляем x_0, y_0 для фиксированного lon_0
             if use_direct_3857:
-                def calc_rmse_for_lon(test_lon_0):
-                    _, _, rmse_val, _ = self._calc_offset_ldp_3857(
-                        raw_wrong_coords, reference_3857,
-                        test_lon_0, lat_0, k_0, ellps_param, towgs84_param
-                    )
-                    return rmse_val
-            else:
-                reference_wgs84 = [ref for _, ref in control_points_wgs84]
-                def calc_rmse_for_lon(test_lon_0):
-                    _, _, rmse_val, _ = self._calc_offset_ldp(
-                        raw_wrong_coords, reference_wgs84,
-                        test_lon_0, lat_0, k_0, ellps_param, towgs84_param
-                    )
-                    return rmse_val
-
-            # Грубый поиск lon_0 (±1° от initial_lon_0)
-            best_lon_0 = initial_lon_0
-            best_rmse = float('inf')
-
-            for delta in [-1.0, -0.5, 0.0, 0.5, 1.0]:
-                test_lon_0 = initial_lon_0 + delta
-                rmse_val = calc_rmse_for_lon(test_lon_0)
-                if rmse_val < best_rmse:
-                    best_lon_0 = test_lon_0
-                    best_rmse = rmse_val
-
-            # Точный поиск методом золотого сечения
-            search_result = self._golden_section_search(
-                calc_rmse_for_lon,
-                best_lon_0 - 0.3,
-                best_lon_0 + 0.3,
-                tol=1e-6
-            )
-            optimal_lon_0 = search_result['x']
-
-            # Финальный расчёт с оптимальным lon_0
-            if use_direct_3857:
+                # ПРЯМАЯ трансформация 3857 -> test_proj
                 final_x0, final_y0, final_rmse, errors = self._calc_offset_ldp_3857(
                     raw_wrong_coords, reference_3857,
-                    optimal_lon_0, lat_0, k_0, ellps_param, towgs84_param
+                    fixed_lon_0, lat_0, k_0, ellps_param, towgs84_param
                 )
             else:
+                # Fallback: через WGS84
+                reference_wgs84 = [ref for _, ref in control_points_wgs84]
                 final_x0, final_y0, final_rmse, errors = self._calc_offset_ldp(
                     raw_wrong_coords, reference_wgs84,
-                    optimal_lon_0, lat_0, k_0, ellps_param, towgs84_param
+                    fixed_lon_0, lat_0, k_0, ellps_param, towgs84_param
                 )
 
             # Проверка на ошибку
             if final_rmse == float('inf'):
-                log_error(f"Fsm_0_5_4_4 [LDP]: Невалидная CRS для lon_0={optimal_lon_0}")
+                log_error(f"Fsm_0_5_4_4 [LDP]: Невалидная CRS для lon_0={fixed_lon_0}")
                 return None
 
-            # Анализ остатков для диагностики
+            # Анализ остатков для диагностики в LDP режиме
             dx_residuals = []
             dy_residuals = []
-            mean_dx = sum(raw[0] for raw in raw_wrong_coords) / len(raw_wrong_coords)
-            mean_dy = sum(raw[1] for raw in raw_wrong_coords) / len(raw_wrong_coords)
+            mean_dx = sum(raw_wrong_coords[i][0] for i in range(len(raw_wrong_coords))) / len(raw_wrong_coords)
+            mean_dy = sum(raw_wrong_coords[i][1] for i in range(len(raw_wrong_coords))) / len(raw_wrong_coords)
             for raw in raw_wrong_coords:
                 dx_residuals.append(raw[0] - mean_dx)
                 dy_residuals.append(raw[1] - mean_dy)
@@ -393,7 +367,7 @@ class Fsm_0_5_4_4_Helmert7P(BaseCalculationMethod):
             status = "OK" if success else "WARN"
             log_info(
                 f"Fsm_0_5_4_4 [{self.method_id}] [LDP]: "
-                f"lon_0={optimal_lon_0:.4f} "
+                f"lon_0={fixed_lon_0:.4f} (fixed at object center) "
                 f"x_0={final_x0:.2f} y_0={final_y0:.2f} "
                 f"RMSE={rmse:.4f}m [{status}]"
             )
@@ -404,7 +378,7 @@ class Fsm_0_5_4_4_Helmert7P(BaseCalculationMethod):
             return CalculationResult(
                 method_name=self.name,
                 method_id=self.method_id,
-                lon_0=optimal_lon_0,
+                lon_0=fixed_lon_0,
                 x_0=final_x0,
                 y_0=final_y0,
                 rmse=rmse,
@@ -420,7 +394,8 @@ class Fsm_0_5_4_4_Helmert7P(BaseCalculationMethod):
                         'dy_std': dy_std
                     },
                     'initial_lon_0': initial_lon_0,
-                    'search_iterations': search_result['iterations']
+                    'object_center_lon': object_center_lon,
+                    'lon_0_fixed': True
                 }
             )
 
