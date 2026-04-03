@@ -403,7 +403,7 @@ class CuttingManager:
             return {'error': 'Слой ЗУ не найден'}
         kk_layer = self._get_layer_by_name(LAYER_SELECTION_KK)
         overlay_layers = self._get_overlay_layers()
-        crs = zu_layer.crs()
+        crs = QgsProject.instance().crs()
 
         # Сброс глобальных счётчиков КН/ЕЗ
         if self._cutting_engine:

@@ -1254,22 +1254,27 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             log_error("Fsm_0_5: Нет данных для стандартного расчёта")
             return None
 
-        # Среднее смещение
-        num_pairs = len(deltas)
-        delta_x = sum(dx for dx, dy in deltas) / num_pairs
-        delta_y = sum(dy for dx, dy in deltas) / num_pairs
+        # Медиана смещения (устойчива к выбросам)
+        dx_list = [dx for dx, dy in deltas]
+        dy_list = [dy for dx, dy in deltas]
+        import statistics as _stats
+        delta_x = _stats.median(dx_list)
+        delta_y = _stats.median(dy_list)
 
-        # Вычисляем отклонения и RMS
-        squared_errors = []
+        # LOO-CV отклонения: каждая точка оценивается по модели без неё
+        n = len(deltas)
         deviations = []
-        for dx, dy in deltas:
-            error_x = dx - delta_x
-            error_y = dy - delta_y
-            squared_error = error_x**2 + error_y**2
-            squared_errors.append(squared_error)
-            deviations.append(math.sqrt(squared_error))
+        for i in range(n):
+            if n > 1:
+                loo_dx = _stats.median(dx_list[:i] + dx_list[i+1:])
+                loo_dy = _stats.median(dy_list[:i] + dy_list[i+1:])
+            else:
+                loo_dx, loo_dy = delta_x, delta_y
+            error_x = dx_list[i] - loo_dx
+            error_y = dy_list[i] - loo_dy
+            deviations.append(math.sqrt(error_x**2 + error_y**2))
 
-        rmse = math.sqrt(sum(squared_errors) / len(squared_errors))
+        rmse = math.sqrt(sum(d**2 for d in deviations) / n)
 
         # Извлекаем текущие x_0, y_0
         import re

@@ -20,6 +20,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Dict
 import math
+import statistics
 
 from qgis.core import (
     QgsPointXY,
@@ -393,15 +394,21 @@ class BaseCalculationMethod(ABC):
                 log_error("BaseCalculationMethod._calc_offset: All point transformations failed - empty result list")
                 return (0.0, 0.0, float('inf'), [])
 
-            x_0 = sum(dx_list) / len(dx_list)
-            y_0 = sum(dy_list) / len(dy_list)
+            x_0 = statistics.median(dx_list)
+            y_0 = statistics.median(dy_list)
 
+            # LOO-CV errors: каждая точка оценивается по модели без неё
             errors = []
-            for obj_msk, ref_msk in transformed:
-                # После применения x_0 к CRS, интерпретация координат: f(lon) = E - x_0
-                # Проверяем: obj_msk - x_0 должно совпасть с ref_msk
-                adjusted_x = obj_msk.x() - x_0
-                adjusted_y = obj_msk.y() - y_0
+            n = len(dx_list)
+            for i in range(n):
+                if n > 1:
+                    loo_x0 = statistics.median(dx_list[:i] + dx_list[i+1:])
+                    loo_y0 = statistics.median(dy_list[:i] + dy_list[i+1:])
+                else:
+                    loo_x0, loo_y0 = x_0, y_0
+                obj_msk, ref_msk = transformed[i]
+                adjusted_x = obj_msk.x() - loo_x0
+                adjusted_y = obj_msk.y() - loo_y0
                 error = math.sqrt(
                     (adjusted_x - ref_msk.x())**2 +
                     (adjusted_y - ref_msk.y())**2
@@ -503,17 +510,23 @@ class BaseCalculationMethod(ABC):
                 log_error("BaseCalculationMethod._calc_offset_ldp: All reference transformations failed")
                 return (0.0, 0.0, float('inf'), [])
 
-            x_0 = sum(dx_list) / len(dx_list)
-            y_0 = sum(dy_list) / len(dy_list)
+            x_0 = statistics.median(dx_list)
+            y_0 = statistics.median(dy_list)
 
-            # Вычисляем ошибки: raw_wrong должен совпасть с ref_msk + (x_0, y_0)
+            # LOO-CV errors: каждая точка оценивается по модели без неё
             errors = []
-            for raw_wrong, ref_msk in zip(raw_wrong_coords, ref_msk_list):
-                expected_x = ref_msk.x() + x_0
-                expected_y = ref_msk.y() + y_0
+            n = len(dx_list)
+            for i in range(n):
+                if n > 1:
+                    loo_x0 = statistics.median(dx_list[:i] + dx_list[i+1:])
+                    loo_y0 = statistics.median(dy_list[:i] + dy_list[i+1:])
+                else:
+                    loo_x0, loo_y0 = x_0, y_0
+                expected_x = ref_msk_list[i].x() + loo_x0
+                expected_y = ref_msk_list[i].y() + loo_y0
                 error = math.sqrt(
-                    (raw_wrong[0] - expected_x)**2 +
-                    (raw_wrong[1] - expected_y)**2
+                    (raw_wrong_coords[i][0] - expected_x)**2 +
+                    (raw_wrong_coords[i][1] - expected_y)**2
                 )
                 errors.append(error)
 
@@ -611,17 +624,23 @@ class BaseCalculationMethod(ABC):
                 log_error("BaseCalculationMethod._calc_offset_ldp_3857: All 3857->proj transformations failed")
                 return (0.0, 0.0, float('inf'), [])
 
-            x_0 = sum(dx_list) / len(dx_list)
-            y_0 = sum(dy_list) / len(dy_list)
+            x_0 = statistics.median(dx_list)
+            y_0 = statistics.median(dy_list)
 
-            # Вычисляем ошибки
+            # LOO-CV errors: каждая точка оценивается по модели без неё
             errors = []
-            for raw_wrong, ref_msk in zip(raw_wrong_coords, ref_msk_list):
-                expected_x = ref_msk.x() + x_0
-                expected_y = ref_msk.y() + y_0
+            n = len(dx_list)
+            for i in range(n):
+                if n > 1:
+                    loo_x0 = statistics.median(dx_list[:i] + dx_list[i+1:])
+                    loo_y0 = statistics.median(dy_list[:i] + dy_list[i+1:])
+                else:
+                    loo_x0, loo_y0 = x_0, y_0
+                expected_x = ref_msk_list[i].x() + loo_x0
+                expected_y = ref_msk_list[i].y() + loo_y0
                 error = math.sqrt(
-                    (raw_wrong[0] - expected_x)**2 +
-                    (raw_wrong[1] - expected_y)**2
+                    (raw_wrong_coords[i][0] - expected_x)**2 +
+                    (raw_wrong_coords[i][1] - expected_y)**2
                 )
                 errors.append(error)
 

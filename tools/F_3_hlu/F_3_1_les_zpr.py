@@ -265,9 +265,8 @@ class F_3_1_LesZPR(BaseTool):
         try:
             cutter = Fsm_3_1_1_ForestCutter(gpkg_path)
 
-            # Получаем CRS из первого слоя
-            first_layer = next(iter(le3_layers.values()))
-            crs = first_layer.crs()
+            # CRS из проекта (после калибровки F_0_5 может отличаться от CRS слоёв)
+            crs = QgsProject.instance().crs()
 
             total_created = 0
             layers_created = 0
