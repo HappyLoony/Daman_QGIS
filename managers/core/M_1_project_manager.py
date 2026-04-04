@@ -724,13 +724,49 @@ class ProjectManager:
             ctx.addCoordinateOperation(project_crs, epsg_3857, pipeline_str, allowFallback=True)
             QgsProject.instance().setTransformContext(ctx)
 
-            # Ballpark warning filter установлен в main_plugin.initGui()
-            # раньше чем любая трансформация.
+            # Подавляем ballpark warning через widgetAdded сигнал.
+            # PROJCRS без towgs84 генерирует C++ warning в message bar.
+            self._install_ballpark_warning_filter()
 
             log_info(f"M_1: Pipeline из REMARK зарегистрирован для {project_crs.authid()}")
 
         except Exception as e:
             log_warning(f"M_1: Ошибка регистрации pipeline из REMARK: {e}")
+
+    def _install_ballpark_warning_filter(self):
+        """Подавляет ballpark transformation warning из message bar.
+
+        PROJCRS без towgs84 (pipeline в REMARK) генерирует ложное
+        предупреждение при OTF. Pipeline обеспечивает точную трансформацию.
+        Warning генерируется C++ ядром QGIS — используем widgetAdded сигнал.
+        """
+        try:
+            bar = self.iface.messageBar()
+            if hasattr(bar, '_daman_ballpark_filter'):
+                return
+
+            from qgis.PyQt.QtCore import QTimer
+            from qgis.PyQt.QtWidgets import QLabel
+
+            def on_widget_added(widget):
+                try:
+                    text = ''
+                    if hasattr(widget, 'text'):
+                        text = widget.text() or ''
+                    if not text and hasattr(widget, 'findChildren'):
+                        for label in widget.findChildren(QLabel):
+                            t = label.text()
+                            if t:
+                                text += t + ' '
+                    if text and ('альтернативное преобразование' in text or 'ballpark' in text.lower()):
+                        QTimer.singleShot(0, lambda: bar.popWidget(widget))
+                except Exception:
+                    pass
+
+            bar.widgetAdded.connect(on_widget_added)
+            bar._daman_ballpark_filter = True
+        except Exception:
+            pass
 
     def is_project_open(self) -> bool:
         """Проверка открыт ли проект"""
