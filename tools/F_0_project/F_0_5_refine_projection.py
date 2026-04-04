@@ -275,7 +275,9 @@ class F_0_5_RefineProjection(BaseTool):
             )
             if params.get('ellps_param'):
                 proj_string += f"{params['ellps_param']} "
-            if params.get('towgs84_param'):
+            # Pipeline режим: пропускаем towgs84 чтобы CRS была PROJCRS (не BOUNDCRS).
+            # Трансформация в WGS84 выполняется через зарегистрированный pipeline.
+            if params.get('towgs84_param') and not params.get('skip_towgs84'):
                 proj_string += f"{params['towgs84_param']} "
             proj_string += "+units=m +no_defs"
 
@@ -290,7 +292,20 @@ class F_0_5_RefineProjection(BaseTool):
             # QGIS/PROJ автоматически создаёт BOUNDCRS если есть +towgs84
             wkt2_string = temp_crs.toWkt(Qgis.CrsWktVariant.Wkt2_2019)
 
-            log_info(f"F_0_5: WKT2 тип: {'BOUNDCRS' if 'BOUNDCRS' in wkt2_string else 'PROJCRS'}")
+            # Pipeline режим: вписываем pipeline строку в REMARK WKT2
+            # Это позволяет pipeline ехать вместе с CRS при синхронизации
+            pipeline_remark = params.get('pipeline_remark')
+            if pipeline_remark:
+                # Вставляем REMARK перед закрывающей скобкой
+                remark_str = f',REMARK["DAMAN_PIPELINE:{pipeline_remark}"]'
+                if wkt2_string.endswith(']]'):
+                    wkt2_string = wkt2_string[:-1] + remark_str + ']'
+                elif wkt2_string.endswith(']'):
+                    wkt2_string = wkt2_string[:-1] + remark_str + ']'
+                log_info(f"F_0_5: Pipeline REMARK добавлен ({len(pipeline_remark)} символов)")
+
+            wkt_type = 'BOUNDCRS' if 'BOUNDCRS' in wkt2_string else 'PROJCRS'
+            log_info(f"F_0_5: WKT2 тип: {wkt_type}")
             log_info(f"F_0_5: WKT2 (первые 300 символов): {wkt2_string[:300]}...")
 
             # Создаём финальную CRS из WKT2

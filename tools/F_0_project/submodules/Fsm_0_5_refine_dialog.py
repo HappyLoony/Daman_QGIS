@@ -236,6 +236,23 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         results_group.setLayout(results_layout)
         layout.addWidget(results_group)
 
+        # Режим Pipeline (experimental)
+        pipeline_group = QGroupBox("Pipeline (experimental)")
+        pipeline_layout = QHBoxLayout()
+        self.pipeline_checkbox = QCheckBox("Pipeline коррекция (horner)")
+        self.pipeline_checkbox.setToolTip(
+            "Регистрирует PROJ pipeline с полиномиальной коррекцией.\n"
+            "Требует минимум 20 контрольных точек.\n"
+            "Даёт субмиллиметровую точность на всю зону МСК."
+        )
+        self.pipeline_checkbox.setChecked(False)
+        pipeline_layout.addWidget(self.pipeline_checkbox)
+        self.pipeline_status = QLabel("")
+        pipeline_layout.addWidget(self.pipeline_status)
+        pipeline_layout.addStretch()
+        pipeline_group.setLayout(pipeline_layout)
+        layout.addWidget(pipeline_group)
+
         # Кнопки
         buttons_layout = QHBoxLayout()
         buttons_layout.addStretch()
@@ -1155,6 +1172,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         Всегда запускаются ОБА режима:
         1. Стандартный (простое смещение x_0/y_0)
         2. Перерасчёт СК (множество методов)
+        3. Pipeline (experimental) — если включён и >= 20 точек
 
         Выбирается лучший по RMSE, результаты сравниваются.
         """
@@ -1167,6 +1185,18 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 duration=MESSAGE_SUCCESS_DURATION
             )
             return
+
+        # Pipeline режим требует минимум 20 точек
+        if self.pipeline_checkbox.isChecked():
+            filled = sum(1 for p in self.point_pairs if p is not None)
+            if filled < 20:
+                self.iface.messageBar().pushMessage(
+                    "Pipeline",
+                    f"Для Pipeline режима нужно минимум 20 точек (сейчас {filled})",
+                    level=Qgis.Warning,
+                    duration=MESSAGE_SUCCESS_DURATION
+                )
+                return
 
         self._calculate_unified()
 
@@ -2010,9 +2040,25 @@ class RefineProjectionDialog(BaseResponsiveDialog):
 
         log_info("Fsm_0_5: Создаю кастомную проекцию и применяю к проекту...")
 
+        params = dict(self.interzonal_params)
+        pipeline_result = None
+
+        # Pipeline режим: вычисляем horner ДО создания CRS (для REMARK)
+        # BOUNDCRS сохраняется (towgs84 не пропускается) — pipeline приоритетнее BOUNDCRS
+        # когда зарегистрирован через addCoordinateOperation. Это убирает ballpark warning.
+        if self.pipeline_checkbox.isChecked():
+            pipeline_result = self._compute_pipeline()
+            if pipeline_result:
+                params['pipeline_remark'] = pipeline_result['pipeline']
+                log_info(
+                    f"Fsm_0_5: Pipeline horner deg={pipeline_result['deg']}: "
+                    f"RMSE={pipeline_result['rmse'] * 1000:.2f}mm, "
+                    f"Max={pipeline_result['max_err'] * 1000:.2f}mm"
+                )
+
         # Передаём слой объекта и его CRS для переопределения
         success = self.parent_tool.apply_custom_projection(
-            self.interzonal_params,
+            params,
             object_layer=self.object_layer,
             object_layer_crs=self.object_layer_crs  # Для переопределения CRS слоёв
         )
@@ -2026,10 +2072,15 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             self.object_layer_crs = new_project_crs
             log_info(f"Fsm_0_5: object_layer_crs обновлена на {new_project_crs.authid()}")
 
-            # Очищаем точки - они в старой CRS
+            log_success("Fsm_0_5: Кастомная проекция успешно создана и применена")
+
+            # Pipeline: регистрируем coordinate operation
+            if pipeline_result:
+                self._register_pipeline_from_result(pipeline_result)
+
+            # Очищаем точки - они в старой CRS (ПОСЛЕ pipeline)
             self.on_clear_all_clicked()
 
-            log_success("Fsm_0_5: Кастомная проекция успешно создана и применена")
             self.clear_all_graphics()
             self.parent_tool.deactivate_map_tool()
             self.accept()
@@ -2041,6 +2092,89 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 level=Qgis.Critical,
                 duration=MESSAGE_INFO_DURATION
             )
+
+    def _compute_pipeline(self) -> Optional[dict]:
+        """Вычисление horner pipeline коэффициентов.
+
+        Вызывается ДО создания CRS — результат передаётся в params
+        для записи в REMARK WKT2.
+
+        Returns:
+            dict с pipeline данными или None при ошибке
+        """
+        try:
+            from .Fsm_0_5_exp_zonal_calibration import compute_horner_coefficients
+        except ImportError as e:
+            log_error(f"Fsm_0_5: Pipeline модуль недоступен: {e}")
+            self.pipeline_status.setText("Ошибка импорта")
+            return None
+
+        params = self.interzonal_params
+        if not params:
+            return None
+
+        # Собираем пары из original_point_pairs
+        pairs = []
+        for entry in self.original_point_pairs:
+            if entry is None:
+                continue
+            wrong, correct, _ = entry
+            if wrong is not None and correct is not None:
+                pairs.append(((wrong.x(), wrong.y()), (correct.x(), correct.y())))
+
+        if len(pairs) < 20:
+            self.pipeline_status.setText(f"Мало точек: {len(pairs)}/20")
+            return None
+
+        towgs84_str = params.get('towgs84_param', '').replace('+towgs84=', '')
+        if not towgs84_str:
+            from Daman_QGIS.constants import TOWGS84_SK42_PROJ
+            towgs84_str = TOWGS84_SK42_PROJ.replace('+towgs84=', '')
+
+        log_info(f"Fsm_0_5: Pipeline - вычисление horner коэффициентов ({len(pairs)} точек)")
+
+        result = compute_horner_coefficients(
+            pairs=pairs,
+            lon_0=params['lon_0'],
+            x_0=params['x_0'],
+            y_0=params['y_0'],
+            towgs84_str=towgs84_str,
+            deg=3 if len(pairs) >= 20 else 2
+        )
+
+        if result is None:
+            self.pipeline_status.setText("Ошибка расчёта")
+            log_error("Fsm_0_5: Pipeline - ошибка вычисления коэффициентов")
+
+        return result
+
+    def _register_pipeline_from_result(self, result: dict):
+        """Регистрация pipeline из предвычисленного результата.
+
+        Вызывается ПОСЛЕ создания CRS.
+        """
+        try:
+            from .Fsm_0_5_exp_zonal_calibration import register_pipeline_in_qgis
+        except ImportError:
+            return
+
+        new_crs = QgsProject.instance().crs()
+        success = register_pipeline_in_qgis(
+            pipeline_str=result['pipeline'],
+            src_crs_authid=new_crs.authid()
+        )
+
+        if success:
+            self.pipeline_status.setText(
+                f"OK: RMSE={result['rmse'] * 1000:.1f}mm, Max={result['max_err'] * 1000:.1f}mm"
+            )
+            log_success(
+                f"Fsm_0_5: Pipeline зарегистрирован: "
+                f"RMSE={result['rmse'] * 1000:.2f}mm, Max={result['max_err'] * 1000:.2f}mm"
+            )
+        else:
+            self.pipeline_status.setText("Ошибка регистрации")
+            log_error("Fsm_0_5: Pipeline - ошибка регистрации в QGIS")
 
     def on_cancel_clicked(self):
         """Отмена - восстанавливаем исходную CRS"""

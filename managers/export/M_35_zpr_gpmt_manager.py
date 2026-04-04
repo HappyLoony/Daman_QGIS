@@ -296,7 +296,7 @@ class ZprGpmtManager:
         """
         # Создаём поля
         fields = QgsFields()
-        fields.append(QgsField("area_sqm", QMetaType.Type.Int))
+        fields.append(QgsField("area_sqm", QMetaType.Type.LongLong))
         fields.append(QgsField("area_ga", QMetaType.Type.QString, len=20))
 
         # Вычисляем площадь в гектарах (формат "0,0000")

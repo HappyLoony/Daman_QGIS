@@ -149,6 +149,9 @@ class ProjectManager:
 
         self.current_project = project_path
 
+        # Проверяем REMARK CRS на наличие DAMAN_PIPELINE
+        self._register_pipeline_from_crs_remark()
+
         log_info(f"M_1_ProjectManager: Проект '{project_name}' создан: {project_path}")
 
         self.iface.messageBar().pushMessage(
@@ -679,10 +682,56 @@ class ProjectManager:
         # Устанавливаем текущий проект
         self.current_project = project_dir
 
+        # Проверяем REMARK CRS на наличие DAMAN_PIPELINE
+        self._register_pipeline_from_crs_remark()
+
         log_info(f"M_1: Состояние плагина инициализировано из нативного проекта")
 
         return True
     
+    def _register_pipeline_from_crs_remark(self):
+        """Проверяет REMARK в Project CRS и регистрирует pipeline если найден.
+
+        CRS с REMARK["DAMAN_PIPELINE:..."] содержит pipeline строку внутри.
+        При открытии проекта автоматически регистрируем coordinate operation.
+        """
+        try:
+            project_crs = QgsProject.instance().crs()
+            if not project_crs.isValid():
+                return
+
+            wkt = project_crs.toWkt(Qgis.CrsWktVariant.Wkt2_2019)
+            marker = 'DAMAN_PIPELINE:'
+            idx = wkt.find(marker)
+            if idx == -1:
+                return
+
+            # Извлекаем pipeline строку из REMARK
+            start = idx + len(marker)
+            # Ищем закрывающую кавычку REMARK
+            end = wkt.find('"', start)
+            if end == -1:
+                return
+
+            pipeline_str = wkt[start:end]
+            if not pipeline_str or '+proj=pipeline' not in pipeline_str:
+                return
+
+            # Регистрируем pipeline для обоих направлений
+            epsg_3857 = QgsCoordinateReferenceSystem("EPSG:3857")
+            ctx = QgsProject.instance().transformContext()
+            ctx.addCoordinateOperation(epsg_3857, project_crs, pipeline_str, allowFallback=True)
+            ctx.addCoordinateOperation(project_crs, epsg_3857, pipeline_str, allowFallback=True)
+            QgsProject.instance().setTransformContext(ctx)
+
+            # Ballpark warning filter установлен в main_plugin.initGui()
+            # раньше чем любая трансформация.
+
+            log_info(f"M_1: Pipeline из REMARK зарегистрирован для {project_crs.authid()}")
+
+        except Exception as e:
+            log_warning(f"M_1: Ошибка регистрации pipeline из REMARK: {e}")
+
     def is_project_open(self) -> bool:
         """Проверка открыт ли проект"""
         # Проверяем не только внутреннее состояние, но и реальное состояние QGIS

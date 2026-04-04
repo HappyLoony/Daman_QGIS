@@ -125,7 +125,7 @@ class GeometryProcessor:
 
         # Добавляем дополнительные атрибуты
         polygon_layer.addAttribute(QgsField("contour_num", QMetaType.Type.Int))
-        polygon_layer.addAttribute(QgsField("area_sqm", QMetaType.Type.Int))
+        polygon_layer.addAttribute(QgsField("area_sqm", QMetaType.Type.LongLong))
 
         # Добавляем полигоны в слой
         contour_id = 1

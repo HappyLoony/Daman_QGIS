@@ -287,6 +287,11 @@ class DamanQGIS:
             )
             return
 
+        # --- Ballpark Warning Filter ---
+        # PROJCRS с pipeline (REMARK) генерирует ложный ballpark warning.
+        # Фильтруем до того как любая трансформация произойдёт.
+        self._install_ballpark_warning_filter()
+
         # --- Session Logging (M_38) --- MUST be first
         from Daman_QGIS.managers._registry import registry
         try:
@@ -1127,6 +1132,30 @@ class DamanQGIS:
             duration=MESSAGE_SUCCESS_DURATION
         )
 
+
+    def _install_ballpark_warning_filter(self):
+        """Фильтрует ballpark transformation warning из message bar.
+
+        PROJCRS без towgs84 (с pipeline в REMARK) генерирует ложное
+        предупреждение при OTF. Pipeline обеспечивает точную трансформацию.
+        """
+        try:
+            bar = self.iface.messageBar()
+            if hasattr(bar, '_daman_original_pushMessage'):
+                return
+
+            original = bar.pushMessage
+            bar._daman_original_pushMessage = original
+
+            def filtered_push(*args, **kwargs):
+                text = ' '.join(str(a) for a in args)
+                if 'альтернативное преобразование' in text or 'ballpark' in text.lower():
+                    return
+                return original(*args, **kwargs)
+
+            bar.pushMessage = filtered_push
+        except Exception:
+            pass
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
