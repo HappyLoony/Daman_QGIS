@@ -525,16 +525,15 @@ class PolygonBuilder:
             flat_type = QgsWkbTypes.flatType(polygon.wkbType())
             if flat_type == Qgis.WkbType.GeometryCollection:
                 centroid = polygon.centroid().asPoint()
-                bbox = polygon.boundingBox()
                 skipped_geoms.append(
-                    f"  GeometryCollection at ({centroid.x():.2f}, {centroid.y():.2f}), "
-                    f"bbox: ({bbox.xMinimum():.2f}, {bbox.yMinimum():.2f}) - "
-                    f"({bbox.xMaximum():.2f}, {bbox.yMaximum():.2f})"
+                    f"  GeometryCollection at ({centroid.x():.2f}, {centroid.y():.2f})"
                 )
                 # Извлекаем полигональные части
                 for part in polygon.asGeometryCollection():
-                    if part.type() == Qgis.GeometryType.Polygon and part.area() >= MIN_POLYGON_AREA:
-                        poly_data = part.asPolygon()
+                    if part.type() != Qgis.GeometryType.Polygon or part.area() < MIN_POLYGON_AREA:
+                        continue
+                    parts_list = part.asMultiPolygon() if part.isMultipart() else [part.asPolygon()]
+                    for poly_data in parts_list:
                         if poly_data:
                             multi_parts.append(poly_data)
                             if len(poly_data) > 1:
@@ -565,16 +564,17 @@ class PolygonBuilder:
             from qgis.core import QgsWkbTypes
             flat_type = QgsWkbTypes.flatType(multi_polygon_geom.wkbType())
             if flat_type == Qgis.WkbType.GeometryCollection:
-                bbox = multi_polygon_geom.boundingBox()
+                centroid = multi_polygon_geom.centroid().asPoint()
                 log_warning(
-                    f"Fsm_1_1_2: makeValid() вернул GeometryCollection, "
-                    f"bbox: ({bbox.xMinimum():.2f}, {bbox.yMinimum():.2f}) - "
-                    f"({bbox.xMaximum():.2f}, {bbox.yMaximum():.2f}), извлекаем полигоны"
+                    f"Fsm_1_1_2: makeValid() вернул GeometryCollection "
+                    f"at ({centroid.x():.2f}, {centroid.y():.2f}), извлекаем полигоны"
                 )
                 extracted_parts = []
                 for part in multi_polygon_geom.asGeometryCollection():
-                    if part.type() == Qgis.GeometryType.Polygon and part.area() >= MIN_POLYGON_AREA:
-                        poly_data = part.asPolygon()
+                    if part.type() != Qgis.GeometryType.Polygon or part.area() < MIN_POLYGON_AREA:
+                        continue
+                    parts_list = part.asMultiPolygon() if part.isMultipart() else [part.asPolygon()]
+                    for poly_data in parts_list:
                         if poly_data:
                             extracted_parts.append(poly_data)
                 if extracted_parts:
