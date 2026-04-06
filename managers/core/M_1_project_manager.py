@@ -740,6 +740,7 @@ class ProjectManager:
             QgsProject.instance().setTransformContext(ctx)
 
             log_info(f"M_1: Pipeline зарегистрирован для {project_crs.authid()} (source: {source})")
+            del pipeline_str
 
         except Exception as e:
             log_warning(f"M_1: Ошибка регистрации pipeline: {e}")

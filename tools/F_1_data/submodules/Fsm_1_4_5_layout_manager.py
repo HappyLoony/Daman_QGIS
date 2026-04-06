@@ -87,7 +87,7 @@ class LayoutManager:
         layout_mgr = registry.get('M_34')
 
         # Программная генерация из JSON
-        layout = layout_mgr.build_layout(layout_name=layout_name, layout_type='F_1_4')
+        layout = layout_mgr.build_layout(layout_name=layout_name, page_format='A4')
 
         if not layout:
             raise RuntimeError("Не удалось создать макет из JSON конфигурации")

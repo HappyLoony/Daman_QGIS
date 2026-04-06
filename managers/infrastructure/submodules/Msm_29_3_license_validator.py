@@ -170,10 +170,14 @@ class LicenseValidator:
                 # JWT: прокидываем токены если сервер их выдал
                 if "tokens" in data:
                     result["tokens"] = data["tokens"]
-                # Pipeline CRS: прокидываем в PipelineCache
+                # Pipeline CRS: decrypt and store in PipelineCache
                 if "pipelines" in data:
                     from .Msm_29_5_pipeline_cache import PipelineCache
-                    PipelineCache.get_instance().set_pipelines(data["pipelines"])
+                    PipelineCache.get_instance().set_pipelines_encrypted(
+                        data["pipelines"],
+                        hardware_id=hardware_id,
+                        api_key=api_key,
+                    )
                 return result
 
             # Обработка ошибок
@@ -221,10 +225,14 @@ class LicenseValidator:
                             }
                             if "tokens" in data:
                                 result["tokens"] = data["tokens"]
-                            # Pipeline CRS: прокидываем в PipelineCache
+                            # Pipeline CRS: decrypt and store in PipelineCache
                             if "pipelines" in data:
                                 from .Msm_29_5_pipeline_cache import PipelineCache
-                                PipelineCache.get_instance().set_pipelines(data["pipelines"])
+                                PipelineCache.get_instance().set_pipelines_encrypted(
+                                    data["pipelines"],
+                                    hardware_id=hardware_id,
+                                    api_key=api_key,
+                                )
                             return result
                 except Exception as retry_err:
                     log_error(f"Msm_29_3: Activation retry also failed: {retry_err}")
@@ -292,10 +300,14 @@ class LicenseValidator:
                 # JWT: прокидываем токены если сервер их выдал
                 if "tokens" in data:
                     result["tokens"] = data["tokens"]
-                # Pipeline CRS: прокидываем в PipelineCache
+                # Pipeline CRS: decrypt and store in PipelineCache
                 if "pipelines" in data:
                     from .Msm_29_5_pipeline_cache import PipelineCache
-                    PipelineCache.get_instance().set_pipelines(data["pipelines"])
+                    PipelineCache.get_instance().set_pipelines_encrypted(
+                        data["pipelines"],
+                        hardware_id=hardware_id,
+                        api_key=api_key,
+                    )
                 return result
 
             # Обработка ошибок

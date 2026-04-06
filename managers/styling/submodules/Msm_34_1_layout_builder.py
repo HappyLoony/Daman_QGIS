@@ -2,13 +2,9 @@
 """
 Msm_34_1: LayoutBuilder - Программная генерация макетов из JSON конфигурации
 
-Универсальный генератор макетов из JSON конфигураций.
-Конфигурация загружается из Base_layout_{layout_type}.json через API.
-
-Поддерживаемые типы макетов:
-- F_1_4: Графика к запросу (схема расположения)
-- F_5_1: Чертёж планировки территории (будущее)
-- F_5_2: Чертёж межевания территории (будущее)
+Универсальный генератор макетов из JSON конфигурации.
+Конфигурация загружается из Base_layout.json через API.
+Единый файл содержит параметры для всех форматов: A4_landscape, A4_portrait, A3_landscape и т.д.
 
 Используется: M_34_layout_manager.py
 """
@@ -46,21 +42,17 @@ class LayoutBuilder:
     - Штамп (stamp) - для чертежей
     """
 
-    def __init__(self, layout_type: str = 'F_1_4'):
+    def __init__(self):
         """
         Инициализация генератора
-
-        Args:
-            layout_type: Тип макета (F_1_4, F_5_1, F_5_2 и т.д.)
         """
-        self._layout_type = layout_type
-        self._config_file = f'Base_layout_{layout_type}.json'
+        self._config_file = 'Base_layout.json'
         self._config: Optional[Dict[str, Any]] = None
         self._layout: Optional[QgsPrintLayout] = None
 
     def load_config(self) -> bool:
         """
-        Загрузка конфигурации из Base_layout_{layout_type}.json
+        Загрузка конфигурации из Base_layout.json
 
         Returns:
             bool: True если конфигурация загружена успешно
@@ -73,26 +65,25 @@ class LayoutBuilder:
                 log_error(f"Msm_34_1: Не удалось загрузить {self._config_file}")
                 return False
 
-            # Проверяем наличие обязательных ключей
-            if 'landscape' not in self._config and 'portrait' not in self._config:
-                log_error(f"Msm_34_1: Конфигурация {self._config_file} не содержит landscape/portrait")
+            # Проверяем наличие хотя бы одного ключа формата
+            config_keys = list(self._config.keys())
+            if not config_keys:
+                log_error(f"Msm_34_1: Конфигурация {self._config_file} пуста")
                 return False
 
-            log_info(f"Msm_34_1: Конфигурация {self._layout_type} загружена "
-                     f"(landscape: {len(self._config.get('landscape', {}))}, "
-                     f"portrait: {len(self._config.get('portrait', {}))} параметров)")
+            log_info(f"Msm_34_1: Конфигурация загружена ({', '.join(config_keys)})")
             return True
 
         except Exception as e:
             log_error(f"Msm_34_1: Ошибка загрузки конфигурации {self._config_file}: {e}")
             return False
 
-    def build(self, orientation: str = 'landscape', layout_name: str = 'Layout') -> Optional[QgsPrintLayout]:
+    def build(self, config_key: str = 'A4_landscape', layout_name: str = 'Layout') -> Optional[QgsPrintLayout]:
         """
         Создание макета из конфигурации
 
         Args:
-            orientation: 'landscape' или 'portrait'
+            config_key: Ключ конфигурации (например 'A4_landscape', 'A3_landscape')
             layout_name: Имя создаваемого макета
 
         Returns:
@@ -103,10 +94,11 @@ class LayoutBuilder:
             if not self.load_config():
                 return None
 
-        # Получаем параметры для выбранной ориентации
-        params = self._config.get(orientation)
+        # Получаем параметры для выбранного формата
+        params = self._config.get(config_key)
         if not params:
-            log_error(f"Msm_34_1: Ориентация '{orientation}' не найдена в конфигурации")
+            log_error(f"Msm_34_1: Ключ '{config_key}' не найден в конфигурации "
+                      f"(доступны: {', '.join(self._config.keys())})")
             return None
 
         try:
@@ -129,7 +121,7 @@ class LayoutBuilder:
             self._add_appendix_label(params)
             self._add_north_arrow(params)
 
-            log_info(f"Msm_34_1: Макет '{layout_name}' создан программно ({orientation})")
+            log_info(f"Msm_34_1: Макет '{layout_name}' создан программно ({config_key})")
             return self._layout
 
         except Exception as e:
@@ -233,7 +225,6 @@ class LayoutBuilder:
         height = params.get('main_map_height', 109)
         frame = params.get('main_map_frame', True)
         background = params.get('main_map_background', True)
-        theme = params.get('main_map_theme', 'F_1_4_1_main_map')
 
         map_item = QgsLayoutItemMap(self._layout)
         map_item.setId('main_map')
@@ -246,10 +237,7 @@ class LayoutBuilder:
         map_item.setFrameEnabled(frame)
         map_item.setBackgroundEnabled(background)
 
-        # Тема карты (если существует)
-        if QgsProject.instance().mapThemeCollection().hasMapTheme(theme):
-            map_item.setFollowVisibilityPreset(True)
-            map_item.setFollowVisibilityPresetName(theme)
+        # Тема карты задаётся вызывающим кодом (Fsm_1_4_5, F_6_6 и т.д.)
 
         self._layout.addLayoutItem(map_item)
         log_info(f"Msm_34_1: Добавлена main_map ({x}, {y}, {width}x{height})")
@@ -272,7 +260,6 @@ class LayoutBuilder:
         height = params.get('overview_map_height', 49)
         frame = params.get('overview_map_frame', True)
         background = params.get('overview_map_background', True)
-        theme = params.get('overview_map_theme', 'F_1_4_2_overview_map')
 
         map_item = QgsLayoutItemMap(self._layout)
         map_item.setId('overview_map')
@@ -285,10 +272,7 @@ class LayoutBuilder:
         map_item.setFrameEnabled(frame)
         map_item.setBackgroundEnabled(background)
 
-        # Тема карты
-        if QgsProject.instance().mapThemeCollection().hasMapTheme(theme):
-            map_item.setFollowVisibilityPreset(True)
-            map_item.setFollowVisibilityPresetName(theme)
+        # Тема карты задаётся вызывающим кодом
 
         self._layout.addLayoutItem(map_item)
         log_info(f"Msm_34_1: Добавлена overview_map ({x}, {y}, {width}x{height})")
@@ -572,12 +556,12 @@ class LayoutBuilder:
         """
         return self._layout
 
-    def get_config(self, orientation: str = 'landscape') -> Optional[Dict[str, Any]]:
+    def get_config(self, config_key: str = 'A4_landscape') -> Optional[Dict[str, Any]]:
         """
         Получить параметры конфигурации
 
         Args:
-            orientation: 'landscape' или 'portrait'
+            config_key: Ключ конфигурации (например 'A4_landscape', 'A3_landscape')
 
         Returns:
             Dict параметров или None
@@ -585,4 +569,4 @@ class LayoutBuilder:
         if not self._config:
             self.load_config()
 
-        return self._config.get(orientation) if self._config else None
+        return self._config.get(config_key) if self._config else None

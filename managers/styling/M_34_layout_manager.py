@@ -3,7 +3,7 @@
 M_34: LayoutManager - Менеджер макетов печати
 
 Централизованное управление макетами (Print Layouts) в QGIS:
-- Программная генерация макетов из JSON конфигураций (Base_layout_{type}.json)
+- Программная генерация макетов из JSON конфигурации (Base_layout.json)
 - Поддержка разных типов макетов (F_1_4, F_5_1, F_5_2 и др.)
 - Получение формата и ориентации листа из метаданных проекта
 - Получение размеров листа в миллиметрах
@@ -377,23 +377,19 @@ class LayoutManager:
     def build_layout(
         self,
         layout_name: str,
-        layout_type: str = 'F_1_4',
+        page_format: str = None,
         orientation: str = None
     ) -> Optional[QgsPrintLayout]:
         """
         Создать макет программно из JSON конфигурации
 
-        Универсальный метод для генерации макетов разных типов.
-        Конфигурация загружается из Base_layout_{layout_type}.json через API.
-
-        Доступные типы макетов:
-        - F_1_4: Графика к запросу (схема расположения)
-        - F_5_1: Чертёж планировки территории (будущее)
-        - F_5_2: Чертёж межевания территории (будущее)
+        Конфигурация загружается из Base_layout.json через API.
+        Ключ выбирается по формату и ориентации: "{format}_{orientation}"
+        (например A4_landscape, A3_landscape).
 
         Args:
             layout_name: Имя создаваемого макета
-            layout_type: Тип макета (F_1_4, F_5_1, F_5_2 и т.д.)
+            page_format: Формат страницы (A4, A3, A2, A1). Если None - из метаданных
             orientation: 'landscape' или 'portrait'. Если None - из метаданных проекта
 
         Returns:
@@ -401,43 +397,48 @@ class LayoutManager:
         """
         from .submodules.Msm_34_1_layout_builder import LayoutBuilder
 
-        # Определяем ориентацию из метаданных если не указана
-        if orientation is None:
-            _, meta_orientation = self.get_page_format_from_metadata()
-            orientation = self.get_orientation_code(meta_orientation)
+        # Определяем формат и ориентацию из метаданных если не указаны
+        if page_format is None or orientation is None:
+            meta_format, meta_orientation = self.get_page_format_from_metadata()
+            if page_format is None:
+                page_format = meta_format
+            if orientation is None:
+                orientation = self.get_orientation_code(meta_orientation)
+
+        config_key = f"{page_format}_{orientation}"
 
         try:
-            builder = LayoutBuilder(layout_type=layout_type)
+            builder = LayoutBuilder()
 
             if not builder.load_config():
-                log_error(f"M_34: Не удалось загрузить конфигурацию для {layout_type}")
+                log_error("M_34: Не удалось загрузить конфигурацию Base_layout.json")
                 return None
 
-            layout = builder.build(orientation=orientation, layout_name=layout_name)
+            layout = builder.build(config_key=config_key, layout_name=layout_name)
 
             if layout:
                 self._current_layout = layout
                 self._current_layout_name = layout_name
-                log_info(f"M_34: Макет '{layout_name}' создан ({layout_type}, {orientation})")
+                log_info(f"M_34: Макет '{layout_name}' создан ({config_key})")
                 return layout
             else:
-                log_error(f"M_34: Не удалось создать макет {layout_type}")
+                log_error(f"M_34: Не удалось создать макет ({config_key})")
                 return None
 
         except Exception as e:
-            log_error(f"M_34: Ошибка создания макета {layout_type}: {e}")
+            log_error(f"M_34: Ошибка создания макета ({config_key}): {e}")
             return None
 
     def get_layout_config(
         self,
-        layout_type: str = 'F_1_4',
+        page_format: str = None,
         orientation: str = None
     ) -> Optional[Dict[str, Any]]:
         """
         Получить параметры макета из JSON конфигурации
 
         Args:
-            layout_type: Тип макета (F_1_4, F_5_1, F_5_2 и т.д.)
+            page_format: Формат страницы (A4, A3, A2, A1). Если None - из метаданных
             orientation: 'landscape' или 'portrait'. Если None - из метаданных
 
         Returns:
@@ -445,34 +446,16 @@ class LayoutManager:
         """
         from .submodules.Msm_34_1_layout_builder import LayoutBuilder
 
-        if orientation is None:
-            _, meta_orientation = self.get_page_format_from_metadata()
-            orientation = self.get_orientation_code(meta_orientation)
+        if page_format is None or orientation is None:
+            meta_format, meta_orientation = self.get_page_format_from_metadata()
+            if page_format is None:
+                page_format = meta_format
+            if orientation is None:
+                orientation = self.get_orientation_code(meta_orientation)
 
-        builder = LayoutBuilder(layout_type=layout_type)
+        config_key = f"{page_format}_{orientation}"
+
+        builder = LayoutBuilder()
         if builder.load_config():
-            return builder.get_config(orientation)
+            return builder.get_config(config_key)
         return None
-
-    def list_available_layout_types(self) -> list:
-        """
-        Получить список доступных типов макетов
-
-        Возвращает типы, для которых есть конфигурации Base_layout_{type}.json
-
-        Returns:
-            list: Список типов макетов ['F_1_4', 'F_5_1', ...]
-        """
-        from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
-
-        loader = BaseReferenceLoader()
-        available_files = loader.list_available_files()
-
-        layout_types = []
-        for filename in available_files:
-            if filename.startswith('Base_layout_') and filename.endswith('.json'):
-                # Base_layout_F_1_4.json -> F_1_4
-                layout_type = filename.replace('Base_layout_', '').replace('.json', '')
-                layout_types.append(layout_type)
-
-        return sorted(layout_types)

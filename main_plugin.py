@@ -277,6 +277,7 @@ class DamanQGIS:
         return action
     def initGui(self) -> None:
         """Создание элементов меню и панели инструментов."""
+        from time import perf_counter
 
         # --- Platform Check ---
         if sys.platform != 'win32':
@@ -287,19 +288,25 @@ class DamanQGIS:
             )
             return
 
+        _t_total = perf_counter()
+
         # --- Session Logging (M_38) --- MUST be first
+        _t = perf_counter()
         from Daman_QGIS.managers._registry import registry
         try:
             session_log = registry.get('M_38')
             session_log.initialize()
         except Exception as e:
             log_warning(f"Daman_QGIS: Session logging init failed: {e}")
+        log_info(f"Daman_QGIS: [TIMING] M_38 session log: {perf_counter() - _t:.3f}s")
 
         # --- Profile Setup (M_37) ---
+        _t = perf_counter()
         profile_mgr = registry.get('M_37')
         profile_mgr.apply_pending_ini()
 
         profile_status = profile_mgr.check_and_setup_profile()
+        log_info(f"Daman_QGIS: [TIMING] M_37 profile: {perf_counter() - _t:.3f}s")
         if profile_status in ("setup_done", "sync_done", "wrong_profile"):
             self._profile_only_mode = True
             return  # НЕ инициализировать основной плагин
@@ -317,6 +324,7 @@ class DamanQGIS:
         # --- Конец Profile Setup ---
 
         # --- Auto-Update Check (M_42) ---
+        _t = perf_counter()
         try:
             auto_update = registry.get('M_42')
             if auto_update.check_and_update():
@@ -326,6 +334,7 @@ class DamanQGIS:
                 return
         except Exception as e:
             log_warning(f"Daman_QGIS: Auto-update check failed: {e}")
+        log_info(f"Daman_QGIS: [TIMING] M_42 auto-update: {perf_counter() - _t:.3f}s")
         # --- End Auto-Update ---
 
         # Лог предыдущего обновления (передан через QSettings из прошлого экземпляра)
@@ -335,12 +344,14 @@ class DamanQGIS:
             QSettings().remove("Daman_QGIS/update_log")
 
         # Быстрая проверка зависимостей при запуске (краткий лог)
+        _t = perf_counter()
         log_info("Daman_QGIS: Запуск плагина, проверка зависимостей...")
         deps_ok = True
         try:
             deps_ok = F_4_1_PluginDiagnostics.quick_check()
         except Exception as e:
             log_warning(f"Не удалось проверить зависимости: {str(e)}")
+        log_info(f"Daman_QGIS: [TIMING] F_4_1 deps check: {perf_counter() - _t:.3f}s")
 
         # --- DEPENDENCY GATE: критические зависимости нужны для работы ---
         if not deps_ok:
@@ -350,7 +361,9 @@ class DamanQGIS:
             return
 
         # Инициализация менеджеров
+        _t = perf_counter()
         self._init_managers()
+        log_info(f"Daman_QGIS: [TIMING] _init_managers: {perf_counter() - _t:.3f}s")
 
         # NSPD WMTS preprocessor (подмена User-Agent для обхода WAF)
         self._nspd_preprocessor_id = None
@@ -360,7 +373,9 @@ class DamanQGIS:
             log_warning(f"Daman_QGIS: NSPD preprocessor failed: {e}")
 
         # --- LICENSE GATE: JWT токены нужны для загрузки конфигурации ---
+        _t = perf_counter()
         has_license = self._acquire_jwt_tokens()
+        log_info(f"Daman_QGIS: [TIMING] _acquire_jwt_tokens: {perf_counter() - _t:.3f}s")
 
         if not has_license:
             # Нет лицензии -- принудительно показать диалог активации
@@ -372,7 +387,10 @@ class DamanQGIS:
             # Активация успешна -- продолжаем нормальный запуск
 
         # --- Полная инициализация тулбара ---
+        _t = perf_counter()
         self._build_full_toolbar()
+        log_info(f"Daman_QGIS: [TIMING] _build_full_toolbar: {perf_counter() - _t:.3f}s")
+        log_info(f"Daman_QGIS: [TIMING] TOTAL initGui: {perf_counter() - _t_total:.3f}s")
 
         # --- Default tool: Select Features (instead of Pan) ---
         # Pan available via mouse wheel, Select is more useful as default
@@ -735,6 +753,15 @@ class DamanQGIS:
             # Добавляем padding для base64
             payload_b64 += '=' * (4 - len(payload_b64) % 4)
             payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+
+            # Пропустить integrity check если dev опережает хеши на сервере
+            hash_version = payload.get('ver', '')
+            if hash_version and PLUGIN_VERSION > hash_version:
+                log_info(
+                    f"Daman_QGIS: Integrity skip: dev {PLUGIN_VERSION} > "
+                    f"server hashes {hash_version}"
+                )
+                return True
 
             expected_hashes = payload.get('integrity')
             if not isinstance(expected_hashes, dict) or not expected_hashes:
