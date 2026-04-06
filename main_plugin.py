@@ -832,16 +832,21 @@ class DamanQGIS:
         Если Base_Functions.json не загрузился (401, сеть, и т.д.) --
         показывает аварийную панель с F_4_1 и F_4_3.
         """
+        from time import perf_counter
         global TOOLS_CONFIG
 
         # Очищаем кэши чтобы загрузка прошла с JWT
+        _t = perf_counter()
         from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
         from Daman_QGIS.managers._registry import reset_reference_managers
         BaseReferenceLoader.clear_cache()
         reset_reference_managers()
+        log_info(f"Daman_QGIS: [TIMING] toolbar/clear_cache: {perf_counter() - _t:.3f}s")
 
         # Загружаем конфигурацию инструментов (теперь с JWT)
+        _t = perf_counter()
         TOOLS_CONFIG = _load_tools_config()  # pyright: ignore[reportConstantRedefinition]
+        log_info(f"Daman_QGIS: [TIMING] toolbar/load_tools_config: {perf_counter() - _t:.3f}s")
 
         # Если конфигурация пуста -- аварийная панель
         if not TOOLS_CONFIG:
@@ -850,6 +855,7 @@ class DamanQGIS:
             return
 
         # Проверка целостности критических файлов (anti-tampering)
+        _t = perf_counter()
         if not self._verify_integrity():
             # Защита от бесконечного цикла reinstall -> restart -> integrity fail
             settings = QSettings()
@@ -895,9 +901,12 @@ class DamanQGIS:
         else:
             # Integrity OK -- очистить флаг предыдущего reinstall
             QSettings().remove("Daman_QGIS/last_reinstall_version")
+        log_info(f"Daman_QGIS: [TIMING] toolbar/verify_integrity: {perf_counter() - _t:.3f}s")
 
         # Инициализация общих инструментов (контекстное меню)
+        _t = perf_counter()
         self._init_common_tools()
+        log_info(f"Daman_QGIS: [TIMING] toolbar/init_common_tools: {perf_counter() - _t:.3f}s")
 
         # Создание панели инструментов
         self.toolbar = self.iface.addToolBar(PLUGIN_NAME)
@@ -907,10 +916,14 @@ class DamanQGIS:
         self.main_toolbar = MainToolbar(self.iface, self.toolbar)
 
         # Сначала регистрируем инструменты
+        _t = perf_counter()
         self._register_tools()
+        log_info(f"Daman_QGIS: [TIMING] toolbar/register_tools: {perf_counter() - _t:.3f}s")
 
         # Теперь создаем меню когда инструменты уже зарегистрированы
+        _t = perf_counter()
         self.main_toolbar.create_menu()
+        log_info(f"Daman_QGIS: [TIMING] toolbar/create_menu: {perf_counter() - _t:.3f}s")
 
         # Проверяем, не открыт ли уже проект плагина нативным способом
         self._check_native_project()
@@ -925,23 +938,29 @@ class DamanQGIS:
         self._init_nspd_statusbar()
 
         # Инициализация телеметрии
+        _t = perf_counter()
         self._init_telemetry()
+        log_info(f"Daman_QGIS: [TIMING] toolbar/init_telemetry: {perf_counter() - _t:.3f}s")
 
         # Heartbeat: периодическая проверка статуса лицензии
         self._start_heartbeat()
 
         # Deferred profile reference download
+        _t = perf_counter()
         profile_mgr = registry.get('M_37')
         profile_mgr.ensure_reference_profile_applied()
 
         # Автоматическое обновление профиля при смене версии плагина
         profile_mgr.check_profile_update()
+        log_info(f"Daman_QGIS: [TIMING] toolbar/M_37_profile_deferred: {perf_counter() - _t:.3f}s")
 
         # Синхронизация USER CRS реестра с Base_CRS.json
+        _t = perf_counter()
         try:
             self.reference_managers.crs.sync_crs_from_json()
         except Exception as e:
             log_warning(f"Daman_QGIS: CRS sync failed: {e}")
+        log_info(f"Daman_QGIS: [TIMING] toolbar/crs_sync: {perf_counter() - _t:.3f}s")
 
         # Welcome dialog при первом запуске в Daman_QGIS
         if profile_mgr.is_first_run():
