@@ -170,6 +170,10 @@ class LicenseValidator:
                 # JWT: прокидываем токены если сервер их выдал
                 if "tokens" in data:
                     result["tokens"] = data["tokens"]
+                # Pipeline CRS: прокидываем в PipelineCache
+                if "pipelines" in data:
+                    from .Msm_29_5_pipeline_cache import PipelineCache
+                    PipelineCache.get_instance().set_pipelines(data["pipelines"])
                 return result
 
             # Обработка ошибок
@@ -217,6 +221,10 @@ class LicenseValidator:
                             }
                             if "tokens" in data:
                                 result["tokens"] = data["tokens"]
+                            # Pipeline CRS: прокидываем в PipelineCache
+                            if "pipelines" in data:
+                                from .Msm_29_5_pipeline_cache import PipelineCache
+                                PipelineCache.get_instance().set_pipelines(data["pipelines"])
                             return result
                 except Exception as retry_err:
                     log_error(f"Msm_29_3: Activation retry also failed: {retry_err}")
@@ -284,6 +292,10 @@ class LicenseValidator:
                 # JWT: прокидываем токены если сервер их выдал
                 if "tokens" in data:
                     result["tokens"] = data["tokens"]
+                # Pipeline CRS: прокидываем в PipelineCache
+                if "pipelines" in data:
+                    from .Msm_29_5_pipeline_cache import PipelineCache
+                    PipelineCache.get_instance().set_pipelines(data["pipelines"])
                 return result
 
             # Обработка ошибок

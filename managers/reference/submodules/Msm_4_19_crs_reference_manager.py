@@ -4,9 +4,17 @@
 
 Предоставляет функциональность для:
 - Загрузки проекций из Base_CRS.json
-- Поиска CRS по коду региона или региона:района
+- Поиска CRS по коду региона или региона:зоны
 - Валидации соответствия CRS базе данных
 - Добавления CRS в пользовательскую базу QGIS
+- Синхронизации USER CRS реестра с Base_CRS.json
+
+Структура Base_CRS.json:
+    [{"id": 1, "name": "МСК-05 ...", "region_name": "...",
+      "region_code": "05", "zone": null, "wkt2": "PROJCRS[...]",
+      "crs_type": "МСК", "pipeline": "..."}]
+
+Поле pipeline -- только для серверной валидации, НЕ записывается в CRS.
 """
 
 import re
@@ -30,23 +38,34 @@ class CRSReferenceManager(BaseReferenceLoader):
 
     def get_all_crs(self) -> List[Dict]:
         """
-        Получить полный список CRS
+        Получить полный список CRS.
+
+        Добавляет вычисляемый ключ _region_zone_key для индексации
+        по составному коду region_code:zone.
 
         Returns:
             Список словарей с данными CRS
         """
-        return self._load_json(self.CRS_FILE) or []
+        data = self._load_json(self.CRS_FILE) or []
+        for item in data:
+            zone = item.get('zone')
+            region = item.get('region_code', '')
+            if zone is not None:
+                item['_region_zone_key'] = f"{region}:{zone}"
+            else:
+                item['_region_zone_key'] = None
+        return data
 
     def get_crs_by_code(self, code: str) -> Optional[Dict]:
         """
-        Получить CRS по коду региона или региона:района
+        Получить CRS по коду региона или региона:зоны.
 
         Логика поиска:
-        1. Если код содержит ":" - ищем по code_region_district
-        2. Иначе - ищем по code_region
+        1. Если код содержит ":" - ищем по region_code:zone
+        2. Иначе - ищем по region_code (zone=null)
 
         Args:
-            code: "05" (регион) или "05:40" (регион:район)
+            code: "05" (регион) или "05:1" (регион:зона)
 
         Returns:
             Словарь с данными CRS или None
@@ -57,19 +76,19 @@ class CRSReferenceManager(BaseReferenceLoader):
         code = code.strip()
 
         if ':' in code:
-            # Поиск по коду региона:района
+            # Поиск по region_code:zone (составной ключ)
             return self._get_by_key(
                 data_getter=self.get_all_crs,
-                index_key='crs_by_region_district',
-                field_name='code_region_district',
+                index_key='crs_by_region_zone',
+                field_name='_region_zone_key',
                 value=code
             )
         else:
-            # Поиск по коду региона
+            # Поиск по region_code (zone=null)
             return self._get_by_key(
                 data_getter=self.get_all_crs,
                 index_key='crs_by_region',
-                field_name='code_region',
+                field_name='region_code',
                 value=code
             )
 
@@ -88,25 +107,21 @@ class CRSReferenceManager(BaseReferenceLoader):
         regions = set()
 
         for crs in crs_list:
-            # Добавляем код региона
-            if crs.get('code_region'):
-                regions.add(crs['code_region'])
-            # Для записей с районами извлекаем код региона
-            elif crs.get('code_region_district'):
-                region = crs['code_region_district'].split(':')[0]
+            region = crs.get('region_code')
+            if region:
                 regions.add(region)
 
         return sorted(list(regions))
 
-    def has_districts(self, region_code: str) -> bool:
+    def has_zones(self, region_code: str) -> bool:
         """
-        Проверить есть ли у региона районы (зоны)
+        Проверить есть ли у региона зоны.
 
         Args:
             region_code: Код региона ("05")
 
         Returns:
-            True если есть записи типа "05:XX"
+            True если есть записи с zone != null для данного региона
         """
         if not region_code:
             return False
@@ -114,41 +129,43 @@ class CRSReferenceManager(BaseReferenceLoader):
         crs_list = self.get_all_crs()
 
         for crs in crs_list:
-            code_rd = crs.get('code_region_district')
-            if code_rd and code_rd.startswith(f"{region_code}:"):
+            if crs.get('region_code') == region_code and crs.get('zone') is not None:
                 return True
 
         return False
 
-    def get_districts_for_region(self, region_code: str) -> List[str]:
+    # Обратная совместимость
+    has_districts = has_zones
+
+    def get_zones_for_region(self, region_code: str) -> List[str]:
         """
-        Получить список кодов районов для региона
+        Получить список зон для региона.
 
         Args:
             region_code: Код региона ("05")
 
         Returns:
-            Отсортированный список кодов районов ["40", "41", "42", ...]
-            или пустой список если районов нет
+            Отсортированный список зон ["1", "2", "3", ...]
+            или пустой список если зон нет
         """
         if not region_code:
             return []
 
         crs_list = self.get_all_crs()
-        districts = set()
+        zones = set()
 
         for crs in crs_list:
-            code_rd = crs.get('code_region_district')
-            if code_rd and code_rd.startswith(f"{region_code}:"):
-                # Извлекаем код района (после ":")
-                district = code_rd.split(':')[1]
-                districts.add(district)
+            if crs.get('region_code') == region_code and crs.get('zone') is not None:
+                zones.add(str(crs['zone']))
 
-        return sorted(list(districts))
+        return sorted(list(zones))
+
+    # Обратная совместимость
+    get_districts_for_region = get_zones_for_region
 
     def get_crs_list_for_region(self, region_code: str) -> List[Dict]:
         """
-        Получить все CRS для региона (включая районные)
+        Получить все CRS для региона (включая зональные).
 
         Args:
             region_code: Код региона ("05")
@@ -163,11 +180,7 @@ class CRSReferenceManager(BaseReferenceLoader):
         result = []
 
         for crs in crs_list:
-            # Точное совпадение по региону
-            if crs.get('code_region') == region_code:
-                result.append(crs)
-            # Или районы этого региона
-            elif crs.get('code_region_district', '').startswith(f"{region_code}:"):
+            if crs.get('region_code') == region_code:
                 result.append(crs)
 
         return result
@@ -178,11 +191,13 @@ class CRSReferenceManager(BaseReferenceLoader):
 
     def validate_crs_match(self, crs, code: str) -> bool:
         """
-        Проверить соответствие CRS записи в базе
+        Проверить соответствие CRS записи в базе.
+
+        Сравнивает WKT2 из JSON с WKT текущей CRS.
 
         Args:
             crs: QgsCoordinateReferenceSystem - выбранная пользователем CRS
-            code: Код региона/района
+            code: Код региона/зоны
 
         Returns:
             True если CRS соответствует базе данных
@@ -193,27 +208,22 @@ class CRSReferenceManager(BaseReferenceLoader):
             log_warning(f"Msm_4_19: CRS для кода '{code}' не найдена в базе")
             return False
 
-        # Сравниваем PROJ4 строки
         try:
-            crs_proj = crs.toProj()
-            base_proj = crs_data.get('proj4', '')
+            from qgis.core import QgsCoordinateReferenceSystem as QgsCrs
 
-            # Нормализуем строки для сравнения
-            crs_proj_norm = self._normalize_proj4(crs_proj)
-            base_proj_norm = self._normalize_proj4(base_proj)
+            ref_crs = QgsCrs()
+            ref_crs.createFromWkt(crs_data.get('wkt2', ''))
 
-            return crs_proj_norm == base_proj_norm
+            if not ref_crs.isValid():
+                log_warning("Msm_4_19: Невалидный WKT2 из базы")
+                return False
+
+            # Сравниваем через normalized PROJ4 (WKT может отличаться форматированием)
+            from Daman_QGIS.core.crs_utils import normalize_proj4
+            return normalize_proj4(crs.toProj()) == normalize_proj4(ref_crs.toProj())
         except Exception as e:
             log_error(f"Msm_4_19: Ошибка сравнения CRS: {e}")
             return False
-
-    def _normalize_proj4(self, proj4: str) -> str:
-        """Нормализовать PROJ4 строку для сравнения.
-
-        Делегирует в core.crs_utils.normalize_proj4().
-        """
-        from Daman_QGIS.core.crs_utils import normalize_proj4
-        return normalize_proj4(proj4)
 
     # =========================================================================
     # Методы добавления CRS в QGIS
@@ -221,12 +231,13 @@ class CRSReferenceManager(BaseReferenceLoader):
 
     def add_crs_to_qgis_user_db(self, crs_data: Dict):
         """
-        Добавить CRS в пользовательскую базу QGIS
+        Добавить CRS в пользовательскую базу QGIS.
 
-        Использует QgsCoordinateReferenceSystemRegistry.addUserCrs()
+        Использует QgsCoordinateReferenceSystemRegistry.addUserCrs().
 
         Args:
             crs_data: Словарь с данными CRS из Base_CRS.json
+                      (поля: name, wkt2)
 
         Returns:
             QgsCoordinateReferenceSystem или None при ошибке
@@ -241,32 +252,27 @@ class CRSReferenceManager(BaseReferenceLoader):
             log_error("Msm_4_19: QGIS не доступен")
             return None
 
-        # 1. Сначала пробуем WKT2 (ISO 19162:2019, lossless), затем WKT1
-        wkt = crs_data.get('ogc_wkt2') or crs_data.get('ogc_wkt')
-        proj4 = crs_data.get('proj4')
+        wkt2 = crs_data.get('wkt2')
+
+        if not wkt2:
+            log_error("Msm_4_19: Нет WKT2 определения")
+            return None
 
         crs = QgsCoordinateReferenceSystem()
-
-        if wkt:
-            crs.createFromWkt(wkt)
-        elif proj4:
-            crs.createFromProj(proj4)
-        else:
-            log_error("Msm_4_19: Нет WKT или PROJ4 определения")
-            return None
+        crs.createFromWkt(wkt2)
 
         if not crs.isValid():
-            log_error(f"Msm_4_19: Невалидная CRS")
+            log_error("Msm_4_19: Невалидная CRS из WKT2")
             return None
 
-        crs_name = crs_data.get('full_name', 'Custom MSK')
+        crs_name = crs_data.get('name', 'Custom MSK')
 
-        # 2. Проверяем - может CRS уже существует в QGIS (EPSG и т.д.)
+        # Проверяем - может CRS уже существует в QGIS (EPSG и т.д.)
         if crs.authid():
             log_info(f"Msm_4_19: CRS уже существует: {crs.authid()}")
             return crs
 
-        # 2a. Поиск среди USER CRS по имени (приоритет для reference CRS)
+        # Поиск среди USER CRS по имени (приоритет для reference CRS)
         from Daman_QGIS.core.crs_utils import (
             find_existing_user_crs,
             find_existing_user_crs_by_name,
@@ -284,7 +290,7 @@ class CRSReferenceManager(BaseReferenceLoader):
             log_info(f"Msm_4_19: CRS обновлена: USER:{existing_id} - {crs_name}")
             return existing_crs
 
-        # 2b. Поиск среди существующих USER CRS по normalized PROJ4
+        # Поиск среди существующих USER CRS по normalized PROJ4
         existing_id = find_existing_user_crs(crs)
         if existing_id is not None:
             QgsCoordinateReferenceSystem.invalidateCache()
@@ -295,17 +301,14 @@ class CRSReferenceManager(BaseReferenceLoader):
         try:
             registry = QgsApplication.coordinateReferenceSystemRegistry()
 
-            # Используем WKT формат (рекомендуется)
             srsid = registry.addUserCrs(crs, crs_name, Qgis.CrsDefinitionFormat.Wkt)
 
             if srsid == -1:
-                log_error(f"Msm_4_19: Не удалось добавить CRS (srsid=-1)")
+                log_error("Msm_4_19: Не удалось добавить CRS (srsid=-1)")
                 return None
 
-            # 4. Очищаем кэш
             QgsCoordinateReferenceSystem.invalidateCache()
 
-            # 5. Создаем CRS с новым ID
             new_crs = QgsCoordinateReferenceSystem(f"USER:{srsid}")
             log_info(f"Msm_4_19: CRS добавлена: USER:{srsid} - {crs_name}")
 
@@ -317,10 +320,11 @@ class CRSReferenceManager(BaseReferenceLoader):
 
     def get_or_create_crs(self, crs_data: Dict):
         """
-        Получить существующую или создать новую CRS
+        Получить существующую или создать новую CRS.
 
         Args:
             crs_data: Словарь с данными CRS из Base_CRS.json
+                      (поля: name, wkt2)
 
         Returns:
             QgsCoordinateReferenceSystem или None
@@ -331,22 +335,16 @@ class CRSReferenceManager(BaseReferenceLoader):
             log_error("Msm_4_19: QGIS не доступен")
             return None
 
-        # Пробуем создать из WKT2/WKT1 или PROJ4
-        wkt = crs_data.get('ogc_wkt2') or crs_data.get('ogc_wkt')
-        proj4 = crs_data.get('proj4')
+        wkt2 = crs_data.get('wkt2')
+        if not wkt2:
+            return None
 
         crs = QgsCoordinateReferenceSystem()
-
-        if wkt:
-            crs.createFromWkt(wkt)
-        elif proj4:
-            crs.createFromProj(proj4)
+        crs.createFromWkt(wkt2)
 
         if crs.isValid() and crs.authid():
-            # CRS уже существует в базе QGIS
             return crs
 
-        # CRS не существует - добавляем
         return self.add_crs_to_qgis_user_db(crs_data)
 
     # =========================================================================
@@ -448,10 +446,9 @@ class CRSReferenceManager(BaseReferenceLoader):
         if not suggested:
             return True, "Не удалось определить CRS по кадастровому номеру"
 
-        suggested_code = (
-            suggested.get('code_region_district') or
-            suggested.get('code_region')
-        )
+        zone = suggested.get('zone')
+        region = suggested.get('region_code', '')
+        suggested_code = f"{region}:{zone}" if zone is not None else region
 
         if project_crs_code == suggested_code:
             return True, f"CRS проекта соответствует данным ({suggested_code})"
@@ -462,15 +459,186 @@ class CRSReferenceManager(BaseReferenceLoader):
         )
 
     # =========================================================================
+    # Синхронизация USER CRS реестра с Base_CRS.json
+    # =========================================================================
+
+    def sync_crs_from_json(self) -> Dict:
+        """
+        Полная синхронизация USER CRS реестра с Base_CRS.json.
+
+        Порядок операций:
+        1. Загрузить Base_CRS.json через BaseReferenceLoader (HTTP + JWT)
+        2. Получить текущий список USER CRS из QGIS реестра
+        3. Для каждой reference CRS (без '_' prefix):
+           - Есть в JSON с таким name и WKT2 совпадает -> оставить
+           - Есть в JSON с таким name но WKT2 отличается -> updateUserCrs()
+           - Нет в JSON -> removeUserCrs()
+        4. Для каждой записи в JSON:
+           - Нет USER CRS с таким name -> addUserCrs()
+        5. Дедупликация по имени
+        6. Очистка unknown записей из recent projections
+
+        Custom CRS (с '_' prefix) НИКОГДА не затрагиваются.
+        Поле pipeline из JSON ИГНОРИРУЕТСЯ.
+
+        Returns:
+            Словарь со статистикой:
+            {added, updated, removed, skipped_custom, total, recent_unknown_removed}
+        """
+        try:
+            from qgis.core import (
+                QgsApplication,
+                QgsCoordinateReferenceSystem,
+                Qgis
+            )
+        except ImportError:
+            log_error("Msm_4_19: QGIS не доступен для sync")
+            return {}
+
+        from Daman_QGIS.core.crs_utils import (
+            is_custom_crs,
+            deduplicate_by_name,
+            cleanup_recent_projections,
+            normalize_proj4,
+        )
+
+        stats: Dict[str, int] = {
+            'added': 0,
+            'updated': 0,
+            'removed': 0,
+            'skipped_custom': 0,
+            'total': 0,
+            'recent_unknown_removed': 0,
+        }
+
+        # 1. Загрузить JSON
+        json_crs_list = self.get_all_crs()
+        if not json_crs_list:
+            log_warning("Msm_4_19: Base_CRS.json пуст или недоступен, sync пропущен")
+            return stats
+
+        # Построить словарь {name: crs_data} из JSON
+        json_by_name: Dict[str, Dict] = {}
+        for item in json_crs_list:
+            name = item.get('name', '').strip()
+            if name:
+                json_by_name[name] = item
+
+        # 2. Получить текущий USER CRS реестр
+        registry = QgsApplication.coordinateReferenceSystemRegistry()
+        user_crs_list = list(registry.userCrsList())
+
+        # 3. Обработка существующих USER CRS
+        seen_reference_names: set = set()
+
+        for details in user_crs_list:
+            name = details.name.strip()
+            if not name:
+                continue
+
+            # Custom CRS -- не трогаем
+            if is_custom_crs(name):
+                stats['skipped_custom'] += 1
+                continue
+
+            # Reference CRS
+            if name in json_by_name:
+                # Есть в JSON -- проверить нужно ли обновление
+                seen_reference_names.add(name)
+                json_item = json_by_name[name]
+                wkt2 = json_item.get('wkt2', '')
+
+                if not wkt2:
+                    continue
+
+                # Создаём CRS из JSON WKT2 для сравнения
+                ref_crs = QgsCoordinateReferenceSystem()
+                ref_crs.createFromWkt(wkt2)
+
+                if not ref_crs.isValid():
+                    log_warning(f"Msm_4_19: Невалидный WKT2 в JSON для '{name}'")
+                    continue
+
+                # Сравниваем по normalized PROJ4
+                existing_proj = normalize_proj4(details.crs.toProj())
+                json_proj = normalize_proj4(ref_crs.toProj())
+
+                if existing_proj != json_proj:
+                    # WKT изменился -> обновить
+                    registry.updateUserCrs(
+                        details.id, ref_crs, name,
+                        Qgis.CrsDefinitionFormat.Wkt,
+                    )
+                    stats['updated'] += 1
+                    log_info(f"Msm_4_19: CRS обновлена: USER:{details.id} - {name}")
+                # Если совпадает -- ничего не делаем
+            else:
+                # Нет в JSON -- удалить reference CRS
+                registry.removeUserCrs(details.id)
+                stats['removed'] += 1
+                log_info(f"Msm_4_19: CRS удалена: USER:{details.id} - {name}")
+
+        # 4. Добавить новые CRS из JSON
+        for name, json_item in json_by_name.items():
+            if name in seen_reference_names:
+                continue  # Уже обработана выше
+
+            wkt2 = json_item.get('wkt2', '')
+            if not wkt2:
+                continue
+
+            crs = QgsCoordinateReferenceSystem()
+            crs.createFromWkt(wkt2)
+
+            if not crs.isValid():
+                log_warning(f"Msm_4_19: Невалидный WKT2 для новой CRS '{name}'")
+                continue
+
+            # Не добавляем если уже есть EPSG authid
+            if crs.authid():
+                continue
+
+            srsid = registry.addUserCrs(crs, name, Qgis.CrsDefinitionFormat.Wkt)
+            if srsid != -1:
+                stats['added'] += 1
+                log_info(f"Msm_4_19: CRS добавлена: USER:{srsid} - {name}")
+            else:
+                log_warning(f"Msm_4_19: Не удалось добавить CRS '{name}'")
+
+        # 5. Дедупликация
+        removed_dupes = deduplicate_by_name()
+        if removed_dupes:
+            log_info(f"Msm_4_19: Дедупликация -- удалено {len(removed_dupes)} дублей")
+
+        # 6. Очистка recent projections
+        stats['recent_unknown_removed'] = cleanup_recent_projections()
+
+        # Инвалидация кэша CRS
+        QgsCoordinateReferenceSystem.invalidateCache()
+
+        # Финальная статистика
+        final_list = list(registry.userCrsList())
+        stats['total'] = len(final_list)
+
+        log_info(
+            f"Msm_4_19: sync_crs_from_json -- "
+            f"added={stats['added']}, updated={stats['updated']}, "
+            f"removed={stats['removed']}, custom={stats['skipped_custom']}, "
+            f"total={stats['total']}"
+        )
+
+        return stats
+
+    # =========================================================================
     # Вспомогательные методы
     # =========================================================================
 
     def get_crs_description(self, code: str) -> str:
         """
-        Получить описание CRS по коду
+        Получить описание CRS по коду.
 
         Args:
-            code: Код региона/района
+            code: Код региона/зоны
 
         Returns:
             Описание CRS или пустая строка
@@ -478,7 +646,7 @@ class CRSReferenceManager(BaseReferenceLoader):
         crs_data = self.get_crs_by_code(code)
 
         if crs_data:
-            return crs_data.get('full_name', '')
+            return crs_data.get('name', '')
 
         return ''
 

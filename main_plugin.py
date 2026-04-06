@@ -910,11 +910,11 @@ class DamanQGIS:
         # Автоматическое обновление профиля при смене версии плагина
         profile_mgr.check_profile_update()
 
-        # Очистка USER CRS реестра (дедупликация по имени)
+        # Синхронизация USER CRS реестра с Base_CRS.json
         try:
-            profile_mgr.sync_crs_registry()
+            self.reference_managers.crs.sync_crs_from_json()
         except Exception as e:
-            log_warning(f"Daman_QGIS: CRS cleanup failed: {e}")
+            log_warning(f"Daman_QGIS: CRS sync failed: {e}")
 
         # Welcome dialog при первом запуске в Daman_QGIS
         if profile_mgr.is_first_run():
@@ -1260,6 +1260,9 @@ class DamanQGIS:
         # Это предотвращает утечки памяти и проблемы с Qt при закрытии
         try:
             registry.reset('M_29')
+            # Reset pipeline cache
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_5_pipeline_cache import PipelineCache
+            PipelineCache.reset_instance()
             registry.reset('M_17')
             registry.reset('M_18')
             registry.reset('M_19')

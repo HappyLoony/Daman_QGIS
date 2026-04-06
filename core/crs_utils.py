@@ -5,12 +5,13 @@
 Архитектура CRS в плагине — два независимых хранилища:
 
 1. QGIS User CRS Registry (qgis.db на машине пользователя)
-   - Управляется: M_37_profile_setup + crs_utils
+   - Reference CRS синхронизируются из Base_CRS.json через
+     Msm_4_19.sync_crs_from_json() при старте плагина.
    - Конвенция именования:
      * '_Название' (с подчёркиванием) — кастомные (проектные) CRS,
-       созданные через F_0_5. Сохраняются при обновлении профиля.
-     * 'Название' (начинается с буквы) — reference CRS из профиля Daman.
-       Перезаписываются при обновлении qgis.db.
+       созданные через F_0_5. Никогда не затрагиваются sync.
+     * 'Название' (начинается с буквы) — reference CRS из Base_CRS.json.
+       Добавляются, обновляются и удаляются при синхронизации.
    - Функции: is_custom_crs(), find_existing_user_crs*(), deduplicate_by_name()
 
 2. GPKG gpkg_spatial_ref_sys (внутри каждого project.gpkg)
@@ -275,9 +276,9 @@ def cleanup_user_crs() -> Dict[str, int]:
     1. Дедупликация по имени (deduplicate_by_name)
     2. Лог состояния: сколько custom ('_'), сколько reference
 
-    Reference CRS (без '_') управляются через qgis.db профиля.
-    Замена qgis.db при обновлении профиля (M_37) -- основной
-    механизм синхронизации reference CRS.
+    Reference CRS (без '_') синхронизируются через
+    Msm_4_19.sync_crs_from_json() из Base_CRS.json.
+    Эта функция выполняет только дедупликацию и статистику.
 
     Returns:
         Словарь со статистикой: {duplicates_removed, custom, reference, total}.

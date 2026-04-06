@@ -2043,13 +2043,14 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         params = dict(self.interzonal_params)
         pipeline_result = None
 
-        # Pipeline режим: вычисляем horner ДО создания CRS (для REMARK)
-        # BOUNDCRS сохраняется (towgs84 не пропускается) — pipeline приоритетнее BOUNDCRS
-        # когда зарегистрирован через addCoordinateOperation. Это убирает ballpark warning.
+        # Pipeline режим: вычисляем horner ДО создания CRS (для REMARK).
+        # skip_towgs84 = True: CRS будет PROJCRS (не BOUNDCRS).
+        # Pipeline полностью заменяет towgs84 — horner покрывает все искажения.
         if self.pipeline_checkbox.isChecked():
             pipeline_result = self._compute_pipeline()
             if pipeline_result:
                 params['pipeline_remark'] = pipeline_result['pipeline']
+                params['skip_towgs84'] = True
                 log_info(
                     f"Fsm_0_5: Pipeline horner deg={pipeline_result['deg']}: "
                     f"RMSE={pipeline_result['rmse'] * 1000:.2f}mm, "

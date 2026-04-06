@@ -149,8 +149,8 @@ class ProjectManager:
 
         self.current_project = project_path
 
-        # Проверяем REMARK CRS на наличие DAMAN_PIPELINE
-        self._register_pipeline_from_crs_remark()
+        # Регистрируем pipeline CRS (REMARK или server cache)
+        self._register_pipeline_for_project()
 
         log_info(f"M_1_ProjectManager: Проект '{project_name}' создан: {project_path}")
 
@@ -682,91 +682,79 @@ class ProjectManager:
         # Устанавливаем текущий проект
         self.current_project = project_dir
 
-        # Проверяем REMARK CRS на наличие DAMAN_PIPELINE
-        self._register_pipeline_from_crs_remark()
+        # Регистрируем pipeline CRS (REMARK или server cache)
+        self._register_pipeline_for_project()
 
         log_info(f"M_1: Состояние плагина инициализировано из нативного проекта")
 
         return True
     
-    def _register_pipeline_from_crs_remark(self):
-        """Проверяет REMARK в Project CRS и регистрирует pipeline если найден.
+    def _register_pipeline_for_project(self):
+        """Register coordinate pipeline for the project CRS.
 
-        CRS с REMARK["DAMAN_PIPELINE:..."] содержит pipeline строку внутри.
-        При открытии проекта автоматически регистрируем coordinate operation.
+        Priority chain:
+        1. REMARK in CRS WKT2 (author's F_0_5 calibration)
+        2. PipelineCache from /validate response (licensed users)
+        3. Absent -- silent return, CRS works with towgs84 accuracy
+
+        Both directions registered (horner does not support +inv).
         """
         try:
             project_crs = QgsProject.instance().crs()
             if not project_crs.isValid():
                 return
 
+            pipeline_str = None
+            source = None
+
+            # Priority 1: REMARK in CRS (author's calibration)
             wkt = project_crs.toWkt(Qgis.CrsWktVariant.Wkt2_2019)
             marker = 'DAMAN_PIPELINE:'
             idx = wkt.find(marker)
-            if idx == -1:
+            if idx != -1:
+                start = idx + len(marker)
+                end = wkt.find('"', start)
+                if end != -1:
+                    candidate = wkt[start:end]
+                    if candidate and '+proj=pipeline' in candidate:
+                        pipeline_str = candidate
+                        source = "REMARK"
+
+            # Priority 2: PipelineCache (server-delivered)
+            if not pipeline_str:
+                region_code = self._get_region_code_from_metadata()
+                if region_code:
+                    from Daman_QGIS.managers.infrastructure.submodules.Msm_29_5_pipeline_cache import PipelineCache
+                    pipeline_str = PipelineCache.get_instance().get_pipeline(region_code)
+                    if pipeline_str:
+                        source = "server cache"
+
+            if not pipeline_str:
                 return
 
-            # Извлекаем pipeline строку из REMARK
-            start = idx + len(marker)
-            # Ищем закрывающую кавычку REMARK
-            end = wkt.find('"', start)
-            if end == -1:
-                return
-
-            pipeline_str = wkt[start:end]
-            if not pipeline_str or '+proj=pipeline' not in pipeline_str:
-                return
-
-            # Регистрируем pipeline для обоих направлений
+            # Register for both directions (horner doesn't support +inv)
             epsg_3857 = QgsCoordinateReferenceSystem("EPSG:3857")
             ctx = QgsProject.instance().transformContext()
             ctx.addCoordinateOperation(epsg_3857, project_crs, pipeline_str, allowFallback=True)
             ctx.addCoordinateOperation(project_crs, epsg_3857, pipeline_str, allowFallback=True)
             QgsProject.instance().setTransformContext(ctx)
 
-            # Подавляем ballpark warning через widgetAdded сигнал.
-            # PROJCRS без towgs84 генерирует C++ warning в message bar.
-            self._install_ballpark_warning_filter()
-
-            log_info(f"M_1: Pipeline из REMARK зарегистрирован для {project_crs.authid()}")
+            log_info(f"M_1: Pipeline зарегистрирован для {project_crs.authid()} (source: {source})")
 
         except Exception as e:
-            log_warning(f"M_1: Ошибка регистрации pipeline из REMARK: {e}")
+            log_warning(f"M_1: Ошибка регистрации pipeline: {e}")
 
-    def _install_ballpark_warning_filter(self):
-        """Подавляет ballpark transformation warning из message bar.
-
-        PROJCRS без towgs84 (pipeline в REMARK) генерирует ложное
-        предупреждение при OTF. Pipeline обеспечивает точную трансформацию.
-        Warning генерируется C++ ядром QGIS — используем widgetAdded сигнал.
-        """
+    def _get_region_code_from_metadata(self) -> Optional[str]:
+        """Get region code from project metadata for pipeline lookup."""
+        if not self.project_db:
+            return None
         try:
-            bar = self.iface.messageBar()
-            if hasattr(bar, '_daman_ballpark_filter'):
-                return
-
-            from qgis.PyQt.QtCore import QTimer
-            from qgis.PyQt.QtWidgets import QLabel
-
-            def on_widget_added(widget):
-                try:
-                    text = ''
-                    if hasattr(widget, 'text'):
-                        text = widget.text() or ''
-                    if not text and hasattr(widget, 'findChildren'):
-                        for label in widget.findChildren(QLabel):
-                            t = label.text()
-                            if t:
-                                text += t + ' '
-                    if text and ('альтернативное преобразование' in text or 'ballpark' in text.lower()):
-                        QTimer.singleShot(0, lambda: bar.popWidget(widget))
-                except Exception:
-                    pass
-
-            bar.widgetAdded.connect(on_widget_added)
-            bar._daman_ballpark_filter = True
+            data = self.project_db.get_metadata('1_4_1_code_region')
+            if data:
+                return data.get('value')
         except Exception:
             pass
+        return None
 
     def is_project_open(self) -> bool:
         """Проверка открыт ли проект"""

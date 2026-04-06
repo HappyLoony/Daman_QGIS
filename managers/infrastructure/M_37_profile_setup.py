@@ -565,106 +565,6 @@ class ProfileSetupManager:
         s.sync()
 
     # ================================================================
-    # qgis.db CRS protection (via QgsCoordinateReferenceSystemRegistry)
-    # ================================================================
-
-    def _read_user_crs(self) -> List:
-        """Прочитать пользовательские CRS через QGIS API.
-
-        Использует QgsCoordinateReferenceSystemRegistry.userCrsList().
-        Каждый вызов открывает новое SQLite соединение к qgis.db,
-        поэтому безопасно вызывать до/после замены файла.
-
-        Returns:
-            Список UserCrsDetails (id, name, crs, proj, wkt).
-        """
-        try:
-            registry = QgsApplication.coordinateReferenceSystemRegistry()
-            crs_list = list(registry.userCrsList())
-            return crs_list
-        except Exception as e:
-            log_warning(f"M_37: Failed to read user CRS via API: {e}")
-            return []
-
-    def _restore_user_crs(self, saved_crs: List) -> int:
-        """Восстановить кастомные CRS после замены qgis.db.
-
-        Конвенция именования:
-        - Кастомные (проектные) CRS: имя начинается с '_'
-        - Reference CRS: имя без '_' (приходят из нового qgis.db)
-
-        Логика:
-        1. Из saved_crs восстанавливаем ТОЛЬКО кастомные (имя начинается с '_')
-        2. Reference CRS из нового qgis.db остаются как есть
-        3. Чистим дубли по точному совпадению имени
-
-        Returns:
-            Количество восстановленных кастомных CRS.
-        """
-        if not saved_crs:
-            return 0
-        try:
-            from Daman_QGIS.core.crs_utils import is_custom_crs
-
-            registry = QgsApplication.coordinateReferenceSystemRegistry()
-
-            # Восстановить только кастомные CRS (имя начинается с '_')
-            restored = 0
-            for details in saved_crs:
-                if not is_custom_crs(details.name):
-                    continue
-                new_id = registry.addUserCrs(
-                    details.crs,
-                    details.name,
-                    Qgis.CrsDefinitionFormat.Wkt,
-                )
-                if new_id != -1:
-                    restored += 1
-
-            # Чистка дублей по имени
-            from Daman_QGIS.core.crs_utils import deduplicate_by_name
-            removed = deduplicate_by_name()
-            if removed:
-                log_info(
-                    f"M_37: Cleaned {len(removed)} "
-                    f"duplicate CRS by name"
-                )
-
-            return restored
-        except Exception as e:
-            log_warning(f"M_37: Failed to restore user CRS via API: {e}")
-            return 0
-
-    def sync_crs_registry(self) -> Dict:
-        """Очистка USER CRS реестра: дедупликация + чистка unknown.
-
-        Reference CRS (без '_') управляются через qgis.db профиля.
-        Замена qgis.db при обновлении профиля -- основной механизм
-        синхронизации reference CRS.
-
-        Custom CRS (с '_') сохраняются при замене qgis.db
-        через _restore_user_crs().
-
-        Дополнительно чистит unknown записи из кэша недавних
-        проекций в QGIS3.ini (recentProjectionsAuthId и др.).
-
-        Returns:
-            Словарь со статистикой {duplicates_removed, custom, reference, total,
-            recent_unknown_removed}.
-        """
-        try:
-            from Daman_QGIS.core.crs_utils import (
-                cleanup_user_crs,
-                cleanup_recent_projections,
-            )
-            stats = cleanup_user_crs()
-            stats['recent_unknown_removed'] = cleanup_recent_projections()
-            return stats
-        except Exception as e:
-            log_warning(f"M_37 (sync_crs_registry): {e}")
-            return {}
-
-    # ================================================================
     # ZIP extraction helpers (adversarial review fixes)
     # ================================================================
 
@@ -686,23 +586,9 @@ class ProfileSetupManager:
         Защита:
         - QGIS3.ini: staging как .pending (применяется при следующем
           запуске через apply_pending_ini с сохранением [Projections])
-        - qgis.db: сохранение/восстановление пользовательских CRS
-          через QgsCoordinateReferenceSystemRegistry API
+        - qgis.db: пропускается (CRS управляются через Base_CRS.json,
+          sync в Msm_4_19.sync_crs_from_json)
         """
-        # Сохранить пользовательские CRS перед заменой qgis.db
-        saved_crs: List = []
-        if "qgis.db" in zf.namelist():
-            saved_crs = self._read_user_crs()
-            if saved_crs:
-                from Daman_QGIS.core.crs_utils import is_custom_crs
-                custom_count = sum(
-                    1 for d in saved_crs if is_custom_crs(d.name)
-                )
-                log_info(
-                    f"M_37: Saved {len(saved_crs)} user CRS "
-                    f"({custom_count} custom) before update"
-                )
-
         for entry in zf.namelist():
             if entry == "QGIS/QGIS3.ini":
                 pending_path = profile_root / "QGIS" / "QGIS3.ini.pending"
@@ -710,15 +596,10 @@ class ProfileSetupManager:
                 with open(pending_path, 'wb') as f:
                     f.write(zf.read(entry))
                 log_info("M_37: QGIS3.ini staged as .pending")
+            elif entry == "qgis.db":
+                log_info("M_37: qgis.db пропущен (CRS из Base_CRS.json)")
             else:
                 zf.extract(entry, profile_root)
-
-        # Восстановить кастомные CRS после замены qgis.db
-        if saved_crs:
-            restored = self._restore_user_crs(saved_crs)
-            log_info(
-                f"M_37: Restored {restored} custom CRS"
-            )
 
     # ================================================================
     # Profile configuration (repo URL, plugin enabled, profiles.ini)
