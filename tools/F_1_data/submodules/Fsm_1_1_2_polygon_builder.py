@@ -513,8 +513,32 @@ class PolygonBuilder:
         multi_parts = []
         total_holes = 0
 
+        skipped_geoms = []
+
         for polygon in polygons:
             if not polygon or polygon.isEmpty():
+                continue
+
+            # makeValid() может вернуть GeometryCollection вместо Polygon —
+            # извлекаем полигональные части, остальное логируем
+            from qgis.core import QgsWkbTypes
+            flat_type = QgsWkbTypes.flatType(polygon.wkbType())
+            if flat_type == Qgis.WkbType.GeometryCollection:
+                centroid = polygon.centroid().asPoint()
+                bbox = polygon.boundingBox()
+                skipped_geoms.append(
+                    f"  GeometryCollection at ({centroid.x():.2f}, {centroid.y():.2f}), "
+                    f"bbox: ({bbox.xMinimum():.2f}, {bbox.yMinimum():.2f}) - "
+                    f"({bbox.xMaximum():.2f}, {bbox.yMaximum():.2f})"
+                )
+                # Извлекаем полигональные части
+                for part in polygon.asGeometryCollection():
+                    if part.type() == Qgis.GeometryType.Polygon and part.area() >= MIN_POLYGON_AREA:
+                        poly_data = part.asPolygon()
+                        if poly_data:
+                            multi_parts.append(poly_data)
+                            if len(poly_data) > 1:
+                                total_holes += len(poly_data) - 1
                 continue
 
             # МИГРАЦИЯ POLYGON → MULTIPOLYGON: упрощённый паттерн
@@ -526,6 +550,9 @@ class PolygonBuilder:
                     if len(part) > 1:
                         total_holes += len(part) - 1
 
+        if skipped_geoms:
+            log_warning(f"Fsm_1_1_2: {len(skipped_geoms)} GeometryCollection нормализованы в Polygon:\n" + "\n".join(skipped_geoms))
+
         # Создаем MultiPolygon геометрию
         multi_polygon_geom = QgsGeometry.fromMultiPolygonXY(multi_parts)
 
@@ -533,7 +560,30 @@ class PolygonBuilder:
         if not multi_polygon_geom.isGeosValid():
             log_warning("Fsm_1_1_2: MultiPolygon невалиден, исправление геометрии...")
             multi_polygon_geom = multi_polygon_geom.makeValid()
-            if not multi_polygon_geom.isGeosValid():
+
+            # makeValid() может вернуть GeometryCollection — извлекаем полигоны
+            from qgis.core import QgsWkbTypes
+            flat_type = QgsWkbTypes.flatType(multi_polygon_geom.wkbType())
+            if flat_type == Qgis.WkbType.GeometryCollection:
+                bbox = multi_polygon_geom.boundingBox()
+                log_warning(
+                    f"Fsm_1_1_2: makeValid() вернул GeometryCollection, "
+                    f"bbox: ({bbox.xMinimum():.2f}, {bbox.yMinimum():.2f}) - "
+                    f"({bbox.xMaximum():.2f}, {bbox.yMaximum():.2f}), извлекаем полигоны"
+                )
+                extracted_parts = []
+                for part in multi_polygon_geom.asGeometryCollection():
+                    if part.type() == Qgis.GeometryType.Polygon and part.area() >= MIN_POLYGON_AREA:
+                        poly_data = part.asPolygon()
+                        if poly_data:
+                            extracted_parts.append(poly_data)
+                if extracted_parts:
+                    multi_polygon_geom = QgsGeometry.fromMultiPolygonXY(extracted_parts)
+                    log_info(f"Fsm_1_1_2: извлечено {len(extracted_parts)} полигонов из GeometryCollection")
+                else:
+                    log_error("Fsm_1_1_2: GeometryCollection не содержит валидных полигонов")
+
+            elif not multi_polygon_geom.isGeosValid():
                 log_error("Fsm_1_1_2: Не удалось исправить геометрию MultiPolygon")
 
         # Создаем ОДИН feature с MultiPolygon
