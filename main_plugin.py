@@ -945,26 +945,31 @@ class DamanQGIS:
         # Heartbeat: периодическая проверка статуса лицензии
         self._start_heartbeat()
 
-        # Deferred profile reference download
-        _t = perf_counter()
-        profile_mgr = registry.get('M_37')
-        profile_mgr.ensure_reference_profile_applied()
+        # Deferred profile reference download (результат применяется при следующем запуске)
+        def _deferred_profile_update():
+            _t = perf_counter()
+            _profile_mgr = registry.get('M_37')
+            _profile_mgr.ensure_reference_profile_applied()
+            _profile_mgr.check_profile_update()
+            log_info(f"Daman_QGIS: [TIMING] toolbar/M_37_profile_deferred (deferred): {perf_counter() - _t:.3f}s")
 
-        # Автоматическое обновление профиля при смене версии плагина
-        profile_mgr.check_profile_update()
-        log_info(f"Daman_QGIS: [TIMING] toolbar/M_37_profile_deferred: {perf_counter() - _t:.3f}s")
+        QTimer.singleShot(0, _deferred_profile_update)
 
-        # Синхронизация USER CRS реестра с Base_CRS.json
-        _t = perf_counter()
-        try:
-            self.reference_managers.crs.sync_crs_from_json()
-        except Exception as e:
-            log_warning(f"Daman_QGIS: CRS sync failed: {e}")
-        log_info(f"Daman_QGIS: [TIMING] toolbar/crs_sync: {perf_counter() - _t:.3f}s")
+        # Синхронизация USER CRS реестра с Base_CRS.json (CRS из прошлой сессии уже в SQLite)
+        def _deferred_crs_sync():
+            _t = perf_counter()
+            try:
+                self.reference_managers.crs.sync_crs_from_json()
+            except Exception as e:
+                log_warning(f"Daman_QGIS: CRS sync failed: {e}")
+            log_info(f"Daman_QGIS: [TIMING] toolbar/crs_sync (deferred): {perf_counter() - _t:.3f}s")
+
+        QTimer.singleShot(0, _deferred_crs_sync)
 
         # Welcome dialog при первом запуске в Daman_QGIS
-        if profile_mgr.is_first_run():
-            QTimer.singleShot(2000, profile_mgr.show_first_run_welcome)
+        _profile_mgr_welcome = registry.get('M_37')
+        if _profile_mgr_welcome.is_first_run():
+            QTimer.singleShot(2000, _profile_mgr_welcome.show_first_run_welcome)
 
     def _show_emergency_toolbar(self) -> None:
         """Аварийная панель (делегирует M_43)."""

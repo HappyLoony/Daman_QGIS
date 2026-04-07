@@ -148,27 +148,36 @@ class ProfileSetupManager:
 
         Вызывается в Daman_QGIS после основной инициализации.
         """
+        from time import perf_counter
+
         if not self._is_daman_profile():
             log_warning("M_37: ensure_reference_profile_applied skipped (not Daman_QGIS profile)")
             return
 
         settings = QgsSettings()
         if settings.value("Daman_QGIS/profile_hash", ""):
+            log_info("M_37: [TIMING] ensure_reference_profile_applied: skipped (already applied)")
             return  # Уже применен
 
         try:
+            _t = perf_counter()
             zip_data = self._download_profile_zip()
+            log_info(f"M_37: [TIMING] _download_profile_zip: {perf_counter() - _t:.3f}s")
             if not zip_data:
                 return  # API недоступен, попробуем в следующий раз
 
             profile_root = Path(QgsApplication.qgisSettingsDirPath())
 
+            _t = perf_counter()
             with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
                 self._validate_zip_entries(zf, profile_root)
                 self._extract_with_ini_staging(zf, profile_root)
+            log_info(f"M_37: [TIMING] extract_profile: {perf_counter() - _t:.3f}s")
 
             # Получить version info
+            _t = perf_counter()
             remote_info = self._get_remote_profile_info()
+            log_info(f"M_37: [TIMING] _get_remote_profile_info: {perf_counter() - _t:.3f}s")
             if remote_info:
                 settings.setValue(
                     "Daman_QGIS/profile_version", remote_info.get("version", "")
@@ -223,6 +232,8 @@ class ProfileSetupManager:
         профиля на сервере. Если hash отличается от локального --
         скачивает и применяет автоматически (без диалога).
         """
+        from time import perf_counter
+
         if not self._is_daman_profile():
             return
 
@@ -243,14 +254,18 @@ class ProfileSetupManager:
             if applied_version and \
                self._parse_version(current_version) <= \
                self._parse_version(applied_version):
+                log_info("M_37: [TIMING] check_profile_update: skipped (version unchanged)")
                 return
 
             # Нет сохраненной версии -- первый запуск (ensure_reference)
             if not applied_version:
+                log_info("M_37: [TIMING] check_profile_update: skipped (first run)")
                 return
 
             # Версия плагина изменилась -- проверить hash профиля
+            _t = perf_counter()
             remote_info = self._get_remote_profile_info()
+            log_info(f"M_37: [TIMING] check_profile_update/_get_remote_profile_info: {perf_counter() - _t:.3f}s")
             if not remote_info:
                 # API недоступен -- до 3 попыток при следующих запусках
                 retry_count = settings.value(
