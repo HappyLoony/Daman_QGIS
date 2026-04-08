@@ -221,6 +221,10 @@ class Fsm_5_3_1_CoordinateList:
 
         extra_context = extra_context or {}
 
+        # Сводная таблица (ID, площадь, кол-во точек) — layer is None
+        if extra_context.get('summary_table'):
+            return self._export_summary_table(output_folder, extra_context)
+
         # Merged export (объединённый перечень SPB) — layer is None
         if extra_context.get('merged_export'):
             return self._export_to_excel_spb_merged(
@@ -469,6 +473,9 @@ class Fsm_5_3_1_CoordinateList:
         contours_data = self._collect_contours_with_coordinates(
             layer, is_wgs84, close_contours
         )
+
+        # По часовой с северо-запада (требование КГА СПб)
+        contours_data = self._reorder_contours_cw_from_nw(contours_data)
 
         # Площадь из геометрии (в локальных координатах)
         total_area = 0.0
@@ -740,6 +747,11 @@ class Fsm_5_3_1_CoordinateList:
                         temp_layer, is_wgs84, close_contours
                     )
 
+                    # По часовой с северо-запада (требование КГА СПб)
+                    contours_data = self._reorder_contours_cw_from_nw(
+                        contours_data
+                    )
+
                     inner_contour_num = 0
 
                     for contour_info in contours_data:
@@ -792,6 +804,109 @@ class Fsm_5_3_1_CoordinateList:
 
         log_info(
             f"Fsm_5_3_1: Merged export ({total_features} features) -> "
+            f"{os.path.basename(filepath)}"
+        )
+        return True
+
+    def _export_summary_table(
+        self,
+        output_folder: str,
+        extra_context: Dict[str, Any]
+    ) -> bool:
+        """
+        Экспорт сводной таблицы: ID контура, Площадь, Количество точек.
+
+        Требование КГА СПб. Формируется отдельно для ЗУ и ПС.
+
+        Args:
+            output_folder: Папка для сохранения
+            extra_context: Контекст от Region78FormatModifier
+
+        Returns:
+            bool: Успешность экспорта
+        """
+        import xlsxwriter
+
+        merged_layers = extra_context.get('merged_layers', [])
+        if not merged_layers:
+            log_warning("Fsm_5_3_1: merged_layers пуст, пропуск summary table")
+            return False
+
+        filename_override = extra_context.get(
+            'filename_override', 'Сводная_таблица'
+        )
+        filename = f"{ExportUtils.sanitize_filename(filename_override)}.xlsx"
+
+        subfolder = extra_context.get('subfolder')
+        if subfolder:
+            output_folder = os.path.join(output_folder, subfolder)
+            os.makedirs(output_folder, exist_ok=True)
+
+        filepath = os.path.join(output_folder, filename)
+
+        workbook = xlsxwriter.Workbook(filepath)
+        try:
+            worksheet = workbook.add_worksheet('Сводная')
+            fmt = ExcelFormatManager(workbook)
+
+            worksheet.set_column(0, 0, 20)  # ID контура
+            worksheet.set_column(1, 1, 18)  # Площадь
+            worksheet.set_column(2, 2, 22)  # Кол-во точек
+
+            header_format = fmt.get_header_format(
+                with_border=True, bg_color='#FFFFFF'
+            )
+            data_format = fmt.get_data_format(
+                align='center', with_border=True
+            )
+
+            # Заголовки
+            current_row = 0
+            worksheet.write(current_row, 0, 'ID контура', header_format)
+            worksheet.write(current_row, 1, 'Площадь, кв. м', header_format)
+            worksheet.write(current_row, 2, 'Количество точек', header_format)
+            current_row += 1
+
+            total_features = 0
+            for layer in merged_layers:
+                for feature in layer.getFeatures():
+                    feature_id = feature.attribute('ID')
+                    if not feature_id:
+                        continue
+
+                    if not feature.hasGeometry():
+                        continue
+
+                    geom = feature.geometry()
+                    area_int = round(geom.area())
+
+                    # Количество уникальных вершин (без замыкающей точки)
+                    vertex_count = 0
+                    if geom.type() == Qgis.GeometryType.Polygon:
+                        polygons = (
+                            geom.asMultiPolygon() if geom.isMultipart()
+                            else [geom.asPolygon()]
+                        )
+                        for polygon in polygons:
+                            for ring in polygon:
+                                # Убираем замыкающую точку
+                                pts = ring[:-1] if (
+                                    len(ring) > 1 and ring[0] == ring[-1]
+                                ) else ring
+                                vertex_count += len(pts)
+
+                    worksheet.write(current_row, 0, feature_id, data_format)
+                    worksheet.write(current_row, 1, area_int, data_format)
+                    worksheet.write(current_row, 2, vertex_count, data_format)
+                    current_row += 1
+                    total_features += 1
+
+            worksheet.print_area(0, 0, current_row - 1, 2)
+        finally:
+            workbook.close()
+
+        log_info(
+            f"Fsm_5_3_1: Summary table ({total_features} features) -> "
             f"{os.path.basename(filepath)}"
         )
         return True
@@ -851,6 +966,69 @@ class Fsm_5_3_1_CoordinateList:
                 f"Fsm_5_3_1: Ошибка создания temp memory layer: {e}"
             )
             return None
+
+    def _reorder_contours_cw_from_nw(
+        self,
+        contours_data: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Переупорядочить внешние контуры: по часовой с северо-запада.
+
+        Разворачивает CCW (OGC) -> CW и ротирует начало на самую
+        северо-западную точку. Holes (уже CW в OGC) не трогает.
+
+        TODO: Исследовать применимость ко всем регионам (не только 78).
+        Сейчас — требование КГА СПб.
+
+        Args:
+            contours_data: Контуры из _collect_contours_with_coordinates()
+
+        Returns:
+            Контуры с переупорядоченными exterior координатами
+        """
+        for contour in contours_data:
+            if contour['type'] == 'exterior':
+                contour['coordinates'] = self._reorder_coords_cw_from_nw(
+                    contour['coordinates']
+                )
+        return contours_data
+
+    def _reorder_coords_cw_from_nw(
+        self,
+        coordinates: List[List]
+    ) -> List[List]:
+        """
+        Развернуть координаты CCW -> CW и ротировать начало на СЗ точку.
+
+        coord = [номер_точки, easting (x), northing (y)]
+        Северо-запад = max northing, min easting.
+
+        Args:
+            coordinates: Список координат контура
+
+        Returns:
+            Переупорядоченный список
+        """
+        if len(coordinates) < 2:
+            return coordinates
+
+        # CCW -> CW
+        coords = list(reversed(coordinates))
+
+        # Северо-западная точка: max northing (coord[2]), min easting (coord[1])
+        nw_idx = 0
+        for i in range(1, len(coords)):
+            nw = coords[nw_idx]
+            candidate = coords[i]
+            if (candidate[2] > nw[2]
+                    or (candidate[2] == nw[2] and candidate[1] < nw[1])):
+                nw_idx = i
+
+        # Ротация
+        if nw_idx > 0:
+            coords = coords[nw_idx:] + coords[:nw_idx]
+
+        return coords
 
     def _collect_contours_with_coordinates(
         self,

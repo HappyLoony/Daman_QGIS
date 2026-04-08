@@ -740,6 +740,19 @@ class F_0_5_RefineProjection(BaseTool):
             QgsCoordinateTransform.invalidateCache()
             log_info("F_0_5: Кэш CRS и трансформаций очищен")
 
+            # Регистрация pipeline для OTF rendering (если есть в REMARK).
+            # Без этого: до перезапуска QGIS WFS/тайлы используют towgs84.
+            pipeline_remark = params.get('pipeline_remark')
+            if pipeline_remark and '+proj=pipeline' in pipeline_remark:
+                epsg_3857 = QgsCoordinateReferenceSystem("EPSG:3857")
+                ctx = QgsProject.instance().transformContext()
+                ctx.removeCoordinateOperation(epsg_3857, new_crs)
+                ctx.removeCoordinateOperation(new_crs, epsg_3857)
+                ctx.addCoordinateOperation(epsg_3857, new_crs, pipeline_remark, True)
+                QgsProject.instance().setTransformContext(ctx)
+                QgsCoordinateTransform.invalidateCache()
+                log_info("F_0_5: Pipeline зарегистрирован для OTF rendering")
+
             # processEvents() после инвалидации кэша - даёт Qt обработать изменения
             QApplication.instance().processEvents()
 

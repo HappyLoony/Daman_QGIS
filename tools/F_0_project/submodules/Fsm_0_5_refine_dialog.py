@@ -1429,8 +1429,18 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             log_warning("Fsm_0_5: Перерасчёт СК не дал результатов")
             return None
 
-        # Выбираем лучший результат
-        best_result = all_results[0]  # Уже отсортированы по RMSE
+        # Выбираем лучший результат.
+        # Pipeline режим: только LDP (calibration даёт x_0=0, несовместимо с pipeline).
+        if self.pipeline_checkbox.isChecked():
+            ldp_results = [r for r in all_results if getattr(r, 'approach_type', '') == 'ldp']
+            if ldp_results:
+                best_result = ldp_results[0]
+                log_info(f"Fsm_0_5: Pipeline mode: выбран LDP результат (отфильтровано {len(all_results) - len(ldp_results)} calibration)")
+            else:
+                log_warning("Fsm_0_5: Pipeline mode: нет LDP результатов, используем лучший")
+                best_result = all_results[0]
+        else:
+            best_result = all_results[0]  # Уже отсортированы по RMSE
 
         # Вычисляем искажение
         distortion_ppm = optimizer.estimate_distortion(

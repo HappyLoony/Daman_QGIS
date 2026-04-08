@@ -222,9 +222,8 @@ class Region78FormatModifier(ExportModifier):
     MERGED_DESCRIPTOR_PS = 'контуров публичных сервитутов'
     MERGED_DESCRIPTOR_PS_EXTENDED = 'контуров сервитутов, публичных сервитутов'
 
-    # Имена подпапок для ПС
-    PS_SUBFOLDER = 'Публичные сервитуты'
-    PS_SUBFOLDER_EXTENDED = 'Сервитуты, публичные сервитуты'
+    # Имя подпапки для ПС
+    PS_SUBFOLDER = 'Сервитуты, публичные сервитуты'
 
     # Тип объекта -> фраза размещения (множественное число)
     PLACEMENT_PHRASE_MAP: Dict[str, str] = {
@@ -296,8 +295,7 @@ class Region78FormatModifier(ExportModifier):
             extra_context['extended_servitude_name'] = self._extended_ps
             if is_ps:
                 extra_context['subfolder'] = (
-                    self.PS_SUBFOLDER_EXTENDED if self._extended_ps
-                    else self.PS_SUBFOLDER
+                    self.PS_SUBFOLDER
                 )
             else:
                 extra_context['subfolder'] = 'Земельные участки'
@@ -377,6 +375,17 @@ class Region78FormatModifier(ExportModifier):
                     'filename_override': '_Перечень_координат_ЗУ_без_площади',
                 },
             })
+            # Сводная таблица ЗУ (ID, площадь, кол-во точек)
+            result.append({
+                'layer': None,
+                'template': first_zu_template,
+                'extra_context': {
+                    'summary_table': True,
+                    'merged_layers': list(zu_layers.values()),
+                    'subfolder': 'Земельные участки',
+                    'filename_override': '_Сводная_таблица_ЗУ',
+                },
+            })
             log_info(
                 f"Msm_37_1: Объединённые перечни ЗУ: "
                 f"{sum(l.featureCount() for l in zu_layers.values())} features "
@@ -389,8 +398,7 @@ class Region78FormatModifier(ExportModifier):
                 metadata, is_ps=True
             )
             ps_subfolder = (
-                self.PS_SUBFOLDER_EXTENDED if self._extended_ps
-                else self.PS_SUBFOLDER
+                self.PS_SUBFOLDER
             )
             merged_base_ps = {
                 'merged_export': True,
@@ -420,6 +428,17 @@ class Region78FormatModifier(ExportModifier):
                     **merged_base_ps,
                     'show_area_per_feature': False,
                     'filename_override': '_Перечень_координат_ПС_без_площади',
+                },
+            })
+            # Сводная таблица ПС
+            result.append({
+                'layer': None,
+                'template': first_ps_template,
+                'extra_context': {
+                    'summary_table': True,
+                    'merged_layers': list(ps_layers.values()),
+                    'subfolder': ps_subfolder,
+                    'filename_override': '_Сводная_таблица_ПС',
                 },
             })
             log_info(
