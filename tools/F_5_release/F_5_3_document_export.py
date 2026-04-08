@@ -95,7 +95,7 @@ class F_5_3_DocumentExport(BaseTool):
             # Инициализируем project_root если не установлен
             if not structure_manager.is_active():
                 project = QgsProject.instance()
-                project_path = project.homePath()
+                project_path = os.path.normpath(project.homePath())
                 if project_path:
                     structure_manager.project_root = project_path
 

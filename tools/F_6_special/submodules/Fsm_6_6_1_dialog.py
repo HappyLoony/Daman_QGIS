@@ -41,7 +41,7 @@ class Fsm_6_6_1_Dialog(BaseResponsiveDialog):
             parent: Родительский виджет
         """
         super().__init__(parent)
-        self.setWindowTitle("Мастер план - Выбор схем")
+        self.setWindowTitle("Мастер-план - Выбор схем")
 
         self._available_drawings = available_drawings
         self._checkboxes: List[QCheckBox] = []
@@ -155,7 +155,8 @@ class Fsm_6_6_1_Dialog(BaseResponsiveDialog):
         try:
             project_home = QgsProject.instance().homePath()
             if project_home:
-                return os.path.join(project_home, "Мастер-план")
+                path = os.path.join(project_home, "Мастер-план")
+                return os.path.normpath(path)
         except Exception:
             pass
         return None

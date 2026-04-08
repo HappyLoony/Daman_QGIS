@@ -1825,10 +1825,14 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             std_rmse = standard_result['rmse']
             int_rmse = interzonal_result['rmse']
 
+            # Pipeline режим: всегда interzonal (pipeline и CRS должны быть
+            # из одних параметров, иначе рассогласование координатных пространств)
+            if self.pipeline_checkbox.isChecked() and interzonal_result:
+                use_interzonal = True
+                comparison_text = "Pipeline режим: interzonal обязателен"
             # Если оба RMSE ниже порога точности (1 мм) — различие несущественно,
-            # предпочитаем стандартный (проверенный pipeline, стабильный x_0)
-            RMSE_EQUIVALENT_THRESHOLD = 0.001  # 1 мм
-            if std_rmse < RMSE_EQUIVALENT_THRESHOLD and int_rmse < RMSE_EQUIVALENT_THRESHOLD:
+            # предпочитаем стандартный (стабильный x_0)
+            elif std_rmse < 0.001 and int_rmse < 0.001:
                 use_interzonal = False
                 comparison_text = "Оба RMSE < 1мм, выбран стандартный (стабильнее)"
             elif int_rmse < std_rmse * 0.8:
@@ -1963,7 +1967,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
 
     def on_save_clicked(self):
         """Сохранение новой проекции"""
-        if self.interzonal_mode:
+        if self.interzonal_mode or (self.pipeline_checkbox.isChecked() and self.interzonal_params):
             self._save_interzonal()
         else:
             self._save_standard()
@@ -2124,6 +2128,11 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 pairs.append(((wrong.x(), wrong.y()), (correct.x(), correct.y())))
 
         if len(pairs) < 20:
+            log_warning(
+                f"Fsm_0_5: Pipeline пропущен — мало точек: {len(pairs)}/20 "
+                f"(original_point_pairs: {len(self.original_point_pairs)} записей, "
+                f"non-None: {sum(1 for e in self.original_point_pairs if e is not None)})"
+            )
             self.pipeline_status.setText(f"Мало точек: {len(pairs)}/20")
             return None
 

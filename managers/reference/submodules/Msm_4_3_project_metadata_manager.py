@@ -139,7 +139,6 @@ class ProjectMetadataManager(BaseReferenceLoader):
             'Площадной': 'area',
             'ДПТ': 'dpt',
             'Мастер-план': 'masterplan',
-            'Мастер-План': 'masterplan',
             'Первичная': 'initial',
             'Внесение изменений': 'changes',
             'Наша': 'ours',

@@ -348,7 +348,7 @@ class ZprGpmtManager:
         from Daman_QGIS.managers import registry
 
         project = QgsProject.instance()
-        project_path = project.homePath()
+        project_path = os.path.normpath(project.homePath())
 
         structure_manager = registry.get('M_19')
         structure_manager.project_root = project_path

@@ -697,7 +697,7 @@ class ProjectManager:
         2. PipelineCache from /validate response (licensed users)
         3. Absent -- silent return, CRS works with towgs84 accuracy
 
-        Both directions registered (horner does not support +inv).
+        Both directions registered (horner with +fwd and +inv coefficients).
         """
         try:
             project_crs = QgsProject.instance().crs()
@@ -732,11 +732,14 @@ class ProjectManager:
             if not pipeline_str:
                 return
 
-            # Register for both directions (horner doesn't support +inv)
+            # Clean stale operations then register only forward (3857 -> project).
+            # Stale ops from previous sessions/CRS cause QGIS to use wrong pipeline.
+            # QGIS auto-inverts using +inv coefficients for reverse direction.
             epsg_3857 = QgsCoordinateReferenceSystem("EPSG:3857")
             ctx = QgsProject.instance().transformContext()
+            ctx.removeCoordinateOperation(epsg_3857, project_crs)
+            ctx.removeCoordinateOperation(project_crs, epsg_3857)
             ctx.addCoordinateOperation(epsg_3857, project_crs, pipeline_str, allowFallback=True)
-            ctx.addCoordinateOperation(project_crs, epsg_3857, pipeline_str, allowFallback=True)
             QgsProject.instance().setTransformContext(ctx)
 
             log_info(f"M_1: Pipeline зарегистрирован для {project_crs.authid()} (source: {source})")

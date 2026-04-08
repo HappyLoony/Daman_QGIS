@@ -328,8 +328,15 @@ class Fsm_1_2_3_QuickOSMLoader:
 
             if layer_crs != boundary_crs:
                 log_info(f"Fsm_1_2_3: OSM CRS: {layer_crs.authid()}, Границы CRS: {boundary_crs_id}")
-                transform = QgsCoordinateTransform(layer_crs, boundary_crs, QgsProject.instance())
+                # Двухшаговая трансформация через EPSG:3857 для использования
+                # зарегистрированного pipeline (addCoordinateOperation 3857→project).
+                # Прямая 4326→project использует towgs84 (~119м ошибка).
+                epsg_3857 = QgsCoordinateReferenceSystem("EPSG:3857")
+                transform_to_3857 = QgsCoordinateTransform(layer_crs, epsg_3857, QgsProject.instance())
+                transform = QgsCoordinateTransform(epsg_3857, boundary_crs, QgsProject.instance())
+                log_info(f"Fsm_1_2_3: Hybrid path: {layer_crs.authid()} → EPSG:3857 → {boundary_crs_id}")
             else:
+                transform_to_3857 = None
                 log_info(f"Fsm_1_2_3: OSM и границы в одной CRS: {boundary_crs_id}")
 
             # Создаем новый memory слой для результата (в СК границ!)
@@ -368,10 +375,16 @@ class Fsm_1_2_3_QuickOSMLoader:
                     geom = QgsGeometry(feature.geometry())  # Создаем копию
 
                     # Трансформируем геометрию OSM в СК границ
+                    # Hybrid: 4326 → 3857 → project (для pipeline)
+                    if transform_to_3857:
+                        result = geom.transform(transform_to_3857)
+                        if result != 0:
+                            log_warning(f"Fsm_1_2_3: Ошибка трансформации 4326→3857 объекта {feature.id()}")
+                            continue
                     if transform:
                         result = geom.transform(transform)
                         if result != 0:
-                            log_warning(f"Fsm_1_2_3: Ошибка трансформации геометрии объекта {feature.id()}")
+                            log_warning(f"Fsm_1_2_3: Ошибка трансформации 3857→project объекта {feature.id()}")
                             continue
 
                     # Проверяем пересечение с extent (bbox)
@@ -1007,7 +1020,7 @@ class Fsm_1_2_3_QuickOSMLoader:
 
                 # Если не получилось, пытаемся получить через M_19
                 if not gpkg_path:
-                    project_path = project.homePath()
+                    project_path = os.path.normpath(project.homePath()) if project.homePath() else ""
                     if project_path:
                         structure_manager = registry.get('M_19')
                         structure_manager.project_root = project_path

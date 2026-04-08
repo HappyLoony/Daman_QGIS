@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-F_6_6: Мастер план - Генерация комплекта PDF-схем мастер-плана на формате А3.
+F_6_6: Мастер-план - Генерация комплекта PDF-схем мастер-плана на формате А3.
 
 Координатор: загружает Base_drawings.json, фильтрует доступные схемы,
 показывает GUI для выбора, генерирует макеты через M_34 и экспортирует PDF.
@@ -43,7 +43,7 @@ class F_6_6_MasterPlan(BaseTool):
 
     def run(self) -> None:
         """Запуск функции."""
-        log_info("F_6_6: Запуск функции Мастер план")
+        log_info("F_6_6: Запуск функции Мастер-план")
 
         # Проверка проекта
         if not self.check_project_opened():
@@ -62,22 +62,20 @@ class F_6_6_MasterPlan(BaseTool):
             log_warning("F_6_6: Нет записей с doc_type='Мастер-план' в Base_drawings.json")
             QMessageBox.warning(
                 self.iface.mainWindow(),
-                "Мастер план",
+                "Мастер-план",
                 "В справочнике чертежей нет записей для мастер-плана."
             )
             return
 
-        # 2. Фильтрация: visible_layers не null И все слои из visible_layers есть в проекте
+        # 2. Фильтрация: visible_layers не null (слои могут отсутствовать — warning)
         available_drawings = self._filter_available_drawings(master_plan_drawings)
 
         if not available_drawings:
-            log_warning("F_6_6: Нет доступных схем (слои не загружены)")
+            log_warning("F_6_6: Нет схем с заполненными visible_layers")
             QMessageBox.warning(
                 self.iface.mainWindow(),
-                "Мастер план",
-                "Нет доступных схем.\n\n"
-                "Для каждой схемы необходимо, чтобы все слои из visible_layers "
-                "были загружены в текущий проект QGIS."
+                "Мастер-план",
+                "Нет схем с заполненными слоями (visible_layers)."
             )
             return
 
@@ -142,7 +140,7 @@ class F_6_6_MasterPlan(BaseTool):
             log_error("F_6_6: Не удалось создать ни одного PDF")
             QMessageBox.critical(
                 self.iface.mainWindow(),
-                "Мастер план",
+                "Мастер-план",
                 "Не удалось создать ни одного PDF."
             )
             self._cleanup_themes()
@@ -165,7 +163,7 @@ class F_6_6_MasterPlan(BaseTool):
         else:
             log_warning("F_6_6: Склейка не удалась, отдельные PDF сохранены")
             self.iface.messageBar().pushMessage(
-                "Мастер план",
+                "Мастер-план",
                 f"Создано {len(pdf_paths)} отдельных PDF в {output_folder}",
                 level=Qgis.MessageLevel.Warning,
                 duration=5
@@ -175,14 +173,14 @@ class F_6_6_MasterPlan(BaseTool):
         self, drawings: List[Dict]
     ) -> List[Dict]:
         """
-        Фильтрация: оставить только схемы, где visible_layers не null
-        и все слои из visible_layers есть в текущем проекте QGIS.
+        Фильтрация: оставить только схемы, где visible_layers не null.
+        Отсутствующие слои — warning, но схема остаётся доступной.
 
         Args:
             drawings: Список чертежей из Base_drawings.json
 
         Returns:
-            Отфильтрованный список
+            Отфильтрованный список (visible_layers заполнены)
         """
         project = QgsProject.instance()
         project_layer_names = {
@@ -195,18 +193,16 @@ class F_6_6_MasterPlan(BaseTool):
             if not visible_layers:
                 continue
 
-            # Проверяем что все слои из visible_layers есть в проекте
+            # Предупреждаем об отсутствующих слоях, но не блокируем
             missing = [
                 lyr for lyr in visible_layers
                 if lyr not in project_layer_names
             ]
-
             if missing:
-                log_info(
-                    f"F_6_6: Схема '{d.get('drawing_name')}' пропущена, "
+                log_warning(
+                    f"F_6_6: Схема '{d.get('drawing_name')}' — "
                     f"отсутствуют слои: {', '.join(missing)}"
                 )
-                continue
 
             available.append(d)
 
@@ -287,7 +283,7 @@ class F_6_6_MasterPlan(BaseTool):
             float масштаб или None
         """
         try:
-            project_home = QgsProject.instance().homePath()
+            project_home = os.path.normpath(QgsProject.instance().homePath())
             structure_manager = registry.get('M_19')
             structure_manager.project_root = project_home
             gpkg_path = structure_manager.get_gpkg_path(create=False)
@@ -380,7 +376,7 @@ class F_6_6_MasterPlan(BaseTool):
         self._created_themes.append(overview_theme_name)
 
         # e. Создать макет A3 через M_34
-        layout_name = f'Мастер план — {drawing_name}'
+        layout_name = f'Мастер-план — {drawing_name}'
         layout = layout_mgr.create_layout(layout_name)
         if not layout:
             log_error(f"Fsm_6_6_2: Не удалось создать макет для '{drawing_name}'")
@@ -498,7 +494,7 @@ class F_6_6_MasterPlan(BaseTool):
         except Exception as e:
             log_warning(f"F_6_6: Не удалось открыть файл: {e}")
             self.iface.messageBar().pushMessage(
-                "Мастер план",
+                "Мастер-план",
                 f"PDF создан: {pdf_path}",
                 level=Qgis.MessageLevel.Info,
                 duration=10

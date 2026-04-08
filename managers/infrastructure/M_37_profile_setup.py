@@ -30,7 +30,7 @@ from qgis.PyQt.QtCore import QSettings, QTimer
 from qgis.PyQt.QtWidgets import QMessageBox
 from qgis.core import QgsApplication, QgsSettings, Qgis
 
-from Daman_QGIS.utils import log_info, log_error, log_warning
+from Daman_QGIS.utils import log_info, log_error, log_warning, log_timing
 from Daman_QGIS.constants import (
     PLUGIN_NAME,
     API_BASE_URL,
@@ -156,13 +156,13 @@ class ProfileSetupManager:
 
         settings = QgsSettings()
         if settings.value("Daman_QGIS/profile_hash", ""):
-            log_info("M_37: [TIMING] ensure_reference_profile_applied: skipped (already applied)")
+            log_timing("M_37: [TIMING] ensure_reference_profile_applied: skipped (already applied)")
             return  # Уже применен
 
         try:
             _t = perf_counter()
             zip_data = self._download_profile_zip()
-            log_info(f"M_37: [TIMING] _download_profile_zip: {perf_counter() - _t:.3f}s")
+            log_timing(f"M_37: [TIMING] _download_profile_zip: {perf_counter() - _t:.3f}s")
             if not zip_data:
                 return  # API недоступен, попробуем в следующий раз
 
@@ -172,12 +172,12 @@ class ProfileSetupManager:
             with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
                 self._validate_zip_entries(zf, profile_root)
                 self._extract_with_ini_staging(zf, profile_root)
-            log_info(f"M_37: [TIMING] extract_profile: {perf_counter() - _t:.3f}s")
+            log_timing(f"M_37: [TIMING] extract_profile: {perf_counter() - _t:.3f}s")
 
             # Получить version info
             _t = perf_counter()
             remote_info = self._get_remote_profile_info()
-            log_info(f"M_37: [TIMING] _get_remote_profile_info: {perf_counter() - _t:.3f}s")
+            log_timing(f"M_37: [TIMING] _get_remote_profile_info: {perf_counter() - _t:.3f}s")
             if remote_info:
                 settings.setValue(
                     "Daman_QGIS/profile_version", remote_info.get("version", "")
@@ -254,18 +254,18 @@ class ProfileSetupManager:
             if applied_version and \
                self._parse_version(current_version) <= \
                self._parse_version(applied_version):
-                log_info("M_37: [TIMING] check_profile_update: skipped (version unchanged)")
+                log_timing("M_37: [TIMING] check_profile_update: skipped (version unchanged)")
                 return
 
             # Нет сохраненной версии -- первый запуск (ensure_reference)
             if not applied_version:
-                log_info("M_37: [TIMING] check_profile_update: skipped (first run)")
+                log_timing("M_37: [TIMING] check_profile_update: skipped (first run)")
                 return
 
             # Версия плагина изменилась -- проверить hash профиля
             _t = perf_counter()
             remote_info = self._get_remote_profile_info()
-            log_info(f"M_37: [TIMING] check_profile_update/_get_remote_profile_info: {perf_counter() - _t:.3f}s")
+            log_timing(f"M_37: [TIMING] check_profile_update/_get_remote_profile_info: {perf_counter() - _t:.3f}s")
             if not remote_info:
                 # API недоступен -- до 3 попыток при следующих запусках
                 retry_count = settings.value(
@@ -352,8 +352,9 @@ class ProfileSetupManager:
             log_error("M_37: Не удалось создать профиль Daman_QGIS")
             return "ok"  # Не блокировать
 
-        # 2. Скачать reference profile
-        self._apply_reference_profile(profile_path)
+        # 2. Reference profile скачивается при следующем запуске
+        #    (ensure_reference_profile_applied, deferred, после JWT)
+        log_info("M_37: Reference profile will be applied on next launch (after license activation)")
 
         # 3. Записать repo URL и включить плагин
         self._write_repo_url_to_profile(profile_path)
@@ -506,11 +507,13 @@ class ProfileSetupManager:
         return True
 
     def _download_profile_zip(self) -> Optional[bytes]:
-        """Скачать profile.zip с API."""
+        """Скачать profile.zip с API. Передаёт JWT если доступен."""
         try:
             import requests
+            headers = self._get_jwt_headers()
             response = requests.get(
                 PROFILE_API_ENDPOINT,
+                headers=headers,
                 timeout=self._PROFILE_TIMEOUT,
             )
             if response.status_code == 200:
@@ -537,6 +540,15 @@ class ProfileSetupManager:
             return None
         except Exception:
             return None
+
+    @staticmethod
+    def _get_jwt_headers() -> Dict[str, str]:
+        """Получить JWT заголовки если TokenManager инициализирован."""
+        try:
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_4_token_manager import TokenManager
+            return TokenManager.get_instance().get_auth_headers()
+        except Exception:
+            return {}
 
     # ================================================================
     # INI protection helpers (CRS preservation)

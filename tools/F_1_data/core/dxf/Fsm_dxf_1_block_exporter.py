@@ -413,7 +413,7 @@ class DxfBlockExporter:
             import os
 
             from Daman_QGIS.managers import registry
-            project_home = QgsProject.instance().homePath()
+            project_home = os.path.normpath(QgsProject.instance().homePath())
             structure_manager = registry.get('M_19')
             structure_manager.project_root = project_home
             gpkg_path = structure_manager.get_gpkg_path(create=False)

@@ -20,7 +20,7 @@
 import re
 from typing import List, Dict, Optional, Tuple
 from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, log_timing
 
 
 class CRSReferenceManager(BaseReferenceLoader):
@@ -516,7 +516,7 @@ class CRSReferenceManager(BaseReferenceLoader):
         # 1. Загрузить JSON
         _t = perf_counter()
         json_crs_list = self.get_all_crs()
-        log_info(f"Msm_4_19: [TIMING] get_all_crs (HTTP): {perf_counter() - _t:.3f}s")
+        log_timing(f"Msm_4_19: [TIMING] get_all_crs (HTTP): {perf_counter() - _t:.3f}s")
         if not json_crs_list:
             log_warning("Msm_4_19: Base_CRS.json пуст или недоступен, sync пропущен")
             return stats
@@ -582,7 +582,7 @@ class CRSReferenceManager(BaseReferenceLoader):
                 registry.removeUserCrs(details.id)
                 stats['removed'] += 1
                 log_info(f"Msm_4_19: CRS удалена: USER:{details.id} - {name}")
-        log_info(f"Msm_4_19: [TIMING] compare_existing ({len(user_crs_list)} user CRS): {perf_counter() - _t:.3f}s")
+        log_timing(f"Msm_4_19: [TIMING] compare_existing ({len(user_crs_list)} user CRS): {perf_counter() - _t:.3f}s")
 
         # 4. Добавить новые CRS из JSON
         _t = perf_counter()
@@ -611,14 +611,14 @@ class CRSReferenceManager(BaseReferenceLoader):
                 log_info(f"Msm_4_19: CRS добавлена: USER:{srsid} - {name}")
             else:
                 log_warning(f"Msm_4_19: Не удалось добавить CRS '{name}'")
-        log_info(f"Msm_4_19: [TIMING] add_new_crs: {perf_counter() - _t:.3f}s")
+        log_timing(f"Msm_4_19: [TIMING] add_new_crs: {perf_counter() - _t:.3f}s")
 
         # 5. Дедупликация
         _t = perf_counter()
         removed_dupes = deduplicate_by_name()
         if removed_dupes:
             log_info(f"Msm_4_19: Дедупликация -- удалено {len(removed_dupes)} дублей")
-        log_info(f"Msm_4_19: [TIMING] deduplicate+cleanup: {perf_counter() - _t:.3f}s")
+        log_timing(f"Msm_4_19: [TIMING] deduplicate+cleanup: {perf_counter() - _t:.3f}s")
 
         # 6. Очистка recent projections
         stats['recent_unknown_removed'] = cleanup_recent_projections()

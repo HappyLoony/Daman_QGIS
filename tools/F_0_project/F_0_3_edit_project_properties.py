@@ -238,7 +238,7 @@ class F_0_3_EditProjectProperties(BaseTool):
 
         if 'doc_type' in changed_fields:
             db.set_metadata('1_5_doc_type', updated_data['doc_type'],
-                          'Тип документации (dpt - ДПТ, masterplan - Мастер-План)')
+                          'Тип документации (dpt - ДПТ, masterplan - Мастер-план)')
             db.set_metadata('1_5_doc_type_name', updated_data['doc_type_name'],
                           'Наименование типа документации')
             log_info(f"F_0_3: Изменен тип документации: {updated_data['doc_type_name']}")

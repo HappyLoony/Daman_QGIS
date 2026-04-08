@@ -231,7 +231,7 @@ class ExcelExportDialog(BaseResponsiveDialog):
     def load_last_folder(self):
         """Загрузка последней использованной папки"""
         # Пытаемся получить папку экспорта из проекта
-        project_path = QgsProject.instance().homePath()
+        project_path = os.path.normpath(QgsProject.instance().homePath()) if QgsProject.instance().homePath() else ""
         if project_path:
             export_folder = os.path.join(project_path, "export")
             if os.path.exists(export_folder):

@@ -410,7 +410,7 @@ class DxfExporter(BaseExporter):
         """
         from Daman_QGIS.managers import registry
 
-        project_home = QgsProject.instance().homePath()
+        project_home = os.path.normpath(QgsProject.instance().homePath()) if QgsProject.instance().homePath() else ""
         if not project_home:
             raise ValueError("DxfExporter: Путь к проекту не определён. Сохраните проект перед экспортом.")
 

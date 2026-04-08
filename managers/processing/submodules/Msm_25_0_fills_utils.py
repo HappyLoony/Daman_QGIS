@@ -94,7 +94,7 @@ def save_layer_to_gpkg(layer: QgsVectorLayer) -> bool:
     """
     try:
         project = QgsProject.instance()
-        project_path = project.homePath()
+        project_path = os.path.normpath(project.homePath())
 
         # Используем M_19 для получения пути к GPKG
         structure_manager = _get_project_structure_manager()
@@ -207,7 +207,7 @@ def get_gpkg_path() -> Optional[str]:
         str: Путь к GPKG или None
     """
     project = QgsProject.instance()
-    project_path = project.homePath()
+    project_path = os.path.normpath(project.homePath()) if project.homePath() else ""
 
     if not project_path:
         return None

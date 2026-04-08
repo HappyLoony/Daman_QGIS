@@ -53,7 +53,7 @@ METADATA_FIELDS = {
         'db_key': '1_5_doc_type',
         'required': True,
         'placeholder': None,  # ComboBox
-        'description': 'Разработка ДПТ или Мастер-План'
+        'description': 'Разработка ДПТ или Мастер-план'
     },
     # Дополнительные поля (префикс 2_)
     '2_1_code': {

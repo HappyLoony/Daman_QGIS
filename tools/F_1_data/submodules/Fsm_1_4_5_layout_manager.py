@@ -205,7 +205,7 @@ class LayoutManager:
         # Получаем масштаб проекта из метаданных
         overview_scale = None
         try:
-            project_home = QgsProject.instance().homePath()
+            project_home = os.path.normpath(QgsProject.instance().homePath())
             structure_manager = registry.get('M_19')
             structure_manager.project_root = project_home
             gpkg_path = structure_manager.get_gpkg_path(create=False)
@@ -282,7 +282,7 @@ class LayoutManager:
             return False
 
         # Получаем метаданные из БД
-        project_home = QgsProject.instance().homePath()
+        project_home = os.path.normpath(QgsProject.instance().homePath())
         structure_manager = registry.get('M_19')
         structure_manager.project_root = project_home
         gpkg_path = structure_manager.get_gpkg_path(create=False)
@@ -412,7 +412,7 @@ class LayoutManager:
         project = QgsProject.instance()
 
         # Получаем метаданные из БД для формирования названия слоя границ
-        project_home = QgsProject.instance().homePath()
+        project_home = os.path.normpath(QgsProject.instance().homePath())
         structure_manager = registry.get('M_19')
         structure_manager.project_root = project_home
         gpkg_path = structure_manager.get_gpkg_path(create=False)

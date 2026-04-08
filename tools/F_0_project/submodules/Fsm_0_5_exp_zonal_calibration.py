@@ -599,12 +599,115 @@ def compute_horner_coefficients(
     max_err = max(errors)
     log(f"Poly{deg} fit: RMSE={rmse * 1000:.2f}mm, Max={max_err * 1000:.2f}mm, n={n}")
 
-    # Конвертация в PROJ horner порядок
+    # ================================================================
+    # Обратный полином (inv): МСК → TM
+    # Фитируем НАПРЯМУЮ в PROJ порядке мономов (crossed ordering):
+    # inv_u: [1, U, U², U³, V, UV, U²V, V², UV², V³] (inner=U)
+    # inv_v: [1, V, V², V³, U, UV, UV², U², U²V, U³] (inner=V)
+    # ================================================================
+    msk_u = [(wx - x_0) for (wx, wy), _ in pairs]
+    msk_v = [(wy - y_0) for (wx, wy), _ in pairs]
+
+    inv_origin_e = statistics.mean(msk_u)
+    inv_origin_n = statistics.mean(msk_v)
+
+    inv_scale = max(
+        max(abs(u - inv_origin_e) for u in msk_u),
+        max(abs(v - inv_origin_n) for v in msk_v)
+    )
+    if inv_scale < 1:
+        inv_scale = 1
+    inv_nu = [(u - inv_origin_e) / inv_scale for u in msk_u]
+    inv_nv = [(v - inv_origin_n) / inv_scale for v in msk_v]
+
+    # PROJ crossed monomial powers:
+    # fwd_u order: grouped by V-power, U ascending within each group
+    # fwd_v order: grouped by U-power, V ascending within each group
+    def proj_u_powers(d):
+        """Степени (i,j) в порядке PROJ fwd_u: V^k groups, U ascending."""
+        p = []
+        for vp in range(d + 1):
+            for up in range(d + 1 - vp):
+                p.append((up, vp))
+        return p
+
+    def proj_v_powers(d):
+        """Степени (i,j) в порядке PROJ fwd_v: U^k groups, V ascending."""
+        p = []
+        for up in range(d + 1):
+            for vp in range(d + 1 - up):
+                p.append((up, vp))
+        return p
+
+    pu_powers = proj_u_powers(deg)
+    pv_powers = proj_v_powers(deg)
+
+    def build_row_proj(u, v, proj_powers):
+        return [u ** p[0] * v ** p[1] for p in proj_powers]
+
+    # Target: full source coords (TM + x_0/y_0), not residuals
+    # inv_poly(dE, dN) = source_coord directly
+    target_u = [src_u[i] + x_0 for i in range(n)]
+    target_v = [src_v[i] + y_0 for i in range(n)]
+
+    # LSQ for inv_u (PROJ fwd_u ordering)
+    inv_ATA_u = [[0.0] * nc for _ in range(nc)]
+    inv_ATb_u = [0.0] * nc
+    for i in range(n):
+        row = build_row_proj(inv_nu[i], inv_nv[i], pu_powers)
+        for j in range(nc):
+            for k in range(nc):
+                inv_ATA_u[j][k] += row[j] * row[k]
+            inv_ATb_u[j] += row[j] * target_u[i]
+
+    # LSQ for inv_v (PROJ fwd_v ordering)
+    inv_ATA_v = [[0.0] * nc for _ in range(nc)]
+    inv_ATb_v = [0.0] * nc
+    for i in range(n):
+        row = build_row_proj(inv_nu[i], inv_nv[i], pv_powers)
+        for j in range(nc):
+            for k in range(nc):
+                inv_ATA_v[j][k] += row[j] * row[k]
+            inv_ATb_v[j] += row[j] * target_v[i]
+
+    inv_u_norm = gauss(inv_ATA_u, inv_ATb_u)
+    inv_v_norm = gauss(inv_ATA_v, inv_ATb_v)
+    if inv_u_norm is None or inv_v_norm is None:
+        log("Сингулярная матрица для обратного полинома")
+        return None
+
+    # Денормализация (каждый коэффициент по своему набору степеней)
+    inv_u_proj = [inv_u_norm[k] / (inv_scale ** (pu_powers[k][0] + pu_powers[k][1]))
+                  for k in range(nc)]
+    inv_v_proj = [inv_v_norm[k] / (inv_scale ** (pv_powers[k][0] + pv_powers[k][1]))
+                  for k in range(nc)]
+
+    # Верификация inv
+    inv_errors = []
+    for i in range(n):
+        row_u = build_row_proj(
+            (msk_u[i] - inv_origin_e), (msk_v[i] - inv_origin_n), pu_powers)
+        row_v = build_row_proj(
+            (msk_u[i] - inv_origin_e), (msk_v[i] - inv_origin_n), pv_powers)
+        pred_u = sum(inv_u_proj[k] * row_u[k] for k in range(nc))
+        pred_v = sum(inv_v_proj[k] * row_v[k] for k in range(nc))
+        err = math.sqrt((target_u[i] - pred_u) ** 2 + (target_v[i] - pred_v) ** 2)
+        inv_errors.append(err)
+
+    inv_rmse = math.sqrt(sum(e ** 2 for e in inv_errors) / n)
+    inv_max = max(inv_errors)
+    log(f"Inv Poly{deg} fit (PROJ order): RMSE={inv_rmse * 1000:.2f}mm, Max={inv_max * 1000:.2f}mm")
+
+    inv_msk_origin_e = inv_origin_e + x_0
+    inv_msk_origin_n = inv_origin_n + y_0
+
+    # ================================================================
+    # Конвертация forward в PROJ порядок
+    # ================================================================
     if deg == 3:
         mapping_u = _STD_TO_PROJ_U
         mapping_v = _STD_TO_PROJ_V
     elif deg == 2:
-        # deg=2: std=[c00,c10,c01,c20,c11,c02] → PROJ fwd_u=[1,U,U²,V,UV,V²]
         mapping_u = [0, 1, 3, 2, 4, 5]
         mapping_v = [0, 2, 5, 1, 4, 3]
     else:
@@ -613,20 +716,21 @@ def compute_horner_coefficients(
 
     fwd_u_proj = [cu_real[mapping_u[k]] for k in range(nc)]
     fwd_v_proj = [cv_real[mapping_v[k]] for k in range(nc)]
-
-    # Identity: fwd_u pos1 (U) += 1, fwd_v pos1 (V) += 1
     fwd_u_proj[1] += 1.0
     fwd_v_proj[1] += 1.0
-
-    # Origin offset в c00
     msk_origin_e = origin_e + x_0
     msk_origin_n = origin_n + y_0
     fwd_u_proj[0] += msk_origin_e
     fwd_v_proj[0] += msk_origin_n
 
-    # Формируем pipeline строку
+    # Pipeline строка с fwd и inv коэффициентами.
+    # inv_u_proj/inv_v_proj уже в PROJ порядке (crossed ordering).
+    # M_1 регистрирует ТОЛЬКО forward direction (3857→project).
+    # QGIS auto-inverts pipeline, используя inv коэффициенты.
     cu_s = ",".join(f"{c:.15e}" for c in fwd_u_proj)
     cv_s = ",".join(f"{c:.15e}" for c in fwd_v_proj)
+    inv_cu_s = ",".join(f"{c:.15e}" for c in inv_u_proj)
+    inv_cv_s = ",".join(f"{c:.15e}" for c in inv_v_proj)
 
     pipeline = (
         f"+proj=pipeline "
@@ -637,7 +741,10 @@ def compute_horner_coefficients(
         f"+step +proj=horner +ellps=krass +deg={deg} "
         f"+fwd_origin={msk_origin_e:.4f},{msk_origin_n:.4f} "
         f"+fwd_u={cu_s} "
-        f"+fwd_v={cv_s}"
+        f"+fwd_v={cv_s} "
+        f"+inv_origin={inv_msk_origin_e:.4f},{inv_msk_origin_n:.4f} "
+        f"+inv_u={inv_cu_s} "
+        f"+inv_v={inv_cv_s}"
     )
 
     log(f"Pipeline length: {len(pipeline)} chars")
@@ -682,15 +789,12 @@ def register_pipeline_in_qgis(
             log(f"Невалидная CRS: src={src_crs_authid}, dst={dst_crs_authid}")
             return False
 
-        ctx = QgsProject.instance().transformContext()
-        # Регистрируем в ОБА направления: horner не поддерживает +inv,
-        # поэтому QGIS не может автоматически инвертировать pipeline.
-        # Pipeline идёт 3857→МСК (forward), регистрируем для обоих ключей.
-        ctx.addCoordinateOperation(dst_crs, src_crs, pipeline_str, allowFallback=True)
-        ctx.addCoordinateOperation(src_crs, dst_crs, pipeline_str, allowFallback=True)
-        QgsProject.instance().setTransformContext(ctx)
-
-        log(f"Pipeline зарегистрирован: {src_crs_authid} <-> {dst_crs_authid} (оба направления)")
+        # DO NOT register pipeline as coordinate operation.
+        # Horner polynomial has only +fwd coefficients — QGIS auto-inverts
+        # registered operations for the reverse direction, producing ~1000km
+        # coordinate errors that break XYZ tile fetching.
+        # Pipeline is used directly by F_0_5 calibration functions.
+        log(f"Pipeline доступен: {src_crs_authid} <-> {dst_crs_authid} (не регистрируется как coordinate operation)")
         return True
 
     except Exception as e:

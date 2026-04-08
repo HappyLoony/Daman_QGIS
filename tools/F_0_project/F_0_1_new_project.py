@@ -132,7 +132,7 @@ class F_0_1_NewProject(BaseTool):
                            'Код зоны МСК (например: 1, 2)')
 
         db.set_metadata('1_5_doc_type', project_data['doc_type'],
-                       'Тип документации (dpt - ДПТ, masterplan - Мастер-План)')
+                       'Тип документации (dpt - ДПТ, masterplan - Мастер-план)')
         db.set_metadata('1_5_doc_type_name', project_data['doc_type_name'],
                        'Наименование типа документации')
 

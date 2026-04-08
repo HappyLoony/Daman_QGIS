@@ -252,7 +252,7 @@ class BaseLayersManager:
 
         # Получаем путь к GeoPackage проекта через M_19
         gpkg_path = None
-        project_path = project.homePath()
+        project_path = os.path.normpath(project.homePath()) if project.homePath() else ""
         if project_path:
             structure_manager = registry.get('M_19')
             structure_manager.project_root = project_path

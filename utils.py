@@ -130,6 +130,18 @@ def log_success(message: str) -> None:
     _write_to_session_log(message, "SUCCESS")
 
 
+def log_timing(message: str) -> None:
+    """
+    Логирование замеров производительности.
+
+    Управляется флагом TIMING_ENABLED в constants.py.
+    Для отладки загрузки: установить TIMING_ENABLED = True.
+    """
+    from Daman_QGIS.constants import TIMING_ENABLED
+    if TIMING_ENABLED:
+        log_info(message)
+
+
 def log_debug(message: str) -> None:
     """
     Логирование отладочного сообщения.

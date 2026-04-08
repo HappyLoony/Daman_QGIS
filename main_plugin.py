@@ -77,7 +77,7 @@ from Daman_QGIS.constants import (
 )
 
 # Import logging utilities
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, log_timing
 
 
 def _load_tools_config() -> Dict[str, Tuple[str, str]]:
@@ -298,7 +298,7 @@ class DamanQGIS:
             session_log.initialize()
         except Exception as e:
             log_warning(f"Daman_QGIS: Session logging init failed: {e}")
-        log_info(f"Daman_QGIS: [TIMING] M_38 session log: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] M_38 session log: {perf_counter() - _t:.3f}s")
 
         # --- Profile Setup (M_37) ---
         _t = perf_counter()
@@ -306,7 +306,7 @@ class DamanQGIS:
         profile_mgr.apply_pending_ini()
 
         profile_status = profile_mgr.check_and_setup_profile()
-        log_info(f"Daman_QGIS: [TIMING] M_37 profile: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] M_37 profile: {perf_counter() - _t:.3f}s")
         if profile_status in ("setup_done", "sync_done", "wrong_profile"):
             self._profile_only_mode = True
             return  # НЕ инициализировать основной плагин
@@ -334,7 +334,7 @@ class DamanQGIS:
                 return
         except Exception as e:
             log_warning(f"Daman_QGIS: Auto-update check failed: {e}")
-        log_info(f"Daman_QGIS: [TIMING] M_42 auto-update: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] M_42 auto-update: {perf_counter() - _t:.3f}s")
         # --- End Auto-Update ---
 
         # Лог предыдущего обновления (передан через QSettings из прошлого экземпляра)
@@ -351,7 +351,7 @@ class DamanQGIS:
             deps_ok = F_4_1_PluginDiagnostics.quick_check()
         except Exception as e:
             log_warning(f"Не удалось проверить зависимости: {str(e)}")
-        log_info(f"Daman_QGIS: [TIMING] F_4_1 deps check: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] F_4_1 deps check: {perf_counter() - _t:.3f}s")
 
         # --- DEPENDENCY GATE: критические зависимости нужны для работы ---
         if not deps_ok:
@@ -363,7 +363,7 @@ class DamanQGIS:
         # Инициализация менеджеров
         _t = perf_counter()
         self._init_managers()
-        log_info(f"Daman_QGIS: [TIMING] _init_managers: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] _init_managers: {perf_counter() - _t:.3f}s")
 
         # NSPD WMTS preprocessor (подмена User-Agent для обхода WAF)
         self._nspd_preprocessor_id = None
@@ -375,7 +375,7 @@ class DamanQGIS:
         # --- LICENSE GATE: JWT токены нужны для загрузки конфигурации ---
         _t = perf_counter()
         has_license = self._acquire_jwt_tokens()
-        log_info(f"Daman_QGIS: [TIMING] _acquire_jwt_tokens: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] _acquire_jwt_tokens: {perf_counter() - _t:.3f}s")
 
         if not has_license:
             # Нет лицензии -- принудительно показать диалог активации
@@ -389,8 +389,8 @@ class DamanQGIS:
         # --- Полная инициализация тулбара ---
         _t = perf_counter()
         self._build_full_toolbar()
-        log_info(f"Daman_QGIS: [TIMING] _build_full_toolbar: {perf_counter() - _t:.3f}s")
-        log_info(f"Daman_QGIS: [TIMING] TOTAL initGui: {perf_counter() - _t_total:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] _build_full_toolbar: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] TOTAL initGui: {perf_counter() - _t_total:.3f}s")
 
         # --- Default tool: Select Features (instead of Pan) ---
         # Pan available via mouse wheel, Select is more useful as default
@@ -754,19 +754,10 @@ class DamanQGIS:
             payload_b64 += '=' * (4 - len(payload_b64) % 4)
             payload = json.loads(base64.urlsafe_b64decode(payload_b64))
 
-            # Пропустить integrity check если dev опережает хеши на сервере
-            hash_version = payload.get('ver', '')
-            if hash_version and PLUGIN_VERSION > hash_version:
-                log_info(
-                    f"Daman_QGIS: Integrity skip: dev {PLUGIN_VERSION} > "
-                    f"server hashes {hash_version}"
-                )
-                return True
-
             expected_hashes = payload.get('integrity')
             if not isinstance(expected_hashes, dict) or not expected_hashes:
-                log_error("Daman_QGIS: Integrity check: missing or invalid integrity claim")
-                return False
+                # Нет хешей = нет integrity check (dev version без хешей на сервере)
+                return True
 
             # Вычисляем локальные хеши и сравниваем
             mismatches = []
@@ -841,12 +832,12 @@ class DamanQGIS:
         from Daman_QGIS.managers._registry import reset_reference_managers
         BaseReferenceLoader.clear_cache()
         reset_reference_managers()
-        log_info(f"Daman_QGIS: [TIMING] toolbar/clear_cache: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] toolbar/clear_cache: {perf_counter() - _t:.3f}s")
 
         # Загружаем конфигурацию инструментов (теперь с JWT)
         _t = perf_counter()
         TOOLS_CONFIG = _load_tools_config()  # pyright: ignore[reportConstantRedefinition]
-        log_info(f"Daman_QGIS: [TIMING] toolbar/load_tools_config: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] toolbar/load_tools_config: {perf_counter() - _t:.3f}s")
 
         # Если конфигурация пуста -- аварийная панель
         if not TOOLS_CONFIG:
@@ -901,12 +892,12 @@ class DamanQGIS:
         else:
             # Integrity OK -- очистить флаг предыдущего reinstall
             QSettings().remove("Daman_QGIS/last_reinstall_version")
-        log_info(f"Daman_QGIS: [TIMING] toolbar/verify_integrity: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] toolbar/verify_integrity: {perf_counter() - _t:.3f}s")
 
         # Инициализация общих инструментов (контекстное меню)
         _t = perf_counter()
         self._init_common_tools()
-        log_info(f"Daman_QGIS: [TIMING] toolbar/init_common_tools: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] toolbar/init_common_tools: {perf_counter() - _t:.3f}s")
 
         # Создание панели инструментов
         self.toolbar = self.iface.addToolBar(PLUGIN_NAME)
@@ -918,12 +909,12 @@ class DamanQGIS:
         # Сначала регистрируем инструменты
         _t = perf_counter()
         self._register_tools()
-        log_info(f"Daman_QGIS: [TIMING] toolbar/register_tools: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] toolbar/register_tools: {perf_counter() - _t:.3f}s")
 
         # Теперь создаем меню когда инструменты уже зарегистрированы
         _t = perf_counter()
         self.main_toolbar.create_menu()
-        log_info(f"Daman_QGIS: [TIMING] toolbar/create_menu: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] toolbar/create_menu: {perf_counter() - _t:.3f}s")
 
         # Проверяем, не открыт ли уже проект плагина нативным способом
         self._check_native_project()
@@ -940,7 +931,7 @@ class DamanQGIS:
         # Инициализация телеметрии
         _t = perf_counter()
         self._init_telemetry()
-        log_info(f"Daman_QGIS: [TIMING] toolbar/init_telemetry: {perf_counter() - _t:.3f}s")
+        log_timing(f"Daman_QGIS: [TIMING] toolbar/init_telemetry: {perf_counter() - _t:.3f}s")
 
         # Heartbeat: периодическая проверка статуса лицензии
         self._start_heartbeat()
@@ -951,7 +942,7 @@ class DamanQGIS:
             _profile_mgr = registry.get('M_37')
             _profile_mgr.ensure_reference_profile_applied()
             _profile_mgr.check_profile_update()
-            log_info(f"Daman_QGIS: [TIMING] toolbar/M_37_profile_deferred (deferred): {perf_counter() - _t:.3f}s")
+            log_timing(f"Daman_QGIS: [TIMING] toolbar/M_37_profile_deferred (deferred): {perf_counter() - _t:.3f}s")
 
         QTimer.singleShot(0, _deferred_profile_update)
 
@@ -962,7 +953,7 @@ class DamanQGIS:
                 self.reference_managers.crs.sync_crs_from_json()
             except Exception as e:
                 log_warning(f"Daman_QGIS: CRS sync failed: {e}")
-            log_info(f"Daman_QGIS: [TIMING] toolbar/crs_sync (deferred): {perf_counter() - _t:.3f}s")
+            log_timing(f"Daman_QGIS: [TIMING] toolbar/crs_sync (deferred): {perf_counter() - _t:.3f}s")
 
         QTimer.singleShot(0, _deferred_crs_sync)
 

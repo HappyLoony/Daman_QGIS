@@ -179,7 +179,7 @@ class F_1_4_GraphicsRequest(BaseTool):
 
             if not structure_manager.is_active():
                 project = QgsProject.instance()
-                project_path = project.homePath()
+                project_path = os.path.normpath(project.homePath()) if project.homePath() else ""
                 if project_path:
                     structure_manager.project_root = project_path
 

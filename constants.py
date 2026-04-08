@@ -28,6 +28,9 @@ from configparser import ConfigParser
 # ОСНОВНЫЕ КОНСТАНТЫ ПЛАГИНА
 # ============================================================================
 
+# Профилирование initGui: включить для отладки времени загрузки плагина
+TIMING_ENABLED = False
+
 # Имя плагина для логирования и сообщений
 # Используется: 50 файлов, ~65 использований
 PLUGIN_NAME = 'Daman_QGIS'
@@ -291,7 +294,7 @@ LAYER_GPMT_POINTS = "L_1_14_3_Т_ГПМТ"
 LAYER_GPMT_VNES_IZM_POINTS = "L_1_14_4_Т_ГПМТ_ВНЕС_ИЗМ"
 
 # Слои границ нарезки (overlay)
-LAYER_SELECTION_NP = "L_1_9_4_Выборка_НП"
+LAYER_SELECTION_NP = "Le_1_9_4_1_Выборка_АТД_НП"
 LAYER_SELECTION_TERZONY = "L_1_9_6_Выборка_ТерЗоны"
 LAYER_ATD_MO = "Le_1_2_3_10_АТД_МО_poly"
 LAYER_EGRN_LES = "Le_1_8_1_1_ЕГРН_Лесничества"
@@ -299,7 +302,7 @@ LAYER_WFS_OOPT = "Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ"  # ООПТ для o
 LAYER_ZOUIT_PREFIX = "Le_1_2_5_"  # Общий префикс всех ЗОУИТ слоёв
 LAYER_SELECTION_ZOUIT = "Le_1_9_5_1_ЕГРН_ЗОУИТ_Перечень"
 LAYER_SELECTION_VODA = "L_1_9_7_Выборка_Вода"
-LAYER_SELECTION_MO = "L_1_9_8_Выборка_МО"
+LAYER_SELECTION_MO = "Le_1_9_4_2_Выборка_АТД_МО"
 
 # Выходные слои нарезки - Раздел (внутри ЗУ)
 LAYER_CUTTING_OKS_RAZDEL = "Le_2_1_1_1_Раздел_ЗПР_ОКС"

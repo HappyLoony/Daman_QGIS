@@ -84,7 +84,7 @@ class ExcelTableExportSubmodule:
         if params.get('output_folder'):
             output_folder = params['output_folder']
         else:
-            project_path = QgsProject.instance().homePath()
+            project_path = os.path.normpath(QgsProject.instance().homePath())
             if not project_path:
                 QMessageBox.critical(
                     self.iface.mainWindow(),

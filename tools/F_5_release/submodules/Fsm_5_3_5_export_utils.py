@@ -315,7 +315,7 @@ class ExportUtils:
         """
         try:
             structure_manager = registry.get('M_19')
-            project_path = QgsProject.instance().homePath()
+            project_path = os.path.normpath(QgsProject.instance().homePath())
 
             if project_path:
                 structure_manager.project_root = project_path

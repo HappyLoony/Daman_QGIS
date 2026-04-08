@@ -13,7 +13,7 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QRadioButton, QButtonGroup,
     QGroupBox, QFrame, QSizePolicy, QApplication,
-    QProgressBar
+    QProgressBar, QScrollArea, QWidget
 )
 from qgis.core import (
     QgsProject, QgsPrintLayout, QgsLayoutItemMap,
@@ -42,11 +42,11 @@ class OverviewPreviewDialog(BaseResponsiveDialog):
     """
 
     WIDTH_RATIO = 0.65
-    HEIGHT_RATIO = 0.85
-    MIN_WIDTH = 880
+    HEIGHT_RATIO = 0.80
+    MIN_WIDTH = 700
     MAX_WIDTH = 1200
-    MIN_HEIGHT = 820
-    MAX_HEIGHT = 1000
+    MIN_HEIGHT = 500
+    MAX_HEIGHT = 900
 
     # Фиксированный размер превью (как в шаблоне A4)
     PREVIEW_WIDTH_MM = 66.5
@@ -197,7 +197,13 @@ class OverviewPreviewDialog(BaseResponsiveDialog):
             variants_grid.addWidget(variant_frame, row, col)
 
         variants_group.setLayout(variants_grid)
-        main_layout.addWidget(variants_group)
+
+        # Скролл для сетки вариантов (маленькие экраны)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(variants_group)
+        scroll.setMinimumHeight(300)
+        main_layout.addWidget(scroll)
 
         # Кнопки
         buttons_layout = QHBoxLayout()
