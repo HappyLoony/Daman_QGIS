@@ -972,10 +972,10 @@ class Fsm_5_3_1_CoordinateList:
         contours_data: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
-        Переупорядочить внешние контуры: по часовой с северо-запада.
+        Ротировать начало внешних контуров на северо-запад.
 
-        Разворачивает CCW (OGC) -> CW и ротирует начало на самую
-        северо-западную точку. Holes (уже CW в OGC) не трогает.
+        В МСК оригинальный порядок вершин уже CW на карте
+        (OGC "CCW" в осях X=север, Y=восток). Holes не трогает.
 
         TODO: Исследовать применимость ко всем регионам (не только 78).
         Сейчас — требование КГА СПб.
@@ -998,10 +998,14 @@ class Fsm_5_3_1_CoordinateList:
         coordinates: List[List]
     ) -> List[List]:
         """
-        Развернуть координаты CCW -> CW и ротировать начало на СЗ точку.
+        Ротировать начало контура на СЗ точку.
 
-        coord = [номер_точки, easting (x), northing (y)]
-        Северо-запад = max northing, min easting.
+        В МСК (X=север, Y=восток) OGC "CCW" визуально = CW на карте.
+        Реверс НЕ нужен — оригинальный порядок уже по часовой.
+
+        coord = [номер_точки, x_val, y_val]
+        В Excel: coord[2] -> колонка "Х (м)" (север), coord[1] -> "Y (м)" (восток).
+        СЗ = ближайшая к углу bbox (min easting, max northing).
 
         Args:
             coordinates: Список координат контура
@@ -1012,16 +1016,20 @@ class Fsm_5_3_1_CoordinateList:
         if len(coordinates) < 2:
             return coordinates
 
-        # CCW -> CW
-        coords = list(reversed(coordinates))
+        coords = list(coordinates)
 
-        # Северо-западная точка: max northing (coord[2]), min easting (coord[1])
+        # Bbox: СЗ угол = (min coord[1], max coord[2])
+        # coord[2] = northing (X геод.), coord[1] = easting (Y геод.)
+        min_easting = min(c[1] for c in coords)
+        max_northing = max(c[2] for c in coords)
+
+        # Ближайшая к СЗ углу bbox (евклидово расстояние)
         nw_idx = 0
-        for i in range(1, len(coords)):
-            nw = coords[nw_idx]
-            candidate = coords[i]
-            if (candidate[2] > nw[2]
-                    or (candidate[2] == nw[2] and candidate[1] < nw[1])):
+        min_dist = float('inf')
+        for i, c in enumerate(coords):
+            dist = (c[1] - min_easting) ** 2 + (max_northing - c[2]) ** 2
+            if dist < min_dist:
+                min_dist = dist
                 nw_idx = i
 
         # Ротация

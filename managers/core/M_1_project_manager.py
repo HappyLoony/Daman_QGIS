@@ -149,8 +149,8 @@ class ProjectManager:
 
         self.current_project = project_path
 
-        # Регистрируем pipeline CRS (REMARK или server cache)
-        self._register_pipeline_for_project()
+        # Pipeline регистрируется в F_0_1 после записи metadata
+        # (region_code нужен для lookup в PipelineCache)
 
         log_info(f"M_1_ProjectManager: Проект '{project_name}' создан: {project_path}")
 

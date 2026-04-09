@@ -209,6 +209,10 @@ class F_0_1_NewProject(BaseTool):
         # Конфигурация QGIS проекта
         self._configure_qgis_project(project_data)
 
+        # Регистрация pipeline (metadata уже записана, region_code доступен)
+        if self.project_manager:
+            self.project_manager._register_pipeline_for_project()
+
         # Сохранение проекта
         if self.project_manager:
             self.project_manager.save_project()
