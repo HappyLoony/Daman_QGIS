@@ -399,6 +399,119 @@ class Msm_26_1_GeometryProcessor:
 
         return result
 
+    def resolve_pinch_points(self, geom: QgsGeometry) -> QgsGeometry:
+        """Разрешение пиковых узлов в полигоне
+
+        Если hole касается exterior ring в одной вершине (pinch point),
+        вершины hole (без touch_pt) вставляются в exterior вместо touch_pt,
+        hole удаляется. Exterior обходит бывший hole по его границам.
+
+        Типичная ситуация: ЗУ полностью внутри ЗПР, одна вершина ЗУ
+        на границе ЗПР. НГС = ЗПР - ЗУ получает hole, касающийся exterior.
+
+        Args:
+            geom: Полигон (single или multi)
+
+        Returns:
+            QgsGeometry: Полигон без pinch points. Если resolve невозможен
+            или результат невалиден — возвращает оригинал.
+        """
+        if geom.isEmpty():
+            return geom
+
+        if geom.isMultipart():
+            parts = geom.asMultiPolygon()
+            resolved_parts = []
+            any_resolved = False
+            for part in parts:
+                single = QgsGeometry.fromPolygonXY(part)
+                resolved = self._resolve_single_polygon_pinch(single)
+                if resolved != single:
+                    any_resolved = True
+                resolved_parts.append(resolved.asPolygon())
+            if not any_resolved:
+                return geom
+            result = QgsGeometry.fromMultiPolygonXY(resolved_parts)
+        else:
+            result = self._resolve_single_polygon_pinch(geom)
+            if result == geom:
+                return geom
+
+        if result.isGeosValid():
+            return result
+        log_warning("Msm_26_1: resolve_pinch_points создал невалидную геометрию, откат")
+        return geom
+
+    def _resolve_single_polygon_pinch(self, geom: QgsGeometry) -> QgsGeometry:
+        """Resolve pinch points для single polygon
+
+        Args:
+            geom: Single polygon
+
+        Returns:
+            QgsGeometry: Polygon без pinch points
+        """
+        poly = geom.asPolygon()
+        if not poly:
+            return geom
+
+        exterior = poly[0]
+        holes = poly[1:]
+
+        if not holes:
+            return geom
+
+        # Половина кадастровой точности (0.01м)
+        TOLERANCE = 0.005
+
+        # Индекс координат exterior (без closing point)
+        ext_coords = {}
+        for i, p in enumerate(exterior[:-1]):
+            key = (round(p.x(), 3), round(p.y(), 3))
+            ext_coords[key] = i
+
+        remaining_holes = []
+        modified = False
+
+        for hole in holes:
+            # Найти вершины hole, совпадающие с exterior
+            touches = []
+            for hi, hp in enumerate(hole[:-1]):
+                key = (round(hp.x(), 3), round(hp.y(), 3))
+                if key in ext_coords:
+                    touches.append((hi, ext_coords[key]))
+
+            if len(touches) == 1:
+                hole_touch_idx, ext_touch_idx = touches[0]
+
+                # Вершины hole без touch_pt, в исходном порядке
+                hole_vertices = [hole[i] for i in range(len(hole) - 1)
+                                 if i != hole_touch_idx]
+
+                if not hole_vertices:
+                    continue
+
+                # Вставляем в exterior ВМЕСТО touch_pt
+                exterior = exterior[:ext_touch_idx] + hole_vertices + exterior[ext_touch_idx + 1:]
+
+                # Обновляем индекс после модификации exterior
+                ext_coords = {}
+                for i, p in enumerate(exterior[:-1]):
+                    key = (round(p.x(), 3), round(p.y(), 3))
+                    ext_coords[key] = i
+
+                modified = True
+                log_info(f"Msm_26_1: Pinch point resolved — hole ({len(hole)-1} вершин) "
+                        f"влит в exterior, touch_pt удалён")
+            else:
+                remaining_holes.append(hole)
+
+        if not modified:
+            return geom
+
+        new_poly = [exterior] + remaining_holes
+        return QgsGeometry.fromPolygonXY(new_poly)
+
     def validate_and_fix(self, geom: QgsGeometry) -> QgsGeometry:
         """Валидация и исправление геометрии
 

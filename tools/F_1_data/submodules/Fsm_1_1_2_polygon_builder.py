@@ -48,7 +48,7 @@ class PolygonBuilder:
                                  min_area: float = MIN_POLYGON_AREA,
                                  validate: bool = True,
                                  progress_callback: Optional[Any] = None,
-                                 remove_largest_outer: bool = False) -> List[QgsGeometry]:
+                                 progress_callback: Optional[Any] = None) -> List[QgsGeometry]:
         """
         Построение полигонов с внутренними контурами из полилиний.
 
@@ -57,7 +57,6 @@ class PolygonBuilder:
             min_area: Минимальная площадь для обработки (игнорировать меньшие)
             validate: Выполнять ли валидацию результата
             progress_callback: Функция для отображения прогресса (0-100)
-            remove_largest_outer: Удалить ли самый большой внешний контур (для границ работ)
 
         Returns:
             Список полигонов с внутренними контурами
@@ -95,56 +94,6 @@ class PolygonBuilder:
 
         # Шаг 3: Группировка по вложенности
         grouped = self._group_by_containment(polygon_candidates)
-
-        # Шаг 3.5: Удаление самого большого внешнего контура если требуется
-        if remove_largest_outer and grouped:
-            # Находим группу с самой большой площадью внешнего контура
-            largest_idx = max(range(len(grouped)), key=lambda i: grouped[i]['exterior']['area'])
-            largest_group = grouped[largest_idx]
-
-            # Проверяем что этот контур действительно содержит все остальные
-            largest_geom = largest_group['exterior']['geometry']
-            contains_all = True
-
-            for i, other_group in enumerate(grouped):
-                if i == largest_idx:
-                    continue
-                other_geom = other_group['exterior']['geometry']
-                if not largest_geom.contains(other_geom):
-                    contains_all = False
-                    break
-
-            # Если самый большой содержит все остальные - преобразуем его holes в отдельные полигоны
-            if contains_all and largest_group['holes']:
-                log_info(f"Fsm_1_1_2: удаление самого большого внешнего контура (площадь {largest_group['exterior']['area']:.2f} м²)")
-                # Удаляем рамку
-                grouped.pop(largest_idx)
-                # Добавляем holes рамки как отдельные полигоны
-                promoted_holes = []
-                for hole in largest_group['holes']:
-                    hole_geom = hole.get('geometry')
-                    if hole_geom and hole_geom.isGeosValid():
-                        promoted_holes.append(hole)
-                    else:
-                        log_warning(f"Fsm_1_1_2: пропуск невалидного hole при преобразовании в внешний контур")
-                log_info(f"Fsm_1_1_2: создано {len(promoted_holes)} новых внешних контуров из holes")
-
-                # Re-grouping: собрать все оставшиеся полигоны и пересчитать вложенность
-                all_remaining = []
-                for g in grouped:
-                    ext = g['exterior']
-                    ext['used'] = False
-                    all_remaining.append(ext)
-                    for h in g['holes']:
-                        h['used'] = False
-                        all_remaining.append(h)
-                for p in promoted_holes:
-                    p['used'] = False
-                    all_remaining.append(p)
-
-                all_remaining.sort(key=lambda x: x['area'], reverse=True)
-                grouped = self._group_by_containment(all_remaining)
-                log_info(f"Fsm_1_1_2: после перегруппировки: {len(grouped)} групп, {sum(len(g['holes']) for g in grouped)} внутренних контуров")
 
         if progress_callback:
             progress_callback(int(60))

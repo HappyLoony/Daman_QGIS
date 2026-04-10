@@ -708,6 +708,9 @@ class Msm_26_4_CuttingEngine:
                             log_warning(f"Msm_26_4: НГС #{idx} от ЗПР ID={zpr_id}: пустая геометрия, пропуск")
                             continue
 
+                        # Resolve pinch points (hole касается exterior в 1 вершине)
+                        poly_geom = self.geometry_processor.resolve_pinch_points(poly_geom)
+
                         poly_area = poly_geom.area()
 
                         # Фильтрация микро-НГС (артефакты округления координат)

@@ -767,8 +767,7 @@ class DxfImporter(BaseImporter):
         polygons = builder.build_polygons_with_holes(
             polylines,
             min_area=MIN_POLYGON_AREA,
-            validate=True,
-            remove_largest_outer=is_boundaries_layer
+            validate=True
         )
 
         if not polygons:
@@ -823,8 +822,7 @@ class DxfImporter(BaseImporter):
             block_polygons = builder.build_polygons_with_holes(
                 group_polylines,
                 min_area=MIN_POLYGON_AREA,
-                validate=True,
-                remove_largest_outer=False  # НЕ удаляем внешний контур для ЗПР
+                validate=True
             )
 
             if block_polygons:
@@ -1164,8 +1162,7 @@ class DxfImporter(BaseImporter):
             polygons = builder.build_polygons_with_holes(
                 closed_polylines,
                 min_area=MIN_POLYGON_AREA,
-                validate=True,
-                remove_largest_outer=False
+                validate=True
             )
             stats = builder.statistics
             self.log_message(
