@@ -151,6 +151,7 @@ class Fsm_1_2_1_EgrnLoader:
             '403': 0,  # Forbidden - блокировка IP
             '429': 0,  # Too Many Requests - превышение лимита
             'connection': 0,  # Connection errors - проблемы с соединением
+            'timeout': 0,  # Timeout - превышение времени ожидания
             'other': 0  # Прочие HTTP ошибки
         }
 
@@ -212,12 +213,14 @@ class Fsm_1_2_1_EgrnLoader:
                 log_warning(f"Fsm_1_2_1: TOO MANY REQUESTS: Ошибок 429 (Too Many Requests): {self._http_error_counts['429']}")
             if self._http_error_counts['connection'] > 0:
                 log_warning(f"Fsm_1_2_1: CONNECTION ERROR: Ошибок соединения (Connection Error): {self._http_error_counts['connection']}")
+            if self._http_error_counts['timeout'] > 0:
+                log_warning(f"Fsm_1_2_1: TIMEOUT: Ошибок таймаута (Timeout): {self._http_error_counts['timeout']}")
             if self._http_error_counts['other'] > 0:
                 log_warning(f"Fsm_1_2_1: HTTP ERROR: Прочих HTTP ошибок: {self._http_error_counts['other']}")
             log_warning(f"Fsm_1_2_1: Всего ошибок API: {total_errors}")
 
             # Сбрасываем счетчики после вывода статистики
-            self._http_error_counts = {'403': 0, '429': 0, 'connection': 0, 'other': 0}
+            self._http_error_counts = {'403': 0, '429': 0, 'connection': 0, 'timeout': 0, 'other': 0}
 
     def set_boundary_cache(self, extents: Dict[str, Any]) -> None:
         """
@@ -480,17 +483,25 @@ class Fsm_1_2_1_EgrnLoader:
 
                 except requests.exceptions.Timeout as e:
                     request_elapsed = time.time() - request_start
-                    log_warning(f"Fsm_1_2_1: TIMEOUT: TIMEOUT requests.post() после {request_elapsed:.1f} сек: {str(e)}")
-                    return None
+                    self._http_error_counts['timeout'] += 1
+                    if attempt < min(max_retries - 1, 1):  # Максимум 1 дополнительная попытка для Timeout
+                        next_timeout = timeouts[min(attempt + 1, len(timeouts) - 1)] if isinstance(timeouts, list) else timeouts
+                        log_warning(
+                            f"Fsm_1_2_1: TIMEOUT после {request_elapsed:.1f} сек, "
+                            f"retry с таймаутом {next_timeout} сек "
+                            f"(попытка {attempt + 2}/{max_retries})"
+                        )
+                        continue
+                    else:
+                        log_warning(f"Fsm_1_2_1: TIMEOUT после {request_elapsed:.1f} сек, retry исчерпан: {str(e)}")
+                        return None
                 except requests.exceptions.SSLError as e:
                     # SSL ошибки (UNEXPECTED_EOF_WHILE_READING, handshake failure) - retry
                     request_elapsed = time.time() - request_start
                     self._http_error_counts['connection'] += 1
                     if attempt < max_retries - 1:
-                        retry_delay = base_retry_delay * (2 ** attempt) + random.uniform(0, 1)
                         log_warning(f"Fsm_1_2_1: SSL ERROR: SSL ошибка после {request_elapsed:.1f} сек: {str(e)}")
-                        log_warning(f"Fsm_1_2_1: Повторная попытка через {retry_delay:.1f} сек (попытка {attempt + 2}/{max_retries})")
-                        time.sleep(retry_delay)
+                        log_warning(f"Fsm_1_2_1: Повторная попытка (попытка {attempt + 2}/{max_retries})")
                         continue
                     else:
                         log_error(f"Fsm_1_2_1: SSL ERROR: SSL ошибка после {max_retries} попыток: {str(e)}")
@@ -500,10 +511,8 @@ class Fsm_1_2_1_EgrnLoader:
                     request_elapsed = time.time() - request_start
                     self._http_error_counts['connection'] += 1
                     if attempt < max_retries - 1:
-                        retry_delay = base_retry_delay * (2 ** attempt) + random.uniform(0, 1)
                         log_warning(f"Fsm_1_2_1: CONNECTION ERROR: Ошибка соединения после {request_elapsed:.1f} сек: {str(e)}")
-                        log_warning(f"Fsm_1_2_1: Повторная попытка через {retry_delay:.1f} сек (попытка {attempt + 2}/{max_retries})")
-                        time.sleep(retry_delay)
+                        log_warning(f"Fsm_1_2_1: Повторная попытка (попытка {attempt + 2}/{max_retries})")
                         continue
                     else:
                         log_error(f"Fsm_1_2_1: CONNECTION ERROR: Ошибка соединения после {max_retries} попыток: {str(e)}")
@@ -551,11 +560,6 @@ class Fsm_1_2_1_EgrnLoader:
                 else:
                     log_warning("Fsm_1_2_1: API вернул пустой ответ")
                     return None
-
-            except requests.exceptions.Timeout:
-                # Timeout - требуется дробление территории
-                log_warning(f"Fsm_1_2_1: Timeout ({current_timeout} сек) при запросе к API - требуется дробление территории")
-                return None
 
             except requests.exceptions.RequestException as e:
                 self._http_error_counts['other'] += 1
@@ -715,6 +719,15 @@ class Fsm_1_2_1_EgrnLoader:
 
         # Timeout или нет данных
         if response is None:
+            # Circuit breaker: если сервер блокирует (429/403), subdivision усугубит проблему
+            if self._http_error_counts.get('429', 0) > 3 or self._http_error_counts.get('403', 0) > 0:
+                log_warning(
+                    f"Fsm_1_2_1: Ячейка {cell_label}: пропуск дробления - "
+                    f"сервер перегружен (429: {self._http_error_counts.get('429', 0)}, "
+                    f"403: {self._http_error_counts.get('403', 0)})"
+                )
+                return []
+
             # Timeout - пробуем дробление
             if current_depth < max_depth:
                 log_info(

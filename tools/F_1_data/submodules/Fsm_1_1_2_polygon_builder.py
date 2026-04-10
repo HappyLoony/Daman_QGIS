@@ -117,20 +117,34 @@ class PolygonBuilder:
             # Если самый большой содержит все остальные - преобразуем его holes в отдельные полигоны
             if contains_all and largest_group['holes']:
                 log_info(f"Fsm_1_1_2: удаление самого большого внешнего контура (площадь {largest_group['exterior']['area']:.2f} м²)")
-                # Удаляем самый большой контур из списка
+                # Удаляем рамку
                 grouped.pop(largest_idx)
-                # Преобразуем его holes в отдельные группы (они станут новыми внешними контурами)
+                # Добавляем holes рамки как отдельные полигоны
+                promoted_holes = []
                 for hole in largest_group['holes']:
-                    # Проверяем валидность geometry hole перед добавлением
                     hole_geom = hole.get('geometry')
                     if hole_geom and hole_geom.isGeosValid():
-                        grouped.append({
-                            'exterior': hole,
-                            'holes': []  # У них не будет своих holes
-                        })
+                        promoted_holes.append(hole)
                     else:
                         log_warning(f"Fsm_1_1_2: пропуск невалидного hole при преобразовании в внешний контур")
-                log_info(f"Fsm_1_1_2: создано {len([g for g in grouped if g['exterior'] in largest_group['holes']])} новых внешних контуров из holes")
+                log_info(f"Fsm_1_1_2: создано {len(promoted_holes)} новых внешних контуров из holes")
+
+                # Re-grouping: собрать все оставшиеся полигоны и пересчитать вложенность
+                all_remaining = []
+                for g in grouped:
+                    ext = g['exterior']
+                    ext['used'] = False
+                    all_remaining.append(ext)
+                    for h in g['holes']:
+                        h['used'] = False
+                        all_remaining.append(h)
+                for p in promoted_holes:
+                    p['used'] = False
+                    all_remaining.append(p)
+
+                all_remaining.sort(key=lambda x: x['area'], reverse=True)
+                grouped = self._group_by_containment(all_remaining)
+                log_info(f"Fsm_1_1_2: после перегруппировки: {len(grouped)} групп, {sum(len(g['holes']) for g in grouped)} внутренних контуров")
 
         if progress_callback:
             progress_callback(int(60))

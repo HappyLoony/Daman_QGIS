@@ -1173,17 +1173,20 @@ class Fsm_5_3_1_CoordinateList:
                     CPM.round_coordinate(point.y(), precision)
                 ])
 
-            # Замыкаем контур первой точкой (не для SPB формата)
-            if close_contours and len(raw_points) > 1:
-                first_point = raw_points[0]
-                key = CPM.round_point_tuple(first_point, precision)
-                point_num = unique_points[key]
+            # Ротация на точку с минимальным номером (начало с СЗ из Т_*)
+            if use_points_layer and len(contour_coords) > 1:
+                min_idx = min(
+                    range(len(contour_coords)),
+                    key=lambda i: contour_coords[i][0]
+                )
+                if min_idx > 0:
+                    contour_coords = (
+                        contour_coords[min_idx:] + contour_coords[:min_idx]
+                    )
 
-                contour_coords.append([
-                    point_num,
-                    CPM.round_coordinate(first_point.x(), precision),
-                    CPM.round_coordinate(first_point.y(), precision)
-                ])
+            # Замыкаем контур первой точкой (не для SPB формата)
+            if close_contours and len(contour_coords) > 1:
+                contour_coords.append(list(contour_coords[0]))
 
             contours.append({
                 'type': raw_contour['type'],

@@ -217,11 +217,14 @@ class CuttingManager:
             'can_cut': False
         }
 
-        # Проверка слоя ЗУ
+        # Проверка слоя ЗУ (reload — см. BUG-2026-04-09 в _perform_cutting)
         zu_layer = self._get_layer_by_name(LAYER_SELECTION_ZU)
-        if zu_layer is not None and zu_layer.isValid() and zu_layer.featureCount() > 0:
-            result['has_zu'] = True
-            result['zu_count'] = zu_layer.featureCount()
+        if zu_layer is not None and zu_layer.isValid():
+            zu_layer.dataProvider().reloadData()
+            zu_layer.updateExtents()
+            if zu_layer.featureCount() > 0:
+                result['has_zu'] = True
+                result['zu_count'] = zu_layer.featureCount()
 
         # Проверка слоёв ЗПР
         config = self.ZPR_CONFIG if zpr_type == 'standard' else self.ZPR_REK_CONFIG
@@ -401,6 +404,21 @@ class CuttingManager:
         zu_layer = self._get_layer_by_name(LAYER_SELECTION_ZU)
         if zu_layer is None or not zu_layer.isValid():
             return {'error': 'Слой ЗУ не найден'}
+
+        # BUG-2026-04-09: stale GPKG data provider — ЗУ пропадают из выборки
+        # Все слои в одном project.gpkg. Если пользователь редактировал ЗПР
+        # (например, правил VRI через QGIS UI), commitChanges() модифицирует GPKG.
+        # OGR connection для ЗУ не обновляется: featureCount() возвращает кэш,
+        # а getFeatures() — пустой итератор. Reload принудительно обновляет provider.
+        # Диагностика: Fsm_2_1_7 detect_all "всего 0" при непустом featureCount.
+        # Статус: НЕ ВЕРИФИЦИРОВАН — требует тестирования на реальных данных.
+        zu_layer.dataProvider().reloadData()
+        zu_layer.updateExtents()
+
+        if zu_layer.featureCount() == 0:
+            log_error(f"M_26: Слой ЗУ пуст после reload ({LAYER_SELECTION_ZU})")
+            return {'error': 'Слой ЗУ не содержит объектов'}
+
         kk_layer = self._get_layer_by_name(LAYER_SELECTION_KK)
         overlay_layers = self._get_overlay_layers()
         crs = QgsProject.instance().crs()
