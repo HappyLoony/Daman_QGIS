@@ -47,7 +47,6 @@ class PolygonBuilder:
                                  polylines: List[QgsGeometry],
                                  min_area: float = MIN_POLYGON_AREA,
                                  validate: bool = True,
-                                 progress_callback: Optional[Any] = None,
                                  progress_callback: Optional[Any] = None) -> List[QgsGeometry]:
         """
         Построение полигонов с внутренними контурами из полилиний.
