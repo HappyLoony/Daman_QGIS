@@ -189,6 +189,10 @@ class DxfGeometryExporter:
 
                             # Штриховка с ByLayer (наследует цвет от слоя)
                             hatch_attribs = {'layer': layer_name}
+                            # Если есть отдельный цвет штриховки — используем его
+                            hatch_color = style.get('hatch_color')
+                            if hatch_color is not None:
+                                hatch_attribs['color'] = hatch_color
                             self.hatch_manager.apply_hatch(
                                 msp, coords, style, hatch_attribs,
                                 holes=hole_coords_list if hole_coords_list else None

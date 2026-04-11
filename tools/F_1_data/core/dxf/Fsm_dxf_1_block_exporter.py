@@ -489,12 +489,15 @@ class DxfBlockExporter:
             hatch_scale = style.get('hatch_scale', 1.0)
 
             # Получаем цвет из стиля
-            color_value = style.get('color', 256)  # 256 = ByLayer по умолчанию
+            # Приоритет: hatch_color (из hatch_color_RGB) > color (из line_color_RGB)
+            color_value = style.get('hatch_color') if style.get('hatch_color') is not None else style.get('color', 256)
 
             # Создаём штриховку в блоке
             hatch = block.add_hatch()
 
             # Устанавливаем цвет штриховки
+            # ВАЖНО: Всегда используем True Color (RGB) для штриховок в блоках,
+            # т.к. ACI color (hatch.dxf.color) не работает корректно для HATCH внутри BLOCK
             if color_value < 0:
                 # True Color (отрицательное значение = RGB)
                 rgb_value = -color_value
@@ -503,9 +506,26 @@ class DxfBlockExporter:
                 b = rgb_value & 0xFF
                 hatch.rgb = (r, g, b)
                 log_debug(f"Fsm_dxf_1: Штриховка цвет RGB({r},{g},{b})")
+            elif color_value == 256:
+                # ByLayer — не устанавливаем явный цвет
+                pass
             else:
-                # ACI индекс или ByLayer
-                hatch.dxf.color = color_value
+                # ACI → конвертируем в RGB для корректной работы в блоке
+                aci_to_rgb = {
+                    1: (255, 0, 0),      # Красный
+                    2: (255, 255, 0),    # Жёлтый
+                    3: (0, 255, 0),      # Зелёный
+                    4: (0, 255, 255),    # Циан
+                    5: (0, 0, 255),      # Синий
+                    6: (255, 0, 255),    # Пурпурный
+                    7: (255, 255, 255),  # Белый
+                }
+                if color_value in aci_to_rgb:
+                    hatch.rgb = aci_to_rgb[color_value]
+                    log_debug(f"Fsm_dxf_1: Штриховка ACI {color_value} -> RGB{aci_to_rgb[color_value]}")
+                else:
+                    hatch.dxf.color = color_value
+                    log_debug(f"Fsm_dxf_1: Штриховка ACI color {color_value}")
 
             # Устанавливаем паттерн
             if hatch_type == 'SOLID':

@@ -44,6 +44,7 @@ class StyleManager:
     PROP_LINE_SCALE = "autocad/line_scale"
     PROP_HATCH = "autocad/hatch"
     PROP_HATCH_SCALE = "autocad/hatch_scale"
+    PROP_HATCH_COLOR = "autocad/hatch_color"
 
     def __init__(self):
         """Инициализация менеджера стилей"""
@@ -520,6 +521,12 @@ class StyleManager:
 
         hatch_scale = autocad_style.get('hatch_scale', 1.0)
 
+        hatch_color_rgb = autocad_style.get('hatch_color_RGB', '')
+        if hatch_color_rgb and hatch_color_rgb != '-':
+            hatch_color_index = self._rgb_to_autocad_color(hatch_color_rgb)
+        else:
+            hatch_color_index = None
+
         # Сохраняем в customProperty
         layer.setCustomProperty(self.PROP_LINETYPE, linetype)
         layer.setCustomProperty(self.PROP_COLOR, color_index)
@@ -530,10 +537,15 @@ class StyleManager:
         if hatch:
             layer.setCustomProperty(self.PROP_HATCH, hatch)
             layer.setCustomProperty(self.PROP_HATCH_SCALE, hatch_scale)
+            if hatch_color_index is not None:
+                layer.setCustomProperty(self.PROP_HATCH_COLOR, hatch_color_index)
+            else:
+                layer.removeCustomProperty(self.PROP_HATCH_COLOR)
         else:
             # Удаляем hatch если его нет
             layer.removeCustomProperty(self.PROP_HATCH)
             layer.removeCustomProperty(self.PROP_HATCH_SCALE)
+            layer.removeCustomProperty(self.PROP_HATCH_COLOR)
 
     def _rgb_to_autocad_color(self, rgb_string: str) -> int:
         """
@@ -648,7 +660,8 @@ class StyleManager:
                 'transparency': layer.customProperty(self.PROP_TRANSPARENCY, 0),
                 'line_scale': layer.customProperty(self.PROP_LINE_SCALE, 1.0),
                 'hatch': hatch_value,
-                'hatch_scale': layer.customProperty(self.PROP_HATCH_SCALE, 1.0)
+                'hatch_scale': layer.customProperty(self.PROP_HATCH_SCALE, 1.0),
+                'hatch_color': layer.customProperty(self.PROP_HATCH_COLOR),
             }
 
         # Если нет сохраненных атрибутов - пытаемся получить из Base_layers.json
@@ -666,6 +679,9 @@ class StyleManager:
                 if hatch == '-' or not hatch:
                     hatch = None
 
+                hatch_color_rgb_str = autocad_style.get('hatch_color_RGB', '')
+                hatch_color = self._rgb_to_autocad_color(hatch_color_rgb_str) if hatch_color_rgb_str and hatch_color_rgb_str != '-' else None
+
                 return {
                     'linetype': autocad_style.get('linetype', 'CONTINUOUS'),
                     'color': color_index,
@@ -673,7 +689,8 @@ class StyleManager:
                     'transparency': autocad_style.get('line_transparency', 0),
                     'line_scale': autocad_style.get('line_scale', 1.0),
                     'hatch': hatch,
-                    'hatch_scale': autocad_style.get('hatch_scale', 1.0)
+                    'hatch_scale': autocad_style.get('hatch_scale', 1.0),
+                    'hatch_color': hatch_color,
                 }
         except Exception as e:
             log_warning(f"StyleManager: Не удалось загрузить стиль для '{layer.name()}': {e}")
