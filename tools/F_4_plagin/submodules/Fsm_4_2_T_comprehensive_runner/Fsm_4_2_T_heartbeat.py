@@ -183,7 +183,7 @@ class TestHeartbeat:
             if file_hashes:
                 from Daman_QGIS.constants import PLUGIN_VERSION
                 payload['file_hashes'] = file_hashes
-                payload['version'] = PLUGIN_VERSION
+                payload['plugin_version'] = PLUGIN_VERSION
 
             response = self._send_heartbeat(payload)
 
@@ -561,7 +561,7 @@ class TestHeartbeat:
             from Daman_QGIS.constants import PLUGIN_VERSION
             payload = self._build_heartbeat_payload()
             payload['file_hashes'] = file_hashes
-            payload['version'] = PLUGIN_VERSION
+            payload['plugin_version'] = PLUGIN_VERSION
 
             response = self._send_heartbeat(payload)
             self.logger.info(f"HTTP статус: {response.status_code}, "
@@ -609,7 +609,7 @@ class TestHeartbeat:
 
             payload = self._build_heartbeat_payload()
             payload['file_hashes'] = fake_hashes
-            payload['version'] = PLUGIN_VERSION
+            payload['plugin_version'] = PLUGIN_VERSION
 
             response = self._send_heartbeat(payload)
             self.logger.info(f"HTTP статус: {response.status_code}")
@@ -694,7 +694,7 @@ class TestHeartbeat:
             from Daman_QGIS.constants import PLUGIN_VERSION
             payload = self._build_heartbeat_payload()
             payload['file_hashes'] = partial
-            payload['version'] = PLUGIN_VERSION
+            payload['plugin_version'] = PLUGIN_VERSION
 
             response = self._send_heartbeat(payload)
 

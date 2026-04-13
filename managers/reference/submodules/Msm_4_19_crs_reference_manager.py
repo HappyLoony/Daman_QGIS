@@ -50,7 +50,7 @@ class CRSReferenceManager(BaseReferenceLoader):
         for item in data:
             zone = item.get('zone')
             region = item.get('region_code', '')
-            if zone is not None:
+            if zone and zone != '-':
                 item['_region_zone_key'] = f"{region}:{zone}"
             else:
                 item['_region_zone_key'] = None
@@ -91,6 +91,54 @@ class CRSReferenceManager(BaseReferenceLoader):
                 field_name='region_code',
                 value=code
             )
+
+    def get_crs_entry(self, region_code: str, zone: str) -> Optional[Dict]:
+        """
+        Получить запись CRS по паре (region_code, zone).
+
+        Args:
+            region_code: "91"
+            zone: "-" или "4"
+
+        Returns:
+            Полная запись из Base_CRS.json или None
+        """
+        for item in self.get_all_crs():
+            item_zone = item.get('zone', '-') or '-'
+            if item.get('region_code') == region_code and item_zone == zone:
+                return item
+        return None
+
+    def get_regions_for_combo(self) -> List[Dict]:
+        """
+        Получить данные регионов для combo в UI.
+
+        Returns:
+            ��писок словарей:
+            [{"region_code": "05", "region_name": "Республика Дагестан",
+              "zones": ["-"], "entries": [{...}]}, ...]
+            zones=["-"] означает зон нет.
+            zones=["1","2"] означает выбор из зон.
+        """
+        crs_list = self.get_all_crs()
+        regions: Dict[str, Dict] = {}
+
+        for item in crs_list:
+            rc = item.get('region_code', '')
+            if not rc:
+                continue
+            if rc not in regions:
+                regions[rc] = {
+                    'region_code': rc,
+                    'region_name': item.get('region_name', ''),
+                    'zones': [],
+                    'entries': []
+                }
+            zone = item.get('zone', '-') or '-'
+            regions[rc]['zones'].append(zone)
+            regions[rc]['entries'].append(item)
+
+        return sorted(regions.values(), key=lambda r: r['region_code'])
 
     # =========================================================================
     # Методы для работы с регионами и районами

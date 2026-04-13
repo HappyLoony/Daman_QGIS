@@ -31,6 +31,9 @@ from typing import Dict, Any, List
 class TestSecurity:
     """Комплексные тесты безопасности API"""
 
+    # Пауза между группами тестов (сек) — general rate limit 60 req/min
+    _GROUP_PAUSE = 15
+
     def __init__(self, iface, logger):
         """Инициализация теста"""
         self.iface = iface
@@ -38,6 +41,17 @@ class TestSecurity:
         self.validator = None
         self.loader = None
         self.api_url = None
+
+    def _rate_limit_pause(self):
+        """Пауза между группами для соблюдения server rate limit."""
+        try:
+            from qgis.PyQt.QtWidgets import QApplication
+            end = time.time() + self._GROUP_PAUSE
+            while time.time() < end:
+                QApplication.processEvents()
+                time.sleep(0.1)
+        except Exception:
+            time.sleep(self._GROUP_PAUSE)
 
     def run_all_tests(self):
         """Запуск всех тестов безопасности"""
@@ -47,18 +61,22 @@ class TestSecurity:
             # Инициализация
             self.test_01_init()
 
-            # Аутентификация и авторизация
+            # Аутентификация и авторизация (~50 запросов)
             self.test_10_bruteforce_api_keys()
             self.test_11_key_format_enumeration()
             self.test_12_timing_attack_detection()
             self.test_13_key_predictability()
 
-            # Подмена идентификаторов
+            self._rate_limit_pause()
+
+            # Подмена идентификаторов (~15 запросов)
             self.test_20_hardware_id_spoofing()
             self.test_21_hardware_id_enumeration()
             self.test_22_session_fixation()
 
-            # Injection атаки
+            self._rate_limit_pause()
+
+            # Injection атаки (много запросов)
             self.test_30_sql_injection()
             self.test_31_nosql_injection()
             self.test_32_command_injection()
@@ -66,31 +84,43 @@ class TestSecurity:
             self.test_34_xml_injection()
             self.test_35_json_injection()
 
+            self._rate_limit_pause()
+
             # Path Traversal и File Access
             self.test_40_path_traversal()
             self.test_41_null_byte_injection()
             self.test_42_unicode_normalization()
             self.test_43_double_encoding()
 
+            self._rate_limit_pause()
+
             # IDOR и Access Control
             self.test_50_idor_path_traversal()
             self.test_51_horizontal_privilege_escalation()
             self.test_52_vertical_privilege_escalation()
+
+            self._rate_limit_pause()
 
             # Parameter Tampering
             self.test_60_parameter_pollution()
             self.test_61_type_juggling()
             self.test_62_mass_assignment()
 
+            self._rate_limit_pause()
+
             # DoS и Rate Limiting
             self.test_70_rate_limiting()
             self.test_71_resource_exhaustion()
             self.test_72_large_payload()
 
+            self._rate_limit_pause()
+
             # Прочие атаки
             self.test_80_replay_attack()
             self.test_81_response_manipulation()
             self.test_82_error_message_disclosure()
+
+            self._rate_limit_pause()
 
             # HMAC подпись запросов
             self.test_90_hmac_signature_present()

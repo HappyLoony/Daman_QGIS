@@ -235,14 +235,14 @@ class DxfBlockExporter:
 
             # Настройки стиля для геометрии (явно из Base_layers.json)
             # Геометрия в блоке видимая, атрибуты будут невидимыми
+            # Lineweight НЕ задаётся — entity наследуют ByLayer (= Default на слое)
+            # Ширина линий регулируется ТОЛЬКО через const_width на LWPOLYLINE
             geom_attribs = {}
             if style:
                 if 'color' in style:
                     geom_attribs['color'] = style['color']
                 if 'linetype' in style and style['linetype'] != 'CONTINUOUS':
                     geom_attribs['linetype'] = style['linetype']
-                if 'lineweight' in style:
-                    geom_attribs['lineweight'] = style['lineweight']
 
             if geom_type == Qgis.GeometryType.Point:
                 # Точки экспортируются как CIRCLE (окружность)
@@ -285,9 +285,6 @@ class DxfBlockExporter:
                         polyline = block.add_lwpolyline(coords, dxfattribs=geom_attribs)
                         if style and 'width' in style:
                             polyline.dxf.const_width = style['width']
-                        # ВАЖНО: Добавляем lineweight для полилинии
-                        if 'lineweight' in geom_attribs:
-                            polyline.dxf.lineweight = geom_attribs['lineweight']
 
             elif geom_type == Qgis.GeometryType.Polygon:
                 # Полигоны (смещаем относительно центроида)
@@ -304,9 +301,6 @@ class DxfBlockExporter:
                             polyline = block.add_lwpolyline(coords, close=True, dxfattribs=geom_attribs)
                             if style and 'width' in style:
                                 polyline.dxf.const_width = style['width']
-                            # ВАЖНО: Добавляем lineweight для полилинии
-                            if 'lineweight' in geom_attribs:
-                                polyline.dxf.lineweight = geom_attribs['lineweight']
 
                             # === ШТРИХОВКА ВНУТРИ БЛОКА ===
                             # Добавляем штриховку прямо в блок со смещёнными координатами
@@ -333,9 +327,6 @@ class DxfBlockExporter:
                                 hole_polyline = block.add_lwpolyline(hole_coords, close=True, dxfattribs=geom_attribs)
                                 if style and 'width' in style:
                                     hole_polyline.dxf.const_width = style['width']
-                                # ВАЖНО: Добавляем lineweight для полилинии
-                                if 'lineweight' in geom_attribs:
-                                    hole_polyline.dxf.lineweight = geom_attribs['lineweight']
 
             # === ДОБАВЛЯЕМ ATTDEF ДЛЯ ВСЕХ АТРИБУТОВ ===
             # Атрибуты НЕВИДИМЫЕ на чертеже, но доступны в свойствах блока AutoCAD

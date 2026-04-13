@@ -11,12 +11,10 @@ from qgis.PyQt.QtWidgets import (
     QFileDialog, QFrame, QCheckBox
 )
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtGui import QIntValidator
 from qgis.gui import QgsProjectionSelectionWidget
 from qgis.core import QgsCoordinateReferenceSystem
 from Daman_QGIS.utils import log_info, log_warning
 from Daman_QGIS.tools.F_0_project.submodules.base_metadata_dialog import BaseMetadataDialog
-from Daman_QGIS.constants import FIXED_ZONE_REGIONS, SPECIAL_REGION_NAMES
 
 
 class EditProjectDialog(BaseMetadataDialog):
@@ -170,26 +168,31 @@ class EditProjectDialog(BaseMetadataDialog):
         # Форма для кода региона и зоны
         region_form = QFormLayout()
 
-        # 1_4_1 Код региона (ОБЯЗАТЕЛЬНОЕ поле, выбор из списка)
+        # 1_4_1 Код региона (ОБЯЗАТЕЛЬНОЕ поле, выбор из списка Base_CRS.json)
         self.region_code_combo = QComboBox()
-        # Заполняем значениями 01-91 (максимальный код региона РФ)
-        self.region_code_combo.addItem("")  # Пустой элемент для "не выбрано"
-        for i in range(1, 92):
-            code = f"{i:02d}"  # Форматируем как 01, 02, ... 91
-            self.region_code_combo.addItem(code, code)
-
-        # Ограничиваем высоту выпадающего списка
+        self.region_code_combo.setStyleSheet("QComboBox { combobox-popup: 0; }")
         self.region_code_combo.setMaxVisibleItems(12)
+        self.region_code_combo.addItem("Не указано", None)
 
-        self.region_code_combo.currentTextChanged.connect(self.on_region_changed)
-        region_form.addRow("Код региона:", self.region_code_combo)
+        self._crs_regions_data = []
+        try:
+            crs_ref = self.reference_db.crs
+            self._crs_regions_data = crs_ref.get_regions_for_combo()
+            for region in self._crs_regions_data:
+                label = f"{region['region_code']} — {region['region_name']}"
+                self.region_code_combo.addItem(label, region['region_code'])
+        except Exception:
+            log_warning("Fsm_0_3_1: Не удалось загрузить регионы из Base_CRS.json")
 
-        # 1_4_2 Код зоны (УСЛОВНОЕ поле, ручной ввод)
-        self.zone_code_edit = QLineEdit()
-        self.zone_code_edit.setPlaceholderText("Например: 1")
-        self.zone_code_edit.setMaxLength(1)
-        self.zone_code_edit.setValidator(QIntValidator(1, 9, self))
-        region_form.addRow("Код зоны:", self.zone_code_edit)
+        self.region_code_combo.currentIndexChanged.connect(self._on_region_changed)
+        region_form.addRow("Регион:", self.region_code_combo)
+
+        # 1_4_2 Код зоны (каскадный выбор из данных региона)
+        self.zone_code_combo = QComboBox()
+        self.zone_code_combo.addItem("-", "-")
+        self.zone_code_combo.setEnabled(False)
+        self.zone_code_combo.currentIndexChanged.connect(self._on_zone_changed)
+        region_form.addRow("Зона:", self.zone_code_combo)
 
         # Информационная метка о типе региона
         self.region_hint_label = QLabel()
@@ -431,24 +434,28 @@ class EditProjectDialog(BaseMetadataDialog):
             child.setToolTip("")
 
         # Загрузка кода региона (1_4_1)
-        # Блокируем сигналы чтобы on_region_changed не вызывался до загрузки зоны
         self.region_code_combo.blockSignals(True)
         if '1_4_1_code_region' in self.current_metadata:
             region_code = self.current_metadata['1_4_1_code_region'].get('value', '')
             if region_code:
-                index = self.region_code_combo.findText(region_code)
-                if index >= 0:
-                    self.region_code_combo.setCurrentIndex(index)
+                # Ищем по data (region_code), не по тексту
+                for i in range(self.region_code_combo.count()):
+                    if self.region_code_combo.itemData(i) == region_code:
+                        self.region_code_combo.setCurrentIndex(i)
+                        break
         self.region_code_combo.blockSignals(False)
 
-        # Загрузка кода зоны (1_4_2)
+        # Триггерим каскад зоны
+        self._on_region_changed(self.region_code_combo.currentIndex())
+
+        # Загрузка кода зоны (1_4_2) — установить в combo после каскада
         if '1_4_2_code_zone' in self.current_metadata:
             zone_code = self.current_metadata['1_4_2_code_zone'].get('value', '')
             if zone_code:
-                self.zone_code_edit.setText(zone_code)
-
-        # Вызываем обработчик изменения региона для обновления состояния поля зоны
-        self.on_region_changed()
+                for i in range(self.zone_code_combo.count()):
+                    if self.zone_code_combo.itemData(i) == zone_code:
+                        self.zone_code_combo.setCurrentIndex(i)
+                        break
 
         # Загрузка дополнительных метаданных (2_3 - 2_12)
 
@@ -546,56 +553,74 @@ class EditProjectDialog(BaseMetadataDialog):
         # в BaseExporter._build_crs_display_name() из code_region и code_zone
         pass
 
-    def on_region_changed(self):
-        """
-        Обработчик изменения кода региона.
+    def _on_region_changed(self, index: int):
+        """Обработчик изменения региона — каскадное обновление зоны."""
+        region_code = self.region_code_combo.currentData()
 
-        Логика:
-        - Фиксированные регионы (FIXED_ZONE_REGIONS): блокируем поле зоны
-        - Особые регионы (77, 78): показываем кастомное название
-        - Обычные регионы: разблокируем поле зоны
-        """
-        region_code = self.region_code_combo.currentText().strip()
+        self.zone_code_combo.blockSignals(True)
+        self.zone_code_combo.clear()
 
-        if not region_code:
-            # Регион не выбран - сбрасываем состояние
-            self.zone_code_edit.setEnabled(True)
-            self.zone_code_edit.clear()
-            self.zone_code_edit.setPlaceholderText("Например: 1")
-            self.region_hint_label.clear()
+        if region_code is None:
+            self.zone_code_combo.addItem("-", "-")
+            self.zone_code_combo.setEnabled(False)
+            self.crs_widget.setEnabled(True)
+            self.region_hint_label.setText("CRS выбирается вручную")
+            self.region_hint_label.setStyleSheet("color: orange; font-style: italic;")
+            self.zone_code_combo.blockSignals(False)
             return
 
-        if region_code in FIXED_ZONE_REGIONS:
-            # Фиксированная зона - блокируем поле
-            self.zone_code_edit.setEnabled(False)
-            self.zone_code_edit.clear()
+        region_data = None
+        for r in self._crs_regions_data:
+            if r['region_code'] == region_code:
+                region_data = r
+                break
 
-            if region_code in SPECIAL_REGION_NAMES:
-                # Особый регион с кастомным названием
-                special_name = SPECIAL_REGION_NAMES[region_code]
-                self.zone_code_edit.setPlaceholderText("Не требуется")
-                self.region_hint_label.setText(f"Особый регион: {special_name}")
-                self.region_hint_label.setStyleSheet("color: blue; font-style: italic;")
-            else:
-                # Обычный фиксированный регион
-                self.zone_code_edit.setPlaceholderText("Не требуется")
-                self.region_hint_label.setText("Единственная зона в регионе")
-                self.region_hint_label.setStyleSheet("color: gray; font-style: italic;")
+        if not region_data:
+            self.zone_code_combo.addItem("-", "-")
+            self.zone_code_combo.setEnabled(False)
+            self.zone_code_combo.blockSignals(False)
+            return
 
-            log_info(f"F_0_3: Регион {region_code} - фиксированная зона")
+        zones = region_data['zones']
+
+        if len(zones) == 1 and zones[0] == '-':
+            self.zone_code_combo.addItem("-", "-")
+            self.zone_code_combo.setEnabled(False)
+        elif len(zones) == 1:
+            self.zone_code_combo.addItem(f"Зона {zones[0]}", zones[0])
+            self.zone_code_combo.setEnabled(False)
         else:
-            # Обычный регион - разблокируем поле зоны
-            self.zone_code_edit.setEnabled(True)
-            self.zone_code_edit.setPlaceholderText("Обязательно")
+            # Несколько зон — placeholder + выбор
+            self.zone_code_combo.addItem("Выберите зону", None)
+            for z in sorted(zones):
+                self.zone_code_combo.addItem(f"Зона {z}", z)
+            self.zone_code_combo.setEnabled(True)
 
-            # Если зона уже заполнена, показываем нейтральную подсказку
-            if self.zone_code_edit.text().strip():
-                self.region_hint_label.setText(f"Зона: {self.zone_code_edit.text().strip()}")
-                self.region_hint_label.setStyleSheet("color: gray; font-style: italic;")
-            else:
-                self.region_hint_label.setText("Укажите номер зоны (1-9)")
-                self.region_hint_label.setStyleSheet("color: orange; font-style: italic;")
-                log_info(f"F_0_3: Регион {region_code} - требуется указать зону")
+        self.region_hint_label.setText(region_data['region_name'])
+        self.region_hint_label.setStyleSheet("color: gray; font-style: italic;")
+
+        self.zone_code_combo.blockSignals(False)
+
+        # CRS подтягиваем только если зона однозначна (1 зона или "-")
+        if len(zones) == 1:
+            self._on_zone_changed(0)
+
+    def _on_zone_changed(self, index: int):
+        """Обработчик изменения зоны — подтяжка CRS из Base_CRS.json."""
+        region_code = self.region_code_combo.currentData()
+        zone = self.zone_code_combo.currentData()
+
+        if region_code is None or zone is None:
+            # Placeholder "Выберите зону" — CRS разблокирован
+            self.crs_widget.setEnabled(True)
+            return
+
+        crs_ref = self.reference_db.crs
+        entry = crs_ref.get_crs_entry(region_code, zone)
+        crs = QgsCoordinateReferenceSystem.fromWkt(entry['wkt2'])
+        self.crs_widget.setCrs(crs)
+        self.crs_widget.setEnabled(False)
+        log_info(f"Fsm_0_3_1: CRS из базы: {entry.get('name')}")
     def validate_and_accept(self):
         """Валидация и принятие диалога"""
         # Получаем обновленные данные для валидации
@@ -624,30 +649,8 @@ class EditProjectDialog(BaseMetadataDialog):
             )
             return
 
-        # Валидация кода региона (обязательное поле)
-        region_code = self.region_code_combo.currentText().strip()
-        if not region_code:
-            QMessageBox.warning(
-                self,
-                "Внимание",
-                "Выберите код региона"
-            )
-            self.region_code_combo.setFocus()
-            return
-
-        # Валидация кода зоны (обязательно для обычных регионов)
-        zone_code = self.zone_code_edit.text().strip()
-
-        if region_code not in FIXED_ZONE_REGIONS:
-            # Обычный регион - зона обязательна
-            if not zone_code:
-                QMessageBox.warning(
-                    self,
-                    "Внимание",
-                    "Укажите код зоны (например: 1)"
-                )
-                self.zone_code_edit.setFocus()
-                return
+        # Валидация кода региона (не обязательно — "Не указано" допустимо)
+        # Новая система гарантирует консистентность region/zone при выборе
         
         # Предупреждение о переопределении СК
         current_crs_desc = self.current_crs_label.text()
@@ -694,7 +697,7 @@ class EditProjectDialog(BaseMetadataDialog):
             ('project_folder', '1_3_project_folder', self.folder_edit, 'text'),
             ('code', '2_1_code', self.code_edit, 'text'),
             ('release_date', '2_2_date', self.release_date_edit, 'text'),
-            ('code_region', '1_4_1_code_region', self.region_code_combo, 'combo_text'),
+            ('code_region', '1_4_1_code_region', self.region_code_combo, 'combo_data'),
             ('company', '2_3_company', self.company_combo, 'combo_text'),
             ('city', '2_4_city', self.city_combo, 'combo_text'),
             ('customer', '2_5_customer', self.customer_edit, 'text'),
@@ -719,6 +722,8 @@ class EditProjectDialog(BaseMetadataDialog):
                 new_val = widget.text().strip()
             elif method == 'combo_data':
                 new_val = widget.currentData()
+                if new_val is None:
+                    new_val = ''
             elif method == 'combo_text':
                 new_val = widget.currentText().strip()
             else:
@@ -751,9 +756,10 @@ class EditProjectDialog(BaseMetadataDialog):
         if old_crs_desc != new_crs_desc:
             changed_fields.append('crs')
 
-        # code_zone: условное поле, зависит от isEnabled()
+        # code_zone: из каскадного combo
         old_code_zone = self.current_metadata.get('1_4_2_code_zone', {}).get('value', '')
-        new_code_zone = self.zone_code_edit.text().strip() if self.zone_code_edit.isEnabled() else ""
+        zone = self.zone_code_combo.currentData() or '-'
+        new_code_zone = '' if zone == '-' else zone
         if old_code_zone != new_code_zone:
             changed_fields.append('code_zone')
 

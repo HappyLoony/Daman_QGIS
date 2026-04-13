@@ -154,9 +154,13 @@ class DxfExporter(BaseExporter):
         # Получаем масштабный коэффициент для подписей AutoCAD
         self._label_scale_factor = self._get_label_scale_factor()
 
-        # Сортируем слои: сначала Defpoints (будет внизу в AutoCAD), потом остальные
+        # Сортируем слои по order_layers из Base_layers.json
+        # Порядок записи в DXF = порядок отрисовки: первые записанные = внизу
+        # order_layers=1 = самый верхний → записывается последним
+        # Defpoints всегда первыми (внизу), слои без order_layers ("-") — после Defpoints
         defpoints_layers = []
-        other_layers = []
+        ordered_with_num = []  # (order_layers, layer)
+        unordered_layers = []  # без order_layers
 
         for layer in layers:
             if not isinstance(layer, QgsVectorLayer):
@@ -164,12 +168,22 @@ class DxfExporter(BaseExporter):
             layer_info = self.layer_utils.get_layer_info_from_base(layer.name())
             if layer_info and layer_info.get('layer_name_autocad') == 'Defpoints':
                 defpoints_layers.append(layer)
+            elif layer_info and layer_info.get('order_layers') not in (None, '-', '', 0):
+                try:
+                    order = int(layer_info['order_layers'])
+                    ordered_with_num.append((order, layer))
+                except (ValueError, TypeError):
+                    unordered_layers.append(layer)
             else:
-                other_layers.append(layer)
+                unordered_layers.append(layer)
 
-        # Объединяем: сначала Defpoints, потом остальные
-        ordered_layers = defpoints_layers + other_layers
-        log_debug(f"DxfExporter: Порядок экспорта: {len(defpoints_layers)} Defpoints слоёв, {len(other_layers)} остальных")
+        # Сортируем по order_layers DESC: большой номер первым (внизу), маленький последним (сверху)
+        ordered_with_num.sort(key=lambda x: x[0], reverse=True)
+
+        # Итого: Defpoints (самый низ) → без номера → по order_layers DESC
+        ordered_layers = defpoints_layers + unordered_layers + [layer for _, layer in ordered_with_num]
+        log_debug(f"DxfExporter: Порядок экспорта: {len(defpoints_layers)} Defpoints, "
+                  f"{len(unordered_layers)} без порядка, {len(ordered_with_num)} по order_layers")
 
         # Экспортируем каждый слой
         total_features = sum(layer.featureCount() for layer in ordered_layers)
@@ -227,10 +241,11 @@ class DxfExporter(BaseExporter):
                 self.layer_utils.add_linetype(doc, linetype)
             dxf_layer.dxf.linetype = linetype
 
-            # Настраиваем толщину линии
-            lineweight_value = autocad_style.get('lineweight', 100)
-            dxf_layer.dxf.lineweight = lineweight_value
-            log_debug(f"DxfExporter: Слой '{layer_dxf_name}': установлен lineweight={lineweight_value}")
+            # Lineweight слоя = Default (-3)
+            # Видимая ширина линий регулируется ТОЛЬКО через const_width (глобальная ширина LWPOLYLINE)
+            # Lineweight не используется: ограничен 2.11мм, масштабируется при зуме
+            dxf_layer.dxf.lineweight = -3  # LINEWEIGHT_DEFAULT
+            log_debug(f"DxfExporter: Слой '{layer_dxf_name}': lineweight=Default")
 
             # Настраиваем флаг печати
             if layer_info and layer_info.get('not_print') == 1:

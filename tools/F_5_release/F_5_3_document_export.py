@@ -209,7 +209,16 @@ class F_5_3_DocumentExport(BaseTool):
 
             doc_type_name = DocumentFactory.get_doc_type_name(template.doc_type)
             progress.setValue(current)
-            progress.setLabelText(f"Экспорт: {display_name} ({doc_type_name})")
+
+            # Фаза экспорта для информативного label
+            total = len(selected_items)
+            if extra_context.get('summary_table'):
+                label = f"[{current}/{total}] Сводная таблица: {display_name}"
+            elif extra_context.get('merged_export'):
+                label = f"[{current}/{total}] Сводный перечень: {display_name}"
+            else:
+                label = f"[{current}/{total}] {display_name} ({doc_type_name})"
+            progress.setLabelText(label)
 
             # Автонумерация приложений для перечней координат
             appendix_num = str(appendix_counter)

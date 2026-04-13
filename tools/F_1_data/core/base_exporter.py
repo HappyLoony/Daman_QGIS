@@ -13,7 +13,7 @@ from qgis.PyQt.QtCore import QObject, pyqtSignal, QSettings
 
 from Daman_QGIS.managers import DataCleanupManager
 from Daman_QGIS.utils import log_info, log_warning, log_error, create_crs_from_string
-from Daman_QGIS.constants import PLUGIN_NAME, FIXED_ZONE_REGIONS, SPECIAL_REGION_NAMES
+from Daman_QGIS.constants import PLUGIN_NAME
 
 
 class BaseExporter(QObject):
@@ -126,43 +126,33 @@ class BaseExporter(QObject):
 
     def _build_crs_display_name(self, project_db) -> Optional[str]:
         """
-        Формирование отображаемого названия СК из метаданных проекта
+        Формирование отображаемого названия СК из метаданных проекта.
 
-        Логика:
-        - Особые регионы (77, 78): МГГТ, МСК-1964
-        - Фиксированные регионы: МСК-XX (без зоны)
-        - Обычные регионы: МСК-XX зона Y
+        Строгое соответствие: только official_name из Base_CRS.json.
+        Если регион не указан или не найден в базе — None.
 
         Args:
             project_db: База данных проекта
 
         Returns:
-            Название СК для документов или None
+            official_name из Base_CRS.json или None
         """
-        # Получаем код региона
         code_region_data = project_db.get_metadata('1_4_1_code_region')
         code_region = code_region_data['value'] if code_region_data else None
 
         if not code_region:
             return None
 
-        # Особые регионы с кастомным названием
-        if code_region in SPECIAL_REGION_NAMES:
-            return SPECIAL_REGION_NAMES[code_region]
-
-        # Фиксированные регионы - без номера зоны
-        if code_region in FIXED_ZONE_REGIONS:
-            return f"МСК-{code_region}"
-
-        # Обычные регионы - с зоной
+        from Daman_QGIS.managers.reference.submodules.Msm_4_19_crs_reference_manager import CRSReferenceManager
+        crs_ref = CRSReferenceManager()
         code_zone_data = project_db.get_metadata('1_4_2_code_zone')
-        code_zone = code_zone_data['value'] if code_zone_data else None
-
-        if code_zone:
-            return f"МСК-{code_region} зона {code_zone}"
-        else:
-            # Регион без зоны (FIXED_ZONE_REGIONS: 77, 78 и др.)
-            return f"МСК-{code_region}"
+        zone = code_zone_data['value'] if code_zone_data else '-'
+        if not zone:
+            zone = '-'
+        entry = crs_ref.get_crs_entry(code_region, zone)
+        if entry:
+            return entry.get('official_name')
+        return None
     
     def format_filename(self, layer: QgsVectorLayer, pattern: Optional[str] = None, **kwargs) -> str:
         """

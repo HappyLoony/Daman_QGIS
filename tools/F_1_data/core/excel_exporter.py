@@ -223,11 +223,10 @@ class ExcelExporter(BaseExporter):
             workbook.close()
             return
 
-        # Получаем короткое название СК для заголовка
+        # Получаем название СК для заголовка (official_name из Base_CRS.json)
         crs_short_name, _ = self.get_project_crs_info()
         if crs_short_name and not is_wgs84:
-            # Преобразуем название СК (например: "СК 63_5" -> "СК 63 зона 5")
-            crs_display_name = crs_short_name.replace('_', ' зона ')
+            crs_display_name = crs_short_name
         else:
             crs_display_name = "WGS 84" if is_wgs84 else target_crs.description()
 

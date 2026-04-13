@@ -38,15 +38,33 @@ class TelemetryTests:
                 pass
         return self._session
 
+    # Пауза между API запросами (сек) — write rate limit 10 req/min
+    _API_PAUSE = 7
+
+    def _rate_limit_pause(self):
+        """Пауза для соблюдения server rate limit."""
+        try:
+            from qgis.PyQt.QtWidgets import QApplication
+            end = time.time() + self._API_PAUSE
+            while time.time() < end:
+                QApplication.processEvents()
+                time.sleep(0.1)
+        except Exception:
+            time.sleep(self._API_PAUSE)
+
     def run_all_tests(self):
         """Запуск всех тестов телеметрии."""
         self.logger.section("ТЕСТ: Система телеметрии (M_32)")
 
-        # API тесты
+        # API тесты (с паузами — write rate limit 10 req/min)
         self.test_api_basic_event()
+        self._rate_limit_pause()
         self.test_api_batch_events()
+        self._rate_limit_pause()
         self.test_api_missing_uid()
+        self._rate_limit_pause()
         self.test_api_missing_events()
+        self._rate_limit_pause()
         self.test_api_too_many_events()
 
         # Клиентские тесты

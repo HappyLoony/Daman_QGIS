@@ -59,7 +59,7 @@ PipInstaller.ensure_dependencies_in_path()
 # Import managers (все импорты из managers в одном блоке для избежания циклических зависимостей)
 from Daman_QGIS.managers import (
     ProjectManager, LayerManager, VersionManager,
-    CadnumSearchManager, registry,
+    CadnumSearchManager, LabelsToggleManager, registry,
     install_global_exception_hook, uninstall_global_exception_hook,
     track_exception
 )
@@ -756,8 +756,9 @@ class DamanQGIS:
 
             expected_hashes = payload.get('integrity')
             if not isinstance(expected_hashes, dict) or not expected_hashes:
-                # Нет хешей = нет integrity check (dev version без хешей на сервере)
-                return True
+                # Токен есть, но integrity claim отсутствует/невалиден — fail-closed
+                log_error("Daman_QGIS: Integrity claim missing or invalid — blocking")
+                return False
 
             # Вычисляем локальные хеши и сравниваем
             mismatches = []
@@ -915,6 +916,10 @@ class DamanQGIS:
         _t = perf_counter()
         self.main_toolbar.create_menu()
         log_timing(f"Daman_QGIS: [TIMING] toolbar/create_menu: {perf_counter() - _t:.3f}s")
+
+        # Утилитарные кнопки (после всех секций функций)
+        self.labels_toggle = LabelsToggleManager(self.iface)
+        self.labels_toggle.init_gui(self.toolbar)
 
         # Проверяем, не открыт ли уже проект плагина нативным способом
         self._check_native_project()
@@ -1252,6 +1257,10 @@ class DamanQGIS:
         if self.cadnum_search:
             self.cadnum_search.unload()
             self.cadnum_search = None
+
+        if self.labels_toggle:
+            self.labels_toggle.unload()
+            self.labels_toggle = None
 
         # Очищаем менеджеры
         self.project_manager = None

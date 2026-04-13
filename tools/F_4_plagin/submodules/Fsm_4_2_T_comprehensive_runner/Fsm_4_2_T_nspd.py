@@ -64,8 +64,8 @@ class TestNSPD:
         'GOOGLE': ['base_url', 'url_template'],
     }
 
-    # Группы, где layer_name может быть null
-    GROUPS_OPTIONAL_LAYER_NAME: set = set()
+    # Группы, где layer_name может быть null или "-"
+    GROUPS_OPTIONAL_LAYER_NAME: set = {'EGRN_WFS'}
 
     def __init__(self, iface, logger, parent_widget=None):
         self.iface = iface
@@ -330,11 +330,18 @@ class TestNSPD:
                     # Для test_extent проверяем парсинг
                     point = self._parse_test_point(value)
                     if not point:
-                        self.logger.fail(
-                            f"EP {ep_id} ({layer or '?'}): "
-                            f"test_extent невалидный или пуст: '{value}'"
-                        )
-                        errors += 1
+                        # Discovery endpoints (без expected_fields) — warning, не fail
+                        if not ep.get('expected_fields'):
+                            self.logger.warning(
+                                f"EP {ep_id} ({layer or '?'}): "
+                                f"test_extent пуст — endpoint не будет тестироваться"
+                            )
+                        else:
+                            self.logger.fail(
+                                f"EP {ep_id} ({layer or '?'}): "
+                                f"test_extent невалидный или пуст: '{value}'"
+                            )
+                            errors += 1
                 elif not value or str(value).strip() in ('', 'null', '-'):
                     self.logger.fail(
                         f"EP {ep_id} ({layer or '?'}): "

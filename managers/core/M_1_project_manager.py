@@ -722,10 +722,10 @@ class ProjectManager:
 
             # Priority 2: PipelineCache (server-delivered)
             if not pipeline_str:
-                region_code = self._get_region_code_from_metadata()
-                if region_code:
+                pipeline_key = self._get_pipeline_key_from_metadata()
+                if pipeline_key:
                     from Daman_QGIS.managers.infrastructure.submodules.Msm_29_5_pipeline_cache import PipelineCache
-                    pipeline_str = PipelineCache.get_instance().get_pipeline(region_code)
+                    pipeline_str = PipelineCache.get_instance().get_pipeline(pipeline_key)
                     if pipeline_str:
                         source = "server cache"
 
@@ -748,17 +748,31 @@ class ProjectManager:
         except Exception as e:
             log_warning(f"M_1: Ошибка регистрации pipeline: {e}")
 
-    def _get_region_code_from_metadata(self) -> Optional[str]:
-        """Get region code from project metadata for pipeline lookup."""
+    def _get_pipeline_key_from_metadata(self) -> Optional[str]:
+        """Get pipeline lookup key from project metadata.
+
+        Returns compound key 'region_code:zone' for multi-zone regions,
+        plain 'region_code' for single-zone or zone='-'.
+        Returns None if region not specified.
+        """
         if not self.project_db:
             return None
         try:
-            data = self.project_db.get_metadata('1_4_1_code_region')
-            if data:
-                return data.get('value')
+            region_data = self.project_db.get_metadata('1_4_1_code_region')
+            if not region_data:
+                return None
+            region = region_data.get('value', '').strip()
+            if not region:
+                return None
+
+            zone_data = self.project_db.get_metadata('1_4_2_code_zone')
+            zone = zone_data.get('value', '').strip() if zone_data else ''
+
+            if zone and zone != '-':
+                return f"{region}:{zone}"
+            return region
         except Exception:
-            pass
-        return None
+            return None
 
     def is_project_open(self) -> bool:
         """Проверка открыт ли проект"""
