@@ -353,6 +353,11 @@ class AutoUpdateManager:
                 self._SETTINGS_PREV_VERSION, PLUGIN_VERSION
             )
 
+            # Удаление старой версии перед извлечением
+            # (extractall без rmtree оставляет удалённые/переименованные файлы)
+            if os.path.isdir(PLUGIN_DIR):
+                shutil.rmtree(PLUGIN_DIR)
+
             # Извлечение (ZIP содержит Daman_QGIS/ как корневую папку)
             with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
                 zf.extractall(parent_dir)
