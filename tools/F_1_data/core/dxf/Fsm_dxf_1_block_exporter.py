@@ -478,6 +478,7 @@ class DxfBlockExporter:
 
             hatch_type = style.get('hatch', 'SOLID')
             hatch_scale = style.get('hatch_scale', 1.0)
+            hatch_angle = style.get('hatch_angle', 0)
 
             # Получаем цвет из стиля
             # Приоритет: hatch_color (из hatch_color_RGB) > color (из line_color_RGB)
@@ -522,7 +523,7 @@ class DxfBlockExporter:
             if hatch_type == 'SOLID':
                 hatch.set_pattern_fill('SOLID')
             else:
-                hatch.set_pattern_fill(hatch_type, scale=hatch_scale)
+                hatch.set_pattern_fill(hatch_type, scale=hatch_scale, angle=hatch_angle)
 
             # Добавляем внешний контур как границу штриховки
             hatch.paths.add_polyline_path(

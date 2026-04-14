@@ -46,18 +46,14 @@ class DxfHatchManager:
 
             # Устанавливаем паттерн штриховки
             hatch_type = style.get('hatch', 'SOLID')
+            hatch_scale = style.get('hatch_scale', 1.0)
+            hatch_angle = style.get('hatch_angle', 0)
             if hatch_type == 'SOLID':
                 hatch.set_pattern_fill('SOLID')
                 log_debug(f"Fsm_dxf_4: Применена сплошная штриховка SOLID")
-            elif hatch_type == 'ANSI31':
-                hatch_scale = style.get('hatch_scale', 1.0)
-                hatch.set_pattern_fill('ANSI31', scale=hatch_scale)
-                log_debug(f"Fsm_dxf_4: Применена штриховка ANSI31 с масштабом {hatch_scale}")
             else:
-                # Другие стандартные паттерны AutoCAD
-                hatch_scale = style.get('hatch_scale', 1.0)
-                hatch.set_pattern_fill(hatch_type, scale=hatch_scale)
-                log_debug(f"Fsm_dxf_4: Применена штриховка {hatch_type} с масштабом {hatch_scale}")
+                hatch.set_pattern_fill(hatch_type, scale=hatch_scale, angle=hatch_angle)
+                log_debug(f"Fsm_dxf_4: Применена штриховка {hatch_type}, масштаб={hatch_scale}, угол={hatch_angle}")
 
             # Добавляем внешний контур как границу штриховки
             hatch.paths.add_polyline_path(

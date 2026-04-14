@@ -51,7 +51,8 @@ class Fsm_6_6_2_LayoutManager:
             layout_mgr = registry.get('M_34')
             layout = layout_mgr.build_layout(
                 layout_name=layout_name,
-                page_format='A3'
+                page_format='A3',
+                doc_type='Мастер-план'
             )
 
             if not layout:
@@ -65,25 +66,37 @@ class Fsm_6_6_2_LayoutManager:
             log_error(f"Fsm_6_6_2: Ошибка создания макета '{layout_name}': {e}")
             return None
 
-    def set_title(self, layout: QgsPrintLayout, title_text: str) -> bool:
+    def set_title(self, layout: QgsPrintLayout,
+                  location_text: str, drawing_name: str) -> bool:
         """
-        Установить заголовок схемы.
+        Установить тексты на макете:
+        - title_label → адрес территории (из DaData)
+        - appendix_label → название схемы (drawing_name)
 
         Args:
             layout: Макет QGIS
-            title_text: Текст заголовка (drawing_name)
+            location_text: Адрес территории (многострочный)
+            drawing_name: Название схемы
 
         Returns:
             True при успехе
         """
         for item in layout.items():
-            if isinstance(item, QgsLayoutItemLabel) and item.id() == 'title_label':
-                item.setText(title_text)
-                log_info(f"Fsm_6_6_2: Заголовок установлен: {title_text}")
-                return True
+            if isinstance(item, QgsLayoutItemLabel):
+                if item.id() == 'title_label':
+                    item.setText(location_text)
+                    log_info(f"Fsm_6_6_2: Адрес территории установлен")
+                elif item.id() == 'appendix_label':
+                    item.setText(drawing_name)
+                    # Убираем underline (appendix по умолчанию с подчёркиванием)
+                    text_format = item.textFormat()
+                    font = text_format.font()
+                    font.setUnderline(False)
+                    text_format.setFont(font)
+                    item.setTextFormat(text_format)
+                    log_info(f"Fsm_6_6_2: Название схемы: {drawing_name}")
 
-        log_warning("Fsm_6_6_2: Элемент 'title_label' не найден в макете")
-        return False
+        return True
 
     def update_legend(
         self, layout: QgsPrintLayout, visible_layer_names: List[str]

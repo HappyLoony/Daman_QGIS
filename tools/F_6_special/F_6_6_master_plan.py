@@ -81,14 +81,20 @@ class F_6_6_MasterPlan(BaseTool):
 
         log_info(f"F_6_6: Доступно {len(available_drawings)} схем из {len(master_plan_drawings)}")
 
+        # 2.5. Получение адреса территории через M_39 DaData
+        location_text = self._get_location_text()
+
         # 3. Диалог выбора схем и папки экспорта
-        dialog = Fsm_6_6_1_Dialog(available_drawings, self.iface.mainWindow())
+        dialog = Fsm_6_6_1_Dialog(
+            available_drawings, location_text, self.iface.mainWindow()
+        )
         if dialog.exec() == 0:
             log_info("F_6_6: Отмена пользователем")
             return
 
         selected_drawings = dialog.get_selected_drawings()
         output_folder = dialog.get_output_folder()
+        location_text = dialog.get_location_text()
 
         if not selected_drawings:
             log_warning("F_6_6: Не выбрано ни одной схемы")
@@ -127,7 +133,8 @@ class F_6_6_MasterPlan(BaseTool):
                     index=i,
                     output_folder=output_folder,
                     layout_mgr=layout_mgr,
-                    overview_scale_factor=overview_scale_factor
+                    overview_scale_factor=overview_scale_factor,
+                    location_text=location_text
                 )
                 if pdf_path:
                     pdf_paths.append(pdf_path)
@@ -208,6 +215,75 @@ class F_6_6_MasterPlan(BaseTool):
 
         return available
 
+    def _get_location_text(self) -> str:
+        """
+        Получить адрес территории через M_39 DaData по центроиду L_1_1_1.
+
+        Returns:
+            Отформатированный адрес или пустая строка
+        """
+        try:
+            # Находим слой границ работ
+            boundaries_layer = None
+            for layer in QgsProject.instance().mapLayers().values():
+                if layer.name() == _BOUNDARIES_LAYER:
+                    boundaries_layer = layer
+                    break
+
+            if not boundaries_layer or not isinstance(boundaries_layer, QgsVectorLayer):
+                log_warning("F_6_6: Слой границ работ не найден для геокодирования")
+                return ''
+
+            if boundaries_layer.featureCount() == 0:
+                return ''
+
+            # Центроид в WGS-84
+            from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform
+            feature = next(boundaries_layer.getFeatures())
+            centroid = feature.geometry().centroid().asPoint()
+
+            transform = QgsCoordinateTransform(
+                boundaries_layer.crs(),
+                QgsCoordinateReferenceSystem('EPSG:4326'),
+                QgsProject.instance()
+            )
+            wgs_point = transform.transform(centroid)
+
+            # Запрос к DaData
+            geocoder = registry.get('M_39')
+            if not geocoder or not geocoder.is_configured():
+                log_warning("F_6_6: M_39 DaData не настроен")
+                return ''
+
+            result = geocoder.geolocate(lat=wgs_point.y(), lon=wgs_point.x())
+            if not result:
+                log_warning("F_6_6: DaData не вернул результат")
+                return ''
+
+            # Собираем адрес
+            data = result.get('data', {})
+            parts = []
+            for field in ['region_with_type', 'area_with_type',
+                          'city_with_type', 'city_district_with_type',
+                          'settlement_with_type', 'street_with_type']:
+                val = data.get(field)
+                if val:
+                    parts.append(val)
+
+            address = ', '.join(parts)
+            if address:
+                location = (
+                    f"Территория разработки мастер-плана "
+                    f"находится по адресу: {address}"
+                )
+                log_info(f"F_6_6: Адрес территории: {location}")
+                return location
+
+        except Exception as e:
+            log_warning(f"F_6_6: Ошибка получения адреса: {e}")
+
+        return ''
+
     def _get_overview_scale_factor(self) -> Optional[float]:
         """
         Показать диалог выбора масштаба обзорной карты.
@@ -238,8 +314,10 @@ class F_6_6_MasterPlan(BaseTool):
         layout_manager = project.layoutManager()
         layout_manager.addLayout(temp_layout)
 
+        _temp_theme = '_F_6_6_temp_overview'
+
         try:
-            # Настраиваем overview_map с темой ЦОС
+            # Находим overview_map
             overview_map = None
             for item in temp_layout.items():
                 if isinstance(item, QgsLayoutItemMap) and item.id() == 'overview_map':
@@ -249,6 +327,15 @@ class F_6_6_MasterPlan(BaseTool):
             if not overview_map:
                 log_warning("F_6_6: overview_map не найден во временном макете")
                 return 1.0
+
+            # Создаём временную тему с ЦОС + границы работ (как в F_1_4)
+            self._create_map_theme(_temp_theme, [
+                _BOUNDARIES_LAYER, _OVERVIEW_MAP_BASEMAP
+            ])
+
+            # Привязываем тему к overview_map
+            overview_map.setFollowVisibilityPreset(True)
+            overview_map.setFollowVisibilityPresetName(_temp_theme)
 
             # Устанавливаем базовый масштаб
             overview_map.setScale(overview_base_scale)
@@ -271,8 +358,11 @@ class F_6_6_MasterPlan(BaseTool):
                 return None
 
         finally:
-            # Удаляем временный макет
+            # Удаляем временный макет и тему
             layout_manager.removeLayout(temp_layout)
+            theme_collection = project.mapThemeCollection()
+            if theme_collection.hasMapTheme(_temp_theme):
+                theme_collection.removeMapTheme(_temp_theme)
 
     def _get_project_overview_scale(self) -> Optional[float]:
         """
@@ -342,7 +432,8 @@ class F_6_6_MasterPlan(BaseTool):
         index: int,
         output_folder: str,
         layout_mgr: 'Fsm_6_6_2_LayoutManager',
-        overview_scale_factor: float
+        overview_scale_factor: float,
+        location_text: str = ''
     ) -> Optional[str]:
         """
         Генерация одной схемы мастер-плана.
@@ -353,6 +444,7 @@ class F_6_6_MasterPlan(BaseTool):
             output_folder: Папка для PDF
             layout_mgr: Менеджер макетов
             overview_scale_factor: Множитель масштаба обзорной карты
+            location_text: Адрес территории для title_label
 
         Returns:
             Путь к PDF или None при ошибке
@@ -397,8 +489,8 @@ class F_6_6_MasterPlan(BaseTool):
                         item.setFollowVisibilityPreset(True)
                         item.setFollowVisibilityPresetName(overview_theme_name)
 
-            # h. Заголовок
-            layout_mgr.set_title(layout, drawing_name)
+            # h. Заголовок (адрес территории) + название схемы
+            layout_mgr.set_title(layout, location_text, drawing_name)
 
             # i. Легенда (filter_by_map)
             layout_mgr.update_legend(layout, main_layers)

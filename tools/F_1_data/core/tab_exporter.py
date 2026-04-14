@@ -132,7 +132,8 @@ class TabExporter(BaseExporter):
 
             # Для WGS84 файла убираем короткое название СК из имени
             # Проверяем, есть ли короткое название СК в имени файла
-            if crs_short_name and crs_short_name in filename:
+            crs_underscore = crs_short_name.replace(' ', '_') if crs_short_name else None
+            if crs_short_name and (crs_short_name in filename or (crs_underscore and crs_underscore in filename)):
                 # Убираем короткое название СК и возможные разделители
                 wgs84_filename = filename.replace(f"_{crs_short_name.replace(' ', '_')}", "")
                 wgs84_filename = wgs84_filename.replace(f"_{crs_short_name}", "")

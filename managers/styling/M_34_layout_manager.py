@@ -378,7 +378,8 @@ class LayoutManager:
         self,
         layout_name: str,
         page_format: str = None,
-        orientation: str = None
+        orientation: str = None,
+        doc_type: str = 'ДПТ'
     ) -> Optional[QgsPrintLayout]:
         """
         Создать макет программно из JSON конфигурации
@@ -391,6 +392,7 @@ class LayoutManager:
             layout_name: Имя создаваемого макета
             page_format: Формат страницы (A4, A3, A2, A1). Если None - из метаданных
             orientation: 'landscape' или 'portrait'. Если None - из метаданных проекта
+            doc_type: Тип документации для выбора шрифта (DOC_TYPE_FONTS)
 
         Returns:
             QgsPrintLayout или None при ошибке
@@ -414,7 +416,7 @@ class LayoutManager:
                 log_error("M_34: Не удалось загрузить конфигурацию Base_layout.json")
                 return None
 
-            layout = builder.build(config_key=config_key, layout_name=layout_name)
+            layout = builder.build(config_key=config_key, layout_name=layout_name, doc_type=doc_type)
 
             if layout:
                 self._current_layout = layout

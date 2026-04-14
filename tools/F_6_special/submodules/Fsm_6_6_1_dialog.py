@@ -14,7 +14,7 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QDialogButtonBox,
     QGroupBox, QCheckBox, QScrollArea, QWidget,
-    QFileDialog, QLineEdit
+    QFileDialog, QLineEdit, QTextEdit
 )
 from qgis.core import QgsProject
 
@@ -32,18 +32,21 @@ class Fsm_6_6_1_Dialog(BaseResponsiveDialog):
     MIN_HEIGHT = 400
     MAX_HEIGHT = 650
 
-    def __init__(self, available_drawings: List[Dict], parent=None):
+    def __init__(self, available_drawings: List[Dict],
+                 location_text: str = '', parent=None):
         """
         Инициализация диалога.
 
         Args:
             available_drawings: Список доступных чертежей из Base_drawings.json
+            location_text: Адрес территории из DaData (редактируемый)
             parent: Родительский виджет
         """
         super().__init__(parent)
         self.setWindowTitle("Мастер-план - Выбор схем")
 
         self._available_drawings = available_drawings
+        self._location_text = location_text
         self._checkboxes: List[QCheckBox] = []
         self._output_folder: Optional[str] = None
 
@@ -113,6 +116,22 @@ class Fsm_6_6_1_Dialog(BaseResponsiveDialog):
         group_layout.addWidget(scroll)
         schemes_group.setLayout(group_layout)
         layout.addWidget(schemes_group)
+
+        # Адрес территории (из DaData, редактируемый)
+        location_group = QGroupBox("Адрес территории")
+        location_layout = QVBoxLayout()
+
+        self._location_edit = QTextEdit()
+        self._location_edit.setPlaceholderText(
+            "Территория разработки мастер-плана находится по адресу: ..."
+        )
+        self._location_edit.setMaximumHeight(80)
+        if self._location_text:
+            self._location_edit.setPlainText(self._location_text)
+
+        location_layout.addWidget(self._location_edit)
+        location_group.setLayout(location_layout)
+        layout.addWidget(location_group)
 
         # Выбор папки экспорта
         folder_group = QGroupBox("Папка экспорта")
@@ -205,6 +224,15 @@ class Fsm_6_6_1_Dialog(BaseResponsiveDialog):
             if cb.isChecked():
                 selected.append(self._available_drawings[i])
         return selected
+
+    def get_location_text(self) -> str:
+        """
+        Получить текст адреса территории (отредактированный пользователем).
+
+        Returns:
+            Текст адреса
+        """
+        return self._location_edit.toPlainText().strip()
 
     def get_output_folder(self) -> Optional[str]:
         """

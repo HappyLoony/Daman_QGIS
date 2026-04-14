@@ -24,7 +24,7 @@ from qgis.core import (
 
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
-from Daman_QGIS.constants import EXPORT_DPI_ROSREESTR
+from Daman_QGIS.constants import EXPORT_DPI_ROSREESTR, DOC_TYPE_FONTS
 
 
 class LayoutBuilder:
@@ -32,7 +32,7 @@ class LayoutBuilder:
     Программный генератор макетов из JSON конфигурации
 
     Создает QgsPrintLayout с элементами (набор зависит от конфигурации):
-    - Страница (page_width, page_height, print_resolution)
+    - Страница (page_width, page_height)
     - Основная карта (main_map)
     - Обзорная карта (overview_map)
     - Легенда (legend)
@@ -49,6 +49,7 @@ class LayoutBuilder:
         self._config_file = 'Base_layout.json'
         self._config: Optional[Dict[str, Any]] = None
         self._layout: Optional[QgsPrintLayout] = None
+        self._font_family: str = DOC_TYPE_FONTS.get('ДПТ', 'GOST 2.304')
 
     def load_config(self) -> bool:
         """
@@ -78,13 +79,15 @@ class LayoutBuilder:
             log_error(f"Msm_34_1: Ошибка загрузки конфигурации {self._config_file}: {e}")
             return False
 
-    def build(self, config_key: str = 'A4_landscape', layout_name: str = 'Layout') -> Optional[QgsPrintLayout]:
+    def build(self, config_key: str = 'A4_landscape', layout_name: str = 'Layout',
+              doc_type: str = 'ДПТ') -> Optional[QgsPrintLayout]:
         """
         Создание макета из конфигурации
 
         Args:
             config_key: Ключ конфигурации (например 'A4_landscape', 'A3_landscape')
             layout_name: Имя создаваемого макета
+            doc_type: Тип документации для выбора шрифта из DOC_TYPE_FONTS
 
         Returns:
             QgsPrintLayout или None при ошибке
@@ -102,6 +105,9 @@ class LayoutBuilder:
             return None
 
         try:
+            # Шрифт по типу документации
+            self._font_family = DOC_TYPE_FONTS.get(doc_type, DOC_TYPE_FONTS['ДПТ'])
+
             # Создаем макет
             self._layout = QgsPrintLayout(QgsProject.instance())
             self._layout.initializeDefaults()
@@ -139,24 +145,21 @@ class LayoutBuilder:
 
         width = params.get('page_width', 297)
         height = params.get('page_height', 210)
-        # Разрешение 300 DPI согласно Приказу Росреестра от 19.04.2022 N П/0148
-        dpi = params.get('print_resolution', EXPORT_DPI_ROSREESTR)
 
         page.setPageSize(QgsLayoutSize(width, height, Qgis.LayoutUnit.Millimeters))
 
-        # Устанавливаем DPI для рендеринга макета
         # 300 DPI - требование Приказа Росреестра П/0148 (с изм. от 22.10.2024)
-        self._layout.renderContext().setDpi(dpi)
+        self._layout.renderContext().setDpi(EXPORT_DPI_ROSREESTR)
 
-        log_info(f"Msm_34_1: Страница настроена: {width}x{height} мм, DPI={dpi}")
+        log_info(f"Msm_34_1: Страница настроена: {width}x{height} мм, DPI={EXPORT_DPI_ROSREESTR}")
 
     def _add_guides(self, params: Dict[str, Any]) -> None:
         """
-        Добавление направляющих (guides) по ГОСТ
+        Добавление направляющих (guides)
 
-        Отступы от границ листа:
-        - Левая: 20 мм (для подшивки)
-        - Правая, верхняя, нижняя: 5 мм
+        Два уровня:
+        1. Рамка (margin) — отступы от края листа (ГОСТ 2.301: 20/5/5/5)
+        2. Padding — внутренние отступы от рамки для подгонки элементов
 
         Args:
             params: Параметры из конфигурации
@@ -164,50 +167,68 @@ class LayoutBuilder:
         page_width = params.get('page_width', 297)
         page_height = params.get('page_height', 210)
 
-        # Отступы по ГОСТ
-        margin_left = 20  # мм (для подшивки)
-        margin_right = 5  # мм
-        margin_top = 5    # мм
-        margin_bottom = 5 # мм
+        # Рамка: отступы от края листа (ГОСТ 2.301)
+        margin_left = 20   # мм (для подшивки)
+        margin_right = 5   # мм
+        margin_top = 5     # мм
+        margin_bottom = 5  # мм
+
+        # Padding: внутренние отступы от рамки
+        padding = 5
 
         guide_collection = self._layout.guides()
         page = self._layout.pageCollection().page(0)
 
-        # Вертикальные направляющие (левая и правая границы рабочей области)
-        # Левая направляющая - 20 мм от левого края
-        guide_left = QgsLayoutGuide(
+        # --- Рамка (4 направляющие) ---
+
+        guide_collection.addGuide(QgsLayoutGuide(
             Qt.Orientation.Vertical,
             QgsLayoutMeasurement(margin_left, Qgis.LayoutUnit.Millimeters),
             page
-        )
-        guide_collection.addGuide(guide_left)
-
-        # Правая направляющая - 5 мм от правого края
-        guide_right = QgsLayoutGuide(
+        ))
+        guide_collection.addGuide(QgsLayoutGuide(
             Qt.Orientation.Vertical,
             QgsLayoutMeasurement(page_width - margin_right, Qgis.LayoutUnit.Millimeters),
             page
-        )
-        guide_collection.addGuide(guide_right)
-
-        # Горизонтальные направляющие (верхняя и нижняя границы рабочей области)
-        # Верхняя направляющая - 5 мм от верхнего края
-        guide_top = QgsLayoutGuide(
+        ))
+        guide_collection.addGuide(QgsLayoutGuide(
             Qt.Orientation.Horizontal,
             QgsLayoutMeasurement(margin_top, Qgis.LayoutUnit.Millimeters),
             page
-        )
-        guide_collection.addGuide(guide_top)
-
-        # Нижняя направляющая - 5 мм от нижнего края
-        guide_bottom = QgsLayoutGuide(
+        ))
+        guide_collection.addGuide(QgsLayoutGuide(
             Qt.Orientation.Horizontal,
             QgsLayoutMeasurement(page_height - margin_bottom, Qgis.LayoutUnit.Millimeters),
             page
-        )
-        guide_collection.addGuide(guide_bottom)
+        ))
 
-        log_info(f"Msm_34_1: Направляющие добавлены (левая: {margin_left} мм, остальные: {margin_right} мм)")
+        # --- Padding (4 направляющие внутри рамки) ---
+
+        guide_collection.addGuide(QgsLayoutGuide(
+            Qt.Orientation.Vertical,
+            QgsLayoutMeasurement(margin_left + padding, Qgis.LayoutUnit.Millimeters),
+            page
+        ))
+        guide_collection.addGuide(QgsLayoutGuide(
+            Qt.Orientation.Vertical,
+            QgsLayoutMeasurement(page_width - margin_right - padding, Qgis.LayoutUnit.Millimeters),
+            page
+        ))
+        guide_collection.addGuide(QgsLayoutGuide(
+            Qt.Orientation.Horizontal,
+            QgsLayoutMeasurement(margin_top + padding, Qgis.LayoutUnit.Millimeters),
+            page
+        ))
+        guide_collection.addGuide(QgsLayoutGuide(
+            Qt.Orientation.Horizontal,
+            QgsLayoutMeasurement(page_height - margin_bottom - padding, Qgis.LayoutUnit.Millimeters),
+            page
+        ))
+
+        log_info(
+            f"Msm_34_1: Направляющие: рамка ({margin_left}/{margin_right}/{margin_top}/{margin_bottom}), "
+            f"padding {padding} мм"
+        )
 
     def _add_main_map(self, params: Dict[str, Any]) -> Optional[QgsLayoutItemMap]:
         """
@@ -340,9 +361,10 @@ class LayoutBuilder:
 
     def _setup_legend_styles(self, legend: QgsLayoutItemLegend) -> None:
         """
-        Настройка стилей текста легенды по ГОСТ
+        Настройка стилей текста легенды
 
-        Устанавливает шрифт GOST 2.304 для всех компонентов легенды:
+        Шрифт определяется типом документации (DOC_TYPE_FONTS).
+        Стили компонентов:
         - Title: Bold Italic, 14pt
         - Group: Italic, 14pt
         - Subgroup: Italic, 14pt
@@ -351,8 +373,7 @@ class LayoutBuilder:
         Args:
             legend: Элемент легенды
         """
-        # Шрифт GOST 2.304 для всех элементов
-        font_family = 'GOST 2.304'
+        font_family = self._font_family
         font_size = 14
         text_color = QColor(50, 50, 50)  # Темно-серый как в QPT
 
@@ -405,7 +426,7 @@ class LayoutBuilder:
         symbol_style.setMargin(QgsLegendStyle.Left, 5)
         legend.setStyle(QgsLegendStyle.SymbolLabel, symbol_style)
 
-        log_info("Msm_34_1: Стили легенды настроены (GOST 2.304)")
+        log_info(f"Msm_34_1: Стили легенды настроены ({font_family})")
 
     def _add_title_label(self, params: Dict[str, Any]) -> Optional[QgsLayoutItemLabel]:
         """
@@ -421,10 +442,10 @@ class LayoutBuilder:
         y = params.get('title_label_y', 10)
         width = params.get('title_label_width', 267)
         height = params.get('title_label_height', 25)
-        font_family = params.get('title_label_font', 'GOST 2.304')
-        font_size = params.get('title_label_font_size', 14)
-        font_bold = params.get('title_label_font_bold', True)
-        font_italic = params.get('title_label_font_italic', False)
+        font_family = self._font_family
+        font_size = 14
+        font_bold = True
+        font_italic = True
 
         label = QgsLayoutItemLabel(self._layout)
         label.setId('title_label')
@@ -470,9 +491,9 @@ class LayoutBuilder:
         y = params.get('appendix_label_y', 5)
         width = params.get('appendix_label_width', 35)
         height = params.get('appendix_label_height', 5)
-        font_family = params.get('appendix_label_font', 'GOST 2.304')
-        font_size = params.get('appendix_label_font_size', 14)
-        underline = params.get('appendix_label_underline', True)
+        font_family = self._font_family
+        font_size = 14
+        underline = True
 
         label = QgsLayoutItemLabel(self._layout)
         label.setId('appendix_label')

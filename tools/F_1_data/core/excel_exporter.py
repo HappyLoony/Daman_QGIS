@@ -197,7 +197,7 @@ class ExcelExporter(BaseExporter):
         # ВАЖНО: Определяем is_wgs84 ДО определения precision
         is_wgs84 = target_crs.authid() == "EPSG:4326"
 
-        # Настройки точности (автоматически 6 для WGS84, 2 для остальных)
+        # Настройки точности (автоматически 8 для WGS84, 2 для остальных)
         if 'coordinate_precision' not in params:
             # Автоматический выбор precision в зависимости от СК
             precision = PRECISION_DECIMALS_WGS84 if is_wgs84 else PRECISION_DECIMALS
@@ -308,11 +308,11 @@ class ExcelExporter(BaseExporter):
                 y_coord = transformed_point.y()
 
             if is_wgs84:
-                # Для WGS84 выводим с 6 знаками после запятой
+                # Для WGS84 выводим с 8 знаками после запятой (0.01 м)
                 worksheet.write(row_num, 0, row_data[1], data_format)  # № точки
-                # Широта (Y) и Долгота (X) с 6 знаками
-                worksheet.write(row_num, 1, f"{y_coord:.6f}", data_format)  # N (широта = Y)
-                worksheet.write(row_num, 2, f"{x_coord:.6f}", data_format)  # E (долгота = X)
+                # Широта (Y) и Долгота (X) с 8 знаками
+                worksheet.write(row_num, 1, f"{y_coord:.8f}", data_format)  # N (широта = Y)
+                worksheet.write(row_num, 2, f"{x_coord:.8f}", data_format)  # E (долгота = X)
             else:
                 # Для СК проекта - в колонку X записываем Y, в колонку Y записываем X (как в 0_5!)
                 worksheet.write(row_num, 0, row_data[1], data_format)  # № точки

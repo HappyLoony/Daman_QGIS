@@ -171,7 +171,7 @@ PRECISION_DECIMALS = 2  # 2 знака = 0.01 м
 
 # Количество знаков после запятой для WGS84 (градусы)
 # Используется: Fsm_6_3_1_coordinate_list.py, Fsm_6_3_7_gpmt_documents.py
-PRECISION_DECIMALS_WGS84 = 6  # 6 знаков для градусов (~0.11 м на экваторе)
+PRECISION_DECIMALS_WGS84 = 8  # 8 знаков для градусов (~0.001 м на экваторе)
 
 # Допуск для сравнения координат (учет погрешности float)
 # Используется: 1 файл (core/coordinate_precision.py), ~2 использования
@@ -874,4 +874,10 @@ PAGE_ORIENTATIONS = {
 # Значения по умолчанию для формата листа
 DEFAULT_PAGE_FORMAT = "A4"
 DEFAULT_PAGE_ORIENTATION = "Альбомная"
+
+# Шрифт по виду документации
+DOC_TYPE_FONTS = {
+    "ДПТ": "GOST 2.304",
+    "Мастер-план": "Avenir Next W1G",
+}
 

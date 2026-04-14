@@ -140,24 +140,10 @@ class F_5_3_DocumentExport(BaseTool):
             try:
                 metadata = ExportUtils.get_project_metadata()
 
-                # Регион 78: предлагаем расширенное именование ПС
+                # Регион 78: именование ПС по закону — «сервитут, публичный сервитут»
                 if (regional_mgr.is_region('78', metadata)
                         and self._has_ps_items(selected_items)):
-                    reply = QMessageBox.question(
-                        self.iface.mainWindow(),
-                        "Именование сервитутов",
-                        "Среди выбранных слоёв есть публичные сервитуты.\n\n"
-                        "Добавить 'сервитут,' к наименованиям?\n"
-                        "(папки, шапки, имена файлов)",
-                        QMessageBox.StandardButton.Yes
-                        | QMessageBox.StandardButton.No,
-                        QMessageBox.StandardButton.No
-                    )
-                    if reply == QMessageBox.StandardButton.Yes:
-                        metadata['extended_servitude_name'] = True
-                        log_info(
-                            "F_5_3: Расширенное именование ПС включено"
-                        )
+                    metadata['extended_servitude_name'] = True
 
                 original_count = len(selected_items)
                 selected_items = regional_mgr.apply_export_modifiers(
