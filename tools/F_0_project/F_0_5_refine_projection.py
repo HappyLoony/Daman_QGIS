@@ -348,7 +348,11 @@ class F_0_5_RefineProjection(BaseTool):
             # Это переопределяет CRS БЕЗ пересчёта координат -
             # именно то, что нужно для калибровки: координаты правильные,
             # просто CRS была указана неверно.
-            self.apply_crs_to_all_layers(saved_crs, old_crs=object_layer_crs)
+            self.apply_crs_to_all_layers(
+                saved_crs,
+                old_crs=object_layer_crs,
+                pipeline_remark=params.get('pipeline_remark')
+            )
 
             log_success(f"F_0_5: Создана кастомная проекция: {crs_name}")
             log_info(f"F_0_5: lon_0={params['lon_0']:.6f}°, k_0={params['k_0']:.8f}")
@@ -675,7 +679,8 @@ class F_0_5_RefineProjection(BaseTool):
     def apply_crs_to_all_layers(
         self,
         new_crs: QgsCoordinateReferenceSystem,
-        old_crs: Optional[QgsCoordinateReferenceSystem] = None
+        old_crs: Optional[QgsCoordinateReferenceSystem] = None,
+        pipeline_remark: Optional[str] = None
     ) -> None:
         """Применение новой CRS к проекту и слоям.
 
@@ -688,6 +693,7 @@ class F_0_5_RefineProjection(BaseTool):
         Args:
             new_crs: Новая (откалиброванная) CRS
             old_crs: Старая CRS слоёв которые нужно переопределить (опционально)
+            pipeline_remark: PROJ pipeline строка для OTF rendering (опционально)
         """
         try:
             # КРИТИЧЕСКИ ВАЖНО: processEvents() перед setCrs()
@@ -742,7 +748,6 @@ class F_0_5_RefineProjection(BaseTool):
 
             # Регистрация pipeline для OTF rendering (если есть в REMARK).
             # Без этого: до перезапуска QGIS WFS/тайлы используют towgs84.
-            pipeline_remark = params.get('pipeline_remark')
             if pipeline_remark and '+proj=pipeline' in pipeline_remark:
                 epsg_3857 = QgsCoordinateReferenceSystem("EPSG:3857")
                 ctx = QgsProject.instance().transformContext()

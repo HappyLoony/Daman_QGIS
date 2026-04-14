@@ -39,7 +39,7 @@ class LabelsToggleManager:
         self._button.clicked.connect(self._toggle)
         toolbar.addWidget(self._button)
 
-        log_info("M_44: Toggle подписей инициализирован")
+        log_info("M_45: Toggle подписей инициализирован")
 
     def _toggle(self) -> None:
         """Переключение состояния подписей"""
@@ -65,7 +65,7 @@ class LabelsToggleManager:
             self._button.setChecked(True)
 
         count = len(self._layers_with_labels)
-        log_info(f"M_44: Подписи скрыты на {count} слоях")
+        log_info(f"M_45: Подписи скрыты на {count} слоях")
 
     def _show_labels(self) -> None:
         """Восстановить подписи только на тех слоях, где они были"""
@@ -82,7 +82,7 @@ class LabelsToggleManager:
         if self._button:
             self._button.setChecked(False)
 
-        log_info(f"M_44: Подписи восстановлены на {restored} слоях")
+        log_info(f"M_45: Подписи восстановлены на {restored} слоях")
 
     def unload(self) -> None:
         """Очистка при выгрузке плагина"""

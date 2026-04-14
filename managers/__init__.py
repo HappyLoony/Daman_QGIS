@@ -15,7 +15,7 @@ Managers - Централизованная система менеджеров 
 - processing: Обработка данных (M_13, M_15, M_23, M_24, M_25)
 - validation: Валидаторы (M_21, M_22, M_27, M_28)
 - export: Экспорт (M_33, M_35)
-- infrastructure: Техническая инфраструктура (M_14, M_16, M_17, M_29, M_30, M_32, M_40, M_44)
+- infrastructure: Техническая инфраструктура (M_14, M_16, M_17, M_29, M_30, M_32, M_40, M_45)
 """
 import importlib
 from pathlib import Path
