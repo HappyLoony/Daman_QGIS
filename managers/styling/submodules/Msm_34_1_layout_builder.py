@@ -42,6 +42,22 @@ class LayoutBuilder:
     - Штамп (stamp) - для чертежей
     """
 
+    # Маппинг numpad → QgsLayoutItem.ReferencePoint
+    # 1=LowerLeft, 2=LowerMiddle, 3=LowerRight
+    # 4=MiddleLeft, 5=Middle, 6=MiddleRight
+    # 7=UpperLeft, 8=UpperMiddle, 9=UpperRight
+    _REF_POINTS = {
+        1: QgsLayoutItem.LowerLeft,
+        2: QgsLayoutItem.LowerMiddle,
+        3: QgsLayoutItem.LowerRight,
+        4: QgsLayoutItem.MiddleLeft,
+        5: QgsLayoutItem.Middle,
+        6: QgsLayoutItem.MiddleRight,
+        7: QgsLayoutItem.UpperLeft,
+        8: QgsLayoutItem.UpperMiddle,
+        9: QgsLayoutItem.UpperRight,
+    }
+
     def __init__(self):
         """
         Инициализация генератора
@@ -244,19 +260,20 @@ class LayoutBuilder:
         y = params.get('main_map_y', 35)
         width = params.get('main_map_width', 276)
         height = params.get('main_map_height', 109)
-        frame = params.get('main_map_frame', True)
-        background = params.get('main_map_background', True)
+
+        ref_point = self._REF_POINTS[params['main_map_ref_point']]
 
         map_item = QgsLayoutItemMap(self._layout)
         map_item.setId('main_map')
+        map_item.setReferencePoint(ref_point)
 
         # Позиция и размер
         map_item.attemptMove(QgsLayoutPoint(x, y, Qgis.LayoutUnit.Millimeters))
         map_item.attemptResize(QgsLayoutSize(width, height, Qgis.LayoutUnit.Millimeters))
 
         # Рамка и фон
-        map_item.setFrameEnabled(frame)
-        map_item.setBackgroundEnabled(background)
+        map_item.setFrameEnabled(True)
+        map_item.setBackgroundEnabled(True)
 
         # Тема карты задаётся вызывающим кодом (Fsm_1_4_5, F_6_6 и т.д.)
 
@@ -279,19 +296,20 @@ class LayoutBuilder:
         y = params.get('overview_map_y', 150)
         width = params.get('overview_map_width', 66)
         height = params.get('overview_map_height', 49)
-        frame = params.get('overview_map_frame', True)
-        background = params.get('overview_map_background', True)
+
+        ref_point = self._REF_POINTS[params['overview_map_ref_point']]
 
         map_item = QgsLayoutItemMap(self._layout)
         map_item.setId('overview_map')
+        map_item.setReferencePoint(ref_point)
 
         # Позиция и размер
         map_item.attemptMove(QgsLayoutPoint(x, y, Qgis.LayoutUnit.Millimeters))
         map_item.attemptResize(QgsLayoutSize(width, height, Qgis.LayoutUnit.Millimeters))
 
         # Рамка и фон
-        map_item.setFrameEnabled(frame)
-        map_item.setBackgroundEnabled(background)
+        map_item.setFrameEnabled(True)
+        map_item.setBackgroundEnabled(True)
 
         # Тема карты задаётся вызывающим кодом
 
@@ -312,23 +330,22 @@ class LayoutBuilder:
         """
         x = params.get('legend_x', 10)
         y = params.get('legend_y', 199)
-        title = params.get('legend_title', 'Условные обозначения:')
-        filter_by_map = params.get('legend_filter_by_map', True)
-        column_count = params.get('legend_column_count', 1)
-        symbol_width = params.get('legend_symbol_width', 15)
-        symbol_height = params.get('legend_symbol_height', 5)
+        # Начальные значения (M_34.adapt_legend() может адаптировать после заполнения)
+        column_count = 1
+        symbol_width = 15
+        symbol_height = 5
+
+        ref_point = self._REF_POINTS[params['legend_ref_point']]
 
         legend = QgsLayoutItemLegend(self._layout)
         legend.setId('legend')
-
-        # Точка привязки - нижний левый угол (как в QPT referencePoint="6")
-        legend.setReferencePoint(QgsLayoutItem.LowerLeft)
+        legend.setReferencePoint(ref_point)
 
         # Позиция (указывает нижний левый угол)
         legend.attemptMove(QgsLayoutPoint(x, y, Qgis.LayoutUnit.Millimeters))
 
         # Настройки легенды
-        legend.setTitle(title)
+        legend.setTitle('Условные обозначения:')
         legend.setColumnCount(column_count)
         legend.setSymbolWidth(symbol_width)
         legend.setSymbolHeight(symbol_height)
@@ -344,12 +361,11 @@ class LayoutBuilder:
         # Настройка стилей текста легенды (GOST 2.304)
         self._setup_legend_styles(legend)
 
-        # Привязка к карте main_map для фильтрации
-        if filter_by_map:
-            main_map = self._layout.itemById('main_map')
-            if main_map and isinstance(main_map, QgsLayoutItemMap):
-                legend.setLinkedMap(main_map)
-                legend.setLegendFilterByMapEnabled(True)
+        # Привязка к карте main_map для фильтрации (всегда)
+        main_map = self._layout.itemById('main_map')
+        if main_map and isinstance(main_map, QgsLayoutItemMap):
+            legend.setLinkedMap(main_map)
+            legend.setLegendFilterByMapEnabled(True)
 
         # Автоматическое обновление модели
         legend.setAutoUpdateModel(False)  # Отключаем для ручного управления
@@ -447,8 +463,11 @@ class LayoutBuilder:
         font_bold = True
         font_italic = True
 
+        ref_point = self._REF_POINTS[params['title_label_ref_point']]
+
         label = QgsLayoutItemLabel(self._layout)
         label.setId('title_label')
+        label.setReferencePoint(ref_point)
 
         # Позиция и размер
         label.attemptMove(QgsLayoutPoint(x, y, Qgis.LayoutUnit.Millimeters))
@@ -495,8 +514,11 @@ class LayoutBuilder:
         font_size = 14
         underline = True
 
+        ref_point = self._REF_POINTS[params['appendix_label_ref_point']]
+
         label = QgsLayoutItemLabel(self._layout)
         label.setId('appendix_label')
+        label.setReferencePoint(ref_point)
 
         # Позиция и размер
         label.attemptMove(QgsLayoutPoint(x, y, Qgis.LayoutUnit.Millimeters))
@@ -542,8 +564,11 @@ class LayoutBuilder:
         height = params.get('north_arrow_height', 35)
         svg_file = params.get('north_arrow_file', 'north_arrow_rus.svg')
 
+        ref_point = self._REF_POINTS[params['north_arrow_ref_point']]
+
         picture = QgsLayoutItemPicture(self._layout)
         picture.setId('north_arrow')
+        picture.setReferencePoint(ref_point)
 
         # Позиция и размер
         picture.attemptMove(QgsLayoutPoint(x, y, Qgis.LayoutUnit.Millimeters))

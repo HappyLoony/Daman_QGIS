@@ -251,7 +251,11 @@ class F_6_6_MasterPlan(BaseTool):
 
             # Запрос к DaData
             geocoder = registry.get('M_39')
-            if not geocoder or not geocoder.is_configured():
+            if not geocoder:
+                log_warning("F_6_6: M_39 не зарегистрирован")
+                return ''
+            geocoder.initialize()
+            if not geocoder.is_configured():
                 log_warning("F_6_6: M_39 DaData не настроен")
                 return ''
 
@@ -304,7 +308,7 @@ class F_6_6_MasterPlan(BaseTool):
         # Создаём временный layout для превью
         layout_mgr_m34 = registry.get('M_34')
         temp_layout = layout_mgr_m34.build_layout(
-            layout_name='_temp_overview_preview', page_format='A3'
+            layout_name='_temp_overview_preview', page_format='A3', orientation='landscape'
         )
         if not temp_layout:
             log_warning("F_6_6: Не удалось создать временный макет для превью")
@@ -498,6 +502,12 @@ class F_6_6_MasterPlan(BaseTool):
             # j. Экстент карты по границам работ L_1_1_1
             layout_mgr.apply_main_map_extent(layout)
 
+            # j2. Адаптация размера легенды (M_34)
+            # Вызывается ПОСЛЕ экстента — легенда корректно измеряется
+            # только когда карта имеет экстент и масштаб
+            layout_mgr_m34 = registry.get('M_34')
+            layout_mgr_m34.adapt_legend(layout)
+
             # k. Масштаб обзорной карты
             overview_base = self._get_project_overview_scale() or 100000.0
             target_scale = overview_base * overview_scale_factor
@@ -510,9 +520,9 @@ class F_6_6_MasterPlan(BaseTool):
 
             layout_mgr.export_to_pdf(layout, pdf_path)
 
-        finally:
-            # m. Удалить макет из проекта
-            lm.removeLayout(layout)
+        except Exception:
+            # При ошибке макет всё равно остаётся в проекте для диагностики
+            raise
 
         return pdf_path
 

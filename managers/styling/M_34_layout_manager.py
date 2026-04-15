@@ -461,3 +461,25 @@ class LayoutManager:
         if builder.load_config():
             return builder.get_config(config_key)
         return None
+
+    def adapt_legend(
+        self,
+        layout: 'QgsPrintLayout',
+        max_height_ratio: float = 0.45
+    ) -> bool:
+        """
+        Адаптировать размер легенды под доступное пространство.
+        Делегирует Msm_34_2_legend_adapter.
+
+        Вызывать ПОСЛЕ заполнения легенды слоями (update_legend).
+
+        Args:
+            layout: Макет с заполненной легендой
+            max_height_ratio: Макс. высота легенды как доля высоты main_map
+
+        Returns:
+            True при успехе
+        """
+        from .submodules.Msm_34_2_legend_adapter import LegendAdapter
+        adapter = LegendAdapter()
+        return adapter.adapt(layout, max_height_ratio)
