@@ -7,10 +7,10 @@
 import os
 from qgis.PyQt.QtXml import QDomDocument
 from qgis.core import (
-    QgsProject, QgsMessageLog, Qgis, QgsPrintLayout,
+    QgsProject, QgsPrintLayout,
     QgsLayoutExporter, QgsReadWriteContext,
     QgsLayoutItemLabel, QgsLayoutItemMap, QgsLayoutItemLegend,
-    QgsRectangle, QgsLayoutSize, QgsVectorLayer
+    QgsRectangle, QgsVectorLayer
 )
 from Daman_QGIS.database.project_db import ProjectDB
 from Daman_QGIS.constants import PLUGIN_NAME, EXPORT_DPI_ROSREESTR
@@ -141,61 +141,47 @@ class LayoutManager:
 
         extent_manager = registry.get('M_18')
 
-        # === MAIN_MAP: расширение до нижнего поля + асимметричный экстент ===
+        # === MAIN_MAP: экстент по границам работ с равномерным padding ===
+        # Размеры из Base_layout.json (без перезаписи)
         main_map = extent_manager.applier.get_map_item_by_id(layout, 'main_map')
         if not main_map:
             log_warning("Fsm_1_4_5: Карта 'main_map' не найдена в макете")
             return
 
-        # Размеры страницы и карты
-        page = layout.pageCollection().page(0)
-        page_height = page.pageSize().height()
-        margin_bottom = 5
+        map_width = main_map.rect().width()
+        map_height = main_map.rect().height()
 
-        map_top_y = main_map.pagePos().y()
-        original_width = main_map.rect().width()
-        original_height = main_map.rect().height()
-        new_height = page_height - margin_bottom - map_top_y
-
-        # Расширяем main_map до нижнего поля (от TopLeft вниз)
-        main_map.attemptResize(QgsLayoutSize(
-            original_width, new_height, Qgis.LayoutUnit.Millimeters
-        ))
-        log_info(f"Fsm_1_4_5: main_map resize: {original_height:.0f} -> {new_height:.0f} мм")
+        if map_width <= 0 or map_height <= 0:
+            log_error(
+                f"Fsm_1_4_5: Некорректные размеры main_map из Base_layout.json: "
+                f"{map_width}x{map_height} мм"
+            )
+            return
 
         # Z-order: main_map на дно стека (overlay поверх)
         layout.moveItemToBottom(main_map)
 
         # Label Blocking: подписи карты не рендерятся под overlay-элементами
-        overview_map_item = layout.itemById('overview_map')
-        legend_item = layout.itemById('legend')
-        north_arrow_item = layout.itemById('north_arrow')
-        if overview_map_item:
-            main_map.addLabelBlockingItem(overview_map_item)
-        if legend_item:
-            main_map.addLabelBlockingItem(legend_item)
-        if north_arrow_item:
-            main_map.addLabelBlockingItem(north_arrow_item)
+        for item_id in ['overview_map', 'legend', 'north_arrow']:
+            item = layout.itemById(item_id)
+            if item:
+                main_map.addLabelBlockingItem(item)
 
-        # Расчет safe_fraction (доля карты без overlay)
-        overlay_top_y = overview_map_item.pagePos().y()
-        safety_margin_mm = 10
-        safe_zone_mm = overlay_top_y - map_top_y - safety_margin_mm
-        safe_fraction = safe_zone_mm / new_height
-
-        # Асимметричный экстент с расширением на юг
-        extent = extent_manager.calculator.calculate_from_layer(boundaries_layer)
-        extent = extent_manager.calculator.add_padding_south_extended(
-            extent, padding_percent=10.0, safe_fraction=safe_fraction
+        # Экстент по границам работ с равномерным padding
+        # Label blocking (выше) резервирует площадь под overlay-элементами
+        extent = extent_manager.calculate_extent(
+            boundaries_layer, padding_percent=10.0, adaptive=True
         )
         extent = extent_manager.fitter.fit_extent_to_ratio(
-            extent, original_width, new_height
+            extent, map_width, map_height
         )
         result_main = extent_manager.applier.apply_extent(main_map, extent)
-        log_info(f"Fsm_1_4_5: South-extend: safe_fraction={safe_fraction:.3f}")
 
         if result_main:
-            log_info("Fsm_1_4_5: Экстент main_map установлен программно")
+            log_info(
+                f"Fsm_1_4_5: Экстент main_map установлен "
+                f"({map_width:.0f}x{map_height:.0f} мм)"
+            )
         else:
             log_warning("Fsm_1_4_5: Не удалось установить экстент main_map")
 
