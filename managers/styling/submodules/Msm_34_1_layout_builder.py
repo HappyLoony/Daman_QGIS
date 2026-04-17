@@ -67,6 +67,50 @@ class LayoutBuilder:
         self._layout: Optional[QgsPrintLayout] = None
         self._font_family: str = DOC_TYPE_FONTS.get('ДПТ', 'GOST 2.304')
 
+    # Кэш зарегистрированных шрифтов (class-level, один раз за сессию)
+    _registered_fonts: set = set()
+
+    def _ensure_font_registered(self, font_family: str) -> None:
+        """
+        Регистрация шрифта в Qt если он не найден в системе.
+        Ищет TTF файлы в data/fonts/ плагина.
+        """
+        if font_family in self._registered_fonts:
+            return
+
+        from qgis.PyQt.QtGui import QFontDatabase
+        db = QFontDatabase()
+
+        # Проверяем есть ли шрифт
+        if font_family in db.families():
+            self._registered_fonts.add(font_family)
+            return
+
+        # Ищем TTF в data/fonts/
+        plugin_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        fonts_dir = os.path.join(plugin_dir, 'data', 'fonts')
+
+        if not os.path.isdir(fonts_dir):
+            log_warning(f"Msm_34_1: Папка шрифтов не найдена: {fonts_dir}")
+            return
+
+        registered = 0
+        for filename in os.listdir(fonts_dir):
+            if font_family.lower().replace(' ', '') in filename.lower().replace(' ', ''):
+                if filename.endswith(('.ttf', '.otf')):
+                    font_path = os.path.join(fonts_dir, filename)
+                    font_id = QFontDatabase.addApplicationFont(font_path)
+                    if font_id >= 0:
+                        registered += 1
+                    else:
+                        log_warning(f"Msm_34_1: Не удалось зарегистрировать: {filename}")
+
+        if registered > 0:
+            self._registered_fonts.add(font_family)
+            log_info(f"Msm_34_1: Шрифт '{font_family}' зарегистрирован ({registered} файлов)")
+        else:
+            log_warning(f"Msm_34_1: Шрифт '{font_family}' не найден в {fonts_dir}")
+
     def load_config(self) -> bool:
         """
         Загрузка конфигурации из Base_layout.json
@@ -121,8 +165,9 @@ class LayoutBuilder:
             return None
 
         try:
-            # Шрифт по типу документации
-            self._font_family = DOC_TYPE_FONTS.get(doc_type, DOC_TYPE_FONTS['ДПТ'])
+            # Шрифт из базы данных (font_family в params)
+            self._font_family = str(params['font_family'])
+            self._ensure_font_registered(self._font_family)
 
             # Создаем макет
             self._layout = QgsPrintLayout(QgsProject.instance())
@@ -358,8 +403,8 @@ class LayoutBuilder:
         legend.setFrameEnabled(True)
         legend.setBackgroundEnabled(True)
 
-        # Настройка стилей текста легенды (GOST 2.304)
-        self._setup_legend_styles(legend)
+        # Настройка стилей текста легенды
+        self._setup_legend_styles(legend, params)
 
         # Привязка к карте main_map для фильтрации (всегда)
         main_map = self._layout.itemById('main_map')
@@ -375,30 +420,31 @@ class LayoutBuilder:
 
         return legend
 
-    def _setup_legend_styles(self, legend: QgsLayoutItemLegend) -> None:
+    def _setup_legend_styles(self, legend: QgsLayoutItemLegend, params: Dict[str, Any]) -> None:
         """
-        Настройка стилей текста легенды
+        Настройка стилей текста легенды.
 
-        Шрифт определяется типом документации (DOC_TYPE_FONTS).
-        Стили компонентов:
-        - Title: Bold Italic, 14pt
-        - Group: Italic, 14pt
-        - Subgroup: Italic, 14pt
-        - SymbolLabel: Italic, 14pt
+        Шрифт из DOC_TYPE_FONTS, стиль (bold/italic) из Base_layout.json (legend_font).
+        Title получает bold дополнительно к стилю из базы.
 
         Args:
             legend: Элемент легенды
+            params: Параметры из конфигурации
         """
         font_family = self._font_family
         font_size = 14
-        text_color = QColor(50, 50, 50)  # Темно-серый как в QPT
+        text_color = QColor(50, 50, 50)
+        font_style = str(params.get('legend_font', 'regular')).lower()
 
-        # Title style (Bold Italic)
+        base_bold = 'bold' in font_style
+        base_italic = 'italic' in font_style
+
+        # Title style (base + bold)
         title_style = legend.style(QgsLegendStyle.Title)
         title_format = QgsTextFormat()
         title_font = QFont(font_family, font_size)
         title_font.setBold(True)
-        title_font.setItalic(True)
+        title_font.setItalic(base_italic)
         title_format.setFont(title_font)
         title_format.setSize(font_size)
         title_format.setColor(text_color)
@@ -406,34 +452,27 @@ class LayoutBuilder:
         title_style.setMargin(QgsLegendStyle.Bottom, 3)
         legend.setStyle(QgsLegendStyle.Title, title_style)
 
-        # Group style (Italic)
-        group_style = legend.style(QgsLegendStyle.Group)
-        group_format = QgsTextFormat()
-        group_font = QFont(font_family, font_size)
-        group_font.setItalic(True)
-        group_format.setFont(group_font)
-        group_format.setSize(font_size)
-        group_format.setColor(text_color)
-        group_style.setTextFormat(group_format)
-        legend.setStyle(QgsLegendStyle.Group, group_style)
+        # Group, Subgroup, SymbolLabel — одинаковый стиль из базы
+        for style_type in [QgsLegendStyle.Group, QgsLegendStyle.Subgroup]:
+            style = legend.style(style_type)
+            fmt = QgsTextFormat()
+            f = QFont(font_family, font_size)
+            f.setBold(base_bold)
+            f.setItalic(base_italic)
+            fmt.setFont(f)
+            fmt.setSize(font_size)
+            fmt.setColor(text_color)
+            style.setTextFormat(fmt)
+            if style_type == QgsLegendStyle.Subgroup:
+                style.setMargin(QgsLegendStyle.Top, 1)
+            legend.setStyle(style_type, style)
 
-        # Subgroup style (Italic)
-        subgroup_style = legend.style(QgsLegendStyle.Subgroup)
-        subgroup_format = QgsTextFormat()
-        subgroup_font = QFont(font_family, font_size)
-        subgroup_font.setItalic(True)
-        subgroup_format.setFont(subgroup_font)
-        subgroup_format.setSize(font_size)
-        subgroup_format.setColor(text_color)
-        subgroup_style.setTextFormat(subgroup_format)
-        subgroup_style.setMargin(QgsLegendStyle.Top, 1)
-        legend.setStyle(QgsLegendStyle.Subgroup, subgroup_style)
-
-        # SymbolLabel style (Italic)
+        # SymbolLabel style (из базы + margins)
         symbol_style = legend.style(QgsLegendStyle.SymbolLabel)
         symbol_format = QgsTextFormat()
         symbol_font = QFont(font_family, font_size)
-        symbol_font.setItalic(True)
+        symbol_font.setBold(base_bold)
+        symbol_font.setItalic(base_italic)
         symbol_format.setFont(symbol_font)
         symbol_format.setSize(font_size)
         symbol_format.setColor(text_color)
@@ -442,7 +481,7 @@ class LayoutBuilder:
         symbol_style.setMargin(QgsLegendStyle.Left, 5)
         legend.setStyle(QgsLegendStyle.SymbolLabel, symbol_style)
 
-        log_info(f"Msm_34_1: Стили легенды настроены ({font_family})")
+        log_info(f"Msm_34_1: Стили легенды настроены ({font_family}, {font_style})")
 
     def _add_title_label(self, params: Dict[str, Any]) -> Optional[QgsLayoutItemLabel]:
         """
@@ -459,9 +498,7 @@ class LayoutBuilder:
         width = params.get('title_label_width', 267)
         height = params.get('title_label_height', 25)
         font_family = self._font_family
-        font_size = 14
-        font_bold = True
-        font_italic = True
+        font_style = str(params.get('title_label_font', 'regular')).lower()
 
         ref_point = self._REF_POINTS[params['title_label_ref_point']]
 
@@ -473,15 +510,13 @@ class LayoutBuilder:
         label.attemptMove(QgsLayoutPoint(x, y, Qgis.LayoutUnit.Millimeters))
         label.attemptResize(QgsLayoutSize(width, height, Qgis.LayoutUnit.Millimeters))
 
-        # Шрифт
+        # Шрифт (size=14 константа, стиль из базы)
         text_format = QgsTextFormat()
-        font = QFont(font_family, font_size)
-        if font_bold:
-            font.setBold(True)
-        if font_italic:
-            font.setItalic(True)
+        font = QFont(font_family, 14)
+        font.setBold('bold' in font_style)
+        font.setItalic('italic' in font_style)
         text_format.setFont(font)
-        text_format.setSize(font_size)
+        text_format.setSize(14)
         label.setTextFormat(text_format)
 
         # Текст по умолчанию (будет заменен при заполнении)
@@ -511,8 +546,7 @@ class LayoutBuilder:
         width = params.get('appendix_label_width', 35)
         height = params.get('appendix_label_height', 5)
         font_family = self._font_family
-        font_size = 14
-        underline = True
+        font_style = str(params.get('appendix_label_font', 'regular')).lower()
 
         ref_point = self._REF_POINTS[params['appendix_label_ref_point']]
 
@@ -524,13 +558,14 @@ class LayoutBuilder:
         label.attemptMove(QgsLayoutPoint(x, y, Qgis.LayoutUnit.Millimeters))
         label.attemptResize(QgsLayoutSize(width, height, Qgis.LayoutUnit.Millimeters))
 
-        # Шрифт
+        # Шрифт (size=14 константа, стиль из базы)
         text_format = QgsTextFormat()
-        font = QFont(font_family, font_size)
-        if underline:
-            font.setUnderline(True)
+        font = QFont(font_family, 14)
+        font.setBold('bold' in font_style)
+        font.setItalic('italic' in font_style)
+        font.setUnderline(True)
         text_format.setFont(font)
-        text_format.setSize(font_size)
+        text_format.setSize(14)
         label.setTextFormat(text_format)
 
         # Текст по умолчанию

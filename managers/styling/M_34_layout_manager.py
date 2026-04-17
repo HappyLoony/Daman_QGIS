@@ -407,7 +407,13 @@ class LayoutManager:
             if orientation is None:
                 orientation = self.get_orientation_code(meta_orientation)
 
-        config_key = f"{page_format}_{orientation}"
+        # Суффикс типа документации
+        _DOC_TYPE_SUFFIX = {
+            'ДПТ': 'DPT',
+            'Мастер-план': 'MP',
+        }
+        suffix = _DOC_TYPE_SUFFIX.get(doc_type, 'DPT')
+        config_key = f"{page_format}_{orientation}_{suffix}"
 
         try:
             builder = LayoutBuilder()
@@ -434,7 +440,8 @@ class LayoutManager:
     def get_layout_config(
         self,
         page_format: str = None,
-        orientation: str = None
+        orientation: str = None,
+        doc_type: str = 'ДПТ'
     ) -> Optional[Dict[str, Any]]:
         """
         Получить параметры макета из JSON конфигурации
@@ -442,6 +449,7 @@ class LayoutManager:
         Args:
             page_format: Формат страницы (A4, A3, A2, A1). Если None - из метаданных
             orientation: 'landscape' или 'portrait'. Если None - из метаданных
+            doc_type: Тип документации (ДПТ, Мастер-план)
 
         Returns:
             Dict с параметрами или None
@@ -455,7 +463,9 @@ class LayoutManager:
             if orientation is None:
                 orientation = self.get_orientation_code(meta_orientation)
 
-        config_key = f"{page_format}_{orientation}"
+        _DOC_TYPE_SUFFIX = {'ДПТ': 'DPT', 'Мастер-план': 'MP'}
+        suffix = _DOC_TYPE_SUFFIX.get(doc_type, 'DPT')
+        config_key = f"{page_format}_{orientation}_{suffix}"
 
         builder = LayoutBuilder()
         if builder.load_config():

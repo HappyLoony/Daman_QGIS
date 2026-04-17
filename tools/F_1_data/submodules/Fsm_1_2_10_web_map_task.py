@@ -320,7 +320,16 @@ class Fsm_1_2_10_WebMapLoadTask(BaseAsyncTask):
 
                     # ОКС - объединённая загрузка
                     elif config['category_id'] == 'oks_combined':
-                        geometry_provider = self.egrn_loader.get_boundary_extent
+                        egrn_loader = self.egrn_loader
+                        boundary_selector = self.api_manager.get_boundary_layer_name(
+                            self.api_manager.OKS_LAYER_NAME
+                        )
+                        if boundary_selector == "L_1_1_3_Границы_работ_500_м":
+                            geometry_provider = lambda: egrn_loader.get_boundary_extent(use_500m_buffer=True)
+                        elif boundary_selector == "L_1_1_1_Границы_работ":
+                            geometry_provider = lambda: egrn_loader.get_boundary_extent(use_no_buffer=True)
+                        else:
+                            geometry_provider = egrn_loader.get_boundary_extent
                         layer, feature_count = self.egrn_loader.load_oks_combined(
                             layer_name=config['layer_name'],
                             geometry_provider=geometry_provider,

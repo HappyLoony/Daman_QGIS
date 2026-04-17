@@ -137,41 +137,65 @@ class LegendAdapter:
         legend_height: float
     ) -> None:
         """
-        Сдвинуть экстент main_map вверх, чтобы территория
-        не перекрывалась легендой.
-
-        safe_fraction = (map_height - legend_height - gap) / map_height
-        Территория размещается в верхней safe_fraction карты,
+        Пересчитать экстент main_map: территория в верхней части,
         нижняя часть — подложка под легендой.
+
+        Использует M_18.add_padding_south_extended() с safe_fraction
+        рассчитанным из реального размера легенды.
         """
-        from qgis.core import QgsRectangle
+        from Daman_QGIS.managers import registry
+        from qgis.core import QgsLayoutSize, QgsLayoutPoint, Qgis, QgsProject
 
         map_height = main_map.rect().height()
-        gap = 10  # мм запаса между территорией и легендой
+        map_width = main_map.rect().width()
 
-        safe_fraction = (map_height - legend_height - gap) / map_height
-        safe_fraction = max(0.3, min(safe_fraction, 0.95))  # ограничения
+        # safe_fraction: территория в верхней части, легенда в нижней
+        # padding_percent в add_padding_south_extended обеспечивает зазор
+        safe_fraction = (map_height - legend_height) / map_height
+        safe_fraction = max(0.3, min(safe_fraction, 0.95))
 
-        current_extent = main_map.extent()
-        extent_height = current_extent.height()
+        # Найти слой границ работ
+        boundaries_layer = None
+        for layer in QgsProject.instance().mapLayers().values():
+            if layer.name() == 'L_1_1_1_Границы_работ':
+                boundaries_layer = layer
+                break
 
-        # Расширяем экстент на юг: территория остаётся вверху
-        total_height = extent_height / safe_fraction
-        extra_south = total_height - extent_height
+        if not boundaries_layer:
+            log_warning("Msm_34_2: L_1_1_1 не найден для сдвига экстента")
+            return
 
-        new_extent = QgsRectangle(
-            current_extent.xMinimum(),
-            current_extent.yMinimum() - extra_south,
-            current_extent.xMaximum(),
-            current_extent.yMaximum()
+        extent_manager = registry.get('M_18')
+
+        # Пересчитываем экстент от территории с south-extend
+        extent = extent_manager.calculator.calculate_from_layer(boundaries_layer)
+        extent = extent_manager.calculator.add_padding_south_extended(
+            extent, padding_percent=5.0, safe_fraction=safe_fraction
+        )
+        extent = extent_manager.fitter.fit_extent_to_ratio(
+            extent, map_width, map_height
         )
 
-        main_map.setExtent(new_extent)
+        # Сохраняем размер и позицию map item
+        original_width = main_map.rect().width()
+        original_height = main_map.rect().height()
+        original_x = main_map.pagePos().x()
+        original_y = main_map.pagePos().y()
+
+        main_map.setExtent(extent)
+
+        # Восстанавливаем размер и позицию фрейма
+        main_map.attemptResize(QgsLayoutSize(
+            original_width, original_height, Qgis.LayoutUnit.Millimeters
+        ))
+        main_map.attemptMove(QgsLayoutPoint(
+            original_x, original_y, Qgis.LayoutUnit.Millimeters
+        ))
         main_map.refresh()
 
         log_info(
-            f"Msm_34_2: Экстент сдвинут (safe_fraction={safe_fraction:.2f}, "
-            f"extra_south={extra_south:.0f} м)"
+            f"Msm_34_2: Экстент пересчитан (safe_fraction={safe_fraction:.2f}, "
+            f"legend={legend_height:.0f} мм, размер {original_width:.0f}x{original_height:.0f} мм)"
         )
 
     def _measure_height(self, legend: QgsLayoutItemLegend) -> float:

@@ -614,7 +614,12 @@ class Fsm_1_2_4_FgislkLoader:
         try:
             response = self._session.get(url, headers=headers, timeout=self.timeout)
 
-            if response.status_code == 200 and response.content:
+            if response.status_code == 200:
+                if not response.content:
+                    # HTTP 200 + пустое тело = сервер подтверждает: данных нет для этого тайла
+                    # Не ретраить — это не ошибка CDN, а отсутствие покрытия
+                    return "EMPTY"
+
                 # Верификация серверной сетки (один раз за сессию)
                 if not self._grid_verified:
                     self._verify_grid(response, x, y)
@@ -627,17 +632,24 @@ class Fsm_1_2_4_FgislkLoader:
 
             if response.status_code == 403:
                 # Fatal: доступ запрещён, retry не поможет
+                log_warning(f"Fsm_1_2_4: Тайл ({x},{y}) — HTTP 403 Forbidden")
                 return None
 
             # Все ретраи urllib3 исчерпаны, тайл недоступен
+            log_warning(
+                f"Fsm_1_2_4: Тайл ({x},{y}) — HTTP {response.status_code}, "
+                f"content-length={len(response.content)}"
+            )
             return None
 
         except (requests.exceptions.ConnectionError,
                 requests.exceptions.Timeout,
-                requests.exceptions.SSLError):
+                requests.exceptions.SSLError) as e:
             # Все ретраи urllib3 исчерпаны, сетевая ошибка
+            log_warning(f"Fsm_1_2_4: Тайл ({x},{y}) — {type(e).__name__}")
             return None
-        except Exception:
+        except Exception as e:
+            log_warning(f"Fsm_1_2_4: Тайл ({x},{y}) — {type(e).__name__}: {str(e)[:200]}")
             return None
 
     def parse_tile(self, pbf_path: str, x: int, y: int,
@@ -877,11 +889,13 @@ class Fsm_1_2_4_FgislkLoader:
 
         downloaded_tiles = []  # List[(x, y, pbf_path)]
         failed_tile_coords = []  # List[(x, y)] — координаты failed тайлов для повторной загрузки
+        empty_tile_count = 0  # Счётчик тайлов с HTTP 200 + пустым телом (нет данных)
 
-        def _download_batch(coords: List[Tuple[int, int]]) -> Tuple[List[Tuple[int, int, str]], List[Tuple[int, int]]]:
-            """Параллельная загрузка пакета тайлов. Возвращает (ok, failed)."""
+        def _download_batch(coords: List[Tuple[int, int]]) -> Tuple[List[Tuple[int, int, str]], List[Tuple[int, int]], int]:
+            """Параллельная загрузка пакета тайлов. Возвращает (ok, failed, empty_count)."""
             ok = []
             failed = []
+            empty = 0
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 futures = {
                     executor.submit(self.download_tile_file, x, y, temp_dir): (x, y)
@@ -890,28 +904,31 @@ class Fsm_1_2_4_FgislkLoader:
                 for future in futures:
                     x, y = futures[future]
                     try:
-                        pbf_path = future.result(timeout=TILE_DOWNLOAD_TIMEOUT)
-                        if pbf_path:
-                            ok.append((x, y, pbf_path))
+                        result = future.result(timeout=TILE_DOWNLOAD_TIMEOUT)
+                        if result == "EMPTY":
+                            empty += 1
+                        elif result:
+                            ok.append((x, y, result))
                         else:
                             failed.append((x, y))
                     except TimeoutError:
                         failed.append((x, y))
                     except Exception:
                         failed.append((x, y))
-            return ok, failed
+            return ok, failed, empty
 
         # Основная загрузка
-        ok_tiles, failed_tile_coords = _download_batch(tile_coords)
+        ok_tiles, failed_tile_coords, batch_empty = _download_batch(tile_coords)
         downloaded_tiles.extend(ok_tiles)
+        empty_tile_count += batch_empty
 
         if failed_tile_coords:
             log_warning(
                 f"Fsm_1_2_4: Загружено {len(downloaded_tiles)}/{total_tiles} тайлов "
-                f"(ошибки: {len(failed_tile_coords)})"
+                f"(ошибки: {len(failed_tile_coords)}, пусто: {empty_tile_count})"
             )
 
-        # Волны повторных загрузок failed тайлов
+        # Волны повторных загрузок failed тайлов (empty тайлы НЕ ретраятся)
         for wave in range(RETRY_WAVES):
             if not failed_tile_coords:
                 break
@@ -922,14 +939,26 @@ class Fsm_1_2_4_FgislkLoader:
             )
             time.sleep(RETRY_WAVE_DELAY)
 
-            recovered, still_failed = _download_batch(failed_tile_coords)
+            recovered, still_failed, wave_empty = _download_batch(failed_tile_coords)
             downloaded_tiles.extend(recovered)
+            empty_tile_count += wave_empty
 
             if recovered:
                 log_success(
                     f"Fsm_1_2_4: Волна {wave + 1}: восстановлено {len(recovered)} тайлов"
                 )
             failed_tile_coords = still_failed
+
+        # Логирование пустых тайлов (нет данных ФГИС ЛК в этом районе)
+        if empty_tile_count > 0 and empty_tile_count == total_tiles:
+            log_info(
+                f"Fsm_1_2_4: Все {total_tiles} тайлов пусты — "
+                f"ФГИС ЛК не содержит данных для этого района"
+            )
+        elif empty_tile_count > 0:
+            log_info(
+                f"Fsm_1_2_4: {empty_tile_count} из {total_tiles} тайлов пусты (нет данных)"
+            )
 
         # Логирование оставшихся потерянных тайлов с координатами
         if failed_tile_coords:
@@ -950,8 +979,10 @@ class Fsm_1_2_4_FgislkLoader:
             )
 
         # Итоговая сводка
-        if not failed_tile_coords:
+        if not failed_tile_coords and empty_tile_count == 0:
             log_success(f"Fsm_1_2_4: Все {total_tiles} тайлов загружены")
+        elif not failed_tile_coords:
+            log_success(f"Fsm_1_2_4: Загружено {len(downloaded_tiles)} тайлов из {total_tiles}")
 
         # Диагностика первого тайла - проверяем наличие новых неизвестных слоёв
         if downloaded_tiles:

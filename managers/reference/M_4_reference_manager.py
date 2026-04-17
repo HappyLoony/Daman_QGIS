@@ -27,6 +27,7 @@ from .submodules.Msm_4_17_field_mapping_manager import FieldMappingManager
 from .submodules.Msm_4_18_zouit_classification_manager import ZOUITClassificationManager
 from .submodules.Msm_4_19_crs_reference_manager import CRSReferenceManager
 from .submodules.Msm_4_20_legal_abbreviations_manager import LegalAbbreviationsManager
+from .submodules.Msm_4_23_negativ_classification_manager import NegativClassificationManager
 
 __all__ = [
     'ReferenceManagers', 'create_reference_managers',
@@ -35,7 +36,7 @@ __all__ = [
     'UrbanPlanningReferenceManager', 'LayerStyleManager', 'LayerFieldStructureManager',
     'DataValidationManager', 'LabelReferenceManager', 'BackgroundReferenceManager',
     'FieldMappingManager', 'ZOUITClassificationManager', 'CRSReferenceManager',
-    'LegalAbbreviationsManager',
+    'LegalAbbreviationsManager', 'NegativClassificationManager',
 ]
 
 
@@ -66,6 +67,7 @@ class ReferenceManagers(NamedTuple):
     zouit_classification: ZOUITClassificationManager
     crs: CRSReferenceManager
     legal_abbreviations: LegalAbbreviationsManager
+    negativ_classification: NegativClassificationManager
 
 
 def create_reference_managers() -> ReferenceManagers:
@@ -98,6 +100,7 @@ def create_reference_managers() -> ReferenceManagers:
     zouit_classification_manager = ZOUITClassificationManager()
     crs_manager = CRSReferenceManager()
     legal_abbreviations_manager = LegalAbbreviationsManager()
+    negativ_classification_manager = NegativClassificationManager()
 
     # Создаем менеджеры с зависимостями (композиция)
     layer_style_manager = LayerStyleManager(layer_manager)
@@ -124,5 +127,6 @@ def create_reference_managers() -> ReferenceManagers:
         field_mapping=field_mapping_manager,
         zouit_classification=zouit_classification_manager,
         crs=crs_manager,
-        legal_abbreviations=legal_abbreviations_manager
+        legal_abbreviations=legal_abbreviations_manager,
+        negativ_classification=negativ_classification_manager
     )

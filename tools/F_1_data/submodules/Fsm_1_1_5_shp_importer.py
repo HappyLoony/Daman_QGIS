@@ -161,12 +161,28 @@ class ShpImporter(BaseImporter):
         if not layer_name:
             layer_name = os.path.splitext(os.path.basename(file_path))[0]
 
+        # Нормализуем путь (убираем смешанные слэши, resolve .. и т.д.)
+        file_path = os.path.normpath(file_path)
+
         # Создаем слой через OGR
         # OGR автоматически обработает все сопутствующие файлы Shapefile
         layer = QgsVectorLayer(file_path, layer_name, "ogr")
 
         if not layer.isValid():
-            raise RuntimeError(f"Не удалось загрузить слой из файла: {file_path}")
+            ogr_error = layer.error().message() if layer.error() else "unknown"
+            log_error(
+                f"Fsm_1_1_5 (_import_file_internal): "
+                f"OGR не смог загрузить слой. "
+                f"Путь: {file_path}, "
+                f"Ошибка: {ogr_error}, "
+                f"Файл существует: {os.path.exists(file_path)}, "
+                f"SHX существует: {os.path.exists(os.path.splitext(file_path)[0] + '.shx')}, "
+                f"DBF существует: {os.path.exists(os.path.splitext(file_path)[0] + '.dbf')}"
+            )
+            raise RuntimeError(
+                f"Не удалось загрузить слой из файла: {file_path}\n"
+                f"Ошибка OGR: {ogr_error}"
+            )
 
         self.log_message(f"Слой загружен: {layer.featureCount()} объектов")
 

@@ -55,9 +55,9 @@ class Msm_16_1_NspdFetcher:
     # Маппинг типов объектов на целевые слои
     LAYER_MAPPING = {
         'ZU': 'L_1_2_1_WFS_ЗУ',
-        'OKS_building': 'L_1_2_4_WFS_ОКС_Здания',
-        'OKS_construction': 'L_1_2_4_WFS_ОКС_Сооружения',
-        'OKS_ons': 'L_1_2_4_WFS_ОКС_ОНС',
+        'OKS_building': 'L_1_2_4_WFS_ОКС',
+        'OKS_construction': 'L_1_2_4_WFS_ОКС',
+        'OKS_ons': 'L_1_2_4_WFS_ОКС',
         'unknown': 'L_1_2_1_WFS_ЗУ'  # По умолчанию - ЗУ
     }
     

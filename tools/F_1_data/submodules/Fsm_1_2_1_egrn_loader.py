@@ -319,6 +319,10 @@ class Fsm_1_2_1_EgrnLoader:
             transform = QgsCoordinateTransform(crs_src, crs_dest, QgsProject.instance())
             combined_geom.transform(transform)
 
+            # MultiPolygon с 1 частью → Polygon (API НСПД не обрабатывает MultiPolygon для некоторых категорий)
+            if combined_geom.isMultipart() and combined_geom.constGet().numGeometries() == 1:
+                combined_geom.convertToSingleType()
+
             # Конвертируем в GeoJSON
             geojson_str = combined_geom.asJson()
             geometry_dict = json.loads(geojson_str)
@@ -1687,18 +1691,9 @@ class Fsm_1_2_1_EgrnLoader:
             log_warning(f"Fsm_1_2_1: Загрузка ОКС-{oks_type} отменена пользователем")
             return []
 
-        # Формируем правильное имя слоя для поиска endpoint в api_manager
-        # layer_name приходит как "L_1_2_4_WFS_ОКС", но endpoint'ы называются:
-        # "L_1_2_4_WFS_ОКС_Здания", "L_1_2_4_WFS_ОКС_Сооружения", "L_1_2_4_WFS_ОКС_ОНС"
-        oks_type_mapping = {
-            'Здание': 'Здания',  # Множественное число для endpoint
-            'Сооружения': 'Сооружения',
-            'ОНС': 'ОНС'
-        }
-        specific_layer_name = f"{layer_name}_{oks_type_mapping.get(oks_type, oks_type)}"
-
+        # Все 3 OKS endpoint'а имеют layer_name = L_1_2_4_WFS_ОКС, различаются по category_id
         log_info(f"Fsm_1_2_1: ПАРАЛЛЕЛИЗМ ОКС: Поток начал загрузку {oks_type} (category_id={category_id})")
-        log_info(f"Fsm_1_2_1: ОКС-{oks_type}: Используется endpoint для слоя {specific_layer_name}")
+        log_info(f"Fsm_1_2_1: ОКС-{oks_type}: Используется endpoint для слоя {layer_name}")
 
         # Инициализация переменных для загрузки
         features = []
@@ -1723,7 +1718,7 @@ class Fsm_1_2_1_EgrnLoader:
                         geometry_geojson = json.loads(current_geometry.asJson())
 
                     payload = self.create_geojson(geometry_geojson, category_id)
-                    response = self.send_request(payload, layer_name=specific_layer_name)
+                    response = self.send_request(payload, layer_name=layer_name)
                 else:
                     # Уровень дробления > 1: используем разбиение
                     grid_size = 2 ** split_level
@@ -1753,8 +1748,8 @@ class Fsm_1_2_1_EgrnLoader:
             # Изначально больше 1 ячейки - используем батчинг
             use_batching = True
 
-        # Получаем max_workers из endpoint (вместо hardcoded значения)
-        endpoint = self.api_manager.get_endpoint_by_layer(specific_layer_name)
+        # Получаем max_workers из endpoint по category_id
+        endpoint = self.api_manager.get_endpoint_by_category(category_id)
         max_workers_value = endpoint.get('max_workers', DEFAULT_MAX_WORKERS) if endpoint else DEFAULT_MAX_WORKERS
 
         # Батчинговая загрузка для множественных ячеек
@@ -1763,7 +1758,7 @@ class Fsm_1_2_1_EgrnLoader:
                 grid_geometries=current_grid_geometries,
                 category_id=category_id,
                 category_name=f"ОКС-{oks_type}",
-                layer_name=specific_layer_name,
+                layer_name=layer_name,
                 max_workers=max_workers_value,
                 progress_task=progress_task
             )
@@ -1792,42 +1787,40 @@ class Fsm_1_2_1_EgrnLoader:
         log_info("Fsm_1_2_1: Начало загрузки объединённого слоя ОКС (Здание + Сооружения + ОНС)")
         assert self.api_manager is not None  # Type narrowing для Pylance
 
-        # Получаем список ОКС слоёв из APIManager (single source of truth)
-        oks_layer_names = self.api_manager.OKS_LAYER_NAMES
+        # Получаем все endpoint'ы для L_1_2_4_WFS_ОКС (3 штуки с разными category_id)
+        oks_endpoints = self.api_manager.get_all_endpoints_by_layer(
+            self.api_manager.OKS_LAYER_NAME
+        )
 
-        # Маппинг суффикса layer_name → oks_type для feature properties
-        # (учитываем что "Здания" (plural) → "Здание" (singular) для oks_type)
-        suffix_to_oks_type = {
-            "Здания": "Здание",       # singular для oks_type
+        if not oks_endpoints:
+            raise ValueError(
+                f"Endpoint'ы для '{self.api_manager.OKS_LAYER_NAME}' не найдены в Base_api_endpoints.json!"
+            )
+
+        # Маппинг category_name → oks_type для feature properties
+        category_name_to_oks_type = {
+            "Здания": "Здание",
             "Сооружения": "Сооружения",
-            "ОНС": "ОНС"
+            "Объекты незавершенного строительства": "ОНС"
         }
 
         # Строим oks_categories из endpoints: {oks_type: category_id}
         oks_categories = {}
-        for oks_layer_name in oks_layer_names:
-            endpoint = self.api_manager.get_endpoint_by_layer(oks_layer_name)
-            if not endpoint:
-                raise ValueError(
-                    f"Endpoint для ОКС слоя '{oks_layer_name}' не найден в Base_api_endpoints.json!\n"
-                    f"Проверьте конфигурацию endpoint."
-                )
-
+        for endpoint in oks_endpoints:
             category_id = endpoint.get('category_id')
+            category_name = endpoint.get('category_name', '')
+
             if category_id is None:
                 raise ValueError(
-                    f"category_id отсутствует в endpoint '{oks_layer_name}' (Base_api_endpoints.json)!\n"
-                    f"Исправьте конфигурацию endpoint."
+                    f"category_id отсутствует в endpoint (Base_api_endpoints.json)!\n"
+                    f"category_name='{category_name}'"
                 )
 
-            # Извлекаем суффикс: "L_1_2_4_WFS_ОКС_Здания" → "Здания"
-            suffix = oks_layer_name.split("L_1_2_4_WFS_ОКС_")[-1]
-            oks_type = suffix_to_oks_type.get(suffix)
-
+            oks_type = category_name_to_oks_type.get(category_name)
             if oks_type is None:
                 raise ValueError(
-                    f"Неизвестный суффикс ОКС слоя: '{suffix}' в '{oks_layer_name}'!\n"
-                    f"Ожидаемые суффиксы: {list(suffix_to_oks_type.keys())}"
+                    f"Неизвестный category_name ОКС: '{category_name}'!\n"
+                    f"Ожидаемые: {list(category_name_to_oks_type.keys())}"
                 )
 
             oks_categories[oks_type] = category_id
@@ -1869,8 +1862,10 @@ class Fsm_1_2_1_EgrnLoader:
         start_time = time.time()
 
         # Получаем max_workers из endpoint (для координирующего ThreadPoolExecutor)
-        # Берём из первого типа ОКС (Здания), все 3 типа имеют одинаковые настройки
-        first_oks_endpoint = self.api_manager.get_endpoint_by_layer(oks_layer_names[0])
+        # Берём из первого endpoint'а ОКС, все 3 имеют одинаковые настройки
+        first_oks_endpoint = self.api_manager.get_endpoint_by_layer(
+            self.api_manager.OKS_LAYER_NAME
+        )
         coordinator_max_workers = first_oks_endpoint.get('max_workers', DEFAULT_MAX_WORKERS) if first_oks_endpoint else DEFAULT_MAX_WORKERS
 
         # Собираем все features и уникальные поля из всех 3 запросов

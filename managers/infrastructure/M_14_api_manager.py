@@ -51,12 +51,8 @@ class APIManager:
     - Google Maps (спутниковые снимки и подписи)
     """
 
-    # Список слоёв для объединённой загрузки ОКС (Здания + Сооружения + ОНС)
-    OKS_LAYER_NAMES = [
-        "L_1_2_4_WFS_ОКС_Здания",
-        "L_1_2_4_WFS_ОКС_Сооружения",
-        "L_1_2_4_WFS_ОКС_ОНС"
-    ]
+    # Имя объединённого слоя ОКС (3 endpoint'а с разными category_id)
+    OKS_LAYER_NAME = "L_1_2_4_WFS_ОКС"
 
     def __init__(self):
         """Инициализация менеджера"""
@@ -125,6 +121,21 @@ class APIManager:
             Словарь с данными endpoint или None
         """
         return self._cache_by_id.get(endpoint_id)
+
+    def get_endpoint_by_category(self, category_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Получить endpoint по category_id
+
+        Args:
+            category_id: ID категории (например, 36369)
+
+        Returns:
+            Словарь с данными endpoint или None
+        """
+        for ep in self._endpoints:
+            if ep.get('category_id') == category_id:
+                return ep
+        return None
 
     def get_endpoint_by_layer(self, layer_name: str) -> Optional[Dict[str, Any]]:
         """
@@ -494,13 +505,12 @@ class APIManager:
             >>> for category_id in categories:
             >>>     load_layer(..., category_id=category_id, ...)
         """
+        endpoints = self.get_all_endpoints_by_layer(self.OKS_LAYER_NAME)
         categories = []
-        for layer_name in self.OKS_LAYER_NAMES:
-            endpoint = self.get_endpoint_by_layer(layer_name)
-            if endpoint:
-                category_id = endpoint.get('category_id')
-                if not self._is_empty_value(category_id):
-                    categories.append(category_id)
+        for ep in endpoints:
+            category_id = ep.get('category_id')
+            if not self._is_empty_value(category_id):
+                categories.append(category_id)
 
         if len(categories) != 3:
             log_warning(f"M_14_ApiManager: Получено {len(categories)} category_id для ОКС вместо ожидаемых 3")

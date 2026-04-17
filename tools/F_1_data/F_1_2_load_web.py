@@ -40,6 +40,9 @@ if TYPE_CHECKING:
     from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_7_parent_layer_manager import Fsm_1_2_7_ParentLayerManager
     from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_8_geometry_processor import Fsm_1_2_8_GeometryProcessor
     from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_9_zouit_loader import Fsm_1_2_9_ZouitLoader
+    from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_17_terr_zone_distributor import Fsm_1_2_17_TerrZoneDistributor
+    from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_18_func_zone_distributor import Fsm_1_2_18_FuncZoneDistributor
+    from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_19_negativ_loader import Fsm_1_2_19_NegativLoader
 
 
 
@@ -74,6 +77,9 @@ class F_1_2_LoadWeb(BaseTool):
         self.zouit_loader: Optional['Fsm_1_2_9_ZouitLoader'] = None
         self.redline_loader = None  # Fsm_1_2_11_RedlineLoader (lazy init)
         self.servitude_loader = None  # Fsm_1_2_14_ServitudeLoader (lazy init)
+        self.terr_zone_distributor = None  # Fsm_1_2_17_TerrZoneDistributor (lazy init)
+        self.func_zone_distributor = None  # Fsm_1_2_18_FuncZoneDistributor (lazy init)
+        self.negativ_loader = None  # Fsm_1_2_19_NegativLoader (lazy init)
 
     def set_project_manager(self, project_manager) -> None:
         """Установка менеджера проектов"""
@@ -455,6 +461,64 @@ class F_1_2_LoadWeb(BaseTool):
             except Exception as e:
                 log_error(f"F_1_2: Ошибка загрузки публичных сервитутов: {str(e)}")
 
+        # ========== Территориальные зоны (ПЗЗ) ==========
+        if boundary_layer and self.project_manager and self.project_manager.project_db:
+            try:
+                if not self.terr_zone_distributor:
+                    from .submodules.Fsm_1_2_17_terr_zone_distributor import Fsm_1_2_17_TerrZoneDistributor
+                    if not self.geometry_processor:
+                        from .submodules.Fsm_1_2_8_geometry_processor import Fsm_1_2_8_GeometryProcessor
+                        self.geometry_processor = Fsm_1_2_8_GeometryProcessor(self.iface)
+                    self.terr_zone_distributor = Fsm_1_2_17_TerrZoneDistributor(
+                        self.iface, self.layer_manager, self.geometry_processor
+                    )
+
+                gpkg_path = self.project_manager.project_db.gpkg_path
+                terr_zone_count = self.terr_zone_distributor.distribute(gpkg_path)
+                stats['terr_zones'] = terr_zone_count
+            except Exception as e:
+                log_error(f"F_1_2: Ошибка распределения территориальных зон: {str(e)}")
+
+        # ========== Функциональные зоны (Ген_План) ==========
+        if boundary_layer and self.project_manager and self.project_manager.project_db:
+            try:
+                if not self.func_zone_distributor:
+                    from .submodules.Fsm_1_2_18_func_zone_distributor import Fsm_1_2_18_FuncZoneDistributor
+                    if not self.geometry_processor:
+                        from .submodules.Fsm_1_2_8_geometry_processor import Fsm_1_2_8_GeometryProcessor
+                        self.geometry_processor = Fsm_1_2_8_GeometryProcessor(self.iface)
+                    self.func_zone_distributor = Fsm_1_2_18_FuncZoneDistributor(
+                        self.iface, self.layer_manager, self.geometry_processor
+                    )
+
+                gpkg_path = self.project_manager.project_db.gpkg_path
+                func_zone_count = self.func_zone_distributor.distribute(gpkg_path)
+                stats['func_zones'] = func_zone_count
+            except Exception as e:
+                log_error(f"F_1_2: Ошибка распределения функциональных зон: {str(e)}")
+
+        # ========== Негативные процессы ==========
+        if boundary_layer and self.project_manager and self.project_manager.project_db:
+            try:
+                if not self.negativ_loader:
+                    from .submodules.Fsm_1_2_19_negativ_loader import Fsm_1_2_19_NegativLoader
+                    if not self.egrn_loader:
+                        from .submodules.Fsm_1_2_1_egrn_loader import Fsm_1_2_1_EgrnLoader
+                        self.egrn_loader = Fsm_1_2_1_EgrnLoader(self.iface, self.api_manager)
+                    if not self.geometry_processor:
+                        from .submodules.Fsm_1_2_8_geometry_processor import Fsm_1_2_8_GeometryProcessor
+                        self.geometry_processor = Fsm_1_2_8_GeometryProcessor(self.iface)
+                    self.negativ_loader = Fsm_1_2_19_NegativLoader(
+                        self.iface, self.egrn_loader, self.layer_manager,
+                        self.geometry_processor, self.api_manager
+                    )
+
+                gpkg_path = self.project_manager.project_db.gpkg_path
+                negativ_count = self.negativ_loader.load_negativ_layers(boundary_layer, gpkg_path, None)
+                stats['negativ_proc'] = negativ_count
+            except Exception as e:
+                log_error(f"F_1_2: Ошибка загрузки негативных процессов: {str(e)}")
+
         # ========== WMS слои (растровые) ==========
         # Инициализируем raster loader
         if not self.raster_loader:
@@ -608,9 +672,16 @@ class F_1_2_LoadWeb(BaseTool):
 
                     # ОКС - объединённая загрузка 3 типов (Здание + Сооружения + ОНС)
                     elif config['category_id'] == 'oks_combined':
-                        # Сохраняем ссылку для использования
                         egrn_loader = self.egrn_loader
-                        geometry_provider = egrn_loader.get_boundary_extent  # L_1_1_2 (10м)
+                        boundary_selector = self.api_manager.get_boundary_layer_name(
+                            self.api_manager.OKS_LAYER_NAME
+                        )
+                        if boundary_selector == "L_1_1_3_Границы_работ_500_м":
+                            geometry_provider = lambda: egrn_loader.get_boundary_extent(use_500m_buffer=True)
+                        elif boundary_selector == "L_1_1_1_Границы_работ":
+                            geometry_provider = lambda: egrn_loader.get_boundary_extent(use_no_buffer=True)
+                        else:
+                            geometry_provider = egrn_loader.get_boundary_extent
                         layer, feature_count = egrn_loader.load_oks_combined(
                             layer_name=config['layer_name'],
                             geometry_provider=geometry_provider,

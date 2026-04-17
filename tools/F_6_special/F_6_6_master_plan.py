@@ -237,9 +237,18 @@ class F_6_6_MasterPlan(BaseTool):
             if boundaries_layer.featureCount() == 0:
                 return ''
 
-            # Центроид в WGS-84
-            from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform
+            from qgis.core import (
+                QgsCoordinateReferenceSystem, QgsCoordinateTransform,
+                QgsDistanceArea
+            )
             feature = next(boundaries_layer.getFeatures())
+
+            # Площадь в га
+            da = QgsDistanceArea()
+            da.setSourceCrs(boundaries_layer.crs(), QgsProject.instance().transformContext())
+            da.setEllipsoid(QgsProject.instance().ellipsoid())
+            area_m2 = da.measureArea(feature.geometry())
+            area_ha = area_m2 / 10000.0
             centroid = feature.geometry().centroid().asPoint()
 
             transform = QgsCoordinateTransform(
@@ -264,21 +273,24 @@ class F_6_6_MasterPlan(BaseTool):
                 log_warning("F_6_6: DaData не вернул результат")
                 return ''
 
-            # Собираем адрес
+            # Собираем адрес (без street — для территории нужен уровень район)
             data = result.get('data', {})
             parts = []
             for field in ['region_with_type', 'area_with_type',
                           'city_with_type', 'city_district_with_type',
-                          'settlement_with_type', 'street_with_type']:
+                          'settlement_with_type']:
                 val = data.get(field)
-                if val:
+                # Дедупликация (г Севастополь = регион и город одновременно)
+                if val and val not in parts:
                     parts.append(val)
 
             address = ', '.join(parts)
             if address:
+                area_str = f"{area_ha:.2f}".replace('.', ',')
                 location = (
                     f"Территория разработки мастер-плана "
-                    f"находится по адресу: {address}"
+                    f"находится по адресу: {address}, "
+                    f"площадью {area_str} га"
                 )
                 log_info(f"F_6_6: Адрес территории: {location}")
                 return location
@@ -308,7 +320,8 @@ class F_6_6_MasterPlan(BaseTool):
         # Создаём временный layout для превью
         layout_mgr_m34 = registry.get('M_34')
         temp_layout = layout_mgr_m34.build_layout(
-            layout_name='_temp_overview_preview', page_format='A3', orientation='landscape'
+            layout_name='_temp_overview_preview', page_format='A3', orientation='landscape',
+            doc_type='Мастер-план'
         )
         if not temp_layout:
             log_warning("F_6_6: Не удалось создать временный макет для превью")
