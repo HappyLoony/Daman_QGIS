@@ -7,7 +7,7 @@
 from qgis.core import QgsRasterLayer, QgsProject
 
 from Daman_QGIS.utils import log_info, log_warning
-from Daman_QGIS.constants import PROVIDER_WMS
+from Daman_QGIS.constants import PROVIDER_WMS, NSPD_L_1_3_2_ZMIN, NSPD_L_1_3_3_ZMIN
 
 
 class Fsm_1_2_6_RasterLoader:
@@ -82,8 +82,10 @@ class Fsm_1_2_6_RasterLoader:
         base_url = endpoint['base_url']
         # XYZ URI без кастомных headers — Referer и User-Agent
         # инжектируются через QgsNetworkAccessManager preprocessor (main_plugin.py)
+        # zmin=10: кадастровые данные осмысленны от масштаба улицы; на меньших зумах
+        # НСПД отдаёт 404 за пределами РФ → burst retry. См. constants.NSPD_L_1_3_2_ZMIN.
         tile_url = f'{base_url}/{{z}}/{{x}}/{{y}}.png'
-        uri = f'type=xyz&url={tile_url}&zmax=18&zmin=0'
+        uri = f'type=xyz&url={tile_url}&zmax=18&zmin={NSPD_L_1_3_2_ZMIN}'
 
         layer = QgsRasterLayer(uri, layer_name, PROVIDER_WMS)
 
@@ -113,8 +115,10 @@ class Fsm_1_2_6_RasterLoader:
         base_url = endpoint['base_url']
         # XYZ URI без кастомных headers — Referer и User-Agent
         # инжектируются через QgsNetworkAccessManager preprocessor (main_plugin.py)
+        # zmin=6: общегеографический фон осмыслен от уровня района; на меньших зумах
+        # НСПД отдаёт 404 вне РФ → burst retry. См. constants.NSPD_L_1_3_3_ZMIN.
         tile_url = f'{base_url}/{{z}}/{{x}}/{{y}}.png'
-        uri = f'type=xyz&url={tile_url}&zmax=18&zmin=0'
+        uri = f'type=xyz&url={tile_url}&zmax=18&zmin={NSPD_L_1_3_3_ZMIN}'
 
         layer = QgsRasterLayer(uri, layer_name, PROVIDER_WMS)
 

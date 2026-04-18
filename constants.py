@@ -617,6 +617,60 @@ NSPD_BROWSER_USER_AGENT = (
 )
 NSPD_WMTS_REFERER = 'https://nspd.gov.ru/map'
 
+# QGIS Network Access Manager — конфигурация дискового кэша тайлов
+# Используется: main_plugin.py (_setup_nam_cache)
+#
+# ПРОБЛЕМА: QGIS 3.40 не прокидывает cache/size-bytes из QgsSettings в
+# QNetworkDiskCache.setMaximumCacheSize() при инициализации NAM. В результате
+# render-треды (которые грузят XYZ/WMS тайлы) остаются с Qt-дефолтом 50 МБ
+# и при достижении лимита активно эвиктят старые тайлы → повторные запросы
+# к nspd.gov.ru → лавина retry-логов и медленная загрузка.
+#
+# РЕШЕНИЕ: при старте плагина
+#   (1) записываем cache/size-bytes и cache/directory в QgsSettings — будут
+#       прочитаны NAM render-тредов после рестарта QGIS.
+#   (2) применяем runtime на main-thread NAM — действует немедленно.
+NAM_CACHE_MAX_BYTES = 1_073_741_824  # 1 ГБ — для basemap НСПД (L_1_3_2 + L_1_3_3)
+NAM_CACHE_SUBDIR = 'network_tiles'   # относительно <profile>/cache/
+
+# Expiration (TTL) кэша WMTS-тайлов — QgsSettings ключ 'qgis/defaultTileExpiry' (часы).
+# По умолчанию QGIS = 24 часа. НСПД отдаёт Cache-Control: max-age=604706 (~7 дней).
+# Клиентский лимит 720 часов (30 дней) позволяет серверу самому урезать через Cache-Control.
+# Источник рекомендации: neteler.org/blog/gaining-wms-speed-enabling-qgis-cache-directory/
+WMTS_DEFAULT_TILE_EXPIRY_HOURS = 720
+
+# zmin для НСПД XYZ слоёв — обрезка холостых запросов на малых зумах.
+# На z<zmin QGIS вообще не выпускает запросы → исчезает burst 404 при случайном отзуме.
+# Используется: Fsm_1_2_6_raster_loader.py (add_nspd_base_layer / add_cos_layer)
+#   L_1_3_2 «Справочный»: кадастровые слои осмысленны от z=10 (масштаб улицы и крупнее)
+#   L_1_3_3 «ЦОС»:       общегеографический фон осмыслен от z=6 (район/город)
+NSPD_L_1_3_2_ZMIN = 10
+NSPD_L_1_3_3_ZMIN = 6
+
+# Фильтр WMS retry-логов — блокирует перехват фокуса таба MessageLog
+# Используется: main_plugin.py (_setup_wms_retry_filter)
+#
+# ПРОБЛЕМА: QGIS ядро логирует retry XYZ тайлов как Qgis.Info в тэг 'WMS'
+# с форматом "повтор запроса {N} тайлов {M} (попытка {K})".
+# QgsMessageLogViewer на каждое сообщение перескакивает currentIndex() таба
+# на тэг сообщения, пользователь теряет контекст активного таба.
+#
+# РЕШЕНИЕ: ловим messageReceived, и через QTimer.singleShot(0) возвращаем
+# индекс таба на пользовательский. Счётчик пишется в свой тэг раз в N секунд.
+# Паттерны всех WMS-сообщений ядра QGIS, которые триггерят перехват таба MessageLog:
+#   Info:    "повтор запроса N тайлов M (попытка K)"
+#   Warning: "Превышено максимальное число запросов тайлов. ... завершилось ошибкой"
+#   + английские эквиваленты для локализаций QGIS.
+# Compile с re.IGNORECASE в месте использования.
+WMS_RETRY_LOG_PATTERN = (
+    r'\bпопытка\b'
+    r'|\bretry\b'
+    r'|Превышено\s+максимальное\s+число\s+запросов'
+    r'|Max\s+tile\s+requests?\s+reached'
+    r'|завершил\w*\s+ошибк'
+)
+WMS_RETRY_AGGREGATE_INTERVAL_MS = 5000             # интервал агрегированного лога
+
 # Edge CDP авторизация (Msm_40_3)
 # Используется: Msm_40_3_edge_auth.py
 EDGE_CDP_STARTUP_TIMEOUT = 10  # секунд ожидания CDP endpoint после запуска Edge

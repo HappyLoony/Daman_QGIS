@@ -372,6 +372,18 @@ class DamanQGIS:
         except Exception as e:
             log_warning(f"Daman_QGIS: NSPD preprocessor failed: {e}")
 
+        # NAM disk cache (1 ГБ) — для XYZ тайлов НСПД basemap (L_1_3_2, L_1_3_3)
+        try:
+            self._setup_nam_cache()
+        except Exception as e:
+            log_warning(f"Daman_QGIS: NAM cache setup failed: {e}")
+
+        # WMS retry filter — блокируем перехват фокуса таба MessageLog на retry-логах ядра
+        try:
+            self._setup_wms_retry_filter()
+        except Exception as e:
+            log_warning(f"Daman_QGIS: WMS retry filter setup failed: {e}")
+
         # --- LICENSE GATE: JWT токены нужны для загрузки конфигурации ---
         _t = perf_counter()
         has_license = self._acquire_jwt_tokens()
@@ -461,6 +473,149 @@ class DamanQGIS:
             _inject_headers
         )
         log_info(f"Daman_QGIS: NSPD WMTS preprocessor registered")
+
+    def _setup_nam_cache(self) -> None:
+        """Конфигурация QNetworkDiskCache для XYZ тайлов basemap (НСПД ЦОС + Справочный слой).
+
+        Проблема и решение — см. constants.py (раздел NAM_CACHE_*).
+
+        Записывает cache/size-bytes и cache/directory в QgsSettings (вступит в силу
+        после рестарта QGIS для render-тредов) и применяет лимит+путь runtime на
+        main-thread NAM (действует немедленно).
+        """
+        import os
+        from qgis.core import QgsApplication, QgsNetworkAccessManager, QgsSettings
+        from Daman_QGIS.constants import (
+            NAM_CACHE_MAX_BYTES, NAM_CACHE_SUBDIR, WMTS_DEFAULT_TILE_EXPIRY_HOURS,
+        )
+
+        try:
+            profile_dir = QgsApplication.qgisSettingsDirPath()
+            cache_dir = os.path.join(profile_dir, 'cache', NAM_CACHE_SUBDIR).replace('\\', '/')
+            os.makedirs(cache_dir, exist_ok=True)
+
+            # (1) QgsSettings — применится после рестарта QGIS ко всем NAM-инстансам
+            settings = QgsSettings()
+            settings.setValue('cache/size-bytes', NAM_CACHE_MAX_BYTES)
+            settings.setValue('cache/directory', cache_dir)
+            # TTL WMTS-тайлов: клиентский лимит 30 дней. Сервер НСПД сам режет до ~7 дней
+            # через Cache-Control: max-age, нам важно не сбрасывать кэш раньше серверного TTL.
+            settings.setValue('qgis/defaultTileExpiry', WMTS_DEFAULT_TILE_EXPIRY_HOURS)
+
+            # (2) Runtime на main-thread NAM — действует немедленно
+            nam = QgsNetworkAccessManager.instance()
+            cache = nam.cache()
+            if cache is not None:
+                cache.setMaximumCacheSize(NAM_CACHE_MAX_BYTES)
+                # QNetworkDiskCache.cacheDirectory() возвращает путь с trailing slash
+                current = cache.cacheDirectory().rstrip('/\\')
+                want = cache_dir.rstrip('/\\')
+                if current != want:
+                    cache.setCacheDirectory(cache_dir)
+
+            size_mb = NAM_CACHE_MAX_BYTES / 1024 / 1024
+            log_info(
+                f"Daman_QGIS: NAM cache configured: {size_mb:.0f} MB at {cache_dir}, "
+                f"WMTS TTL={WMTS_DEFAULT_TILE_EXPIRY_HOURS}h "
+                f"(runtime main-NAM + QgsSettings; full effect — после рестарта QGIS)"
+            )
+        except Exception as e:
+            log_warning(f"Daman_QGIS: NAM cache setup failed: {e}")
+
+    def _setup_wms_retry_filter(self) -> None:
+        """Блокировка автоматического перехвата фокуса таба MessageLog на WMS retry-логах.
+
+        Проблема и решение — см. constants.py (раздел WMS_RETRY_LOG_PATTERN).
+        """
+        import re
+        from qgis.PyQt.QtCore import QTimer
+        from qgis.PyQt.QtWidgets import QDockWidget, QTabWidget
+        from qgis.core import QgsApplication
+        from Daman_QGIS.constants import (
+            WMS_RETRY_LOG_PATTERN, WMS_RETRY_AGGREGATE_INTERVAL_MS,
+        )
+
+        try:
+            dock = self.iface.mainWindow().findChild(QDockWidget, 'MessageLog')
+            if dock is None:
+                log_warning("Daman_QGIS: MessageLog dock не найден — WMS retry filter отключён")
+                return
+            tab_widget = dock.findChild(QTabWidget)
+            if tab_widget is None:
+                log_warning("Daman_QGIS: QTabWidget в MessageLog не найден — WMS retry filter отключён")
+                return
+
+            self._wms_retry_pattern = re.compile(WMS_RETRY_LOG_PATTERN, re.IGNORECASE)
+            self._wms_retry_tab = tab_widget
+            # Baseline: текущий таб (если это 'WMS' — 0 как fallback)
+            _initial_idx = tab_widget.currentIndex()
+            if 0 <= _initial_idx < tab_widget.count() and tab_widget.tabText(_initial_idx) == 'WMS':
+                _initial_idx = 0
+            self._wms_retry_user_idx = _initial_idx
+            self._wms_retry_count = 0
+            self._wms_retry_ignore_change = False
+
+            # Обновление baseline: ТОЛЬКО когда новый idx указывает на не-WMS таб.
+            # QGIS-ядро при каждом WMS retry делает setCurrentIndex(WMS), что синхронно emit'ит
+            # currentChanged → если записывать любой idx, baseline перетирается на WMS и откат
+            # перестаёт срабатывать (target == currentIndex == WMS). Фильтрация по имени таба.
+            def _on_current_changed(idx: int) -> None:
+                if self._wms_retry_ignore_change:
+                    return
+                try:
+                    if 0 <= idx < tab_widget.count() and tab_widget.tabText(idx) != 'WMS':
+                        self._wms_retry_user_idx = idx
+                except Exception:
+                    pass
+            tab_widget.currentChanged.connect(_on_current_changed)
+            self._wms_retry_tab_change_slot = _on_current_changed
+
+            # Приёмник messageReceived: синхронный откат таба в том же event-loop tick.
+            # Qt схлопывает два последовательных setCurrentIndex() в один repaint, поэтому
+            # визуального мигания WMS-таба не будет. Наш слот подключается ПОСЛЕ
+            # QgsMessageLogViewer (его инит раньше initGui плагина), значит в момент входа
+            # сюда currentIndex() уже == WMS. Откатываем синхронно на baseline.
+            def _on_log_msg(message, tag, level) -> None:
+                try:
+                    if tag != 'WMS':
+                        return
+                    if not self._wms_retry_pattern.search(str(message)):
+                        return
+                    self._wms_retry_count += 1
+                    tab = self._wms_retry_tab
+                    target = self._wms_retry_user_idx
+                    # Отсечка: если target ссылается на неактуальный индекс (например
+                    # таб 'WMS' стоит раньше него и count изменился), откатываем на 0.
+                    if not (0 <= target < tab.count()):
+                        target = 0
+                    if tab.currentIndex() != target:
+                        self._wms_retry_ignore_change = True
+                        try:
+                            tab.setCurrentIndex(target)
+                        finally:
+                            self._wms_retry_ignore_change = False
+                except Exception:
+                    # фильтр НЕ должен крашить плагин — проглатываем молча
+                    pass
+            QgsApplication.messageLog().messageReceived.connect(_on_log_msg)
+            self._wms_retry_log_slot = _on_log_msg
+
+            # Агрегатор — один свой Info раз в N секунд (чтоб знать что ретраи идут)
+            self._wms_retry_flush_timer = QTimer(self.iface.mainWindow())
+            self._wms_retry_flush_timer.setInterval(WMS_RETRY_AGGREGATE_INTERVAL_MS)
+            self._wms_retry_flush_timer.timeout.connect(self._wms_retry_flush)
+            self._wms_retry_flush_timer.start()
+
+            log_info("Daman_QGIS: WMS retry filter активен (MessageLog таб не перескакивает на retry)")
+        except Exception as e:
+            log_warning(f"Daman_QGIS: WMS retry filter setup failed: {e}")
+
+    def _wms_retry_flush(self) -> None:
+        """Агрегированный лог: один log_info с количеством retry за интервал."""
+        count = getattr(self, '_wms_retry_count', 0)
+        if count > 0:
+            self._wms_retry_count = 0
+            log_info(f"Daman_QGIS: НСПД WMS retry за интервал: {count}")
 
     def _init_telemetry(self) -> None:
         """Инициализация телеметрии при запуске плагина."""
@@ -1230,6 +1385,31 @@ class DamanQGIS:
                 from qgis.core import QgsNetworkAccessManager
                 QgsNetworkAccessManager.removeRequestPreprocessor(self._nspd_preprocessor_id)
                 self._nspd_preprocessor_id = None
+        except Exception:
+            pass
+
+        # Cleanup WMS retry filter (сигналы + таймер)
+        try:
+            slot = getattr(self, '_wms_retry_log_slot', None)
+            if slot is not None:
+                from qgis.core import QgsApplication
+                try:
+                    QgsApplication.messageLog().messageReceived.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
+                self._wms_retry_log_slot = None
+            tab = getattr(self, '_wms_retry_tab', None)
+            tab_slot = getattr(self, '_wms_retry_tab_change_slot', None)
+            if tab is not None and tab_slot is not None:
+                try:
+                    tab.currentChanged.disconnect(tab_slot)
+                except (TypeError, RuntimeError):
+                    pass
+                self._wms_retry_tab_change_slot = None
+            timer = getattr(self, '_wms_retry_flush_timer', None)
+            if timer is not None:
+                timer.stop()
+                self._wms_retry_flush_timer = None
         except Exception:
             pass
 
