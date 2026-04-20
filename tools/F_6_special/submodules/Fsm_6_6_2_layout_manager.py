@@ -19,6 +19,7 @@ from qgis.core import (
 from Daman_QGIS.utils import log_info, log_error, log_warning
 from Daman_QGIS.constants import EXPORT_DPI_ROSREESTR
 from Daman_QGIS.managers import registry
+from Daman_QGIS.managers.styling.submodules.Msm_46_utils import find_legend
 
 
 # Имя слоя границ работ (хардкод)
@@ -113,14 +114,13 @@ class Fsm_6_6_2_LayoutManager:
         Returns:
             True при успехе
         """
-        # Найти легенду
-        legend = None
+        # Найти легенду (OPT-2: общий helper из Msm_46_utils)
+        legend = find_legend(layout)
         main_map = None
         for item in layout.items():
-            if isinstance(item, QgsLayoutItemLegend) and item.id() == 'legend':
-                legend = item
             if isinstance(item, QgsLayoutItemMap) and item.id() == 'main_map':
                 main_map = item
+                break
 
         if not legend:
             log_warning("Fsm_6_6_2: Легенда не найдена в макете")

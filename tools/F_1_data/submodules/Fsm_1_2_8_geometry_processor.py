@@ -126,10 +126,16 @@ class Fsm_1_2_8_GeometryProcessor:
             options.driverName = DRIVER_GPKG
             options.layerName = layer_name
 
-            # ВАЖНО: Не сохраняем FID из исходного слоя!
-            # Это предотвращает конфликты UNIQUE constraint при объединении подслоёв
-            # GeoPackage автоматически создаст новые последовательные fid
-            options.datasourceOptions = ['FID=']  # Пустое значение = не сохранять fid
+            # ВАЖНО: Если в source-слое есть поле с именем 'fid' (приходит из API NSPD
+            # в properties), исключаем его из экспорта. Иначе QGIS перенесёт значения
+            # в колонку fid GPKG (primary key с UNIQUE constraint) и при дублях получим
+            # "OGR: failed to execute insert : UNIQUE constraint failed: <layer>.fid".
+            # datasourceOptions=['FID='] НЕ работает (неверный scope опции GDAL).
+            fid_idx = layer.fields().indexOf('fid')
+            if fid_idx >= 0:
+                options.attributes = [
+                    i for i in range(layer.fields().count()) if i != fid_idx
+                ]
 
             if os.path.exists(gpkg_path):
                 options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer

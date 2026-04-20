@@ -1229,7 +1229,11 @@ class Fsm_1_2_1_EgrnLoader:
         return self._create_layer_from_response(combined_response, category_name)
 
     # Служебные ключи properties, которые НЕ являются атрибутами объекта
-    _SYSTEM_PROPERTY_KEYS = {'interactionId', 'options', 'category', 'categoryId', 'geometry'}
+    # 'fid' исключается: служебное поле GPKG (primary key с UNIQUE constraint).
+    # Если API присылает 'fid' во flat properties (например, МИНСТРОЙ слои),
+    # перенос значения в memory layer -> GPKG даёт "UNIQUE constraint failed: <layer>.fid"
+    # и потерю фич. GPKG должен сам назначать fid через auto-increment.
+    _SYSTEM_PROPERTY_KEYS = {'interactionId', 'options', 'category', 'categoryId', 'geometry', 'fid'}
 
     @staticmethod
     def _extract_feature_props(properties: dict) -> dict:

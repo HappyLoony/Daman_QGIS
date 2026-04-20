@@ -95,7 +95,7 @@ class VersionManager:
             raise ValueError(f"Рабочая папка не найдена: {working_path}")
 
         # Создаём папку для выпуска через M_19
-        date_str = datetime.now().strftime("%Y_%m_%d")
+        date_str = datetime.now().strftime("%Y-%m-%d")
         release_path = self._get_structure_manager().create_release_folder(date_str)
 
         if not release_path:
@@ -228,7 +228,7 @@ class VersionManager:
             raise ValueError("Рабочая папка не определена")
 
         # Создаем резервную копию текущей версии
-        backup_name = f"Backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        backup_name = f"Backup_{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
         backup_path = os.path.join(releases_path, backup_name)
 
         if os.path.exists(working_path):

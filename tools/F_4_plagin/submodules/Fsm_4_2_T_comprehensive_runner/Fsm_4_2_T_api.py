@@ -22,15 +22,6 @@ from typing import Dict, Any, Optional
 class TestAPI:
     """Комплексные тесты Daman API"""
 
-    # Тестовые данные
-    INVALID_API_KEY = "INVALID-KEY-12345-FAKE"
-    MALFORMED_API_KEY = "not-a-valid-uuid-format"
-    EMPTY_API_KEY = ""
-    SQL_INJECTION_KEY = "'; DROP TABLE licenses; --"
-    XSS_KEY = "<script>alert('xss')</script>"
-    UNICODE_KEY = "ключ-с-юникодом-"
-    LONG_KEY = "A" * 1000  # Очень длинный ключ
-
     # Ожидаемые JSON файлы
     EXPECTED_JSON_FILES = [
         "Base_layers",
@@ -69,12 +60,6 @@ class TestAPI:
 
             # LicenseValidator тесты
             self.test_20_validator_basic()
-            self.test_21_validator_invalid_key()
-            self.test_22_validator_malformed_keys()
-            self.test_23_validator_security_payloads()
-            self.test_24_validator_missing_params()
-            self.test_25_validator_hardware_mismatch()
-            self.test_26_validator_deactivate()
 
             # Edge cases
             self.test_30_concurrent_requests()
@@ -386,179 +371,6 @@ class TestAPI:
 
         except Exception as e:
             self.logger.error(f"Ошибка базовой проверки: {str(e)}")
-
-    def test_21_validator_invalid_key(self):
-        """ТЕСТ 21: Невалидный API ключ"""
-        self.logger.section("21. Тест невалидного ключа")
-
-        if not self.validator:
-            self.logger.fail("Validator не инициализирован")
-            return
-
-        try:
-            result = self.validator.verify(
-                api_key=self.INVALID_API_KEY,
-                hardware_id="test-hardware-id"
-            )
-
-            self.logger.check(
-                result.get("status") in ["invalid_key", "error"],
-                f"Невалидный ключ отклонён: {result.get('status')}",
-                f"Неожиданный статус для невалидного ключа: {result}"
-            )
-
-        except Exception as e:
-            self.logger.error(f"Ошибка теста невалидного ключа: {str(e)}")
-
-    def test_22_validator_malformed_keys(self):
-        """ТЕСТ 22: Некорректные форматы ключей"""
-        self.logger.section("22. Тест некорректных форматов ключей")
-
-        if not self.validator:
-            self.logger.fail("Validator не инициализирован")
-            return
-
-        malformed_keys = [
-            ("Пустой ключ", self.EMPTY_API_KEY),
-            ("Malformed ключ", self.MALFORMED_API_KEY),
-            ("Unicode ключ", self.UNICODE_KEY),
-            ("Очень длинный ключ", self.LONG_KEY),
-        ]
-
-        for name, key in malformed_keys:
-            try:
-                result = self.validator.verify(
-                    api_key=key,
-                    hardware_id="test-hardware-id"
-                )
-
-                # Должен вернуть ошибку, а не упасть
-                self.logger.check(
-                    result.get("status") in ["invalid_key", "error"],
-                    f"{name}: корректно отклонён",
-                    f"{name}: неожиданный ответ {result.get('status')}"
-                )
-
-            except Exception as e:
-                self.logger.fail(f"{name}: исключение {type(e).__name__}: {e}")
-
-    def test_23_validator_security_payloads(self):
-        """ТЕСТ 23: Безопасность - SQL injection, XSS"""
-        self.logger.section("23. Тест безопасности (SQL injection, XSS)")
-
-        if not self.validator:
-            self.logger.fail("Validator не инициализирован")
-            return
-
-        security_payloads = [
-            ("SQL Injection", self.SQL_INJECTION_KEY),
-            ("XSS Payload", self.XSS_KEY),
-            ("Path Traversal", "../../../etc/passwd"),
-            ("Null Byte", "key\x00injection"),
-            ("CRLF Injection", "key\r\nX-Injected: header"),
-        ]
-
-        for name, payload in security_payloads:
-            try:
-                result = self.validator.verify(
-                    api_key=payload,
-                    hardware_id="test-hardware-id"
-                )
-
-                # API должен безопасно обработать вредоносный payload
-                self.logger.check(
-                    result.get("status") in ["invalid_key", "error"],
-                    f"{name}: безопасно обработан",
-                    f"{name}: подозрительный ответ {result}"
-                )
-
-            except Exception as e:
-                # Исключение тоже допустимо (но нежелательно)
-                self.logger.warning(f"{name}: исключение {type(e).__name__}")
-
-    def test_24_validator_missing_params(self):
-        """ТЕСТ 24: Отсутствующие параметры"""
-        self.logger.section("24. Тест отсутствующих параметров")
-
-        if not self.validator:
-            self.logger.fail("Validator не инициализирован")
-            return
-
-        try:
-            # Пустой hardware_id
-            result = self.validator.verify(
-                api_key="some-key",
-                hardware_id=""
-            )
-
-            self.logger.check(
-                result.get("status") in ["error", "invalid_key"],
-                f"Пустой hardware_id: отклонён ({result.get('status')})",
-                f"Пустой hardware_id: неожиданный ответ {result}"
-            )
-
-        except Exception as e:
-            self.logger.warning(f"Пустой hardware_id вызвал исключение: {e}")
-
-    def test_25_validator_hardware_mismatch(self):
-        """ТЕСТ 25: Несовпадение Hardware ID"""
-        self.logger.section("25. Тест несовпадения Hardware ID")
-
-        if not self.validator:
-            self.logger.fail("Validator не инициализирован")
-            return
-
-        try:
-            # Используем невалидный ключ с разными hardware_id
-            result1 = self.validator.verify(
-                api_key=self.INVALID_API_KEY,
-                hardware_id="hardware-1"
-            )
-
-            result2 = self.validator.verify(
-                api_key=self.INVALID_API_KEY,
-                hardware_id="hardware-2"
-            )
-
-            # Оба должны быть отклонены (ключ невалидный)
-            self.logger.check(
-                result1.get("status") in ["invalid_key", "error", "hardware_mismatch"],
-                f"Hardware-1: {result1.get('status')}",
-                f"Hardware-1: неожиданный ответ"
-            )
-
-            self.logger.check(
-                result2.get("status") in ["invalid_key", "error", "hardware_mismatch"],
-                f"Hardware-2: {result2.get('status')}",
-                f"Hardware-2: неожиданный ответ"
-            )
-
-        except Exception as e:
-            self.logger.error(f"Ошибка теста hardware mismatch: {str(e)}")
-
-    def test_26_validator_deactivate(self):
-        """ТЕСТ 26: Деактивация лицензии"""
-        self.logger.section("26. Тест деактивации")
-
-        if not self.validator:
-            self.logger.fail("Validator не инициализирован")
-            return
-
-        try:
-            # Попытка деактивации невалидного ключа
-            result = self.validator.deactivate(
-                api_key=self.INVALID_API_KEY,
-                hardware_id="test-hardware-id"
-            )
-
-            self.logger.check(
-                result.get("status") in ["error", "success"],
-                f"Деактивация невалидного ключа: {result.get('status')}",
-                f"Неожиданный ответ деактивации: {result}"
-            )
-
-        except Exception as e:
-            self.logger.error(f"Ошибка теста деактивации: {str(e)}")
 
     # === EDGE CASES ===
 

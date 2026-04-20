@@ -476,7 +476,7 @@ class OverviewPreviewDialog(BaseResponsiveDialog):
             map_settings.setBackgroundColor(QColor(255, 255, 255))
 
             # Получаем слои из темы карты или из видимых слоев
-            # Тема F_1_4_2_overview_map содержит только ЦОС + слои 1_1_1 (без Google)
+            # Тема F_1_4_2_overview_map содержит только ЦОС + слои 1_1_1 (без ортофото)
             if map_item.followVisibilityPreset() and map_item.followVisibilityPresetName():
                 theme_name = map_item.followVisibilityPresetName()
                 theme_collection = QgsProject.instance().mapThemeCollection()

@@ -15,7 +15,7 @@
 - КОНСТАНТЫ АТРИБУТОВ (MAX_FIELD_LEN, USE_FIELD_ALIASES)
 - КОНСТАНТЫ СТИЛЕЙ (ANSI_*, DXF_*)
 - КОНСТАНТЫ ПРОВАЙДЕРОВ (PROVIDER_*, DRIVER_*)
-- КОНСТАНТЫ WMS (LAYER_GOOGLE_*, NSPD_*, WMS_*, GEOMETRY)
+- КОНСТАНТЫ WMS (LAYER_NSPD_ORTHO, NSPD_*, WMS_*, GEOMETRY)
 - КОНСТАНТЫ ИМПОРТА ЕГРН (ROOT_TAG_TO_RECORD_MAP)
 - КОНСТАНТЫ СЕТЕВЫХ ЗАПРОСОВ (DEFAULT_REQUEST_TIMEOUT, DEFAULT_MAX_*)
 - КОНСТАНТЫ API (API_*, CACHE_*, ACCESS_TOKEN_*)
@@ -587,14 +587,14 @@ DRIVER_GPKG = "GPKG"
 # КОНСТАНТЫ WMS СЛОЁВ
 # ============================================================================
 
-# Google Satellite
-# Используется: 1 файл (F_1_2_load_web.py)
-LAYER_GOOGLE_SATELLITE = "L_1_3_1_Google_Satellite"
-WMS_GOOGLE_SATELLITE = 'type=xyz&url=https://mt1.google.com/vt/lyrs%3Ds%26x%3D%7Bx%7D%26y%3D%7By%7D%26z%3D%7Bz%7D&zmax=22&zmin=0'
+# Имена базовых растровых подложек НСПД (соответствуют layer_name в Base_api_endpoints.json)
+# URI формируется динамически в Fsm_1_2_6_raster_loader / Fsm_1_4_1_base_layers.
+# User-Agent и Referer инжектируются через NSPD preprocessor (main_plugin._register_nspd_preprocessor).
+LAYER_NSPD_ORTHO = "L_1_3_1_NSPD_Ortho"   # ЕЭКО ортофото — category_id=36346, endpoint_id=20
+LAYER_NSPD_REF   = "L_1_3_2_NSPD_Ref"     # ЦОС (Цифровая объектовая схема, справочный) — category_id=235, endpoint_id=16
+LAYER_NSPD_BASE  = "L_1_3_3_NSPD_Base"    # ЕЭКО основной слой (базовая карта) — category_id=849241, endpoint_id=17
 
-# NSPD (Национальная система пространственных данных)
-# Используется: 1 файл (F_1_2_load_web.py)
-LAYER_NSPD_BASE = "L_1_3_2_Справочный_слой"
+# Прямой URL тайла Справочного слоя НСПД (не-data-driven, используется в редких hardcoded местах)
 NSPD_TILE_URL = 'https://nspd.gov.ru/api/aeggis/v2/235/wmts/%7Bz%7D/%7Bx%7D/%7By%7D.png'
 NSPD_SEARCH_URL = 'https://nspd.gov.ru/api/geoportal/v2/search/geoportal'
 
@@ -610,12 +610,50 @@ NSPD_AUTH_COOKIE_DOMAINS = [
 # НСПД блокирует User-Agent содержащий "QGIS" через WAF.
 # QgsNetworkAccessManager принудительно перезаписывает UA - обход через setRequestPreprocessor.
 # Используется: main_plugin.py (_register_nspd_preprocessor)
-NSPD_BROWSER_USER_AGENT = (
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-    'AppleWebKit/537.36 (KHTML, like Gecko) '
-    'Chrome/131.0.0.0 Safari/537.36'
-)
+#
+# Ротация User-Agent: при каждом старте плагина выбирается случайный UA из списка.
+# Цель — снизить риск WAF blacklist по паттерну одинакового UA от всех инсталляций Daman.
+# Список — актуальные на 2026 версии Chrome/Firefox/Edge/Safari на Windows и macOS.
+# Подход подсмотрен у matmatamat/rosreestr-search-qgis-plugin (GitHub, GPL 2).
+NSPD_BROWSER_USER_AGENTS = [
+    # Chrome на Windows (актуальные версии)
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+    # Edge на Windows
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0',
+    # Firefox на Windows
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0',
+    # Chrome на macOS
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    # Safari на macOS
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15',
+    # Firefox на macOS
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0',
+]
 NSPD_WMTS_REFERER = 'https://nspd.gov.ru/map'
+
+# Пустой 1×1 прозрачный PNG (data: URL) — используется в preprocessor для подмены
+# тайлов, гарантированно лежащих вне территории РФ. НСПД возвращает 404/500 для
+# таких тайлов, QGIS делает 3 retry → burst. Подмена на data-PNG даёт мгновенный
+# ответ без сетевого запроса (Qt NAM поддерживает data: схему, проверено через MCP).
+NSPD_EMPTY_TILE_DATA_URL = (
+    'data:image/png;base64,'
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+)
+
+# Bounding box РФ для фильтра тайлов XYZ (Web Mercator).
+# Основной массив: lon [19°E..180°E], lat [41°N..82°N] — от Калининграда до Чукотки,
+# от Кавказа до Земли Франца-Иосифа. Используется с строгими неравенствами (>).
+# Чукотка за антимеридианом: lon [-180°E..-169°E], lat [64°N..73°N] — от Эгвекинота
+# до мыса Дежнёва. НСПД использует Web Mercator, так что эта часть лежит
+# в западном полушарии Mercator и требует отдельной проверки.
+NSPD_RU_BBOX_MAIN_LON = (19.0, 180.0)
+NSPD_RU_BBOX_MAIN_LAT = (41.0, 82.0)
+NSPD_RU_BBOX_CHUKOTKA_LON = (-180.0, -169.0)
+NSPD_RU_BBOX_CHUKOTKA_LAT = (64.0, 73.0)
 
 # QGIS Network Access Manager — конфигурация дискового кэша тайлов
 # Используется: main_plugin.py (_setup_nam_cache)
@@ -641,9 +679,11 @@ WMTS_DEFAULT_TILE_EXPIRY_HOURS = 720
 
 # zmin для НСПД XYZ слоёв — обрезка холостых запросов на малых зумах.
 # На z<zmin QGIS вообще не выпускает запросы → исчезает burst 404 при случайном отзуме.
-# Используется: Fsm_1_2_6_raster_loader.py (add_nspd_base_layer / add_cos_layer)
-#   L_1_3_2 «Справочный»: кадастровые слои осмысленны от z=10 (масштаб улицы и крупнее)
-#   L_1_3_3 «ЦОС»:       общегеографический фон осмыслен от z=6 (район/город)
+# Используется: Fsm_1_2_6_raster_loader.py (add_nspd_ortho / add_nspd_ref / add_nspd_base)
+#   L_1_3_1 NSPD_Ortho (ЕЭКО ортофото):   покрытие вся РФ, осмысленно от z=6 (район/город)
+#   L_1_3_2 NSPD_Ref (ЦОС, справочный):   кадастровые слои осмысленны от z=10 (масштаб улицы и крупнее)
+#   L_1_3_3 NSPD_Base (ЕЭКО основной):    общегеографический фон осмыслен от z=6 (район/город)
+NSPD_L_1_3_1_ZMIN = 6
 NSPD_L_1_3_2_ZMIN = 10
 NSPD_L_1_3_3_ZMIN = 6
 
@@ -655,9 +695,11 @@ NSPD_L_1_3_3_ZMIN = 6
 # QgsMessageLogViewer на каждое сообщение перескакивает currentIndex() таба
 # на тэг сообщения, пользователь теряет контекст активного таба.
 #
-# РЕШЕНИЕ: ловим messageReceived, и через QTimer.singleShot(0) возвращаем
-# индекс таба на пользовательский. Счётчик пишется в свой тэг раз в N секунд.
-# Паттерны всех WMS-сообщений ядра QGIS, которые триггерят перехват таба MessageLog:
+# РЕШЕНИЕ: ловим messageReceived, откатываем currentIndex таба на пользовательский.
+# Никакого агрегированного лога НЕ эмитим — retry это residual шум от НСПД
+# (5xx/timeout на отдельных тайлах), он и так виден по неподгруженным тайлам
+# на карте. Логировать каждые 5 сек «НСПД WMS retry за интервал: N» бесполезно.
+# Паттерны WMS-сообщений ядра QGIS:
 #   Info:    "повтор запроса N тайлов M (попытка K)"
 #   Warning: "Превышено максимальное число запросов тайлов. ... завершилось ошибкой"
 #   + английские эквиваленты для локализаций QGIS.
@@ -669,7 +711,6 @@ WMS_RETRY_LOG_PATTERN = (
     r'|Max\s+tile\s+requests?\s+reached'
     r'|завершил\w*\s+ошибк'
 )
-WMS_RETRY_AGGREGATE_INTERVAL_MS = 5000             # интервал агрегированного лога
 
 # Edge CDP авторизация (Msm_40_3)
 # Используется: Msm_40_3_edge_auth.py

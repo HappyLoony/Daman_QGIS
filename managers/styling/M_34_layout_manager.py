@@ -472,24 +472,51 @@ class LayoutManager:
             return builder.get_config(config_key)
         return None
 
+    def get_layout_config_by_key(self, config_key: str) -> Optional[Dict[str, Any]]:
+        """
+        Получить параметры макета по готовому config_key (например 'A4_landscape_DPT').
+
+        Используется M_46 (Msm_46_2 SpaceCalculator, Msm_46_3 LayoutPlanner)
+        как default config_provider через lazy import из registry.
+
+        Args:
+            config_key: Ключ конфигурации Base_layout (формат {Format}_{orientation}_{DPT|MP})
+
+        Returns:
+            Dict с параметрами или None если ключ не найден
+        """
+        from .submodules.Msm_34_1_layout_builder import LayoutBuilder
+
+        builder = LayoutBuilder()
+        if builder.load_config():
+            return builder.get_config(config_key)
+        return None
+
     def adapt_legend(
         self,
         layout: 'QgsPrintLayout',
         max_height_ratio: float = 0.45
     ) -> bool:
         """
-        Адаптировать размер легенды под доступное пространство.
-        Делегирует Msm_34_2_legend_adapter.
+        Сдвинуть экстент main_map под overlay легенды.
+        Делегирует Msm_34_2_extent_shifter.
 
-        Вызывать ПОСЛЕ заполнения легенды слоями (update_legend).
+        После Task 7 плана M_46: column_count / symbol_size логика
+        вынесена в M_46 / Msm_46_3. Msm_34_2 отвечает только за
+        measurement pass и сдвиг экстента.
+
+        Вызывать ПОСЛЕ M_46.plan_and_apply (легенда спланирована и
+        применена). Имя метода сохранено для обратной совместимости
+        с Fsm_1_4_5 / Fsm_6_6_2 до миграции в Task 9/10.
 
         Args:
-            layout: Макет с заполненной легендой
-            max_height_ratio: Макс. высота легенды как доля высоты main_map
+            layout: Макет с применённым планом M_46.
+            max_height_ratio: Устаревший параметр, игнорируется
+                (логика max_height перенесена в Msm_46_2.SpaceCalculator).
 
         Returns:
-            True при успехе
+            True при успехе, False при отсутствии legend/main_map.
         """
-        from .submodules.Msm_34_2_legend_adapter import LegendAdapter
-        adapter = LegendAdapter()
-        return adapter.adapt(layout, max_height_ratio)
+        from .submodules.Msm_34_2_extent_shifter import ExtentShifter
+        shifter = ExtentShifter()
+        return shifter.shift_extent_for_legend(layout)

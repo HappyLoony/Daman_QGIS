@@ -20,7 +20,7 @@ class Fsm_1_2_0_LayerConfigBuilder:
     # Группы API с собственными загрузчиками (НЕ проходят через Fsm_1_2_1 intersects)
     # Все остальные группы (EGRN_WFS, EGRN_WMTS, NSPD_MINSTROY, ...) загружаются
     # через универсальный Fsm_1_2_1 (intersects API)
-    SKIP_API_GROUPS = {'OVERPASS', 'FGISLK', 'GOOGLE'}
+    SKIP_API_GROUPS = {'OVERPASS', 'FGISLK'}
 
     def __init__(self, api_manager):
         """

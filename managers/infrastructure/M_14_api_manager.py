@@ -2,7 +2,7 @@
 """
 M_14: API Manager - Менеджер API endpoints для загрузки слоёв
 
-Централизованное управление всеми API endpoints (EGRN, Overpass, FGISLK, Google).
+Централизованное управление всеми API endpoints (EGRN WFS/WMTS, Overpass, FGISLK).
 Заменяет hardcoded URLs и category_id в функциях загрузки.
 
 Примеры использования:
@@ -45,10 +45,10 @@ class APIManager:
     Менеджер API endpoints для загрузки Web слоёв
 
     Предоставляет централизованный доступ к конфигурации всех API:
-    - EGRN WFS/WMTS (векторные и растровые слои ЕГРН)
+    - EGRN WFS (векторные слои ЕГРН)
+    - EGRN WMTS (растровые подложки НСПД: Справочный, ЦОС, ЕЭКО ортофото)
     - Overpass API (OSM данные с fallback серверами)
     - ФГИС ЛК (лесничества)
-    - Google Maps (спутниковые снимки и подписи)
     """
 
     # Имя объединённого слоя ОКС (3 endpoint'а с разными category_id)
@@ -181,7 +181,7 @@ class APIManager:
         Получить все endpoints группы
 
         Args:
-            api_group: Название группы ("EGRN_WFS", "OVERPASS", "GOOGLE" и т.д.)
+            api_group: Название группы ("EGRN_WFS", "EGRN_WMTS", "OVERPASS", "FGISLK")
 
         Returns:
             Список endpoints группы

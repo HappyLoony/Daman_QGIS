@@ -83,13 +83,13 @@ class GraphicsRequestDialog(BaseResponsiveDialog):
         basemap_group = QGroupBox("Настройки картоосновы")
         basemap_layout = QVBoxLayout()
 
-        self.cb_use_satellite = QCheckBox("Использовать снимок с космоса (Google Earth)")
+        self.cb_use_satellite = QCheckBox("Использовать ортофото (ЕЭКО НСПД)")
         self.cb_use_satellite.setChecked(False)  # По умолчанию выключен (используется ЦОС)
-        self.cb_use_satellite.setToolTip("Переключить основную карту на спутниковый снимок вместо картоосновы ЦОС")
+        self.cb_use_satellite.setToolTip("Переключить основную карту на ортофотоснимок ЕЭКО НСПД вместо схематичной картоосновы")
         basemap_layout.addWidget(self.cb_use_satellite)
 
-        basemap_info = QLabel("По умолчанию: Картооснова НСПД (ЦОС)\n"
-                              "При включении: Спутниковый снимок Google")
+        basemap_info = QLabel("По умолчанию: Справочный слой НСПД\n"
+                              "При включении: ЕЭКО ортофото НСПД")
         basemap_info.setStyleSheet("QLabel { color: #666; font-size: 9pt; }")
         basemap_info.setWordWrap(True)
         basemap_layout.addWidget(basemap_info)

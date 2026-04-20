@@ -20,8 +20,8 @@ from Daman_QGIS.core.base_tool import BaseTool
 from Daman_QGIS.managers import LayerManager, APIManager, DataCleanupManager, registry
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
 from Daman_QGIS.constants import (
-    DEFAULT_LAYER_ORDER, WMS_GOOGLE_SATELLITE, NSPD_TILE_URL,
-    LAYER_GOOGLE_SATELLITE, LAYER_NSPD_BASE, PROVIDER_OGR, DRIVER_GPKG,
+    DEFAULT_LAYER_ORDER, NSPD_TILE_URL,
+    LAYER_NSPD_ORTHO, LAYER_NSPD_REF, LAYER_NSPD_BASE, PROVIDER_OGR, DRIVER_GPKG,
     PROVIDER_WMS, PLUGIN_NAME
 )
 
@@ -529,9 +529,9 @@ class F_1_2_LoadWeb(BaseTool):
         assert self.raster_loader is not None
 
         try:
-            self.raster_loader.add_nspd_base_layer()
-            self.raster_loader.add_cos_layer()
-            self.raster_loader.add_google_satellite()
+            self.raster_loader.add_nspd_ref()
+            self.raster_loader.add_nspd_base()
+            self.raster_loader.add_nspd_ortho()
             stats['wms'] = 3
         except Exception as e:
             log_error(f"F_1_2: Ошибка загрузки WMS: {str(e)}")

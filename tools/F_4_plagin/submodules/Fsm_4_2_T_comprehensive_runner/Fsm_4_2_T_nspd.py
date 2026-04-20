@@ -48,9 +48,10 @@ class TestNSPD:
     # Все известные группы endpoint'ов в Base_api_endpoints.json
     # OVERPASS_FALLBACK удалена: серверный пул теперь в constants.py (OVERPASS_SERVERS),
     # выбор сервера через M_14.ping_and_sort_overpass_servers()
+    # GOOGLE удалена 2026-04-19: L_1_3_1 мигрирован с Google Satellite на ЕЭКО ортофото
+    # НСПД (EGRN_WMTS/category_id=36346). См. shared/decision-log.md.
     KNOWN_GROUPS = [
-        'EGRN_WFS', 'EGRN_WMTS', 'OVERPASS',
-        'FGISLK', 'GOOGLE'
+        'EGRN_WFS', 'EGRN_WMTS', 'OVERPASS', 'FGISLK',
     ]
 
     # Обязательные поля по группам (помимо общих endpoint_id, api_group)
@@ -61,7 +62,6 @@ class TestNSPD:
         'EGRN_WMTS': ['base_url', 'url_template'],
         'OVERPASS': ['osm_values'],
         'FGISLK': ['base_url', 'url_template'],
-        'GOOGLE': ['base_url', 'url_template'],
     }
 
     # Группы, где layer_name может быть null или "-"

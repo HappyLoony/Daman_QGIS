@@ -17,6 +17,7 @@ from Daman_QGIS.constants import PLUGIN_NAME, EXPORT_DPI_ROSREESTR
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.title_generator import TitleGenerator
 from Daman_QGIS.managers import registry
+from Daman_QGIS.managers.styling.submodules.Msm_46_utils import find_legend
 
 
 class LayoutManager:
@@ -92,8 +93,9 @@ class LayoutManager:
         if not layout:
             raise RuntimeError("Не удалось создать макет из JSON конфигурации")
 
-        layout_manager = QgsProject.instance().layoutManager()
-        if not layout_manager.addLayout(layout):
+        # Через M_34 — корректная обработка конфликта имён
+        # (removeLayout(existing) + addLayout(new))
+        if not layout_mgr.add_layout_to_project(layout):
             raise RuntimeError("Не удалось добавить макет в менеджер")
 
         self.layout_name = layout_name
@@ -185,6 +187,12 @@ class LayoutManager:
         else:
             log_warning("Fsm_1_4_5: Не удалось установить экстент main_map")
 
+        # M_46: централизованное управление условниками
+        # collect → calculate → plan (wrap/col/symbol) → apply (inline)
+        legend_mgr = registry.get('M_46')
+        config_key = self._resolve_config_key(layout)
+        legend_mgr.plan_and_apply(layout, config_key)
+
         # Адаптация легенды + сдвиг экстента main_map на юг
         # (территория сверху, подложка под легендой снизу — паттерн F_6_6)
         layout_mgr_m34 = registry.get('M_34')
@@ -259,6 +267,24 @@ class LayoutManager:
         else:
             log_warning("Fsm_1_4_5: Карта 'overview_map' не найдена в макете")
 
+    def _resolve_config_key(self, layout) -> str:
+        """Определить config_key Base_layout для текущего макета F_1_4.
+
+        F_1_4 всегда готовит материалы ДПТ → суффикс 'DPT'.
+        Формат/ориентация листа берутся из метаданных проекта через M_34.
+
+        Args:
+            layout: QgsPrintLayout (не используется, оставлен для расширения
+                до передачи формата из самого layout в будущем).
+
+        Returns:
+            Строковый ключ вида 'A4_landscape_DPT' (для Base_layout.json).
+        """
+        layout_mgr = registry.get('M_34')
+        meta_format, meta_orientation = layout_mgr.get_page_format_from_metadata()
+        orientation_code = layout_mgr.get_orientation_code(meta_orientation)
+        return f"{meta_format}_{orientation_code}_DPT"
+
     def update_object_name(self):
         """Обновление названия объекта в заголовке
 
@@ -310,57 +336,6 @@ class LayoutManager:
 
         log_warning("Fsm_1_4_5: Элемент заголовка 'title_label' не найден в компоновке")
         return False
-    @staticmethod
-    def wrap_legend_text(text: str, max_length: int = 100) -> str:
-        """Автоматический перенос строк в тексте легенды
-
-        Разбивает длинный текст на строки по словам, чтобы избежать наложения
-        на другие элементы макета (обзорную карту и т.д.).
-
-        Args:
-            text: Исходный текст
-            max_length: Максимальная длина строки в символах (по умолчанию 100)
-
-        Returns:
-            str: Текст с переносами строк (\\n)
-
-        Examples:
-            >>> wrap_legend_text("Границы и кадастровые номера существующих земельных участков, учтенных в Едином государственном реестре недвижимости", 100)
-            "Границы и кадастровые номера существующих земельных участков, учтенных в Едином\\nгосударственном реестре недвижимости"
-        """
-        if not text or len(text) <= max_length:
-            return text
-
-        # Разбиваем текст на слова
-        words = text.split()
-        lines = []
-        current_line = []
-        current_length = 0
-
-        for word in words:
-            word_length = len(word)
-
-            # Если добавление слова превысит max_length
-            if current_length + word_length + len(current_line) > max_length:
-                # Сохраняем текущую строку
-                if current_line:
-                    lines.append(' '.join(current_line))
-                    current_line = [word]
-                    current_length = word_length
-                else:
-                    # Слово само по себе длиннее max_length
-                    lines.append(word)
-                    current_length = 0
-            else:
-                # Добавляем слово к текущей строке
-                current_line.append(word)
-                current_length += word_length
-
-        # Добавляем последнюю строку
-        if current_line:
-            lines.append(' '.join(current_line))
-
-        return '\n'.join(lines)
 
     def update_legend_layers(self, selected_layer_ids, nspd_layers):
         """Обновление слоев в легенде
@@ -379,12 +354,8 @@ class LayoutManager:
         layout = self._get_layout()
         if not layout:
             return False
-        # Находим элемент легенды
-        legend = None
-        for item in layout.items():
-            if isinstance(item, QgsLayoutItemLegend) and item.id() == 'legend':
-                legend = item
-                break
+        # Находим элемент легенды (OPT-2: общий helper из Msm_46_utils)
+        legend = find_legend(layout)
 
         if not legend:
             log_warning("Fsm_1_4_5: Легенда не найдена в шаблоне")
@@ -437,8 +408,8 @@ class LayoutManager:
                     title_generator = TitleGenerator()
                     legend_title_base = title_generator.generate_boundary_layer_title(metadata_dict)
 
-                    # Применяем автоматический перенос строк (max_length=100)
-                    legend_title = self.wrap_legend_text(legend_title_base, max_length=100)
+                    # Wrap применит M_46 (Msm_46_4.InlinePlacement) на основе плана
+                    legend_title = legend_title_base
 
                     layer_node.setCustomProperty("legend/title-label", legend_title)
                 break
@@ -490,8 +461,8 @@ class LayoutManager:
                 if found_layer:
                     layer_node = root_group.addLayer(found_layer)
                     if layer_node:
-                        # Применяем автоматический перенос строк для всех слоев
-                        wrapped_title = self.wrap_legend_text(legend_title, max_length=100)
+                        # Wrap применит M_46 (Msm_46_4.InlinePlacement) на основе плана
+                        wrapped_title = legend_title
                         layer_node.setCustomProperty("legend/title-label", wrapped_title)
 
         # Обновляем размер легенды
@@ -503,12 +474,12 @@ class LayoutManager:
         """Настройка фильтров слоев для карт через темы (Map Themes)
 
         Создает две темы карт:
-        - F_1_4_1_main_map: выбранные слои + подложка L_1_3_2_Справочный_слой (если use_satellite=False) или L_1_3_1_Google_Satellite (если use_satellite=True)
-        - F_1_4_2_overview_map: только слои с 1_1_1 и L_1_3_3_ЦОС (ЦОС всегда включена в обзорной)
+        - F_1_4_1_main_map: выбранные слои + подложка L_1_3_2_NSPD_Ref (если use_satellite=False) или L_1_3_1_NSPD_Ortho (ЕЭКО ортофото, если use_satellite=True)
+        - F_1_4_2_overview_map: только слои с 1_1_1 и L_1_3_3_NSPD_Base (ЦОС всегда включена в обзорной)
 
         Args:
             nspd_layers: Словарь выбранных слоев НСПД
-            use_satellite: Если True - использовать спутник на главной карте, иначе L_1_3_2_Справочный_слой
+            use_satellite: Если True - использовать ЕЭКО ортофото на главной карте, иначе L_1_3_2_NSPD_Ref
 
         Returns:
             bool: Успешность настройки
@@ -571,24 +542,24 @@ class LayoutManager:
             if not layer_is_selected:
                 continue
             
-            # ГЛАВНАЯ КАРТА: Используем L_1_3_2_Справочный_слой (НСПД)
-            # Если use_satellite=True - показываем спутник (L_1_3_1), скрываем подложки НСПД
-            # Если use_satellite=False - показываем L_1_3_2_Справочный_слой, скрываем спутник
+            # ГЛАВНАЯ КАРТА: Используем L_1_3_2_NSPD_Ref (НСПД) по умолчанию
+            # Если use_satellite=True - показываем ЕЭКО ортофото (L_1_3_1), скрываем схематичные подложки НСПД
+            # Если use_satellite=False - показываем L_1_3_2_NSPD_Ref, скрываем ортофото
             if use_satellite:
-                # Режим спутника: показываем спутник, скрываем подложки НСПД
+                # Режим ортофото: показываем ЕЭКО ортофото, скрываем схематичные подложки НСПД
                 if 'L_1_3_2' in layer_name or 'L_1_3_3' in layer_name:
                     # Скрываем Справочный слой и ЦОС
                     layer_record.isVisible = False
                 elif 'L_1_3_1' in layer_name:
-                    # Показываем спутник
+                    # Показываем ЕЭКО ортофото
                     layer_record.isVisible = True
                 else:
                     # Все остальное видимо
                     layer_record.isVisible = True
             else:
-                # Режим по умолчанию: показываем L_1_3_2_Справочный_слой
+                # Режим по умолчанию: показываем L_1_3_2_NSPD_Ref
                 if 'L_1_3_1' in layer_name or 'L_1_3_3' in layer_name:
-                    # Скрываем спутник и ЦОС
+                    # Скрываем ортофото и ЦОС
                     layer_record.isVisible = False
                 elif 'L_1_3_2' in layer_name:
                     # Показываем Справочный слой НСПД (подложка по умолчанию для главной карты)
@@ -633,7 +604,7 @@ class LayoutManager:
                     log_info("Fsm_1_4_5: Тема 'F_1_4_2_overview_map' применена к обзорной карте")
 
         # НЕ вызываем layout.refresh() здесь - это провоцирует массовые запросы
-        # к WMS/WMTS слоям (Google, НСПД), что вызывает rate limiting
+        # к WMS/WMTS слоям НСПД, что вызывает burst retry
         # Обновление макета произойдёт при экспорте в PDF или в диалоге превью
 
         return True
@@ -686,7 +657,7 @@ class LayoutManager:
             raise RuntimeError("Макет не создан или удален")
 
         # НЕ вызываем triggerRepaint/refresh - тайлы уже загружены в кэш при превью
-        # Повторный refresh() вызывает rate limiting от Google/НСПД
+        # Повторный refresh() вызывает burst retry к НСПД
 
         exporter = QgsLayoutExporter(layout)
 

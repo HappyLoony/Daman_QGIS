@@ -347,13 +347,6 @@
 <tags>картооснова, ЦОС, базовая карта, топооснова</tags>
 <url>http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D235&amp;referer=https://nspd.gov.ru/map?baseLayerId%3D235&amp;type=xyz&amp;url=https://nspd.gov.ru/api/aeggis/v2/235/wmts/%7Bz%7D/%7Bx%7D/%7By%7D.png&amp;zmax=18&amp;zmin=0</url></layer>
 <layer>
-<name>Единая электронная картографическая основа (основной слой)</name>
-<id>36347</id>
-<priority>201</priority>
-<description>ЕЭКО - основной слой</description>
-<tags>картооснова, ЕЭКО, базовая карта, топооснова</tags>
-<url>http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D36347&amp;referer=https://nspd.gov.ru/map?baseLayerId%3D36347&amp;type=xyz&amp;url=https://nspd.gov.ru/cgk/map/38/tms/%7Bz%7D/%7Bx%7D/%7By%7D.png&amp;zmax=18&amp;zmin=0</url></layer>
-<layer>
 <name>ЦОС</name>
 <id>849241</id>
 <priority>199</priority>
@@ -367,13 +360,6 @@
 <description>Данные дистанционного зондирования Земли РФ</description>
 <tags>ДЗЗ, спутниковые снимки, космоснимки</tags>
 <url>http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D36067&amp;type=xyz&amp;url=https://nspd.gov.ru/ntsomz/RUS_GKMSS100_012021080120210831_11700/TOARO/acr/PSRGB/%7Bz%7D/%7Bx%7D/%7By%7D&amp;zmax=11&amp;zmin=0</url></layer>
-<layer>
-<name>Единая электронная картографическая основа (ортофото)</name>
-<id>36346</id>
-<priority>203</priority>
-<description>ЕЭКО - ортофотопланы</description>
-<tags>ортофото, аэрофотосъемка, ЕЭКО</tags>
-<url>http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D36346&amp;referer=https://nspd.gov.ru/map?%26baseLayerId%3D36346&amp;type=xyz&amp;url=https://nspd.gov.ru/cgk/map/39/tms/%7Bz%7D/%7Bx%7D/%7By%7D.png&amp;zmax=18&amp;zmin=0</url></layer>
 <layer>
 <name>Ортофотопланы 10000</name>
 <id>36345</id>
@@ -389,27 +375,6 @@
 <tags>ортофото, аэрофотосъемка, М2000</tags>
 <url>http-header:referer=https://nspd.gov.ru/map?baseLayerId%3D36344&amp;type=xyz&amp;url=https://nspd.gov.ru/api/aeggis/v2/36344/wmts/%7Bz%7D/%7Bx%7D/%7By%7D.png&amp;zmax=18&amp;zmin=0</url></layer></group>
 <group name="Внешние карты" id="external_maps">
-<layer>
-<name>Google Satellite</name>
-<id>google_sat</id>
-<priority>210</priority>
-<description>Спутниковые снимки Google</description>
-<tags>Google, спутник, космоснимки, подложка</tags>
-<url>type=xyz&amp;url=https://mt1.google.com/vt/lyrs%3Ds%26x%3D%7Bx%7D%26y%3D%7By%7D%26z%3D%7Bz%7D&amp;zmax=22&amp;zmin=0</url></layer>
-<layer>
-<name>Google Hybrid</name>
-<id>google_hybrid</id>
-<priority>211</priority>
-<description>Спутниковые снимки Google с подписями</description>
-<tags>Google, спутник, гибрид, подписи</tags>
-<url>type=xyz&amp;url=https://mt1.google.com/vt/lyrs%3Dy%26x%3D%7Bx%7D%26y%3D%7By%7D%26z%3D%7Bz%7D&amp;zmax=22&amp;zmin=0</url></layer>
-<layer>
-<name>Google Labels</name>
-<id>google_labels</id>
-<priority>2</priority>
-<description>Подписи Google Maps</description>
-<tags>Google, подписи, топонимы</tags>
-<url>type=xyz&amp;url=https://mt1.google.com/vt/lyrs%3Dh%26x%3D%7Bx%7D%26y%3D%7By%7D%26z%3D%7Bz%7D&amp;zmax=22&amp;zmin=0</url></layer>
 <layer>
 <name>Yandex</name>
 <id>yandex_map</id>

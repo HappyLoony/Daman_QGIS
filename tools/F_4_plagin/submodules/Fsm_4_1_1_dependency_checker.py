@@ -259,7 +259,7 @@ class DependencyChecker:
     }
 
     # Timeout для запроса к PyPI (секунды)
-    PYPI_TIMEOUT = 5
+    PYPI_TIMEOUT = 2
 
     # Кэш версий PyPI (заполняется при проверке)
     _pypi_versions_cache: Dict[str, Optional[str]] = {}
@@ -518,10 +518,19 @@ class DependencyChecker:
         results = {}
         external_deps = cls.get_external_dependencies(include_optional=True)
 
-        # Сбрасываем кэш PyPI при новой проверке
+        # Сбрасываем кэш PyPI при новой проверке и прогреваем его параллельно,
+        # чтобы последующие check_for_update читали из cache без сетевых задержек.
         if check_updates:
             cls.reset_pypi_cache()
             log_info("F_4_1: Проверка обновлений в PyPI...")
+            try:
+                from concurrent.futures import ThreadPoolExecutor
+                package_names = list(external_deps.keys())
+                max_workers = min(len(package_names), 10) if package_names else 1
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    list(executor.map(cls.get_pypi_version, package_names))
+            except Exception as e:
+                log_warning(f"F_4_1: Параллельная проверка PyPI не удалась, fallback на последовательную: {e}")
 
         for module_name, info in external_deps.items():
             installed, version, message = cls.check_dependency(

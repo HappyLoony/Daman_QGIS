@@ -493,7 +493,7 @@ class ExcelExporter(BaseExporter):
         headers.append([f"Система координат: {crs_name}"])
         
         # Дата экспорта
-        date_str = datetime.now().strftime("%d.%m.%Y %H:%M")
+        date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         headers.append([f"Дата экспорта: {date_str}"])
         
         # Количество объектов

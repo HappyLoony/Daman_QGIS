@@ -175,7 +175,7 @@ class FileSelectionTask(QgsTask):
     def _generate_report(self) -> None:
         """Генерация TXT отчёта в папку назначения."""
         now = datetime.now()
-        report_name = f"Отчет_выборки_{now.strftime('%Y_%m_%d_%H_%M_%S')}.txt"
+        report_name = f"Отчет_выборки_{now.strftime('%Y-%m-%d-%H-%M-%S')}.txt"
         report_path = os.path.join(self.dest_folder, report_name)
 
         mode_label = "Копирование" if self.mode == self.MODE_COPY else "Перемещение"
@@ -183,7 +183,7 @@ class FileSelectionTask(QgsTask):
 
         lines = [
             "Отчет по выборке файлов",
-            f"Дата: {now.strftime('%d.%m.%Y %H:%M:%S')}",
+            f"Дата: {now.strftime('%Y-%m-%d %H:%M:%S')}",
             f"Режим: {mode_label}",
             f"Исходная папка: {self.source_folder}",
             f"Папка выборки: {self.dest_folder}",

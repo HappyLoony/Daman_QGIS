@@ -400,10 +400,10 @@ class TestF12:
                 self.logger.success(f"RasterLoader created: {type(raster_loader).__name__}")
 
                 # Проверяем методы
-                has_google = hasattr(raster_loader, 'add_google_satellite')
-                has_nspd = hasattr(raster_loader, 'add_nspd_base_layer')
-                has_cos = hasattr(raster_loader, 'add_cos_layer')
-                self.logger.data("  Методы", f"google={has_google}, nspd={has_nspd}, cos={has_cos}")
+                has_ortho = hasattr(raster_loader, 'add_nspd_ortho')
+                has_ref = hasattr(raster_loader, 'add_nspd_ref')
+                has_base = hasattr(raster_loader, 'add_nspd_base')
+                self.logger.data("  Методы", f"ortho={has_ortho}, ref={has_ref}, base={has_base}")
             except Exception as e:
                 self.logger.fail(f"Ошибка RasterLoader: {str(e)}")
 
@@ -633,15 +633,15 @@ class TestF12:
             except Exception as e:
                 self.logger.fail(f"Ошибка RasterLoader: {str(e)}")
 
-            # Тест 7.8: Вызов add_google_satellite()
-            self.logger.info("7.8. Вызов add_google_satellite()...")
-            self.logger.warning(">>> ВХОД В add_google_satellite()")
+            # Тест 7.8: Вызов add_nspd_ortho() (ЕЭКО ортофото НСПД)
+            self.logger.info("7.8. Вызов add_nspd_ortho()...")
+            self.logger.warning(">>> ВХОД В add_nspd_ortho()")
             try:
-                f_1_2.raster_loader.add_google_satellite()
-                self.logger.success("add_google_satellite() завершён")
+                f_1_2.raster_loader.add_nspd_ortho()
+                self.logger.success("add_nspd_ortho() завершён")
             except Exception as e:
-                self.logger.fail(f"Ошибка add_google_satellite(): {str(e)}")
-            self.logger.warning("<<< ВЫХОД ИЗ add_google_satellite()")
+                self.logger.fail(f"Ошибка add_nspd_ortho(): {str(e)}")
+            self.logger.warning("<<< ВЫХОД ИЗ add_nspd_ortho()")
 
             self.logger.success("Все тестовые вызовы методов завершены БЕЗ зависания")
 

@@ -63,25 +63,28 @@ class BaseLayersManager:
             tuple: (success, error_msg)
         """
         # Добавляем слои снизу вверх
-        # Самый нижний - Google Satellite
-        self.add_google_satellite()
+        # Самый нижний - ЕЭКО ортофото НСПД
+        self.add_nspd_ortho()
 
-        # Картооснова НСПД ЦОС
-        self.add_nspd_base_layer()
+        # ЦОС — Цифровая объектовая схема (справочный слой)
+        self.add_nspd_ref()
 
-        # ЦОС (Цифровая общегеографическая схема)
-        self.add_cos_layer()
+        # ЕЭКО основной слой — общегеографическая базовая карта
+        self.add_nspd_base()
 
         return True, None
     
-    def add_nspd_base_layer(self):
-        """Добавление картоосновы НСПД - ЦОС (Цифровая общегеографическая схема)
-        
+    def add_nspd_ref(self):
+        """Добавление справочного слоя НСПД — ЦОС, Цифровая объектовая схема.
+
+        Кадастровые объекты в виде условных знаков (category_id=235).
+        Подложка главной карты (F_1_4_1_main_map) по умолчанию.
+
         Returns:
             bool: Успешность добавления
         """
         project = QgsProject.instance()
-        layer_name = "L_1_3_2_Справочный_слой"
+        layer_name = "L_1_3_2_NSPD_Ref"
 
         # Удаляем существующий слой для обновления
         for layer in project.mapLayers().values():
@@ -112,23 +115,33 @@ class BaseLayersManager:
             log_warning("Fsm_1_4_1: Не удалось добавить картооснову НСПД")
             return False
     
-    def add_google_satellite(self):
-        """Добавление слоя Google Satellite
-        
+    def add_nspd_ortho(self):
+        """Добавление слоя ЕЭКО ортофото НСПД (L_1_3_1_NSPD_Ortho, category_id=36346)
+
+        Единая электронная картографическая основа (ортофото) от НСПД —
+        актуальные ортофотоснимки РФ. URI без кастомных headers: User-Agent и
+        Referer инжектируются через QgsNetworkAccessManager preprocessor
+        (main_plugin._register_nspd_preprocessor).
+
         Returns:
             bool: Успешность добавления
         """
         project = QgsProject.instance()
-        layer_name = "L_1_3_1_Google_Satellite"
-        
+        layer_name = "L_1_3_1_NSPD_Ortho"
+
         # Удаляем существующий слой для обновления
         for layer in project.mapLayers().values():
             if layer.name() == layer_name:
                 log_info(f"Fsm_1_4_1: Удаляем существующий слой {layer_name} для обновления")
                 project.removeMapLayer(layer.id())
 
-        uri = 'type=xyz&url=https://mt1.google.com/vt/lyrs%3Ds%26x%3D%7Bx%7D%26y%3D%7By%7D%26z%3D%7Bz%7D&zmax=22&zmin=0'
-        
+        # НСПД WMTS endpoint (category_id=36346, ЕЭКО ортофото)
+        # zmin=6: ортофото осмысленно от уровня района (см. constants.NSPD_L_1_3_1_ZMIN).
+        uri = (
+            'type=xyz&url=https://nspd.gov.ru/api/aeggis/v2/36346/wmts/'
+            '%7Bz%7D/%7Bx%7D/%7By%7D.png&zmax=18&zmin=6'
+        )
+
         layer = QgsRasterLayer(uri, layer_name, 'wms')
 
         if layer.isValid():
@@ -143,20 +156,24 @@ class BaseLayersManager:
                 # Fallback: добавляем напрямую
                 project.addMapLayer(layer, True)
 
-            log_info("Fsm_1_4_1: Google Satellite добавлен")
+            log_info("Fsm_1_4_1: ЕЭКО ортофото НСПД добавлен")
             return True
         else:
-            log_warning("Fsm_1_4_1: Не удалось добавить Google Satellite")
+            log_warning("Fsm_1_4_1: Не удалось добавить ЕЭКО ортофото НСПД")
             return False
     
-    def add_cos_layer(self):
-        """Добавление слоя ЦОС - Цифровая общегеографическая схема (category_id 849241)
+    def add_nspd_base(self):
+        """Добавление базовой карты НСПД — ЕЭКО основной слой (category_id=849241).
+
+        Общегеографическая основа (дороги, реки, рельеф, населённые пункты) —
+        Единая электронная картографическая основа, основной слой.
+        Подложка обзорной карты (F_1_4_2_overview_map).
 
         Returns:
             bool: Успешность добавления
         """
         project = QgsProject.instance()
-        layer_name = "L_1_3_3_ЦОС"
+        layer_name = "L_1_3_3_NSPD_Base"
 
         # Удаляем существующий слой для обновления
         for layer in project.mapLayers().values():

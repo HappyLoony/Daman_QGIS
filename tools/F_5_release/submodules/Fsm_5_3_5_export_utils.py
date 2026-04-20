@@ -367,9 +367,9 @@ class ExportUtils:
         Получить суффикс с датой/временем для имени файла
 
         Returns:
-            str: Суффикс формата YYYYMMDD_HHMMSS
+            str: Суффикс формата YYYY-MM-DD-HH-MM-SS
         """
-        return datetime.now().strftime('%Y%m%d_%H%M%S')
+        return datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
 
     @staticmethod
     def get_date_suffix() -> str:
@@ -377,9 +377,9 @@ class ExportUtils:
         Получить суффикс с датой для имени файла
 
         Returns:
-            str: Суффикс формата YYYY_MM_DD
+            str: Суффикс формата YYYY-MM-DD
         """
-        return datetime.now().strftime('%Y_%m_%d')
+        return datetime.now().strftime('%Y-%m-%d')
 
     @staticmethod
     def ensure_folder_exists(folder_path: str) -> bool:

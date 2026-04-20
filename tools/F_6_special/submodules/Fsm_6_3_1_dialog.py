@@ -393,8 +393,8 @@ class Fsm_6_3_1_Dialog(BaseResponsiveDialog):
             return
 
         now = datetime.now()
-        timestamp_file = now.strftime("%Y_%m_%d %H_%M_%S")
-        timestamp_report = now.strftime("%d.%m.%Y %H:%M:%S")
+        timestamp_file = now.strftime("%Y-%m-%d-%H-%M-%S")
+        timestamp_report = now.strftime("%Y-%m-%d %H:%M:%S")
 
         filename = f"Содержание папки {timestamp_file}.txt"
         output_path = Path(self._current_folder) / filename
@@ -419,7 +419,7 @@ class Fsm_6_3_1_Dialog(BaseResponsiveDialog):
                 file_count += 1
                 total_size += size
                 mtime_str = datetime.fromtimestamp(mtime).strftime(
-                    "%d.%m.%Y %H:%M"
+                    "%Y-%m-%d %H:%M:%S"
                 ) if mtime > 0 else ""
                 file_lines.append(
                     f"{name}\t{format_file_size(size)}\t{mtime_str}"

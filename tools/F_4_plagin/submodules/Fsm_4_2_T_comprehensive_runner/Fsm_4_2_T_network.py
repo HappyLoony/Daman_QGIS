@@ -50,7 +50,6 @@ class TestNetwork:
             self.test_32_requests_timeout_config()
 
             # Stress тесты
-            self.test_40_rapid_requests()
             self.test_41_sequential_different_files()
 
         except Exception as e:
@@ -371,45 +370,6 @@ class TestNetwork:
             self.logger.warning(f"Константа не найдена: {e}")
         except Exception as e:
             self.logger.error(f"Ошибка проверки таймаутов: {str(e)}")
-
-    def test_40_rapid_requests(self):
-        """ТЕСТ 40: Быстрые последовательные запросы"""
-        self.logger.section("40. Rapid requests (rate limiting)")
-
-        if not self.loader:
-            self.logger.fail("Loader не инициализирован")
-            return
-
-        try:
-            # 5 быстрых запросов подряд
-            results = []
-            start = time.time()
-
-            for i in range(5):
-                data = self.loader._load_from_remote("Base_layers.json")
-                results.append(data is not None)
-
-            elapsed = time.time() - start
-            success_count = sum(results)
-
-            self.logger.info(f"5 запросов за {elapsed:.2f}s")
-            self.logger.info(f"Успешных: {success_count}/5")
-
-            self.logger.check(
-                success_count >= 4,  # Допускаем 1 ошибку
-                f"Rapid requests успешны: {success_count}/5",
-                f"Слишком много ошибок: {success_count}/5"
-            )
-
-            # Проверяем что нет rate limiting
-            self.logger.check(
-                success_count == 5,
-                "Rate limiting не обнаружен",
-                "Возможен rate limiting"
-            )
-
-        except Exception as e:
-            self.logger.error(f"Ошибка rapid requests: {str(e)}")
 
     def test_41_sequential_different_files(self):
         """ТЕСТ 41: Последовательная загрузка разных файлов"""

@@ -572,7 +572,7 @@ class Fsm_6_4_1_Dialog(BaseResponsiveDialog):
         """Установка папки назначения по умолчанию."""
         if not self._edit_dest.text() and self._edit_folder.text():
             source = self._edit_folder.text()
-            date_str = datetime.now().strftime("%Y_%m_%d")
+            date_str = datetime.now().strftime("%Y-%m-%d")
             dest = os.path.join(source, f"Выборка_{date_str}")
 
             # Уникальное имя при дубликатах

@@ -452,27 +452,100 @@ class DamanQGIS:
             )
 
     def _register_nspd_preprocessor(self) -> None:
-        """Регистрация preprocessor для подмены User-Agent в запросах к НСПД.
+        """Регистрация preprocessor для подмены User-Agent и фильтра тайлов вне РФ.
 
-        НСПД WAF блокирует User-Agent содержащий "QGIS".
-        QgsNetworkAccessManager принудительно перезаписывает UA через createRequest(),
-        поэтому setRequestPreprocessor — единственный способ подменить UA после перезаписи.
+        Выполняет два действия для запросов к `nspd.gov.ru`:
+
+        1. **Подмена User-Agent**: НСПД WAF блокирует UA содержащий "QGIS".
+           QgsNetworkAccessManager принудительно перезаписывает UA через createRequest(),
+           поэтому setRequestPreprocessor — единственный способ подменить UA после перезаписи.
+           UA выбирается случайно из NSPD_BROWSER_USER_AGENTS при старте плагина —
+           снижает риск WAF blacklist по одинаковому паттерну UA от всех инсталляций.
+
+        2. **Фильтр тайлов вне РФ**: НСПД возвращает 404/500 для тайлов за границей
+           России (нет кадастровых данных). QGIS XYZ provider делает 3 retry на каждый
+           тайл → burst из десятков запросов при zoom-out, захватывающем Европу/Азию.
+           Preprocessor парсит URL `/wmts/{z}/{x}/{y}.png`, вычисляет bbox тайла
+           в EPSG:3857 и подменяет URL на data-PNG (пустой 1×1 прозрачный) если
+           тайл гарантированно вне bbox РФ. Qt NAM возвращает content мгновенно,
+           retry не происходит, burst устраняется.
         """
+        import math
+        import random
+        import re
         from qgis.core import QgsNetworkAccessManager
-        from Daman_QGIS.constants import NSPD_BROWSER_USER_AGENT, NSPD_WMTS_REFERER
+        from qgis.PyQt.QtCore import QUrl
+        from Daman_QGIS.constants import (
+            NSPD_BROWSER_USER_AGENTS, NSPD_WMTS_REFERER,
+            NSPD_EMPTY_TILE_DATA_URL,
+            NSPD_RU_BBOX_MAIN_LON, NSPD_RU_BBOX_MAIN_LAT,
+            NSPD_RU_BBOX_CHUKOTKA_LON, NSPD_RU_BBOX_CHUKOTKA_LAT,
+        )
 
-        ua_bytes = NSPD_BROWSER_USER_AGENT.encode('utf-8')
+        # Один случайный UA на всю сессию QGIS — стабильность для WAF heuristics,
+        # ротация между инсталляциями — разнообразие паттерна.
+        selected_ua = random.choice(NSPD_BROWSER_USER_AGENTS)
+        ua_bytes = selected_ua.encode('utf-8')
         referer_bytes = NSPD_WMTS_REFERER.encode('utf-8')
 
+        # Pre-compile: regex для path тайла `/wmts/{z}/{x}/{y}.png`, data URL, bbox
+        tile_pattern = re.compile(r'/wmts/(\d+)/(\d+)/(\d+)\.png')
+        empty_tile_url = QUrl(NSPD_EMPTY_TILE_DATA_URL)
+        lon_w_main, lon_e_main = NSPD_RU_BBOX_MAIN_LON
+        lat_s_main, lat_n_main = NSPD_RU_BBOX_MAIN_LAT
+        lon_w_chuk, lon_e_chuk = NSPD_RU_BBOX_CHUKOTKA_LON
+        lat_s_chuk, lat_n_chuk = NSPD_RU_BBOX_CHUKOTKA_LAT
+
+        def _tile_outside_russia(z, x, y):
+            """True если XYZ тайл (Web Mercator) гарантированно не пересекается с РФ."""
+            n = 2 ** z
+            tile_lon_w = x / n * 360.0 - 180.0
+            tile_lon_e = (x + 1) / n * 360.0 - 180.0
+            # Mercator y → широта (atan(sinh))
+            tile_lat_n = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
+            tile_lat_s = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (y + 1) / n))))
+            main_in = (tile_lon_e > lon_w_main and tile_lon_w < lon_e_main
+                       and tile_lat_n > lat_s_main and tile_lat_s < lat_n_main)
+            chuk_in = (tile_lon_e > lon_w_chuk and tile_lon_w < lon_e_chuk
+                       and tile_lat_n > lat_s_chuk and tile_lat_s < lat_n_chuk)
+            return not (main_in or chuk_in)
+
         def _inject_headers(request):
-            if b'nspd.gov.ru' in request.url().toEncoded():
-                request.setRawHeader(b'User-Agent', ua_bytes)
-                request.setRawHeader(b'Referer', referer_bytes)
+            url_bytes = request.url().toEncoded()
+            if b'nspd.gov.ru' not in url_bytes:
+                return
+            # Блокировка ghost-запросов к /cgk/map/ endpoint.
+            # Daman использует только /api/aeggis/v2/ для всех WMTS слоёв НСПД
+            # (L_1_3_1_NSPD_Ortho, L_1_3_2_NSPD_Ref, L_1_3_3_NSPD_Base).
+            # Endpoint /cgk/map/{layerId}/tms/ встречался в legacy data/web/web_config.xml
+            # и/или возникает как ghost-запрос от внутренних буферов QGIS
+            # (удалённые макеты, темы, отложенный рендер). Сервер отвечает 0-байт PNG
+            # или 500 → спам warnings «Возвращенное изображение сформировано некорректно».
+            # Defensive: всегда подменяем на пустой PNG без сетевого вызова.
+            if b'/cgk/map/' in url_bytes:
+                request.setUrl(empty_tile_url)
+                return
+            # Фильтр non-RU тайлов: подменяем URL на пустой PNG
+            url_str = bytes(url_bytes).decode('ascii', errors='ignore')
+            m = tile_pattern.search(url_str)
+            if m is not None:
+                z, x, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                if _tile_outside_russia(z, x, y):
+                    request.setUrl(empty_tile_url)
+                    return
+            # Тайл внутри РФ или не XYZ — инжектим заголовки для WAF bypass
+            request.setRawHeader(b'User-Agent', ua_bytes)
+            request.setRawHeader(b'Referer', referer_bytes)
 
         self._nspd_preprocessor_id = QgsNetworkAccessManager.setRequestPreprocessor(
             _inject_headers
         )
-        log_info(f"Daman_QGIS: NSPD WMTS preprocessor registered")
+        # Логируем короткий маркер UA (браузер/версия) — полный UA избыточен
+        ua_marker = selected_ua.split(') ')[-1][:40] if ') ' in selected_ua else selected_ua[:40]
+        log_info(
+            f"Daman_QGIS: NSPD preprocessor registered "
+            f"(UA: {ua_marker}, non-RU tile filter: enabled)"
+        )
 
     def _setup_nam_cache(self) -> None:
         """Конфигурация QNetworkDiskCache для XYZ тайлов basemap (НСПД ЦОС + Справочный слой).
@@ -528,12 +601,9 @@ class DamanQGIS:
         Проблема и решение — см. constants.py (раздел WMS_RETRY_LOG_PATTERN).
         """
         import re
-        from qgis.PyQt.QtCore import QTimer
         from qgis.PyQt.QtWidgets import QDockWidget, QTabWidget
         from qgis.core import QgsApplication
-        from Daman_QGIS.constants import (
-            WMS_RETRY_LOG_PATTERN, WMS_RETRY_AGGREGATE_INTERVAL_MS,
-        )
+        from Daman_QGIS.constants import WMS_RETRY_LOG_PATTERN
 
         try:
             dock = self.iface.mainWindow().findChild(QDockWidget, 'MessageLog')
@@ -552,7 +622,6 @@ class DamanQGIS:
             if 0 <= _initial_idx < tab_widget.count() and tab_widget.tabText(_initial_idx) == 'WMS':
                 _initial_idx = 0
             self._wms_retry_user_idx = _initial_idx
-            self._wms_retry_count = 0
             self._wms_retry_ignore_change = False
 
             # Обновление baseline: ТОЛЬКО когда новый idx указывает на не-WMS таб.
@@ -581,11 +650,11 @@ class DamanQGIS:
                         return
                     if not self._wms_retry_pattern.search(str(message)):
                         return
-                    self._wms_retry_count += 1
+                    # Откат фокуса таба на пользовательский. Никакого агрегированного
+                    # лога не эмитим — retry это шум от НСПД (residual 5xx/timeout),
+                    # который и так виден по неподгруженным тайлам на карте.
                     tab = self._wms_retry_tab
                     target = self._wms_retry_user_idx
-                    # Отсечка: если target ссылается на неактуальный индекс (например
-                    # таб 'WMS' стоит раньше него и count изменился), откатываем на 0.
                     if not (0 <= target < tab.count()):
                         target = 0
                     if tab.currentIndex() != target:
@@ -599,23 +668,8 @@ class DamanQGIS:
                     pass
             QgsApplication.messageLog().messageReceived.connect(_on_log_msg)
             self._wms_retry_log_slot = _on_log_msg
-
-            # Агрегатор — один свой Info раз в N секунд (чтоб знать что ретраи идут)
-            self._wms_retry_flush_timer = QTimer(self.iface.mainWindow())
-            self._wms_retry_flush_timer.setInterval(WMS_RETRY_AGGREGATE_INTERVAL_MS)
-            self._wms_retry_flush_timer.timeout.connect(self._wms_retry_flush)
-            self._wms_retry_flush_timer.start()
-
-            log_info("Daman_QGIS: WMS retry filter активен (MessageLog таб не перескакивает на retry)")
         except Exception as e:
             log_warning(f"Daman_QGIS: WMS retry filter setup failed: {e}")
-
-    def _wms_retry_flush(self) -> None:
-        """Агрегированный лог: один log_info с количеством retry за интервал."""
-        count = getattr(self, '_wms_retry_count', 0)
-        if count > 0:
-            self._wms_retry_count = 0
-            log_info(f"Daman_QGIS: НСПД WMS retry за интервал: {count}")
 
     def _init_telemetry(self) -> None:
         """Инициализация телеметрии при запуске плагина."""
@@ -1388,7 +1442,7 @@ class DamanQGIS:
         except Exception:
             pass
 
-        # Cleanup WMS retry filter (сигналы + таймер)
+        # Cleanup WMS retry filter (сигналы)
         try:
             slot = getattr(self, '_wms_retry_log_slot', None)
             if slot is not None:
@@ -1406,10 +1460,6 @@ class DamanQGIS:
                 except (TypeError, RuntimeError):
                     pass
                 self._wms_retry_tab_change_slot = None
-            timer = getattr(self, '_wms_retry_flush_timer', None)
-            if timer is not None:
-                timer.stop()
-                self._wms_retry_flush_timer = None
         except Exception:
             pass
 

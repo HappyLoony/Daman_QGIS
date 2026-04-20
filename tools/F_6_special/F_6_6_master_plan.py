@@ -29,8 +29,8 @@ from .submodules.Fsm_6_6_3_pdf_assembler import Fsm_6_6_3_PdfAssembler
 
 
 # Хардкод подложек
-_MAIN_MAP_BASEMAP = 'L_1_3_2_Справочный_слой'
-_OVERVIEW_MAP_BASEMAP = 'L_1_3_3_ЦОС'
+_MAIN_MAP_BASEMAP = 'L_1_3_2_NSPD_Ref'     # ЦОС справочный (cat=235) — главная карта
+_OVERVIEW_MAP_BASEMAP = 'L_1_3_3_NSPD_Base'  # ЕЭКО основной (cat=849241) — обзорная карта
 _BOUNDARIES_LAYER = 'L_1_1_1_Границы_работ'
 
 
@@ -491,9 +491,14 @@ class F_6_6_MasterPlan(BaseTool):
             log_error(f"Fsm_6_6_2: Не удалось создать макет для '{drawing_name}'")
             return None
 
+        # Добавить в проект через M_34 — корректно обрабатывает конфликт имён
+        # (removeLayout(existing) + addLayout(new)). Прямой lm.addLayout() при
+        # дубликате имени приводит к удалению C++ объекта нашего layout.
         project = QgsProject.instance()
-        lm = project.layoutManager()
-        lm.addLayout(layout)
+        layout_mgr_m34 = registry.get('M_34')
+        if not layout_mgr_m34.add_layout_to_project(layout):
+            log_error(f"F_6_6: Не удалось добавить макет '{layout_name}' в проект")
+            return None
 
         try:
             # f/g. Привязать темы к картам
@@ -514,6 +519,12 @@ class F_6_6_MasterPlan(BaseTool):
 
             # j. Экстент карты по границам работ L_1_1_1
             layout_mgr.apply_main_map_extent(layout)
+
+            # j1. M_46: централизованный план/применение условников
+            # (wrap/col/symbol) ПЕРЕД финальным measurement и сдвигом экстента.
+            # F_6_6 всегда A3 landscape Мастер-план.
+            legend_mgr = registry.get('M_46')
+            legend_mgr.plan_and_apply(layout, config_key='A3_landscape_MP')
 
             # j2. Адаптация размера легенды (M_34)
             # Вызывается ПОСЛЕ экстента — легенда корректно измеряется

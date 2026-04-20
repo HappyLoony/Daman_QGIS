@@ -83,7 +83,7 @@ class SessionLogManager:
             self._rotate_sessions()
 
             # 3. Создаём лог-файл текущей сессии
-            self._session_id = f"{self.SESSION_PREFIX}{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+            self._session_id = f"{self.SESSION_PREFIX}{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
             self._log_file = self._log_dir / f"{self._session_id}.log"
 
             # 4. Настраиваем Python logging

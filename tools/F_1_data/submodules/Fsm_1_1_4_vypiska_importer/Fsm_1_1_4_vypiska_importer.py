@@ -384,10 +384,10 @@ class Fsm_1_1_4_VypiskaImporter(BaseImporter):
                 for old_file in files[1:]:
                     skipped_info.append(
                         f"{os.path.basename(old_file['path'])} "
-                        f"(заменен на версию от {newest_file['date'].strftime('%d.%m.%Y')})"
+                        f"(заменен на версию от {newest_file['date'].strftime('%Y-%m-%d')})"
                     )
 
-                log_info(f"Fsm_1_1_4: {identifier} - выбрана версия от {newest_file['date'].strftime('%d.%m.%Y')} ({len(files)-1} старых пропущено)")
+                log_info(f"Fsm_1_1_4: {identifier} - выбрана версия от {newest_file['date'].strftime('%Y-%m-%d')} ({len(files)-1} старых пропущено)")
             else:
                 # Единственный файл для этого КН
                 files_to_process.append(files[0]['path'])
