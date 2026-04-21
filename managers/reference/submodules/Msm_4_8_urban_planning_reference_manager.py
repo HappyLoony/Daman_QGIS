@@ -12,6 +12,8 @@ class UrbanPlanningReferenceManager(BaseReferenceLoader):
     OTHER_FILE = 'Other.json'
     PUBLIC_EASEMENT_FILE = 'Public_easement.json'
     REDLINE_FILE = 'Redline.json'
+    FUN_ZONES_DISTRIBUTION_FILE = 'Base_fun_zones_distribution.json'
+    TERR_ZONES_DISTRIBUTION_FILE = 'Base_terr_zones_distribution.json'
 
     # Методы для работы с отступами от красных линий
     def get_offset_redline(self) -> List[Dict]:
@@ -111,3 +113,72 @@ class UrbanPlanningReferenceManager(BaseReferenceLoader):
             field_name='status',
             value=status
         )
+
+    # Методы для работы с распределением функциональных зон (Fsm_1_2_18)
+    def get_fun_zones_mapping(self) -> List[Dict]:
+        """
+        Получить правила распределения функциональных зон.
+
+        Формат записи:
+            {
+                "classname": "<название зоны из WFS Le_1_2_8_1>",
+                "status": "<значение поля status из WFS>",
+                "layer_name": "<имя слоя назначения Le_1_2_8_*_Фун_зоны_*_сущ/_план>"
+            }
+
+        Returns:
+            Список правил распределения (classname + status -> layer_name)
+        """
+        return self._load_json(self.FUN_ZONES_DISTRIBUTION_FILE) or []
+
+    def get_fun_zone_layer(self, classname: str, status: str) -> Optional[str]:
+        """
+        Найти слой назначения для функциональной зоны по паре (classname, status).
+
+        Args:
+            classname: Название зоны (из поля classname в WFS)
+            status: Статус (из поля status в WFS)
+
+        Returns:
+            Имя слоя назначения или None если пара не найдена в маппинге
+        """
+        for rule in self.get_fun_zones_mapping():
+            if rule.get('classname') == classname and rule.get('status') == status:
+                return rule.get('layer_name')
+        return None
+
+    # Методы для работы с распределением территориальных зон (Fsm_1_2_17)
+    def get_terr_zones_mapping(self) -> List[Dict]:
+        """
+        Получить правила распределения территориальных зон.
+
+        Формат записи:
+            {
+                "classname": "<название зоны из WFS Le_1_2_9_1>",
+                "layer_name": "<имя слоя назначения Le_1_2_9_*_Тер_зоны_*>"
+            }
+
+        Territrial zones не разделяются по status (семантика данных WFS).
+
+        Returns:
+            Список правил распределения (classname -> layer_name)
+        """
+        return self._load_json(self.TERR_ZONES_DISTRIBUTION_FILE) or []
+
+    def get_terr_zone_layer(self, classname: str) -> Optional[str]:
+        """
+        Найти слой назначения для территориальной зоны по classname.
+
+        Args:
+            classname: Название зоны (из поля classname в WFS)
+
+        Returns:
+            Имя слоя назначения или None если classname не найден в маппинге
+        """
+        rule = self._get_by_key(
+            data_getter=self.get_terr_zones_mapping,
+            index_key='terr_zone_by_classname',
+            field_name='classname',
+            value=classname
+        )
+        return rule.get('layer_name') if rule else None

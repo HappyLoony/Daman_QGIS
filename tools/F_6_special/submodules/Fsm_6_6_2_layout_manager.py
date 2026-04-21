@@ -19,7 +19,9 @@ from qgis.core import (
 from Daman_QGIS.utils import log_info, log_error, log_warning
 from Daman_QGIS.constants import EXPORT_DPI_ROSREESTR
 from Daman_QGIS.managers import registry
-from Daman_QGIS.managers.styling.submodules.Msm_46_utils import find_legend
+from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
+    find_legend, filter_print_visible,
+)
 
 
 # Имя слоя границ работ (хардкод)
@@ -148,6 +150,19 @@ class Fsm_6_6_2_LayoutManager:
             name for name in visible_layer_names
             if not name.startswith('L_1_3_')
         ]
+
+        # Фильтр not_print (Base_layers): защитный слой на случай, если
+        # visible_layer_names содержит слои, скрытые от печати. F_6_6
+        # уже фильтрует через _expand_layer_patterns, но update_legend
+        # принимает произвольный список — защита от прямых вызовов.
+        legend_layer_names, hidden_from_print = filter_print_visible(
+            legend_layer_names
+        )
+        if hidden_from_print:
+            log_info(
+                f"Fsm_6_6_2: Исключены not_print слои из легенды: "
+                f"{', '.join(hidden_from_print)}"
+            )
 
         for layer_name in legend_layer_names:
             # Найти слой в проекте

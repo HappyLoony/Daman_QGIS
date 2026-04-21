@@ -6,7 +6,7 @@
 для визуализации слоев в QGIS
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, List
 from qgis.core import (
     QgsVectorLayer, QgsMarkerSymbol, QgsLineSymbol, QgsFillSymbol,
     QgsSimpleLineSymbolLayer, QgsSimpleFillSymbolLayer, QgsSimpleMarkerSymbolLayer,
@@ -15,7 +15,20 @@ from qgis.core import (
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QColor
 from Daman_QGIS.constants import ANSI_HATCH_SPACING
+from Daman_QGIS.utils import log_warning
 from .Msm_5_2_color_utils import parse_rgb_string, autocad_transparency_to_qgis
+
+
+def _is_fill_enabled(style: Dict[str, Any]) -> bool:
+    """Толерантный парсер поля 'fill' (bool / int / строка '1'/'0'/'true'/'false')."""
+    value = style.get('fill', 0)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return int(value) == 1
+    if isinstance(value, str):
+        return value.strip().lower() in ('1', 'true', 'yes', 'да')
+    return False
 
 
 class AutoCADToQGISConverter:
@@ -140,200 +153,156 @@ class AutoCADToQGISConverter:
 
     def convert_polygon(self, style: Dict[str, Any]) -> QgsFillSymbol:
         """
-        Создать QgsFillSymbol из AutoCAD параметров полигона
+        Создать QgsFillSymbol из AutoCAD параметров полигона.
 
-        Логика определения типа заливки (из Base_layers.json):
+        Архитектура двух независимых слоёв (три уровня):
+        - Нижний: ЗАЛИВКА (fill=1 в Base_layers) — QgsSimpleFillSymbolLayer
+          с цветом fill_color_RGB и прозрачностью fill_transparency,
+          stroke=NoPen (контур рисуется отдельным слоем)
+        - Средний: ШТРИХОВКА (hatch=ANSI*) — QgsLinePatternFillSymbolLayer
+          (один или два слоя для ANSI32/ANSI37) с цветом hatch_color_RGB
+        - Верхний: КОНТУР (line_color_RGB + linetype) — QgsSimpleLineSymbolLayer
 
-        1. hatch == "SOLID":
-           - Сплошная заливка hatch_color_RGB
-           - Контур: line_color_RGB, line_global_weight
+        Оба независимы: Заливка и Штриховка могут быть заданы как раздельно,
+        так и одновременно. При одновременной — штриховка рисуется поверх.
 
-        2. hatch == "ANSI37":
-           - ДВА слоя QgsLinePatternFillSymbolLayer (углы 45° и 135° + hatch_angle)
-           - Используется для сложных кросс-хэтч паттернов
-
-        3. hatch == "ANSI32":
-           - ДВА слоя QgsLinePatternFillSymbolLayer (оба угол 45° с разным offset)
-           - Steel pattern из AutoCAD
-
-        4. hatch == "ANSI31"/другие одинарные ANSI:
-           - ОДИН слой QgsLinePatternFillSymbolLayer (штриховка)
-           - Цвет штриховки: hatch_color_RGB
-           - Линии штриховки: hatch_global_lineweight
-           - Контур: line_color_RGB, line_global_weight
-
-        5. hatch == "-":
-           - Без заливки (Qt.NoBrush)
-           - Только контур: line_color_RGB, line_global_weight
+        Legacy: если Штриховка='SOLID' — warning + трактуется как отсутствие
+        штриховки (теперь заливка управляется отдельной колонкой 'fill').
 
         Args:
-            style: Словарь AutoCAD стиля
+            style: Словарь AutoCAD стиля из Base_layers.json
 
         Returns:
-            QgsFillSymbol настроенный для полигона
+            QgsFillSymbol с порядком слоёв fill -> hatch -> stroke.
         """
-        hatch = style['hatch']
+        fill_enabled = _is_fill_enabled(style)
+        hatch = style.get('hatch', '-')
 
+        # Legacy: SOLID в hatch больше не поддерживается — заливка задаётся отдельно
         if hatch == 'SOLID':
-            # Сплошная заливка
-            fill_layer = QgsSimpleFillSymbolLayer()
+            log_warning(
+                "Msm_5_1: Штриховка='SOLID' больше не поддерживается - "
+                "используй колонку 'Заливка' (fill) в Base_layers. Обрабатываем как без штриховки."
+            )
+            hatch = '-'
 
-            # Цвет заливки
-            r, g, b = parse_rgb_string(style['hatch_color_RGB'])
-            fill_color = QColor(r, g, b)
+        symbol = QgsFillSymbol()
+        # Удаляем дефолтный layer (пустой SimpleFill), добавлять будем свои
+        symbol.deleteSymbolLayer(0)
 
-            # Прозрачность заливки
-            opacity = autocad_transparency_to_qgis(style['hatch_transparency'])
-            fill_color.setAlphaF(opacity)
+        # ===== НИЖНИЙ СЛОЙ: ЗАЛИВКА =====
+        if fill_enabled:
+            fill_layer = self._create_fill_layer(style)
+            symbol.appendSymbolLayer(fill_layer)
 
-            fill_layer.setFillColor(fill_color)
-            fill_layer.setBrushStyle(Qt.BrushStyle.SolidPattern)
+        # ===== СРЕДНИЙ СЛОЙ(И): ШТРИХОВКА =====
+        if hatch not in ('-', '', None) and hatch.startswith('ANSI'):
+            for hatch_layer in self._create_hatch_layers(hatch, style):
+                symbol.appendSymbolLayer(hatch_layer)
 
-            # Контур
-            self._apply_outline(fill_layer, style)
-
-            # Создаем символ
-            symbol = QgsFillSymbol()
-            symbol.changeSymbolLayer(0, fill_layer)
-
-        elif hatch != '-' and hatch.startswith('ANSI'):
-            # Создаем символ
-            symbol = QgsFillSymbol()
-
-            if hatch == 'ANSI37':
-                # ANSI37 - два слоя штриховки с базовыми углами 45° и 135° + hatch_angle, контур сверху
-
-                # ВАЖНО: для ANSI37 hatch_angle - это ДОБАВКА к базовым углам (не полное значение)
-                # Получаем hatch_angle из стиля (целое число 0-360)
-                # Если отсутствует или "-", используем 0 (базовые углы без изменений)
-                hatch_angle_offset = 0
-                if 'hatch_angle' in style:
-                    hatch_angle_value = style['hatch_angle']
-                    if isinstance(hatch_angle_value, (int, float)):
-                        hatch_angle_offset = int(hatch_angle_value)
-                    elif isinstance(hatch_angle_value, str) and hatch_angle_value != '-':
-                        try:
-                            hatch_angle_offset = int(hatch_angle_value)
-                        except ValueError:
-                            hatch_angle_offset = 0
-
-                # Базовые углы для ANSI37: 45° и 135°
-                base_angle_1 = 45
-                base_angle_2 = 135
-
-                # Применяем hatch_angle как ДОБАВКУ к базовым углам
-                final_angle_1 = base_angle_1 + hatch_angle_offset  # 45° + offset
-                final_angle_2 = base_angle_2 + hatch_angle_offset  # 135° + offset
-
-                hatch_layer_1 = self._create_hatch_layer_fixed_angle(
-                    final_angle_1,  # 45° + hatch_angle
-                    ANSI_HATCH_SPACING,  # spacing для ANSI37
-                    style['hatch_color_RGB'],
-                    style['hatch_transparency'],
-                    style['hatch_scale'],
-                    style['hatch_global_lineweight']
-                )
-
-                hatch_layer_2 = self._create_hatch_layer_fixed_angle(
-                    final_angle_2,  # 135° + hatch_angle
-                    ANSI_HATCH_SPACING,  # spacing для ANSI37
-                    style['hatch_color_RGB'],
-                    style['hatch_transparency'],
-                    style['hatch_scale'],
-                    style['hatch_global_lineweight']
-                )
-
-                # Добавляем оба слоя штриховки
-                symbol.changeSymbolLayer(0, hatch_layer_1)
-                symbol.appendSymbolLayer(hatch_layer_2)
-
-            elif hatch == 'ANSI32':
-                # ANSI32 - два слоя штриховки с разным offset (Steel pattern)
-                # Определение из AutoCAD acad.pat:
-                # *ANSI32, ANSI Steel
-                # 45, 0,0, 0,.375
-                # 45, .176776695,0, 0,.375
-
-                # Базовый угол для обоих слоев
-                base_angle = 45
-
-                # ВАЖНО: для ANSI32 hatch_angle - это ПОЛНОЦЕННОЕ значение угла (не добавка)
-                # Если hatch_angle задан, используем его ВМЕСТО базового
-                hatch_angle_value = style.get('hatch_angle', 0)
-                if isinstance(hatch_angle_value, str):
-                    try:
-                        hatch_angle_value = int(hatch_angle_value) if hatch_angle_value != '-' else 0
-                    except ValueError:
-                        hatch_angle_value = 0
-
-                # Определяем финальный угол
-                if hatch_angle_value and hatch_angle_value != 0:
-                    final_angle = hatch_angle_value
-                else:
-                    final_angle = base_angle
-
-                # Offset для второго слоя (из AutoCAD pattern definition)
-                ansi32_offset = 0.176776695
-
-                # Первый слой: угол = hatch_angle (или 45° по умолчанию), без offset
-                hatch_layer_1 = self._create_hatch_layer_fixed_angle(
-                    final_angle,
-                    ANSI_HATCH_SPACING,  # spacing для ANSI32
-                    style['hatch_color_RGB'],
-                    style['hatch_transparency'],
-                    style['hatch_scale'],
-                    style['hatch_global_lineweight'],
-                    offset=0.0  # Без смещения
-                )
-
-                # Второй слой: тот же угол, с offset
-                hatch_layer_2 = self._create_hatch_layer_fixed_angle(
-                    final_angle,
-                    ANSI_HATCH_SPACING,  # spacing для ANSI32
-                    style['hatch_color_RGB'],
-                    style['hatch_transparency'],
-                    style['hatch_scale'],
-                    style['hatch_global_lineweight'],
-                    offset=ansi32_offset  # Смещение для создания "steel" эффекта
-                )
-
-                # Добавляем оба слоя штриховки
-                symbol.changeSymbolLayer(0, hatch_layer_1)
-                symbol.appendSymbolLayer(hatch_layer_2)
-
-            else:
-                # Остальные ANSI штриховки (ANSI31, ANSI35, ANSI36, ANSI38, etc.)
-                hatch_layer = self._create_hatch_layer(
-                    hatch,
-                    style['hatch_color_RGB'],
-                    style['hatch_transparency'],
-                    style['hatch_angle'],
-                    style['hatch_scale'],
-                    style['hatch_global_lineweight']
-                )
-                symbol.changeSymbolLayer(0, hatch_layer)
-
-            # Добавляем контур поверх штриховки
-            outline_layer = self._create_outline_layer(style)
-            symbol.appendSymbolLayer(outline_layer)
-
-        else:  # hatch == "-" или другие значения
-            # Без заливки, только контур
-            fill_layer = QgsSimpleFillSymbolLayer()
-
-            # Устанавливаем прозрачную заливку
-            fill_layer.setBrushStyle(Qt.BrushStyle.NoBrush)
-            transparent_color = QColor(255, 255, 255, 0)  # Полностью прозрачный
-            fill_layer.setFillColor(transparent_color)
-
-            # Контур
-            self._apply_outline(fill_layer, style)
-
-            # Создаем символ
-            symbol = QgsFillSymbol()
-            symbol.changeSymbolLayer(0, fill_layer)
+        # ===== ВЕРХНИЙ СЛОЙ: КОНТУР =====
+        outline_layer = self._create_outline_layer(style)
+        symbol.appendSymbolLayer(outline_layer)
 
         return symbol
+
+    def _create_fill_layer(self, style: Dict[str, Any]) -> QgsSimpleFillSymbolLayer:
+        """
+        Создать слой сплошной заливки из полей 'fill_color_RGB' + 'fill_transparency'.
+
+        Контур внутри fill_layer отключён (stroke=NoPen) — контур рисуется
+        отдельным верхним слоем через _create_outline_layer.
+        """
+        fill_layer = QgsSimpleFillSymbolLayer()
+        r, g, b = parse_rgb_string(style.get('fill_color_RGB', '255,255,255'))
+        color = QColor(r, g, b)
+        opacity = autocad_transparency_to_qgis(style.get('fill_transparency', 0))
+        color.setAlphaF(opacity)
+        fill_layer.setFillColor(color)
+        fill_layer.setBrushStyle(Qt.BrushStyle.SolidPattern)
+        fill_layer.setStrokeStyle(Qt.PenStyle.NoPen)
+        return fill_layer
+
+    def _create_hatch_layers(self, hatch: str, style: Dict[str, Any]) -> List[QgsLinePatternFillSymbolLayer]:
+        """
+        Построить 1-2 слоя штриховки в зависимости от типа ANSI.
+
+        Возвращает список (1 элемент для простых ANSI, 2 для ANSI32/ANSI37).
+        """
+        layers: List[QgsLinePatternFillSymbolLayer] = []
+
+        if hatch == 'ANSI37':
+            # ANSI37 - два слоя с базовыми углами 45° и 135° + hatch_angle (добавка)
+            hatch_angle_offset = 0
+            if 'hatch_angle' in style:
+                hatch_angle_value = style['hatch_angle']
+                if isinstance(hatch_angle_value, (int, float)):
+                    hatch_angle_offset = int(hatch_angle_value)
+                elif isinstance(hatch_angle_value, str) and hatch_angle_value != '-':
+                    try:
+                        hatch_angle_offset = int(hatch_angle_value)
+                    except ValueError:
+                        hatch_angle_offset = 0
+
+            layers.append(self._create_hatch_layer_fixed_angle(
+                45 + hatch_angle_offset,
+                ANSI_HATCH_SPACING,
+                style['hatch_color_RGB'],
+                style['hatch_transparency'],
+                style['hatch_scale'],
+                style['hatch_global_lineweight']
+            ))
+            layers.append(self._create_hatch_layer_fixed_angle(
+                135 + hatch_angle_offset,
+                ANSI_HATCH_SPACING,
+                style['hatch_color_RGB'],
+                style['hatch_transparency'],
+                style['hatch_scale'],
+                style['hatch_global_lineweight']
+            ))
+
+        elif hatch == 'ANSI32':
+            # ANSI32 - Steel pattern: два слоя с тем же углом, разный offset
+            hatch_angle_value = style.get('hatch_angle', 0)
+            if isinstance(hatch_angle_value, str):
+                try:
+                    hatch_angle_value = int(hatch_angle_value) if hatch_angle_value != '-' else 0
+                except ValueError:
+                    hatch_angle_value = 0
+            final_angle = hatch_angle_value if hatch_angle_value else 45
+            ansi32_offset = 0.176776695
+
+            layers.append(self._create_hatch_layer_fixed_angle(
+                final_angle,
+                ANSI_HATCH_SPACING,
+                style['hatch_color_RGB'],
+                style['hatch_transparency'],
+                style['hatch_scale'],
+                style['hatch_global_lineweight'],
+                offset=0.0
+            ))
+            layers.append(self._create_hatch_layer_fixed_angle(
+                final_angle,
+                ANSI_HATCH_SPACING,
+                style['hatch_color_RGB'],
+                style['hatch_transparency'],
+                style['hatch_scale'],
+                style['hatch_global_lineweight'],
+                offset=ansi32_offset
+            ))
+
+        else:
+            # Остальные одинарные ANSI (ANSI31, ANSI35, ANSI36, ANSI38, etc.)
+            layers.append(self._create_hatch_layer(
+                hatch,
+                style['hatch_color_RGB'],
+                style['hatch_transparency'],
+                style['hatch_angle'],
+                style['hatch_scale'],
+                style['hatch_global_lineweight']
+            ))
+
+        return layers
 
     # ========== Вспомогательные методы ==========
 

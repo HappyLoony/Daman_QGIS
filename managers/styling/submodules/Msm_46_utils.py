@@ -12,7 +12,7 @@ ref_point (1-9) в смещение (dx, dy) от anchor до top-left. Друг
 (Chesterton's Fence, OPT-3 partial).
 """
 
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from qgis.core import QgsPrintLayout, QgsLayoutItemLegend, QgsLayoutItemMap
 
@@ -89,3 +89,71 @@ def numpad_to_offset(
     }
     fx, fy = factors.get(ref_point, (0.0, 0.0))
     return (-fx * width, -fy * height)
+
+
+def is_layer_hidden_from_print(layer_name: str) -> bool:
+    """
+    Проверить, помечен ли слой как "скрыт от печати" (not_print=1 в Base_layers).
+
+    Аналог логики DxfExporter (layer_info.get('not_print') == 1), применимый
+    к темам макетов и легендам. Используется в F_1_4 (Fsm_1_4_5), F_6_6
+    (F_6_6_master_plan, Fsm_6_6_2) для исключения таких слоёв из
+    main_map / overview_map / легенды.
+
+    Источник истины — Base_layers.json через M_10 (layers_db). Если слоя нет
+    в Base_layers (OSM/динамические подложки и т.п.) — считаем не скрытым
+    (разрешён к печати), это нормальная ситуация.
+
+    Args:
+        layer_name: Полное имя слоя (например 'Le_1_2_8_11_Ген_План_Рекреац').
+
+    Returns:
+        True если в Base_layers найдена запись с full_name == layer_name и
+        not_print == 1. Иначе False (включая случай, когда M_10 не
+        зарегистрирован или слоя нет в Base_layers).
+    """
+    # Импорт лениво чтобы избежать циклов (registry -> styling -> registry)
+    from Daman_QGIS.managers import registry
+    m10 = registry.get('M_10')
+    if m10 is None:
+        return False
+    layers_db = getattr(m10, 'layers_db', None)
+    if not layers_db:
+        return False
+    for entry in layers_db:
+        if entry.get('full_name') == layer_name:
+            value = entry.get('not_print', 0)
+            try:
+                return int(str(value).strip() or 0) == 1
+            except (ValueError, TypeError):
+                return False
+    return False
+
+
+def filter_print_visible(
+    layer_names: List[str],
+) -> Tuple[List[str], List[str]]:
+    """
+    Отфильтровать список имён слоёв, оставив только разрешённые к печати.
+
+    Применяется к спискам слоёв для тем макетов (main_map, overview_map) и
+    легенд. Слои с not_print=1 из Base_layers исключаются. Порядок visible
+    сохраняется.
+
+    Args:
+        layer_names: Список полных имён слоёв (в любом порядке).
+
+    Returns:
+        Tuple (visible, hidden):
+            visible — имена, разрешённые к печати (сохранён исходный порядок).
+            hidden  — имена, помеченные not_print=1 (для логирования вызывающей
+            стороной).
+    """
+    visible: List[str] = []
+    hidden: List[str] = []
+    for name in layer_names:
+        if is_layer_hidden_from_print(name):
+            hidden.append(name)
+        else:
+            visible.append(name)
+    return visible, hidden

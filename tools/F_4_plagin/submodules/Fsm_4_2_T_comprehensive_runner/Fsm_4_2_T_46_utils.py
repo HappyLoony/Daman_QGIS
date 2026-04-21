@@ -6,6 +6,9 @@ Fsm_4_2_T_46_utils - Тестирование shared helpers Msm_46_utils.
 - find_legend: возвращает legend при наличии / None при отсутствии / custom id
 - find_main_map: возвращает map при наличии / None при отсутствии / custom id
 - numpad_to_offset: 1=LowerLeft, 5=Center, 9=UpperRight, unknown → (0, 0)
+- is_layer_hidden_from_print: True при not_print=1, False при not_print=0
+  / отсутствии M_10 / отсутствии слоя в Base_layers
+- filter_print_visible: корректно разделяет visible/hidden, сохраняет порядок
 """
 
 from typing import Any
@@ -36,6 +39,9 @@ class TestMsm46Utils:
             self.test_11_numpad_to_offset_center()
             self.test_12_numpad_to_offset_middle_right()
             self.test_13_numpad_to_offset_unknown_ref_defaults_to_topleft()
+            self.test_14_is_layer_hidden_without_m10()
+            self.test_15_is_layer_hidden_not_print_flag()
+            self.test_16_filter_print_visible_preserves_order()
 
         except Exception as e:
             self.logger.error(f"Критическая ошибка тестов Msm_46_utils: {str(e)}")
@@ -281,6 +287,147 @@ class TestMsm46Utils:
                 dx == 0.0 and dy == 0.0,
                 f"ref=99 → ({dx}, {dy}), fallback на TopLeft (0, 0)",
                 f"Ожидалось (0, 0), получено ({dx}, {dy})"
+            )
+        except Exception as e:
+            self.logger.fail(f"Ошибка: {e}")
+
+    # === Группа 5: is_layer_hidden_from_print / filter_print_visible ===
+
+    def _stub_m10(self, layers_db):
+        """
+        Временно подменить M_10 в registry stub-объектом с нужным layers_db.
+
+        Возвращает callable для восстановления исходного M_10 (или удаления
+        stub-а, если M_10 не был зарегистрирован).
+        """
+        from Daman_QGIS.managers import registry
+
+        original = registry.get('M_10') if registry.is_registered('M_10') else None
+
+        class _Stub:
+            pass
+
+        stub = _Stub()
+        stub.layers_db = layers_db
+
+        # registry._instances — приватный dict; используем register/_instances
+        # напрямую, т.к. публичный API не предусматривает подмену
+        registry._instances['M_10'] = stub
+
+        def restore():
+            if original is not None:
+                registry._instances['M_10'] = original
+            else:
+                registry._instances.pop('M_10', None)
+
+        return restore
+
+    def test_14_is_layer_hidden_without_m10(self) -> None:
+        """ТЕСТ 14: is_layer_hidden_from_print возвращает False при m10=None."""
+        self.logger.section("14. is_layer_hidden_from_print: M_10 отсутствует")
+        try:
+            from Daman_QGIS.managers import registry
+            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
+                is_layer_hidden_from_print,
+            )
+
+            original = registry._instances.pop('M_10', None)
+            try:
+                result = is_layer_hidden_from_print('L_X_Y_Test')
+                self.logger.check(
+                    result is False,
+                    "Без M_10 → False (слой не скрыт от печати)",
+                    f"Ожидалось False, получено {result}"
+                )
+            finally:
+                if original is not None:
+                    registry._instances['M_10'] = original
+        except Exception as e:
+            self.logger.fail(f"Ошибка: {e}")
+
+    def test_15_is_layer_hidden_not_print_flag(self) -> None:
+        """ТЕСТ 15: is_layer_hidden_from_print читает not_print из layers_db."""
+        self.logger.section("15. is_layer_hidden_from_print: not_print=1/0/absent")
+        try:
+            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
+                is_layer_hidden_from_print,
+            )
+
+            layers_db = [
+                {'full_name': 'L_A_Hidden', 'not_print': 1},
+                {'full_name': 'L_B_Visible', 'not_print': 0},
+                {'full_name': 'L_C_StrHidden', 'not_print': '1'},
+                {'full_name': 'L_D_Missing'},  # not_print отсутствует
+            ]
+            restore = self._stub_m10(layers_db)
+            try:
+                r_hidden = is_layer_hidden_from_print('L_A_Hidden')
+                r_visible = is_layer_hidden_from_print('L_B_Visible')
+                r_str = is_layer_hidden_from_print('L_C_StrHidden')
+                r_missing = is_layer_hidden_from_print('L_D_Missing')
+                r_absent = is_layer_hidden_from_print('L_Z_NotInBase')
+            finally:
+                restore()
+
+            self.logger.check(
+                r_hidden is True,
+                "not_print=1 → True",
+                f"Ожидалось True, получено {r_hidden}"
+            )
+            self.logger.check(
+                r_visible is False,
+                "not_print=0 → False",
+                f"Ожидалось False, получено {r_visible}"
+            )
+            self.logger.check(
+                r_str is True,
+                "not_print='1' (str) → True",
+                f"Ожидалось True, получено {r_str}"
+            )
+            self.logger.check(
+                r_missing is False,
+                "not_print отсутствует → False (default 0)",
+                f"Ожидалось False, получено {r_missing}"
+            )
+            self.logger.check(
+                r_absent is False,
+                "слой не в Base_layers → False (разрешён к печати)",
+                f"Ожидалось False, получено {r_absent}"
+            )
+        except Exception as e:
+            self.logger.fail(f"Ошибка: {e}")
+
+    def test_16_filter_print_visible_preserves_order(self) -> None:
+        """ТЕСТ 16: filter_print_visible делит visible/hidden, сохраняет порядок."""
+        self.logger.section("16. filter_print_visible: visible/hidden + порядок")
+        try:
+            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
+                filter_print_visible,
+            )
+
+            layers_db = [
+                {'full_name': 'L_A', 'not_print': 0},
+                {'full_name': 'L_B', 'not_print': 1},
+                {'full_name': 'L_C', 'not_print': 1},
+                {'full_name': 'L_D', 'not_print': 0},
+            ]
+            restore = self._stub_m10(layers_db)
+            try:
+                visible, hidden = filter_print_visible(
+                    ['L_A', 'L_B', 'L_C', 'L_D', 'L_OSM']
+                )
+            finally:
+                restore()
+
+            self.logger.check(
+                visible == ['L_A', 'L_D', 'L_OSM'],
+                f"visible сохраняет порядок: {visible}",
+                f"Ожидалось ['L_A', 'L_D', 'L_OSM'], получено {visible}"
+            )
+            self.logger.check(
+                hidden == ['L_B', 'L_C'],
+                f"hidden содержит not_print=1 слои: {hidden}",
+                f"Ожидалось ['L_B', 'L_C'], получено {hidden}"
             )
         except Exception as e:
             self.logger.fail(f"Ошибка: {e}")
