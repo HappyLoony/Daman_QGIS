@@ -236,3 +236,60 @@ class ExtentCalculator:
             padded.xMaximum(),
             padded.yMaximum()
         )
+
+    def add_padding_overlay_safe(
+        self,
+        extent: QgsRectangle,
+        padding_percent: float = 10.0,
+        safe_fraction_south: float = 1.0,
+        safe_fraction_east: float = 1.0,
+        min_padding_meters: float = 50.0
+    ) -> QgsRectangle:
+        """
+        Padding с расширением под overlay (легенда снизу + overview справа).
+
+        Двумерное обобщение add_padding_south_extended:
+        объект остаётся в верхней-левой safe-области main_map, а лишнее
+        пространство снизу и справа заполняется подложкой под overlay'ями.
+
+        Если safe_fraction_south=1.0 — нет расширения на юг (нет легенды).
+        Если safe_fraction_east=1.0 — нет расширения на восток (нет overview).
+
+        Args:
+            extent: Исходный экстент объекта
+            padding_percent: Стандартный % padding вокруг объекта
+            safe_fraction_south: Доля высоты для объекта (0 < v <= 1);
+                                 1.0 = нет south extend
+            safe_fraction_east: Доля ширины для объекта (0 < v <= 1);
+                                1.0 = нет east extend
+            min_padding_meters: Минимальный padding (м)
+
+        Returns:
+            QgsRectangle: Экстент с расширением на юг и/или восток
+        """
+        padded = self.add_padding(extent, padding_percent, adaptive=True,
+                                   min_padding_meters=min_padding_meters)
+
+        extra_south = 0.0
+        if 0 < safe_fraction_south < 1.0:
+            total_h = padded.height() / safe_fraction_south
+            extra_south = total_h - padded.height()
+
+        extra_east = 0.0
+        if 0 < safe_fraction_east < 1.0:
+            total_w = padded.width() / safe_fraction_east
+            extra_east = total_w - padded.width()
+
+        if extra_south > 0 or extra_east > 0:
+            log_info(
+                f"Msm_18_1: Overlay-safe extend: "
+                f"safe_south={safe_fraction_south:.3f}, extra_south={extra_south:.1f} м; "
+                f"safe_east={safe_fraction_east:.3f}, extra_east={extra_east:.1f} м"
+            )
+
+        return QgsRectangle(
+            padded.xMinimum(),
+            padded.yMinimum() - extra_south,
+            padded.xMaximum() + extra_east,
+            padded.yMaximum()
+        )

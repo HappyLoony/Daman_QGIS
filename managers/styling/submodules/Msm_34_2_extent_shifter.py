@@ -112,22 +112,25 @@ class ExtentShifter:
         legend_height: float
     ) -> None:
         """
-        Пересчитать экстент main_map: территория сверху, подложка снизу.
+        Пересчитать экстент main_map с адаптивным выбором safe-зоны.
 
-        Использует M_18.add_padding_south_extended с safe_fraction
-        рассчитанным из реального размера легенды.
+        Три режима выбираются по aspect ratio объекта (boundaries layer):
+        - A (horizontal_band): широкие низкие объекты — safe = верхняя полоса
+          полной ширины высотой (map_h - max(legend_h, overview_h + buf))
+        - B (vertical_column): узкие высокие / квадратные — safe = левая колонка
+          полной высоты шириной (map_w - overview_w - buf)
+        - V3 (combo): промежуточные — пересечение A и B (верхне-левый угол)
+
+        Выбор максимизирует используемое место для данной формы объекта.
         """
         from Daman_QGIS.managers import registry
         from qgis.core import QgsLayoutSize, QgsLayoutPoint, Qgis, QgsProject
 
         map_height = main_map.rect().height()
         map_width = main_map.rect().width()
+        overlay_buf = 5.0  # мм буфер между safe-зоной и overlay
 
-        # safe_fraction: территория в верхней части, легенда в нижней
-        safe_fraction = (map_height - legend_height) / map_height
-        safe_fraction = max(0.3, min(safe_fraction, 0.95))
-
-        # Найти слой границ работ
+        # Найти слой границ работ (нужен для aspect ratio объекта)
         boundaries_layer = None
         for layer in QgsProject.instance().mapLayers().values():
             if layer.name() == 'L_1_1_1_Границы_работ':
@@ -138,12 +141,63 @@ class ExtentShifter:
             log_warning("Msm_34_2: L_1_1_1 не найден для сдвига экстента")
             return
 
+        obj_extent = boundaries_layer.extent()
+        if obj_extent.height() <= 0:
+            log_warning("Msm_34_2: нулевая высота границ — сдвиг экстента пропущен")
+            return
+        obj_aspect = obj_extent.width() / obj_extent.height()
+
+        overview_width = self._measure_overview_width(layout)
+        overview_height = self._measure_overview_height(layout)
+
+        # Safe-зоны (без overlay_buf в мм считаются по реальным размерам main_map)
+        top_band_h = map_height - max(legend_height, overview_height + overlay_buf)
+        left_col_w = map_width - overview_width - overlay_buf if overview_width > 0 else map_width
+
+        # Aspect ratio safe-зон (для сравнения с obj_aspect)
+        # Защита от деления на 0: если safe-зона вырождена, считаем aspect = inf/0
+        top_band_aspect = map_width / top_band_h if top_band_h > 0 else float('inf')
+        left_col_aspect = left_col_w / map_height if map_height > 0 else 0
+
+        # Выбор режима
+        if overview_width <= 0:
+            # Нет overview — только south по legend
+            mode = 'A_no_overview'
+            safe_south = (map_height - legend_height) / map_height
+            safe_east = 1.0
+        elif obj_aspect >= top_band_aspect:
+            # Широкий низкий объект — используем верхнюю полосу полной ширины
+            mode = 'A_horizontal'
+            safe_south = top_band_h / map_height
+            safe_east = 1.0
+        elif obj_aspect <= left_col_aspect:
+            # Узкий высокий / квадратный — используем левую колонку полной высоты
+            mode = 'B_vertical'
+            safe_south = (map_height - legend_height) / map_height
+            safe_east = left_col_w / map_width
+        else:
+            # Промежуточный aspect — комбо (пересечение A и B)
+            mode = 'V3_combo'
+            safe_south = (map_height - legend_height) / map_height
+            safe_east = left_col_w / map_width
+
+        safe_south = max(0.3, min(safe_south, 0.95))
+        safe_east = max(0.3, min(safe_east, 0.95)) if safe_east < 1.0 else 1.0
+
+        log_info(
+            f"Msm_34_2: Adaptive mode={mode} (obj_aspect={obj_aspect:.2f}, "
+            f"top_band_aspect={top_band_aspect:.2f}, left_col_aspect={left_col_aspect:.2f})"
+        )
+
         extent_manager = registry.get('M_18')
 
-        # Пересчёт экстента от территории с south-extend
+        # Пересчёт экстента
         extent = extent_manager.calculator.calculate_from_layer(boundaries_layer)
-        extent = extent_manager.calculator.add_padding_south_extended(
-            extent, padding_percent=5.0, safe_fraction=safe_fraction
+        extent = extent_manager.calculator.add_padding_overlay_safe(
+            extent,
+            padding_percent=5.0,
+            safe_fraction_south=safe_south,
+            safe_fraction_east=safe_east
         )
         extent = extent_manager.fitter.fit_extent_to_ratio(
             extent, map_width, map_height
@@ -167,8 +221,9 @@ class ExtentShifter:
         main_map.refresh()
 
         log_info(
-            f"Msm_34_2: Экстент пересчитан (safe_fraction={safe_fraction:.2f}, "
-            f"legend={legend_height:.0f} мм, "
+            f"Msm_34_2: Экстент пересчитан "
+            f"(safe_south={safe_south:.2f}, safe_east={safe_east:.2f}, "
+            f"legend={legend_height:.0f} мм, overview={overview_width:.0f}x{overview_height:.0f} мм, "
             f"размер {original_width:.0f}x{original_height:.0f} мм)"
         )
 
@@ -197,3 +252,25 @@ class ExtentShifter:
             if isinstance(item, QgsLayoutItemMap) and item.id() == 'main_map':
                 return item
         return None
+
+    def _measure_overview_width(self, layout: QgsPrintLayout) -> float:
+        """
+        Получить ширину overview_map (в мм) для east-extend экстента.
+
+        Возвращает 0 если overview_map отсутствует.
+        """
+        for item in layout.items():
+            if isinstance(item, QgsLayoutItemMap) and item.id() == 'overview_map':
+                return item.rect().width()
+        return 0.0
+
+    def _measure_overview_height(self, layout: QgsPrintLayout) -> float:
+        """
+        Получить высоту overview_map (в мм) для south-extend при adaptive выборе.
+
+        Возвращает 0 если overview_map отсутствует.
+        """
+        for item in layout.items():
+            if isinstance(item, QgsLayoutItemMap) and item.id() == 'overview_map':
+                return item.rect().height()
+        return 0.0
