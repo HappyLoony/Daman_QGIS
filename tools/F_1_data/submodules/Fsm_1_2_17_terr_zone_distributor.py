@@ -72,7 +72,8 @@ class Fsm_1_2_17_TerrZoneDistributor:
         unmatched_classnames = {}  # classname -> count
 
         for feat in source.getFeatures():
-            classname = feat["classname"]
+            # Поле WFS называется 'type_zone' (исторически NSPD), семантически = название класса зоны
+            classname = feat["type_zone"]
             target_name = ref_managers.urban_planning.get_terr_zone_layer(classname)
             if not target_name:
                 key = str(classname) if classname is not None else "<NULL>"

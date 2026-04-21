@@ -169,16 +169,17 @@ class UrbanPlanningReferenceManager(BaseReferenceLoader):
         """
         Найти слой назначения для территориальной зоны по classname.
 
+        Линейный поиск без кэш-индекса: у территориальных зон ~5 записей,
+        а shared-кэш может быть загрязнён пустыми данными при race condition
+        (первый вызов до готовности API запомнил бы пустой индекс навсегда).
+
         Args:
             classname: Название зоны (из поля classname в WFS)
 
         Returns:
             Имя слоя назначения или None если classname не найден в маппинге
         """
-        rule = self._get_by_key(
-            data_getter=self.get_terr_zones_mapping,
-            index_key='terr_zone_by_classname',
-            field_name='classname',
-            value=classname
-        )
-        return rule.get('layer_name') if rule else None
+        for rule in self.get_terr_zones_mapping():
+            if rule.get('classname') == classname:
+                return rule.get('layer_name')
+        return None

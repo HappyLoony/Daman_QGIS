@@ -87,7 +87,8 @@ class Fsm_1_2_18_FuncZoneDistributor:
         skipped_bad_status = 0
 
         for feat in source.getFeatures():
-            classname = feat["classname"]
+            # Поле WFS называется 'classid' (исторически NSPD), семантически = название класса зоны
+            classname = feat["classid"]
             status = feat["status"]
 
             # Проверка статуса
