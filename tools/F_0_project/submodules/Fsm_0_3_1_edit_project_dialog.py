@@ -97,6 +97,14 @@ class EditProjectDialog(BaseMetadataDialog):
         self.populate_enum_combo(self.doc_type_combo, '1_5_doc_type')
         required_layout.addRow("Тип документации (разработка):", self.doc_type_combo)
 
+        # Ограничение: для Линейный доступен только ДПТ (МП только для площадок)
+        self.setup_conditional_restriction(
+            self.object_type_combo,
+            self.doc_type_combo,
+            '1_5_doc_type',
+            {"Линейный": ["ДПТ"]}
+        )
+
         # 1_6 Этап разработки
         self.stage_combo = QComboBox()
         self.populate_enum_combo(self.stage_combo, '1_6_stage')

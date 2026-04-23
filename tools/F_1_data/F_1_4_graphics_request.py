@@ -21,6 +21,7 @@ from Daman_QGIS.managers import get_reference_managers, registry, FolderType
 from .submodules.Fsm_1_4_8_graphics_request_dialog import GraphicsRequestDialog
 from .submodules.Fsm_1_4_9_graphics_progress_dialog import GraphicsProgressDialog
 from .submodules.Fsm_1_4_10_overview_preview_dialog import OverviewPreviewDialog
+from .submodules.Fsm_1_4_11_main_preview_dialog import MainPreviewDialog
 
 # Импортируем все подмодули
 from .submodules.Fsm_1_4_2_excel_export import ExcelExporter
@@ -321,45 +322,49 @@ class F_1_4_GraphicsRequest(BaseTool):
         else:
             current_step += 1
 
-        # 5. Показываем диалог выбора отображения обзорной карты
+        # 5. Показываем диалог выбора масштаба (main_map → overview_map)
         # 300 DPI - требование Приказа Росреестра от 19.04.2022 N П/0148
         export_dpi = EXPORT_DPI_ROSREESTR
         if layout_created:
             current_step += 1
-            progress_dialog.update_progress(int(current_step * 100 / total_steps), "Выбор отображения обзорной карты...")
+            progress_dialog.update_progress(int(current_step * 100 / total_steps), "Выбор масштаба основной карты...")
             QApplication.processEvents()
 
-            # Получаем текущий масштаб обзорной карты
-            current_scale = self.layout_manager.get_overview_map_scale()
             layout = self.layout_manager.get_layout()
 
-            if current_scale and layout:
-                # Скрываем диалог прогресса на время показа превью
+            # 5.1. Диалог выбора масштаба основной карты
+            main_scale = self.layout_manager.get_main_map_scale()
+            if main_scale and layout:
                 progress_dialog.hide()
-
-                # Показываем диалог выбора варианта
-                preview_dialog = OverviewPreviewDialog(
-                    layout,
-                    current_scale,
-                    self.iface.mainWindow()
+                main_dialog = MainPreviewDialog(
+                    layout, main_scale, self.iface.mainWindow()
                 )
+                if main_dialog.exec() == 1:
+                    _dpi, main_factor = main_dialog.get_selected_variant()
+                    if main_factor != 1.0:
+                        new_main_scale = main_scale * main_factor
+                        self.layout_manager.set_main_map_scale(new_main_scale)
+                        log_info(f"F_1_4: Применён новый масштаб основной карты: 1:{int(new_main_scale)}")
+                else:
+                    log_info("F_1_4: Диалог масштаба main_map отменён, используется базовый")
+                progress_dialog.show()
 
-                if preview_dialog.exec() == 1:  # OK
-                    # Получаем выбранные параметры
+            # 5.2. Диалог выбора масштаба обзорной карты
+            current_scale = self.layout_manager.get_overview_map_scale()
+            if current_scale and layout:
+                progress_dialog.hide()
+                preview_dialog = OverviewPreviewDialog(
+                    layout, current_scale, self.iface.mainWindow()
+                )
+                if preview_dialog.exec() == 1:
                     export_dpi, scale_factor = preview_dialog.get_selected_variant()
-
-                    # Применяем новый масштаб если изменился
                     if scale_factor != 1.0:
                         new_scale = current_scale * scale_factor
                         self.layout_manager.set_overview_map_scale(new_scale)
                         log_info(f"F_1_4: Применён новый масштаб обзорной карты: 1:{int(new_scale)}")
-
                     log_info(f"F_1_4: Выбраны параметры экспорта: DPI={export_dpi}")
                 else:
-                    # Пользователь отменил - используем значения по умолчанию
-                    log_info("F_1_4: Диалог отменён, используются параметры по умолчанию")
-
-                # Возвращаем диалог прогресса
+                    log_info("F_1_4: Диалог overview_map отменён, используются параметры по умолчанию")
                 progress_dialog.show()
             else:
                 log_warning("F_1_4: Не удалось получить масштаб обзорной карты, пропускаем диалог превью")

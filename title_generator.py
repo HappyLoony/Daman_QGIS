@@ -73,71 +73,26 @@ class TitleGenerator:
 
     def generate_scheme_title(self, metadata: Dict[str, Any]) -> str:
         """
-        Сгенерировать название схемы для компоновки
+        Сгенерировать название схемы для компоновки.
 
-        Шаблон:
-        Схема границ территории, применительно к которой осуществляется
-        {stage_text} {doc_text} {object_text} {object_value_text} {full_name}
+        Шаблон (вариант A — два предложения, именит. падеж у full_name):
+        "Схема границ территории. «{full_name}»"
+
+        Логика упрощена: stage/doc_type/object_type вынесены в full_name,
+        который пользователь заполняет полным предложением в метаданных
+        (Приказы/ППРФ не формализуют единый шаблон для всех комбинаций
+        "Внесение изменений × Площадной/Линейный × ДПТ/МП", поэтому всё
+        пишется пользователем в поле 1_1_full_name).
 
         Args:
-            metadata: Словарь метаданных проекта с ключами:
-                - 1_1_full_name: Полное название объекта
-                - 1_2_object_type: "Линейный" или "Площадной"
-                - 1_2_1_object_type_value: "Федеральный"/"Региональный"/"Местный" (только для линейных)
-                - 1_5_doc_type: "ДПТ" или "Мастер-план"
-                - 1_6_stage: "Первичная" или "Внесение изменений"
+            metadata: Словарь метаданных проекта. Используется только
+                ключ "1_1_full_name".
 
         Returns:
-            Полное название схемы
-
-        Examples:
-            >>> metadata = {
-            ...     "1_1_full_name": '"Эльбрус благоустройство"',
-            ...     "1_2_object_type": "Площадной",
-            ...     "1_2_1_object_type_value": "-",
-            ...     "1_5_doc_type": "ДПТ",
-            ...     "1_6_stage": "Первичная"
-            ... }
-            >>> generator = TitleGenerator()
-            >>> generator.generate_scheme_title(metadata)
-            'Схема границ территории, применительно к которой осуществляется разработка документации по планировке территории с целью размещения объекта "Эльбрус благоустройство"'
+            Заголовок вида `Схема границ территории. «{full_name}»`.
         """
-        # Извлекаем значения из метаданных
         full_name = metadata.get("1_1_full_name", "")
-        object_type = metadata.get("1_2_object_type", "Площадной")
-        object_type_value = metadata.get("1_2_1_object_type_value", "-")
-        doc_type = metadata.get("1_5_doc_type", "ДПТ")
-        stage = metadata.get("1_6_stage", "Первичная")
-
-        is_single = metadata.get("1_7_is_single_object", "Да") == "Да"
-
-        # Формируем части заголовка
-
-        # 1. Стадия
-        stage_text = self.STAGE_MAP.get(stage, "разработка")
-
-        # 2. Тип документа (зависит от стадии) - СХЕМА использует родительный падеж
-        doc_map = self.DOC_TYPE_MAP_SCHEME.get(doc_type, self.DOC_TYPE_MAP_SCHEME["ДПТ"])
-        doc_text = doc_map.get(stage, doc_map["Первичная"])
-
-        # 3. Тип объекта (единственное/множественное число)
-        type_map = self.OBJECT_TYPE_MAP if is_single else self.OBJECT_TYPE_MAP_PLURAL
-        object_text = type_map.get(object_type, type_map["Площадной"])
-
-        # 4. Для линейных добавляем значение (федерального/регионального/местного значения)
-        if object_type == "Линейный" and object_type_value and object_type_value != "-":
-            value_text = self.OBJECT_VALUE_MAP.get(object_type_value, object_type_value.lower())
-            object_text += f" {value_text} значения"
-
-        # Формируем полный текст
-        # full_name оборачиваем в кавычки-ёлочки «»
-        title = (
-            f"Схема границ территории, применительно к которой осуществляется "
-            f"{stage_text} {doc_text} {object_text} "
-            f"«{full_name}»"
-        )
-
-        return title
+        return f"Схема границ территории. «{full_name}»"
 
     def generate_boundary_layer_title(self, metadata: Dict[str, Any]) -> str:
         """

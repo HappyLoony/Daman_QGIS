@@ -411,13 +411,16 @@ class LayoutManager:
                     break
                 layer_node = root_group.addLayer(layer)
                 if layer_node:
-                    # Генерируем название слоя границ через TitleGenerator
-                    title_generator = TitleGenerator()
-                    legend_title_base = title_generator.generate_boundary_layer_title(metadata_dict)
-
-                    # Wrap применит M_46 (Msm_46_4.InlinePlacement) на основе плана
-                    legend_title = legend_title_base
-
+                    # Название слоя границ — description из Base_layers
+                    # (унифицировано с F_6_6: "Границы территории проектирования")
+                    from Daman_QGIS.managers import get_reference_managers
+                    ref_managers = get_reference_managers()
+                    boundary_desc = None
+                    for layer_data in ref_managers.layer.get_base_layers():
+                        if layer_data.get('full_name') == 'L_1_1_1_Границы_работ':
+                            boundary_desc = layer_data.get('description')
+                            break
+                    legend_title = boundary_desc or 'Границы территории проектирования'
                     layer_node.setCustomProperty("legend/title-label", legend_title)
                 break
 
@@ -653,6 +656,39 @@ class LayoutManager:
                 return item.scale()
 
         return None
+
+    def get_main_map_scale(self):
+        """Получение текущего масштаба основной карты
+
+        Returns:
+            float: Масштаб карты или None
+        """
+        layout = self._get_layout()
+        if not layout:
+            return None
+
+        for item in layout.items():
+            if isinstance(item, QgsLayoutItemMap) and item.id() == 'main_map':
+                return item.scale()
+
+        return None
+
+    def set_main_map_scale(self, scale: float):
+        """Установка масштаба основной карты
+
+        Args:
+            scale: Новый масштаб карты
+        """
+        layout = self._get_layout()
+        if not layout:
+            return
+
+        for item in layout.items():
+            if isinstance(item, QgsLayoutItemMap) and item.id() == 'main_map':
+                item.setScale(scale)
+                item.refresh()
+                log_info(f"Fsm_1_4_5: Масштаб main_map установлен: 1:{int(scale)}")
+                return
 
     def set_overview_map_scale(self, scale: float):
         """Установка масштаба обзорной карты

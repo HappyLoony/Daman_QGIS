@@ -331,6 +331,67 @@ class BaseMetadataDialog(BaseResponsiveDialog):
         # Инициализируем состояние по текущему значению
         on_company_changed(self.company_combo.currentText())
 
+    def setup_conditional_restriction(
+        self,
+        parent_combo: QComboBox,
+        child_combo: QComboBox,
+        child_field_key: str,
+        restriction_map: dict,
+    ) -> None:
+        """
+        Ограничить набор значений дочернего combo на основе выбора в parent.
+
+        В отличие от setup_conditional_field (полный disable),
+        этот метод фильтрует items в child: оставляет только разрешённые
+        для текущего значения parent. Если parent текст не матчит ни один
+        ключ restriction_map — показываются ВСЕ значения из enum.
+
+        Args:
+            parent_combo: Родительский комбобокс
+            child_combo: Дочерний комбобокс (items пересоздаются)
+            child_field_key: Ключ enum-поля для child в Project_Metadata.json
+            restriction_map: Dict[str, List[str]] — какие label разрешены
+                при каких значениях parent. Ключ матчится через substring
+                (parent_key in parent_text). Первый матч выигрывает.
+
+        Example:
+            # Для Линейный разрешён только ДПТ, для Площадной — все
+            self.setup_conditional_restriction(
+                self.object_type_combo,
+                self.doc_type_combo,
+                '1_5_doc_type',
+                {"Линейный": ["ДПТ"]}
+            )
+        """
+        if not self.metadata_manager:
+            return
+
+        full_values = self.metadata_manager.get_field_values_with_codes(child_field_key) or []
+
+        def on_parent_changed(text: str) -> None:
+            allowed = None
+            for key, values in restriction_map.items():
+                if key in text:
+                    allowed = values
+                    break
+
+            current_data = child_combo.currentData()
+
+            child_combo.blockSignals(True)
+            child_combo.clear()
+            for label, code in full_values:
+                if allowed is None or label in allowed or code in allowed:
+                    child_combo.addItem(label, code)
+            child_combo.blockSignals(False)
+
+            if current_data is not None:
+                idx = child_combo.findData(current_data)
+                if idx >= 0:
+                    child_combo.setCurrentIndex(idx)
+
+        parent_combo.currentTextChanged.connect(on_parent_changed)
+        on_parent_changed(parent_combo.currentText())
+
     def setup_conditional_field(self, parent_combo: QComboBox, child_combo: QComboBox,
                                 parent_value_to_enable: str) -> None:
         """
