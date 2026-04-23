@@ -774,14 +774,20 @@ DEFAULT_RATE_LIMIT = 10               # Защита от 429 ошибок и б
 # Пул Overpass API серверов для динамического выбора по латентности.
 # Пингуются параллельно POST запросом к /interpreter перед каждой загрузкой OSM.
 # Недоступные серверы (403, timeout, блокировка РКН) автоматически исключаются.
-# Kumi Systems = редирект на Private.coffee (дубликат, не включён).
-# Региональные серверы (osm.ch, atownsend.org.uk, maprva.org) не включены.
+#
+# Исключены намеренно:
+# - Kumi Systems — редирект на Private.coffee (дубликат).
+# - Региональные data-only инстансы (osm.ch, atownsend.org.uk, maprva.org, ethiopia):
+#   ping проходит (50-200ms), но запрос по РФ-координатам возвращает пустой результат
+#   (false negative, хуже чем timeout).
+# - VK Maps (maps.mail.ru) — suspended на уровне сервиса с 2026-03-16 (OSM Wiki).
+# - Geofabrik — платный, требует API key.
 OVERPASS_SERVERS = [
-    {"name": "Overpass DE",    "url": "https://overpass-api.de/api/"},
-    {"name": "Overpass RU",    "url": "https://overpass.openstreetmap.ru/api/"},
-    {"name": "VK Maps",        "url": "https://maps.mail.ru/osm/tools/overpass/api/"},
-    {"name": "Overpass FR",    "url": "https://overpass.openstreetmap.fr/api/"},
-    {"name": "Private.coffee", "url": "https://overpass.private.coffee/api/"},
+    {"name": "Overpass DE",     "url": "https://overpass-api.de/api/"},
+    {"name": "Overpass DE-lz4", "url": "https://lz4.overpass-api.de/api/"},
+    {"name": "Overpass RU",     "url": "https://overpass.openstreetmap.ru/api/"},
+    {"name": "Overpass FR",     "url": "https://overpass.openstreetmap.fr/api/"},
+    {"name": "Private.coffee",  "url": "https://overpass.private.coffee/api/"},
 ]
 OVERPASS_PING_TIMEOUT = (2, 3)        # (connect, read) секунды для пинга серверов
 

@@ -119,6 +119,21 @@ class Fsm_2_1_10_ZouitSelection:
             for source_layer in zouit_layers:
                 source_name = source_layer.name()
 
+                # Разные endpoints могут писать в Le_1_2_5_* с разной схемой
+                # (напр. ООПТ ЕГРН cat=472825 даёт title/category вместо name_by_doc/type_zone).
+                # Логируем один раз на слой какие из ожидаемых полей отсутствуют —
+                # в перечне они будут NULL
+                source_field_names = set(source_layer.fields().names())
+                missing_fields = [
+                    f for f in ("reg_numb_border", "type_zone", "name_by_doc")
+                    if f not in source_field_names
+                ]
+                if missing_fields:
+                    log_warning(
+                        f"Fsm_2_1_10: слой {source_name} не содержит полей {missing_fields} — "
+                        f"в перечне будут NULL (или fallback: title→name_by_doc, category→type_zone)"
+                    )
+
                 # Трансформации СК (source → project)
                 transform_to_project, transform_for_intersection = \
                     self.geo_processor.create_coordinate_transforms(source_layer, boundaries_exact)
@@ -142,11 +157,22 @@ class Fsm_2_1_10_ZouitSelection:
                         new_feature = QgsFeature(result_layer.fields())
                         new_feature.setGeometry(QgsGeometry(final_geom))
 
-                        # Маппинг 4 полей
+                        # Маппинг 4 полей с защитой от отсутствующих атрибутов (fallback для ООПТ ЕГРН)
                         new_feature.setAttribute("Слой", source_name)
-                        new_feature.setAttribute("reg_numb_border", feature.attribute("reg_numb_border"))
-                        new_feature.setAttribute("type_zone", feature.attribute("type_zone"))
-                        new_feature.setAttribute("name_by_doc", feature.attribute("name_by_doc"))
+                        new_feature.setAttribute(
+                            "reg_numb_border",
+                            self._attr_or_none(feature, "reg_numb_border")
+                        )
+                        new_feature.setAttribute(
+                            "type_zone",
+                            self._attr_or_none(feature, "type_zone")
+                            or self._attr_or_none(feature, "category")
+                        )
+                        new_feature.setAttribute(
+                            "name_by_doc",
+                            self._attr_or_none(feature, "name_by_doc")
+                            or self._attr_or_none(feature, "title")
+                        )
 
                         result_layer.addFeature(new_feature)
                         selected_count += 1
@@ -189,6 +215,20 @@ class Fsm_2_1_10_ZouitSelection:
         except Exception as e:
             log_error(f"Fsm_2_1_10: Ошибка выборки ЗОУИТ: {str(e)}")
             return None
+
+    @staticmethod
+    def _attr_or_none(feature, name: str):
+        """Безопасное чтение атрибута feature по имени.
+
+        PyQGIS QgsFeature.attribute(name) бросает KeyError если поля нет в схеме.
+        Для Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ схема зависит от того, какой endpoint
+        пришёл первым (EP 12 vs EP 27 в Base_api_endpoints.json) — у них разные поля.
+
+        Returns:
+            Значение атрибута или None если поля нет.
+        """
+        idx = feature.fields().indexFromName(name)
+        return feature.attribute(idx) if idx >= 0 else None
 
     @staticmethod
     def _process_feature_geometry(geom, transform_to_project, transform_for_intersection):

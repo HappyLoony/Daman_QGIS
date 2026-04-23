@@ -62,7 +62,13 @@ class PipelineCache:
             from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
             from cryptography.hazmat.primitives import hashes
         except ImportError:
-            log_error("Msm_29_5: cryptography library not available")
+            # cryptography установится автоматически при первом запуске через F_4_1
+            # (требуется для AES-pipelines и Ed25519-подписей payload).
+            # CRS пересчитается без кэша до следующего запуска.
+            log_warning(
+                "Msm_29_5: cryptography library not available, "
+                "pipelines cache disabled until next restart"
+            )
             return
 
         _t_total = perf_counter()

@@ -131,6 +131,9 @@ class NetworkTabWidget(QWidget):
                 f"<p style='color: {color}'>{prefix} {diag.name}: {msg_html}</p>"
             )
 
+        # Подсказка про VPN split-tunnel при изолированной недоступности NSPD
+        self._append_nspd_vpn_hint(report)
+
         # Итог
         issue_count = NetworkDoctor.get_issue_count(self.network_results)
         fixable = NetworkDoctor.get_fixable_issues(self.network_results)
@@ -154,6 +157,61 @@ class NetworkTabWidget(QWidget):
                     report.append(
                         "<p>Нажмите <b>'Починка сети'</b> для автоматического исправления.</p>"
                     )
+
+    def _append_nspd_vpn_hint(self, report: list) -> None:
+        """Красная плашка про NSPD и VPN split-tunnel.
+
+        Показывается, если соединение определено как 'issue', NSPD отсутствует
+        среди доступных, но остальные тестовые сайты (Google/GitHub/NextGIS)
+        доступны — типичная картина при включённом VPN без split-tunnel для
+        домена nspd.gov.ru.
+        """
+        if not self.network_results:
+            return
+
+        conn_diag = self.network_results.get("connectivity")
+        if conn_diag is None or conn_diag.status != "issue":
+            return
+
+        details = getattr(conn_diag, "details", None)
+        if not isinstance(details, dict):
+            return
+
+        nspd_entry = None
+        other_entries = []
+        for label, entry in details.items():
+            if not isinstance(entry, dict):
+                continue
+            label_lower = str(label).lower()
+            # Ловим любую метку с упоминанием NSPD/Rosreestr
+            if "nspd" in label_lower or "росреестр" in label_lower or "rosreestr" in label_lower:
+                nspd_entry = entry
+            else:
+                other_entries.append(entry)
+
+        if nspd_entry is None:
+            return
+
+        nspd_ok = bool(nspd_entry.get("ok"))
+        if nspd_ok:
+            return  # NSPD доступен — подсказка не нужна
+
+        # Серверная SSL-ошибка NSPD — это проблема сервера, не VPN
+        if nspd_entry.get("server_issue"):
+            return
+
+        others_ok = [bool(e.get("ok")) for e in other_entries]
+        if not others_ok or not all(others_ok):
+            return  # Проблема шире, чем только NSPD
+
+        report.append(
+            "<p style='color: white; background: #D32F2F; "
+            "padding: 8px; border-radius: 4px; font-weight: bold;'>"
+            "NSPD недоступен. Возможно включён VPN без split-tunnel. "
+            "Добавьте nspd.gov.ru в split-tunnel или отключите VPN "
+            "для работы с Росреестром."
+            "</p>"
+        )
 
     def _on_fix_network_clicked(self) -> None:
         """Обработка нажатия кнопки 'Починка сети'"""

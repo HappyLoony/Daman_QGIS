@@ -65,6 +65,10 @@ class DependencyChecker:
         'pypdf': {
             'description': 'Библиотека для работы с PDF файлами',
             'usage': 'Слияние PDF файлов в тома (F_6_2)'
+        },
+        'cryptography': {
+            'description': 'Криптографическая библиотека (AES-GCM, PBKDF2, Ed25519)',
+            'usage': 'Шифрование pipelines (Msm_29_5) + подписи payload (лоадер)'
         }
     }
 

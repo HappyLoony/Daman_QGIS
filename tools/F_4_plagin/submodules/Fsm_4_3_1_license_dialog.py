@@ -13,7 +13,8 @@ from typing import Optional, Any
 
 from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QGroupBox, QMessageBox, QFrame, QApplication
+    QLineEdit, QGroupBox, QMessageBox, QFrame, QApplication,
+    QProgressDialog
 )
 from qgis.PyQt.QtGui import QFont, QClipboard
 from qgis.PyQt.QtCore import Qt
@@ -340,6 +341,10 @@ class LicenseDialog(BaseResponsiveDialog):
                 self.key_input.clear()
                 self.refresh_status()
                 log_info("Fsm_4_3_1: Лицензия активирована")
+
+                # Immediate apply reference profile (M_37): один рестарт вместо двух.
+                # Прогресс-диалог показывается пока M_37 качает ZIP и применяет ключи.
+                self._apply_reference_profile_with_progress()
             else:
                 self.message_label.setText(message)
                 self.message_label.setStyleSheet("color: red;")
@@ -398,6 +403,47 @@ class LicenseDialog(BaseResponsiveDialog):
         finally:
             self.deactivate_btn.setEnabled(True)
             self.deactivate_btn.setText("Деактивировать")
+
+    def _apply_reference_profile_with_progress(self):
+        """Применить reference profile после активации с прогресс-диалогом.
+
+        Показывает QProgressDialog (indeterminate) пока M_37 скачивает и
+        применяет профиль. После завершения M_37 сам показывает info-диалог
+        "Перезапустите QGIS для окончательной настройки стилей и ресурсов".
+
+        Ошибки не блокируют активацию: лицензия уже применена, профиль
+        подтянется при следующем запуске через deferred-retry в main_plugin.py.
+        """
+        progress = QProgressDialog(
+            "Настраиваю профиль... (это может занять минуту)",
+            "",  # без кнопки Cancel -- операция короткая и прерывать нельзя
+            0, 0,  # диапазон 0-0 => indeterminate busy-indicator
+            self,
+        )
+        progress.setWindowTitle("Настройка профиля Daman_QGIS")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.show()
+        QApplication.processEvents()
+
+        try:
+            from Daman_QGIS.managers import registry
+            profile_mgr = registry.get('M_37')
+            applied = profile_mgr.ensure_reference_profile_applied(
+                show_restart_dialog=True
+            )
+            if applied:
+                log_info("Fsm_4_3_1: Reference profile применён после активации")
+            else:
+                log_info(
+                    "Fsm_4_3_1: Reference profile не применён "
+                    "(уже применён, API недоступен или ошибка)"
+                )
+        except Exception as e:
+            log_error(f"Fsm_4_3_1: Ошибка применения профиля: {e}")
+        finally:
+            progress.close()
 
     def on_copy_hwid(self):
         """Копирование Hardware ID в буфер обмена"""

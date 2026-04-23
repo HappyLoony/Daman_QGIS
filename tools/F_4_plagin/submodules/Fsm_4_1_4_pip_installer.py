@@ -42,15 +42,21 @@ class PipInstaller:
     # Staging-папка для двухфазной установки (обход блокировки .pyd на Windows)
     STAGING_FOLDER = "dependencies_staging"
 
+    # Папка с pre-downloaded wheels (заполняется инсталлятором Daman_Install).
+    # При наличии используется как приоритетный источник через pip --find-links.
+    # PyPI остаётся fallback для пакетов, отсутствующих локально.
+    WHEELS_FOLDER = "wheels"
+
     # Суффикс для переименованных заблокированных файлов
     LOCKED_FILE_SUFFIX = ".old"
 
     # Расширения нативных файлов, которые могут быть заблокированы Windows
     NATIVE_EXTENSIONS = ('.pyd', '.dll', '.so', '.dylib')
 
-    # Timeout для установки одного пакета (секунды)
-    # 120 секунд достаточно для большинства пакетов, включая большие как qgis-stubs
-    INSTALL_TIMEOUT = 120
+    # Timeout для установки одного пакета (секунды).
+    # 300 секунд — запас для медленных соединений (без VPN) и крупных пакетов
+    # (cryptography, lxml, pypdf с нативными модулями).
+    INSTALL_TIMEOUT = 300
 
     @staticmethod
     def get_dependencies_path() -> str:
@@ -82,6 +88,40 @@ class PipInstaller:
         qgis_settings_dir = QgsApplication.qgisSettingsDirPath().replace("/", os.path.sep)
         staging_path = os.path.join(qgis_settings_dir, "python", PipInstaller.STAGING_FOLDER)
         return staging_path
+
+    @staticmethod
+    def get_wheels_path() -> str:
+        """
+        Получить путь к папке с pre-downloaded wheels.
+
+        Папка заполняется инсталлятором Daman_Install при установке QGIS.
+        Путь: %APPDATA%/QGIS/QGIS3/profiles/<profile>/python/wheels/
+
+        Returns:
+            str: Абсолютный путь к папке wheels (может не существовать)
+        """
+        qgis_settings_dir = QgsApplication.qgisSettingsDirPath().replace("/", os.path.sep)
+        wheels_path = os.path.join(qgis_settings_dir, "python", PipInstaller.WHEELS_FOLDER)
+        return wheels_path
+
+    @staticmethod
+    def has_local_wheels() -> bool:
+        """
+        Проверить наличие папки wheels с pre-downloaded .whl файлами.
+
+        Returns:
+            bool: True если папка существует и содержит хотя бы один *.whl
+        """
+        wheels_path = PipInstaller.get_wheels_path()
+        if not os.path.isdir(wheels_path):
+            return False
+        try:
+            for entry in os.listdir(wheels_path):
+                if entry.lower().endswith(".whl"):
+                    return True
+        except OSError:
+            return False
+        return False
 
     @staticmethod
     def cleanup_stale_files() -> int:
@@ -445,8 +485,23 @@ class PipInstaller:
             "--target", target_path,
             "--upgrade",
             "--no-warn-script-location",
-            package_spec
         ]
+
+        # Приоритет локальному кэшу wheels (если заполнен Daman_Install).
+        # --find-links указывается ПЕРВЫМ источником; PyPI остаётся fallback
+        # через стандартный --index-url (pip по умолчанию его опрашивает).
+        wheels_path = self.get_wheels_path()
+        if self.has_local_wheels():
+            cmd.extend(["--find-links", wheels_path])
+            self.emit_progress(
+                f"Fsm_4_1_4: используется локальный кэш wheels: {wheels_path}"
+            )
+        else:
+            self.emit_progress(
+                f"Fsm_4_1_4: локальный кэш wheels не найден, загружается из PyPI"
+            )
+
+        cmd.append(package_spec)
 
         self.emit_progress(f"Выполняю: {' '.join(cmd)}")
         self.emit_progress(f"Timeout: {self.INSTALL_TIMEOUT} сек")

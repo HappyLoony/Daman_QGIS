@@ -21,7 +21,9 @@ M_37_ProfileSetupManager - Автоматическое создание и на
 """
 
 import io
+import os
 import shutil
+import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any, List, Optional, Dict, Tuple
@@ -80,7 +82,12 @@ class ProfileSetupManager:
     # ================================================================
 
     def apply_pending_ini(self) -> None:
-        """Применить staged QGIS3.ini при запуске, ДО загрузки QgsSettings.
+        """Применить legacy staged QGIS3.ini при запуске, ДО загрузки QgsSettings.
+
+        После перехода на immediate-apply (QSettings.setValue) новые сессии
+        .pending больше не создают. Метод сохранён для обратной совместимости:
+        если у пользователя остался .pending от предыдущей версии плагина —
+        он будет применён один раз и удалён.
 
         Вызывается ПЕРВЫМ в initGui() -- до любого обращения к QgsSettings.
         Защищённые секции (CRS и др.) сохраняются и восстанавливаются
@@ -112,11 +119,11 @@ class ProfileSetupManager:
                 if preserved:
                     self._write_protected_ini_keys(target, preserved)
                     log_info(
-                        f"M_37: Pending QGIS3.ini applied, "
+                        f"M_37: Legacy pending QGIS3.ini applied, "
                         f"preserved groups: {list(preserved.keys())}"
                     )
                 else:
-                    log_info("M_37: Pending QGIS3.ini applied")
+                    log_info("M_37: Legacy pending QGIS3.ini applied")
             except Exception as e:
                 log_error(f"M_37: Failed to apply pending INI: {e}")
 
@@ -143,28 +150,42 @@ class ProfileSetupManager:
             log_error(f"M_37 (check_and_setup_profile): {e}")
             return "ok"  # Не блокировать плагин при ошибке
 
-    def ensure_reference_profile_applied(self) -> None:
-        """Deferred retry: скачать reference profile если не был применен.
+    def ensure_reference_profile_applied(
+        self, show_restart_dialog: bool = False
+    ) -> bool:
+        """Deferred retry: скачать и применить reference profile.
 
-        Вызывается в Daman_QGIS после основной инициализации.
+        Immediate-apply через QgsSettings.setValue() + запись файлов на диск.
+        Один рестарт QGIS после вызова достаточно для полной настройки UI.
+
+        Вызывается в Daman_QGIS после основной инициализации (deferred) или
+        из F_4_3 сразу после активации лицензии (с show_restart_dialog=True).
+
+        Args:
+            show_restart_dialog: если True и профиль успешно применён —
+                показать пользователю диалог с просьбой перезапустить QGIS.
+
+        Returns:
+            True если профиль был применён в этом вызове, False если API
+            недоступен, профиль уже применён или произошла ошибка.
         """
         from time import perf_counter
 
         if not self._is_daman_profile():
             log_warning("M_37: ensure_reference_profile_applied skipped (not Daman_QGIS profile)")
-            return
+            return False
 
         settings = QgsSettings()
         if settings.value("Daman_QGIS/profile_hash", ""):
             log_timing("M_37: [TIMING] ensure_reference_profile_applied: skipped (already applied)")
-            return  # Уже применен
+            return False  # Уже применен
 
         try:
             _t = perf_counter()
             zip_data = self._download_profile_zip()
             log_timing(f"M_37: [TIMING] _download_profile_zip: {perf_counter() - _t:.3f}s")
             if not zip_data:
-                return  # API недоступен, попробуем в следующий раз
+                return False  # API недоступен, попробуем в следующий раз
 
             profile_root = Path(QgsApplication.qgisSettingsDirPath())
 
@@ -194,11 +215,31 @@ class ProfileSetupManager:
                 "Daman_QGIS/profile_applied_at_version", current_version
             )
 
-            log_info("M_37: Reference profile applied (deferred)")
+            # sync() перед возможным рестартом -- гарантирует запись INI на диск
+            settings.sync()
 
-            log_info("M_37: Profile settings loaded, restart QGIS to apply")
+            log_info("M_37: Reference profile applied (immediate, deferred trigger)")
+
+            if show_restart_dialog:
+                self._show_restart_info_dialog()
+
+            return True
         except Exception as e:
             log_warning(f"M_37: Deferred reference profile failed: {e}")
+            return False
+
+    def _show_restart_info_dialog(self) -> None:
+        """Показать пользователю info-диалог про единственный рестарт QGIS."""
+        try:
+            from qgis.utils import iface  # type: ignore[import-untyped]
+            QMessageBox.information(
+                iface.mainWindow(),
+                PLUGIN_NAME,
+                "Профиль применён. Перезапустите QGIS для окончательной "
+                "настройки стилей и ресурсов."
+            )
+        except Exception as e:
+            log_warning(f"M_37 (_show_restart_info_dialog): {e}")
 
     def is_first_run(self) -> bool:
         """Первый запуск в профиле Daman_QGIS (показать welcome)."""
@@ -502,8 +543,12 @@ class ProfileSetupManager:
         settings.setValue(
             "Daman_QGIS/profile_hash", remote_info.get("hash", "")
         )
+        settings.sync()
 
-        log_info("M_37: Profile updated, changes will apply on next restart")
+        log_info(
+            "M_37: Profile updated in runtime, restart QGIS to finalize "
+            "styles and resources"
+        )
         return True
 
     def _download_profile_zip(self) -> Optional[bytes]:
@@ -608,25 +653,94 @@ class ProfileSetupManager:
     def _extract_with_ini_staging(
         self, zf: zipfile.ZipFile, profile_root: Path
     ) -> None:
-        """Извлечь ZIP с защитой пользовательских данных.
+        """Извлечь ZIP с immediate-apply QGIS3.ini через QgsSettings.
 
-        Защита:
-        - QGIS3.ini: staging как .pending (применяется при следующем
-          запуске через apply_pending_ini с сохранением [Projections])
+        Отличия от старой двухфазной схемы:
+        - QGIS3.ini НЕ пишется в .pending. Ключи читаются из временного файла
+          и применяются в runtime через QgsSettings.setValue() + sync().
+          Защищённые группы (_PROTECTED_INI_GROUPS) пропускаются — пользовательские
+          настройки CRS и метаданные плагина остаются нетронутыми.
+          Результат: один рестарт QGIS применяет профиль полностью.
         - qgis.db: пропускается (CRS управляются через Base_CRS.json,
-          sync в Msm_4_19.sync_crs_from_json)
+          sync в Msm_4_19.sync_crs_from_json).
+        - Остальные файлы (svg/, templates/, fonts/, project_templates/ и т.д.)
+          извлекаются на диск напрямую — QGIS подхватит их по путям.
         """
-        for entry in zf.namelist():
-            if entry == "QGIS/QGIS3.ini":
-                pending_path = profile_root / "QGIS" / "QGIS3.ini.pending"
-                pending_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(pending_path, 'wb') as f:
-                    f.write(zf.read(entry))
-                log_info("M_37: QGIS3.ini staged as .pending")
-            elif entry == "qgis.db":
-                log_info("M_37: qgis.db пропущен (CRS из Base_CRS.json)")
-            else:
-                zf.extract(entry, profile_root)
+        tmp_ini: Optional[Path] = None
+        try:
+            for entry in zf.namelist():
+                if entry == "QGIS/QGIS3.ini":
+                    # Пишем во временный файл, чтобы прочитать через QSettings.
+                    tmp_fd, tmp_name = tempfile.mkstemp(
+                        suffix=".ini", prefix="daman_qgis3_"
+                    )
+                    try:
+                        with os.fdopen(tmp_fd, 'wb') as f:
+                            f.write(zf.read(entry))
+                    except Exception:
+                        # fdopen мог не сработать до передачи владения fd;
+                        # закрываем явно чтобы избежать утечки дескриптора.
+                        try:
+                            os.close(tmp_fd)
+                        except OSError:
+                            pass
+                        raise
+                    tmp_ini = Path(tmp_name)
+                elif entry == "qgis.db":
+                    log_info("M_37: qgis.db пропущен (CRS из Base_CRS.json)")
+                else:
+                    zf.extract(entry, profile_root)
+
+            # Применить INI через QgsSettings runtime (если был в архиве).
+            if tmp_ini is not None and tmp_ini.exists():
+                applied, skipped = self._apply_ini_to_qgs_settings(tmp_ini)
+                log_info(
+                    f"M_37: QGIS3.ini applied immediately via QgsSettings "
+                    f"(applied={applied}, protected_skipped={skipped})"
+                )
+        finally:
+            if tmp_ini is not None:
+                try:
+                    tmp_ini.unlink(missing_ok=True)
+                except Exception as e:
+                    log_warning(f"M_37: Failed to remove temp INI: {e}")
+
+    def _apply_ini_to_qgs_settings(
+        self, ini_path: Path
+    ) -> Tuple[int, int]:
+        """Прочитать ключи из reference QGIS3.ini и записать в QgsSettings runtime.
+
+        Защищённые группы (_PROTECTED_INI_GROUPS) пропускаются — это
+        пользовательские настройки CRS (Projections) и метаданные плагина
+        (Daman_QGIS/profile_hash, profile_applied_at_version и т.п.).
+
+        Args:
+            ini_path: путь к reference QGIS3.ini (временный файл).
+
+        Returns:
+            (applied, skipped) — количество применённых и пропущенных ключей.
+        """
+        src = QSettings(str(ini_path), QSettings.Format.IniFormat)
+        dst = QgsSettings()
+
+        applied = 0
+        skipped = 0
+        protected_lower = tuple(g.lower() for g in self._PROTECTED_INI_GROUPS)
+
+        for key in src.allKeys():
+            # Секция определяется первым сегментом ключа (QSettings flatten-формат).
+            first_segment = key.split("/", 1)[0] if "/" in key else key
+            if first_segment.lower() in protected_lower:
+                skipped += 1
+                continue
+            try:
+                dst.setValue(key, src.value(key))
+                applied += 1
+            except Exception as e:
+                log_warning(f"M_37: Failed to apply key '{key}': {e}")
+
+        dst.sync()
+        return applied, skipped
 
     # ================================================================
     # Profile configuration (repo URL, plugin enabled, profiles.ini)

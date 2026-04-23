@@ -740,37 +740,75 @@ class NetworkDoctor:
                 message=f"Не удалось проверить Winsock: {e}"
             )
 
+    # Таймаут на один URL в test_connectivity.
+    # Раньше был 10с последовательно (до минуты suma при 4 URL и одном timeout).
+    # Теперь 5с параллельно => ограничение ~5с на всю диагностику.
+    _CONNECTIVITY_URL_TIMEOUT = 5
+
     def test_connectivity(self) -> DiagResult:
-        """Тестирование HTTPS-соединения к нескольким сайтам"""
+        """Тестирование HTTPS-соединения к нескольким сайтам параллельно.
+
+        Параллельный запуск через ThreadPoolExecutor ограничивает общее время
+        диагностики одним таймаутом на URL (~5 сек), вне зависимости от того,
+        сколько сайтов недоступны. Вызывается из worker-потока (не из UI).
+        """
+        import concurrent.futures
+
         results: Dict[str, Any] = {}
         success_count = 0
         # Ошибки SSL сертификатов на стороне СЕРВЕРА — не проблема ПК
         server_ssl_errors: List[str] = []
 
-        for url, label in CONNECTIVITY_TEST_URLS:
+        def _probe(url: str, label: str) -> Tuple[str, Dict[str, Any]]:
+            """Одиночная проверка URL. Возвращает (label, result_dict)."""
             try:
                 req = Request(url, headers={"User-Agent": "QGIS-Plugin/1.0"})
-                with urlopen(req, timeout=10) as resp:
-                    results[label] = {"status": resp.status, "ok": True}
-                    success_count += 1
+                with urlopen(req, timeout=self._CONNECTIVITY_URL_TIMEOUT) as resp:
+                    return label, {"status": resp.status, "ok": True, "url": url}
             except URLError as e:
                 error_str = str(e.reason)
-                # Определяем серверные SSL ошибки (expired, hostname mismatch)
                 is_server_ssl = any(p in error_str.lower() for p in (
                     "certificate has expired",
                     "certificate is not yet valid",
                     "hostname mismatch",
                 ))
                 if is_server_ssl:
-                    server_ssl_errors.append(label)
-                    results[label] = {
+                    return label, {
                         "error": error_str, "ok": False, "url": url,
                         "server_issue": True,
                     }
-                else:
-                    results[label] = {"error": error_str, "ok": False, "url": url}
+                return label, {"error": error_str, "ok": False, "url": url}
             except Exception as e:
-                results[label] = {"error": str(e), "ok": False, "url": url}
+                return label, {"error": str(e), "ok": False, "url": url}
+
+        # max_workers=len(CONNECTIVITY_TEST_URLS) — все проверки параллельно.
+        # Лимит таймаута на future — _CONNECTIVITY_URL_TIMEOUT + 2с запас на сокеты.
+        overall_timeout = self._CONNECTIVITY_URL_TIMEOUT + 2
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(1, len(CONNECTIVITY_TEST_URLS))
+        ) as executor:
+            future_map = {
+                executor.submit(_probe, url, label): (url, label)
+                for url, label in CONNECTIVITY_TEST_URLS
+            }
+            for future in concurrent.futures.as_completed(
+                future_map, timeout=overall_timeout * 2
+            ):
+                url, label = future_map[future]
+                try:
+                    _, result = future.result(timeout=overall_timeout)
+                except concurrent.futures.TimeoutError:
+                    result = {
+                        "error": f"timeout > {overall_timeout}s",
+                        "ok": False, "url": url,
+                    }
+                except Exception as e:
+                    result = {"error": str(e), "ok": False, "url": url}
+                results[label] = result
+                if result.get("ok"):
+                    success_count += 1
+                elif result.get("server_issue"):
+                    server_ssl_errors.append(label)
 
         total = len(CONNECTIVITY_TEST_URLS)
         # Сайты с серверными SSL ошибками не считаем проблемой ПК

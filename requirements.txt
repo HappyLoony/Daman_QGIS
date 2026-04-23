@@ -34,3 +34,6 @@ comtypes>=1.4.0
 # Слияние PDF файлов
 pypdf>=4.0.0
 
+# Шифрование pipelines (AES-256-GCM) и подписи payload (Ed25519)
+cryptography>=42.0.0
+

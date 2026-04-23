@@ -517,8 +517,8 @@ class DamanQGIS:
             # Блокировка ghost-запросов к /cgk/map/ endpoint.
             # Daman использует только /api/aeggis/v2/ для всех WMTS слоёв НСПД
             # (L_1_3_1_NSPD_Ortho, L_1_3_2_NSPD_Ref, L_1_3_3_NSPD_Base).
-            # Endpoint /cgk/map/{layerId}/tms/ встречался в legacy data/web/web_config.xml
-            # и/или возникает как ghost-запрос от внутренних буферов QGIS
+            # Endpoint /cgk/map/{layerId}/tms/ — старый формат НСПД,
+            # возникает как ghost-запрос от внутренних буферов QGIS
             # (удалённые макеты, темы, отложенный рендер). Сервер отвечает 0-байт PNG
             # или 500 → спам warnings «Возвращенное изображение сформировано некорректно».
             # Defensive: всегда подменяем на пустой PNG без сетевого вызова.
