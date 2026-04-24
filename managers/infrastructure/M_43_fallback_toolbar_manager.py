@@ -91,10 +91,18 @@ class FallbackToolbarManager:
             level=Qgis.Warning, duration=0
         )
 
-    def show_emergency(self) -> None:
+    def show_emergency(self, reason: str = "config") -> None:
         """Аварийная панель с диагностикой и управлением лицензией.
 
-        Показывается когда Base_Functions.json не загрузился.
+        Вызывается в двух сценариях:
+        - reason="deps_install": первый запуск, отсутствуют Python-зависимости,
+          фоновая установка запущена (main_plugin._start_background_dep_install).
+          Отдельное сообщение не показываем — прогресс идёт через M_17 MessageBar.
+        - reason="config" (default): Base_Functions.json не загрузился
+          (нет JWT, сетевая ошибка, сервер недоступен). Показываем warning.
+
+        Args:
+            reason: Причина показа панели ("deps_install" или "config")
         """
         from Daman_QGIS.constants import PLUGIN_NAME
 
@@ -129,13 +137,24 @@ class FallbackToolbarManager:
         if self._init_telemetry:
             self._init_telemetry()
 
-        self.iface.messageBar().pushMessage(
-            "Daman QGIS",
-            "Не удалось загрузить конфигурацию с сервера. "
-            "Используйте 'Диагностика плагина' для установки зависимостей. "
-            "После установки перезапустите QGIS.",
-            level=Qgis.Warning, duration=0
-        )
+        if reason == "deps_install":
+            # Фоновая установка запустит свой прогресс через M_17 MessageBar.
+            # Здесь показываем вводное info, не warning (это ожидаемая ситуация
+            # при первом запуске с vendored wheels).
+            self.iface.messageBar().pushMessage(
+                "Daman QGIS",
+                "Первый запуск — устанавливаются Python-зависимости. "
+                "Прогресс отображается ниже. По завершении перезапустите QGIS.",
+                level=Qgis.Info, duration=0
+            )
+        else:
+            self.iface.messageBar().pushMessage(
+                "Daman QGIS",
+                "Не удалось загрузить конфигурацию с сервера. "
+                "Используйте 'Диагностика плагина' для установки зависимостей. "
+                "После установки перезапустите QGIS.",
+                level=Qgis.Warning, duration=0
+            )
 
     def on_license_revoked(self) -> None:
         """Обработка отзыва лицензии сервером."""

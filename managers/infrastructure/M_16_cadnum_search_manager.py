@@ -69,7 +69,7 @@ class CadnumSearchManager:
         """
         self.iface = iface
         self.canvas = iface.mapCanvas()
-        self.action: Optional[QAction] = None
+        self.action: Optional[QAction] = None  # pyright: ignore[reportInvalidTypeForm]
         self.dialog = None
 
     def init_gui(self):

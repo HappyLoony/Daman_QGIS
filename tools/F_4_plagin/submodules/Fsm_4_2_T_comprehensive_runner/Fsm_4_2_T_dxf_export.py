@@ -695,7 +695,7 @@ class TestDxfExport:
             # а НЕ $VIEWCTR header variable.
             # VPORT таблица может содержать несколько записей с одним именем,
             # поэтому get() возвращает list.
-            vport_list = doc.viewports.get('*Active')
+            vport_list = doc.viewports.get_config('*Active')
             self.logger.check(
                 len(vport_list) > 0,
                 f"VPORT *Active найден ({len(vport_list)} записей)",
@@ -733,7 +733,7 @@ class TestDxfExport:
             try:
                 doc.saveas(tmp_path)
                 doc2 = ezdxf.readfile(tmp_path)
-                vport_list2 = doc2.viewports.get('*Active')
+                vport_list2 = doc2.viewports.get_config('*Active')
 
                 if vport_list2:
                     cx2 = vport_list2[0].dxf.center.x

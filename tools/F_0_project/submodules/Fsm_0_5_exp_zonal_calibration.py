@@ -82,9 +82,9 @@ def ecef_to_geodetic(X: float, Y: float, Z: float,
         N = a / math.sqrt(1 - e2 * sin_lat ** 2)
         lat = math.atan2(Z + e2 * N * sin_lat, p)
 
-    sin_lat = math.sin(lat)
-    N = a / math.sqrt(1 - e2 * sin_lat ** 2)
-    h = p / math.cos(lat) - N if abs(lat) < math.radians(89) else Z / math.sin(lat) - N * (1 - e2)
+    sin_lat_final = math.sin(lat)
+    N_final = a / math.sqrt(1 - e2 * sin_lat_final ** 2)
+    h = p / math.cos(lat) - N_final if abs(lat) < math.radians(89) else Z / math.sin(lat) - N_final * (1 - e2)
 
     return math.degrees(lat), math.degrees(lon), h
 

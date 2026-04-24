@@ -170,6 +170,16 @@ class DamanQGIS:
         # Auto-update: флаг ожидания перезагрузки (M_42)
         self._update_pending = False
 
+        # Runtime-флаг готовности зависимостей. False в сценарии первого запуска,
+        # когда quick_check() не нашёл часть библиотек (ezdxf, lxml, ...).
+        # В этом случае фоновая задача M_17 ставит пакеты из vendored wheels,
+        # а клик по кнопке инструмента возвращает messageBar warning вместо ImportError.
+        # True после успешной инсталляции или если все пакеты уже на месте.
+        self.deps_ready = True
+
+        # ID фоновой задачи установки (Fsm_4_1_16), если запущена
+        self._dep_install_task_id: Optional[str] = None
+
         # Реестр подключенных Qt сигналов для корректного отключения
         self._signal_connections = []
 
@@ -209,7 +219,7 @@ class DamanQGIS:
         add_to_toolbar: bool = True,
         status_tip: Optional[str] = None,
         whats_this: Optional[str] = None,
-        parent: Optional[QWidget] = None) -> QAction:
+        parent: Optional[QWidget] = None) -> QAction:  # pyright: ignore[reportInvalidTypeForm]
         """Add a toolbar icon to the toolbar.
 
         :param icon_path: Path to the icon for this action. Can be a resource
@@ -354,10 +364,21 @@ class DamanQGIS:
         log_timing(f"Daman_QGIS: [TIMING] F_4_1 deps check: {perf_counter() - _t:.3f}s")
 
         # --- DEPENDENCY GATE: критические зависимости нужны для работы ---
+        # Ветка "deps_ok=False" — первый запуск после установки плагина
+        # или отсутствуют обязательные пакеты.
+        # Стратегия:
+        #   1. Показываем emergency toolbar как визуальную заглушку (F_4_1 + F_4_3).
+        #   2. Запускаем фоновую установку через M_17 + PipInstaller (vendored wheels
+        #      из %APPDATA%/QGIS/.../python/wheels/ или PyPI fallback).
+        #   3. Прогресс пишется в QgsMessageBar (Fsm_4_1_16).
+        #   4. deps_ready=False — блокирует клики по инструментам (messageBar warning).
+        #   5. По завершении установки: сообщение "Перезапустите QGIS" (runtime-swap
+        #      модулей фрагилен — staging .old файлы требуют рестарта).
         if not deps_ok:
-            log_warning("Daman_QGIS: Missing dependencies, showing emergency toolbar")
+            self.deps_ready = False
             self._init_managers()
-            self._show_emergency_toolbar()
+            self._fallback_mgr.show_emergency(reason="deps_install")
+            self._start_background_dep_install()
             return
 
         # Инициализация менеджеров
@@ -1116,6 +1137,10 @@ class DamanQGIS:
         # Создание главного нумерованного меню
         self.main_toolbar = MainToolbar(self.iface, self.toolbar)
 
+        # Передаём callback для проверки deps_ready — гейт при клике по инструменту
+        # во время фоновой установки зависимостей (см. _deps_ready_gate).
+        self.main_toolbar.set_deps_ready_check(self._deps_ready_gate)
+
         # Сначала регистрируем инструменты
         _t = perf_counter()
         self._register_tools()
@@ -1179,6 +1204,213 @@ class DamanQGIS:
     def _show_emergency_toolbar(self) -> None:
         """Аварийная панель (делегирует M_43)."""
         self._fallback_mgr.show_emergency()
+
+    # Белый список инструментов, работающих без Python-зависимостей.
+    # F_4_1 — диагностика плагина (чистые Python-stdlib + Qt).
+    # F_4_3 — управление лицензией (qrequests deferred, работает при наличии requests).
+    # F_4_4 — обратная связь.
+    _DEPS_GATE_WHITELIST = frozenset({'f_4_1', 'f_4_3', 'f_4_4'})
+
+    def _deps_ready_gate(self, tool_id: str) -> bool:
+        """
+        Проверка готовности зависимостей для запуска инструмента.
+
+        Вызывается из main_toolbar.run_tool() при клике по кнопке.
+        Если фоновая установка ещё идёт (deps_ready=False) — блокирует запуск
+        и показывает messageBar warning. F_4_1/F_4_3 пропускает всегда —
+        пользователю должна оставаться возможность запустить диагностику.
+
+        Args:
+            tool_id: ID инструмента из Base_Functions.json (lowercase, "f_x_y")
+
+        Returns:
+            True если инструмент можно запускать,
+            False если заблокирован (messageBar уже показан).
+        """
+        if self.deps_ready:
+            return True
+
+        # Whitelist — минимально необходимые функции без внешних зависимостей
+        if tool_id.lower() in self._DEPS_GATE_WHITELIST:
+            return True
+
+        # Зависимости ещё ставятся или установка провалилась
+        if self._dep_install_task_id is not None:
+            msg = (
+                "Устанавливаются Python-зависимости Daman. "
+                "Дождитесь завершения (прогресс в верхней панели)."
+            )
+            level = Qgis.Info
+        else:
+            msg = (
+                "Python-зависимости не установлены. "
+                "Откройте 'Диагностика плагина' (4_1) для установки."
+            )
+            level = Qgis.Warning
+
+        self.iface.messageBar().pushMessage(
+            "Daman QGIS", msg, level=level, duration=MESSAGE_SHORT_DURATION
+        )
+        return False
+
+    def _start_background_dep_install(self) -> None:
+        """
+        Запустить фоновую установку отсутствующих Python-пакетов через M_17.
+
+        Первый запуск плагина после установки: quick_check() обнаружил missing deps.
+        PipInstaller уже настроен на --find-links=<profile>/python/wheels/,
+        vendored wheels обычно присутствуют (заполняются инсталлятором Daman_Install),
+        установка из локального кэша ~5-10 секунд.
+
+        Прогресс отображается в QgsMessageBar через BaseAsyncTask.report_progress().
+        По завершении: messageBar info/warning с инструкцией перезапуска QGIS.
+
+        Если background install падает полностью (нет wheels + нет интернета) —
+        emergency toolbar остаётся, пользователь может открыть F_4_1 для ручной
+        диагностики.
+        """
+        try:
+            from Daman_QGIS.tools.F_4_plagin.submodules.Fsm_4_1_1_dependency_checker import (
+                DependencyChecker,
+            )
+            from Daman_QGIS.tools.F_4_plagin.submodules.Fsm_4_1_16_background_install_task import (
+                BackgroundInstallTask,
+            )
+
+            # Собираем отсутствующие обязательные пакеты
+            required = DependencyChecker.get_external_dependencies(include_optional=False)
+            missing_packages: Dict[str, Dict] = {}
+            for pkg_name, info in required.items():
+                installed, _version, _msg = DependencyChecker.check_dependency(
+                    pkg_name, info.get('min_version')
+                )
+                if not installed:
+                    missing_packages[pkg_name] = info
+
+            if not missing_packages:
+                # Возможно гонка quick_check vs реальной проверки — deps уже установлены
+                log_info(
+                    "Daman_QGIS: Missing dependencies not detected in detailed check, "
+                    "skipping background install"
+                )
+                self.deps_ready = True
+                return
+
+            log_info(
+                f"Daman_QGIS: Missing dependencies, starting background install "
+                f"({len(missing_packages)} packages)"
+            )
+
+            task = BackgroundInstallTask(missing_packages)
+            async_manager = registry.get('M_17')
+
+            self._dep_install_task_id = async_manager.run(
+                task,
+                show_progress=True,
+                on_completed=self._on_dep_install_completed,
+                on_failed=self._on_dep_install_failed,
+                on_cancelled=self._on_dep_install_cancelled,
+            )
+        except Exception as e:
+            log_error(f"Daman_QGIS: Failed to start background dep install: {e}")
+            # Fallback: emergency toolbar уже показан, показываем дополнительно warning
+            self.iface.messageBar().pushMessage(
+                "Daman QGIS",
+                "Не удалось запустить фоновую установку зависимостей. "
+                "Откройте 'Диагностика плагина' для ручной установки.",
+                level=Qgis.Warning, duration=0
+            )
+
+    def _on_dep_install_completed(self, result: Any) -> None:
+        """
+        Callback успешного завершения фоновой установки.
+
+        Выполняется в main thread (через сигнал M_17).
+
+        Args:
+            result: Dict от BackgroundInstallTask с полями success/installed/errors/...
+        """
+        self._dep_install_task_id = None
+
+        if not isinstance(result, dict):
+            log_warning(f"Daman_QGIS: Unexpected dep install result type: {type(result)}")
+            return
+
+        success = bool(result.get('success'))
+        installed = result.get('installed', [])
+        errors = result.get('errors', [])
+        total = result.get('total', 0)
+
+        if success:
+            # Полный успех: все пакеты установлены
+            self.deps_ready = True
+            log_info(
+                f"Daman_QGIS: Background dep install succeeded "
+                f"({len(installed)}/{total})"
+            )
+            self.iface.messageBar().pushMessage(
+                "Daman QGIS",
+                f"Зависимости установлены ({len(installed)} библиотек). "
+                f"Перезапустите QGIS для активации всех функций плагина.",
+                level=Qgis.Success, duration=0
+            )
+        else:
+            # Частичный сбой: некоторые пакеты упали
+            err_summary = "; ".join(errors[:3]) if errors else "неизвестная ошибка"
+            log_warning(
+                f"Daman_QGIS: Background dep install partial failure: "
+                f"installed={len(installed)}/{total}, errors={len(errors)}"
+            )
+            self.iface.messageBar().pushMessage(
+                "Daman QGIS",
+                f"Установка завершена с ошибками ({len(installed)}/{total}). "
+                f"Откройте 'Диагностика плагина' для повторной установки. "
+                f"Детали: {err_summary}",
+                level=Qgis.Warning, duration=0
+            )
+
+    def _on_dep_install_failed(self, error: str) -> None:
+        """
+        Callback ошибки фоновой установки (например pip недоступен, нет интернета).
+
+        Args:
+            error: Сообщение об ошибке
+        """
+        self._dep_install_task_id = None
+        log_error(f"Daman_QGIS: Background dep install failed: {error}")
+        self.iface.messageBar().pushMessage(
+            "Daman QGIS",
+            "Не удалось установить зависимости автоматически. "
+            "Откройте 'Диагностика плагина' для ручной установки.",
+            level=Qgis.Critical, duration=0
+        )
+
+    def _on_dep_install_cancelled(self) -> None:
+        """Callback отмены фоновой установки пользователем."""
+        self._dep_install_task_id = None
+        log_info("Daman_QGIS: Background dep install cancelled by user")
+        self.iface.messageBar().pushMessage(
+            "Daman QGIS",
+            "Установка зависимостей отменена. "
+            "Откройте 'Диагностика плагина' для повторной попытки.",
+            level=Qgis.Warning, duration=0
+        )
+
+    def _cancel_background_dep_install(self) -> None:
+        """
+        Отменить фоновую установку зависимостей (вызывается при unload в fallback-режиме).
+
+        Игнорирует ошибки — unload должен отработать даже если M_17 уже сброшен.
+        """
+        if self._dep_install_task_id is None:
+            return
+        try:
+            async_manager = registry.get('M_17')
+            async_manager.cancel(self._dep_install_task_id)
+            log_info("Daman_QGIS: Background dep install cancelled on unload")
+        except Exception as e:
+            log_warning(f"Daman_QGIS: Failed to cancel background dep install: {e}")
+        self._dep_install_task_id = None
 
     def _build_access_map(self) -> Dict[str, str]:
         """Построить маппинг tool_id -> required_access из Base_Functions.json."""
@@ -1402,6 +1634,8 @@ class DamanQGIS:
 
         # Fallback mode: только резервная панель (M_43)
         if self._fallback_mgr.is_fallback_mode:
+            # Отменяем фоновую установку зависимостей если идёт (первый запуск)
+            self._cancel_background_dep_install()
             self._fallback_mgr.remove_toolbar()
             return
 

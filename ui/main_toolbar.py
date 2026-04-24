@@ -94,7 +94,7 @@ MENU_STRUCTURE: dict = {}
 
 class MainToolbar:
     """Главная панель с нумерованным меню"""
-    
+
     def __init__(self, iface, toolbar):
         """
         :param iface: QGIS interface
@@ -104,6 +104,12 @@ class MainToolbar:
         self.toolbar = toolbar
         self.tools = {}  # Зарегистрированные инструменты
         self.menu_buttons = {}  # Кнопки разделов
+        # Callback для проверки готовности Python-зависимостей.
+        # Устанавливается main_plugin через set_deps_ready_check().
+        # Если deps не готовы (идёт фоновая установка), run_tool блокирует
+        # запуск инструментов и показывает messageBar warning.
+        # tool_id передаётся в callback на случай white-list (F_4_1, F_4_3).
+        self._deps_ready_check = None
         
     def create_menu(self):
         """Создает нумерованное меню на панели"""
@@ -141,12 +147,36 @@ class MainToolbar:
         :param tool_instance: Экземпляр инструмента
         """
         self.tools[tool_id] = tool_instance
+    def set_deps_ready_check(self, callback):
+        """
+        Установить callback для проверки готовности Python-зависимостей.
+
+        Callback сигнатура: (tool_id: str) -> bool
+        Возвращает True если инструмент может быть запущен,
+        False если зависимости ещё устанавливаются (блокировка + messageBar warning).
+
+        :param callback: Функция-проверка или None для снятия ограничения
+        """
+        self._deps_ready_check = callback
+
     def run_tool(self, tool_id):
         """
-        Запускает инструмент по ID
+        Запускает инструмент по ID.
+
+        Если установлен deps_ready_check, проверяет готовность зависимостей —
+        при фоновой установке (первый запуск плагина) клик показывает
+        messageBar warning вместо запуска инструмента с ImportError.
 
         :param tool_id: ID инструмента
         """
+        # Dependency gate: блокируем все инструменты кроме F_4_1 (диагностика) и F_4_3
+        # (лицензия) — они требуются чтобы пользователь мог повторить установку
+        # или дождаться её завершения.
+        if self._deps_ready_check is not None:
+            if not self._deps_ready_check(tool_id):
+                # Callback уже показал messageBar — ничего не делаем
+                return
+
         if tool_id in self.tools:
             self.tools[tool_id].run()
         else:
