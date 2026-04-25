@@ -32,7 +32,7 @@ docxtpl>=0.19.0
 comtypes>=1.4.0
 
 # Слияние PDF файлов
-pypdf>=4.0.0
+pypdf>=6.10.2
 
 # Шифрование pipelines (AES-256-GCM) и подписи payload (Ed25519)
 cryptography>=42.0.0
