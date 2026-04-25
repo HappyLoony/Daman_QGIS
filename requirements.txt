@@ -14,7 +14,7 @@ ezdxf>=1.4.2
 xlsxwriter>=3.0.1
 
 # Excel чтение (конвертация справочников)
-openpyxl>=3.0.0
+openpyxl>=3.1.5
 
 # HTTP запросы (ЕГРН API, НСПД)
 requests
