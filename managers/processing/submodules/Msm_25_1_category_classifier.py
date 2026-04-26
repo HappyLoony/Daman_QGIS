@@ -12,7 +12,7 @@ Msm_25_1 - Классификатор категорий земель
 
 from typing import Dict, Tuple, Optional
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, normalize_for_classification
 
 # Lazy import для избежания циклических зависимостей
 def _get_reference_managers():
@@ -100,11 +100,8 @@ class Msm_25_1_CategoryClassifier:
         """
         mapping = self.get_category_mapping()
 
-        # Нормализуем значение
-        if category_value is None:
-            normalized_value = ""
-        else:
-            normalized_value = str(category_value).strip()
+        # Нормализуем значение (включая невидимые символы NSPD: \xa0, dashes и т.п.)
+        normalized_value = normalize_for_classification(category_value)
 
         # Проверяем на пустое значение
         if not normalized_value or normalized_value == "-":
@@ -113,19 +110,20 @@ class Msm_25_1_CategoryClassifier:
                 return target[0]
             return self.DEFAULT_LAYER
 
-        # Ищем точное совпадение
-        target = mapping.get(normalized_value)
-        if target:
-            return target[0]
+        # Ищем точное совпадение (с нормализацией ключа mapping тоже —
+        # ключ может содержать невидимые символы из исходного справочника)
+        for key, value in mapping.items():
+            if key is not None and normalize_for_classification(key) == normalized_value:
+                return value[0]
 
         # Ищем частичное совпадение (категория содержит ключ)
         for key, value in mapping.items():
-            if key is not None and key in normalized_value:
+            if key is not None and normalize_for_classification(key) in normalized_value:
                 return value[0]
 
         # Ищем частичное совпадение (ключ содержит категорию)
         for key, value in mapping.items():
-            if key is not None and normalized_value in key:
+            if key is not None and normalized_value in normalize_for_classification(key):
                 return value[0]
 
         # Не найдено - возвращаем слой по умолчанию

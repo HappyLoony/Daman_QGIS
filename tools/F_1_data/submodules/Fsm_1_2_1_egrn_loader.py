@@ -24,7 +24,7 @@ from qgis.core import (
 )
 from qgis.PyQt.QtCore import QMetaType
 
-from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
+from Daman_QGIS.utils import log_info, log_warning, log_error, log_success, normalize_for_classification
 from Daman_QGIS.constants import DEFAULT_REQUEST_TIMEOUT, DEFAULT_MAX_WORKERS, DEFAULT_MAX_RETRIES, DEFAULT_RATE_LIMIT
 from collections import deque
 import threading
@@ -1430,13 +1430,13 @@ class Fsm_1_2_1_EgrnLoader:
         ref_managers = get_reference_managers()
         rules = ref_managers.zouit_classification.get_rules()
 
-        # Извлекаем поля для поиска
+        # Извлекаем поля для поиска (с нормализацией невидимых символов NSPD + lower)
         search_texts = {
-            'type_zone': props.get("type_zone", "").lower(),
-            'name_by_doc': props.get("name_by_doc", "").lower(),
-            'doc_name': props.get("doc_name", "").lower(),
-            'type_boundary_value': props.get("type_boundary_value", "").lower(),
-            'legal_act_document_name': props.get("legal_act_document_name", "").lower()
+            'type_zone': normalize_for_classification(props.get("type_zone", "")).lower(),
+            'name_by_doc': normalize_for_classification(props.get("name_by_doc", "")).lower(),
+            'doc_name': normalize_for_classification(props.get("doc_name", "")).lower(),
+            'type_boundary_value': normalize_for_classification(props.get("type_boundary_value", "")).lower(),
+            'legal_act_document_name': normalize_for_classification(props.get("legal_act_document_name", "")).lower()
         }
 
         # Проверяем каждое правило по порядку rule_id (приоритет)
@@ -1447,9 +1447,12 @@ class Fsm_1_2_1_EgrnLoader:
             if not search_field_raw or not keywords_raw:
                 continue
 
-            # Разбиваем search_field и keywords по ";"
+            # Разбиваем search_field и keywords по ";" + нормализация keywords к тому же виду что search_texts
             search_fields = [f.strip() for f in search_field_raw.split(';') if f.strip()]
-            keywords_list = [k.strip() for k in keywords_raw.split(';') if k.strip()]
+            keywords_list = [
+                normalize_for_classification(k).lower()
+                for k in keywords_raw.split(';') if k.strip()
+            ]
 
             # Проверяем количество полей и ключевых слов
             if len(search_fields) > 1:

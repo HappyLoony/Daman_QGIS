@@ -12,7 +12,7 @@ from typing import Optional, List, Dict
 from qgis.core import QgsVectorLayer, QgsFeature
 from qgis.PyQt.QtWidgets import QDialog
 
-from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
+from Daman_QGIS.utils import log_info, log_warning, log_error, log_success, normalize_for_classification
 
 FALLBACK_LAYER_NAME = "Le_1_2_11_1_Негатив_Иные"
 
@@ -176,12 +176,12 @@ class Fsm_1_2_19_NegativLoader:
         Returns:
             Имя целевого слоя или None если не распознано
         """
-        # Извлекаем значения полей из feature (все поля, lowercase)
+        # Извлекаем значения полей из feature (с нормализацией невидимых символов NSPD + lower)
         search_texts = {}
         for field in feature.fields():
             name = field.name()
             value = feature[name]
-            search_texts[name] = str(value).lower() if value is not None else ""
+            search_texts[name] = normalize_for_classification(str(value)).lower() if value is not None else ""
 
         # Проверяем каждое правило по порядку rule_id
         for rule in rules:
@@ -191,8 +191,12 @@ class Fsm_1_2_19_NegativLoader:
             if not search_field_raw or not keywords_raw:
                 continue
 
+            # Нормализуем keywords к тому же виду что search_texts
             search_fields = [f.strip() for f in search_field_raw.split(';') if f.strip()]
-            keywords_list = [k.strip() for k in keywords_raw.split(';') if k.strip()]
+            keywords_list = [
+                normalize_for_classification(k).lower()
+                for k in keywords_raw.split(';') if k.strip()
+            ]
 
             if len(search_fields) > 1:
                 # Несколько полей -- AND логика

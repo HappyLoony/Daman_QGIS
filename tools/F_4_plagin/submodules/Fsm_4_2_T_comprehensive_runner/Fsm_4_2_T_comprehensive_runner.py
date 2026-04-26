@@ -55,6 +55,11 @@ class ComprehensiveTestRunner:
         'Fsm_4_2_1_test_logger.py',  # Логгер (не матчится паттерном, но для страховки)
         'Fsm_4_2_T_comprehensive_runner.py',  # Сам себя
         'Fsm_4_2_T_4_1.py',  # F_3_cartometry не существует (в разработке)
+        # F_4_4 feedback endpoint намеренно НЕ тестируется автоматически:
+        # CrowdSec scenario custom/daman-feedback-abuse (capacity 2 / 15 мин) забанит
+        # test-host после 2 прогонов подряд. См. LOADER_design_questions.md §2.3.
+        # Тест Fsm_4_2_T_4_4.py должен быть удалён; если файл вернулся — игнорим.
+        'Fsm_4_2_T_4_4.py',  # Feedback endpoint — ручной тест только
     }
 
     # Модули, требующие GUI (пропускаем в автономном режиме)

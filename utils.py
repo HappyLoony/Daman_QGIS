@@ -302,6 +302,43 @@ def format_file_size(size_bytes: int) -> str:
 
 
 # ============================================================================
+# НОРМАЛИЗАЦИЯ СТРОК (для устойчивого сравнения classname/status/keywords)
+# ============================================================================
+
+
+def normalize_for_classification(s: Optional[str]) -> str:
+    """Нормализация строки для устойчивого сравнения с правилами классификации.
+
+    WFS NSPD возвращает строки с невидимыми символами (\\xa0 nbsp,
+    \\u200b zero-width space, \\u202f narrow nbsp) и разными вариантами
+    тире (\\u2014 em-dash, \\u2013 en-dash, \\u2212 minus). JSON-справочники
+    заполняются руками с обычными пробелами и ASCII-дефисами.
+    Без нормализации `==` или `keyword in text` дают ложный negative —
+    classifier не находит match, feature тихо пропадает в fallback / GUI.
+
+    Используется в:
+        - Msm_4_8_urban_planning_reference_manager (fun zones / terr zones)
+        - Fsm_1_2_1_egrn_loader._classify_by_database (ZOUIT classifier)
+        - Fsm_1_2_19_negativ_loader._classify_by_rules (Negativ classifier)
+        - Msm_25_1_category_classifier.classify_feature (M_25 категории)
+
+    Args:
+        s: Строка для нормализации (или None)
+
+    Returns:
+        Нормализованная строка (пустая для None). Идемпотентна — повторное
+        применение не меняет результат.
+    """
+    if s is None:
+        return ""
+    # nbsp (U+00A0), zero-width space (U+200B), narrow nbsp (U+202F)
+    s = s.replace("\xa0", " ").replace("​", "").replace(" ", " ")
+    # em-dash (U+2014), en-dash (U+2013), minus sign (U+2212) -> ASCII hyphen
+    s = s.replace("—", "-").replace("–", "-").replace("−", "-")
+    return " ".join(s.split())
+
+
+# ============================================================================
 # ВАЛИДАЦИЯ ПУТЕЙ (SECURITY)
 # ============================================================================
 

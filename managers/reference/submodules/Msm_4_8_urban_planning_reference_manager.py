@@ -3,6 +3,7 @@
 
 from typing import List, Dict, Optional
 from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
+from Daman_QGIS.utils import normalize_for_classification
 
 
 class UrbanPlanningReferenceManager(BaseReferenceLoader):
@@ -135,6 +136,9 @@ class UrbanPlanningReferenceManager(BaseReferenceLoader):
         """
         Найти слой назначения для функциональной зоны по паре (classname, status).
 
+        Сравнение через normalize_for_classification: устраняет ложные negative
+        из-за невидимых символов в строках WFS NSPD (nbsp вместо пробела и т.п.).
+
         Args:
             classname: Название зоны (из поля classname в WFS)
             status: Статус (из поля status в WFS)
@@ -142,8 +146,11 @@ class UrbanPlanningReferenceManager(BaseReferenceLoader):
         Returns:
             Имя слоя назначения или None если пара не найдена в маппинге
         """
+        n_classname = normalize_for_classification(classname)
+        n_status = normalize_for_classification(status)
         for rule in self.get_fun_zones_mapping():
-            if rule.get('classname') == classname and rule.get('status') == status:
+            if (normalize_for_classification(rule.get('classname')) == n_classname
+                    and normalize_for_classification(rule.get('status')) == n_status):
                 return rule.get('layer_name')
         return None
 
@@ -173,13 +180,17 @@ class UrbanPlanningReferenceManager(BaseReferenceLoader):
         а shared-кэш может быть загрязнён пустыми данными при race condition
         (первый вызов до готовности API запомнил бы пустой индекс навсегда).
 
+        Сравнение через normalize_for_classification: устраняет ложные negative
+        из-за невидимых символов в строках WFS NSPD (nbsp вместо пробела и т.п.).
+
         Args:
             classname: Название зоны (из поля classname в WFS)
 
         Returns:
             Имя слоя назначения или None если classname не найден в маппинге
         """
+        n_classname = normalize_for_classification(classname)
         for rule in self.get_terr_zones_mapping():
-            if rule.get('classname') == classname:
+            if normalize_for_classification(rule.get('classname')) == n_classname:
                 return rule.get('layer_name')
         return None

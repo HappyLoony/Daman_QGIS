@@ -159,14 +159,25 @@ class F_6_6_MasterPlan(BaseTool):
             f"папка: {output_folder}"
         )
 
-        # 4. Диалог масштаба обзорной карты (аналог Fsm_1_4_10)
+        # 4. Layout manager (нужен раньше для main preview)
+        layout_mgr = Fsm_6_6_2_LayoutManager(self.iface)
+
+        # 4a. Диалог масштаба основной карты (одноразовый по первой схеме)
+        # Применяется глобально ко ВСЕМ схемам как множитель базового масштаба.
+        main_scale_factor = self._get_main_scale_factor(
+            selected_drawings[0], layout_mgr
+        )
+        if main_scale_factor is None:
+            log_info("F_6_6: Отмена выбора масштаба основной карты")
+            return
+
+        # 4b. Диалог масштаба обзорной карты (аналог Fsm_1_4_10)
         overview_scale_factor = self._get_overview_scale_factor()
         if overview_scale_factor is None:
             log_info("F_6_6: Отмена выбора масштаба обзорной карты")
             return
 
         # 5. Генерация PDF для каждой выбранной схемы
-        layout_mgr = Fsm_6_6_2_LayoutManager(self.iface)
         pdf_paths: List[str] = []
         self._created_themes = []
 
@@ -182,6 +193,7 @@ class F_6_6_MasterPlan(BaseTool):
                     output_folder=output_folder,
                     layout_mgr=layout_mgr,
                     overview_scale_factor=overview_scale_factor,
+                    main_scale_factor=main_scale_factor,
                     location_text=location_text
                 )
                 if pdf_path:
@@ -436,6 +448,117 @@ class F_6_6_MasterPlan(BaseTool):
             if theme_collection.hasMapTheme(_temp_theme):
                 theme_collection.removeMapTheme(_temp_theme)
 
+    def _get_main_scale_factor(
+        self,
+        first_drawing: Dict,
+        layout_mgr: 'Fsm_6_6_2_LayoutManager',
+    ) -> Optional[float]:
+        """
+        Показать диалог выбора масштаба основной карты (одноразовый).
+
+        Симметричен _get_overview_scale_factor, но для main_map. Создаёт
+        временный layout с темой первой выбранной схемы (как референс
+        для подбора масштаба), показывает MainPreviewDialog, возвращает
+        scale_factor. Этот factor затем применяется ко ВСЕМ схемам
+        (умножается на main_map.scale() в _generate_single_scheme).
+
+        Args:
+            first_drawing: Запись первой выбранной схемы из Base_drawings
+            layout_mgr: Менеджер макетов F_6_6 (для apply_main_map_extent)
+
+        Returns:
+            float scale_factor (1.0 если отмена или ошибка), None запрещает
+            генерацию (пока не используется — fallback на 1.0).
+        """
+        from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_4_11_main_preview_dialog import (
+            MainPreviewDialog
+        )
+
+        # Развернуть тему первой схемы
+        drawing_name = first_drawing.get('drawing_name', 'Схема_1')
+        visible_layers = first_drawing.get('visible_layers', []) or []
+        project = QgsProject.instance()
+        project_layer_names = {
+            layer.name() for layer in project.mapLayers().values()
+        }
+        visible_resolved, _ = _expand_layer_patterns(
+            visible_layers, project_layer_names
+        )
+        main_layers = visible_resolved + [_MAIN_MAP_BASEMAP]
+
+        # Временный макет A3 MP
+        layout_mgr_m34 = registry.get('M_34')
+        temp_layout = layout_mgr_m34.build_layout(
+            layout_name='_temp_main_preview',
+            page_format='A3', orientation='landscape',
+            doc_type='Мастер-план'
+        )
+        if not temp_layout:
+            log_warning("F_6_6: Не удалось создать временный макет для main preview")
+            return 1.0
+
+        layout_manager = project.layoutManager()
+        if not layout_mgr_m34.add_layout_to_project(temp_layout):
+            log_warning("F_6_6: Не удалось добавить временный макет main preview в проект")
+            return 1.0
+
+        _temp_theme = '_F_6_6_temp_main'
+
+        try:
+            # Найти main_map во временном макете
+            main_map = None
+            for item in temp_layout.items():
+                if isinstance(item, QgsLayoutItemMap) and item.id() == 'main_map':
+                    main_map = item
+                    break
+
+            if not main_map:
+                log_warning("F_6_6: main_map не найден во временном макете")
+                return 1.0
+
+            # Тема первой схемы (как референс)
+            self._create_map_theme(_temp_theme, main_layers)
+            main_map.setFollowVisibilityPreset(True)
+            main_map.setFollowVisibilityPresetName(_temp_theme)
+
+            # Применить экстент по границам работ + M_46 + adapt_legend
+            # (та же цепочка что в _generate_single_scheme — даст реальный
+            # базовый масштаб для preview)
+            layout_mgr.apply_main_map_extent(temp_layout)
+
+            legend_mgr = registry.get('M_46')
+            legend_mgr.plan_and_apply(temp_layout, config_key='A3_landscape_MP')
+            layout_mgr_m34.adapt_legend(temp_layout)
+
+            current_scale = main_map.scale()
+            if not current_scale:
+                log_warning("F_6_6: main_map.scale() == 0 в preview")
+                return 1.0
+
+            log_info(
+                f"F_6_6: Main preview по схеме '{drawing_name}', "
+                f"базовый масштаб 1:{int(current_scale)}"
+            )
+
+            preview_dialog = MainPreviewDialog(
+                temp_layout, current_scale, self.iface.mainWindow()
+            )
+
+            if preview_dialog.exec() == 1:
+                _dpi, scale_factor = preview_dialog.get_selected_variant()
+                log_info(f"F_6_6: Выбран масштаб основной карты: x{scale_factor}")
+                return scale_factor
+
+            log_info("F_6_6: Диалог main preview отменён, используется x1.0")
+            return 1.0
+
+        finally:
+            # Cleanup
+            layout_manager.removeLayout(temp_layout)
+            theme_collection = project.mapThemeCollection()
+            if theme_collection.hasMapTheme(_temp_theme):
+                theme_collection.removeMapTheme(_temp_theme)
+
     def _get_project_overview_scale(self) -> Optional[float]:
         """
         Получить масштаб обзорной карты из метаданных проекта.
@@ -505,6 +628,7 @@ class F_6_6_MasterPlan(BaseTool):
         output_folder: str,
         layout_mgr: 'Fsm_6_6_2_LayoutManager',
         overview_scale_factor: float,
+        main_scale_factor: float = 1.0,
         location_text: str = ''
     ) -> Optional[str]:
         """
@@ -516,6 +640,8 @@ class F_6_6_MasterPlan(BaseTool):
             output_folder: Папка для PDF
             layout_mgr: Менеджер макетов
             overview_scale_factor: Множитель масштаба обзорной карты
+            main_scale_factor: Множитель масштаба основной карты (глобально
+                из MainPreviewDialog по первой схеме). 1.0 = базовый.
             location_text: Адрес территории для title_label
 
         Returns:
@@ -598,6 +724,20 @@ class F_6_6_MasterPlan(BaseTool):
             # только когда карта имеет экстент и масштаб
             layout_mgr_m34 = registry.get('M_34')
             layout_mgr_m34.adapt_legend(layout)
+
+            # j3. Применить глобальный множитель main_scale_factor
+            # (выбран пользователем в MainPreviewDialog по первой схеме)
+            if main_scale_factor and main_scale_factor != 1.0:
+                for item in layout.items():
+                    if isinstance(item, QgsLayoutItemMap) and item.id() == 'main_map':
+                        new_scale = item.scale() * main_scale_factor
+                        item.setScale(new_scale)
+                        item.refresh()
+                        log_info(
+                            f"F_6_6: Применён main_scale_factor=x{main_scale_factor} "
+                            f"→ 1:{int(new_scale)}"
+                        )
+                        break
 
             # k. Масштаб обзорной карты
             overview_base = self._get_project_overview_scale() or 100000.0

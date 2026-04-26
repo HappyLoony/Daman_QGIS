@@ -162,41 +162,75 @@ class DxfGeometryExporter:
                             if style and 'width' in style:
                                 hole_polyline.dxf.const_width = style['width']
 
-        # === ЭКСПОРТ ШТРИХОВКИ (для полигонов) ===
+        # === ЭКСПОРТ ЗАЛИВКИ И ШТРИХОВКИ (для полигонов) ===
+        # Архитектура двух независимых слоёв:
+        #   1. Заливка SOLID (если style['fill']==1) — нижний слой
+        #   2. Штриховка ANSI* (если style['hatch']) — верхний слой
+        # Координаты считаются один раз и переиспользуются.
         if geom_type == Qgis.GeometryType.Polygon and style and self.hatch_manager:
-            # Проверяем что есть паттерн штриховки в базе данных
-            hatch_value = style.get('hatch')
+            fill_raw = style.get('fill', 0)
+            if isinstance(fill_raw, bool):
+                fill_enabled = fill_raw
+            elif isinstance(fill_raw, (int, float)):
+                fill_enabled = int(fill_raw) == 1
+            elif isinstance(fill_raw, str):
+                fill_enabled = fill_raw.strip().lower() in ('1', 'true', 'yes', 'да')
+            else:
+                fill_enabled = False
 
-            if hatch_value and hatch_value != '-' and hatch_value.strip():
-                # Получаем координаты для штриховки
+            hatch_value = style.get('hatch')
+            hatch_active = bool(
+                hatch_value
+                and isinstance(hatch_value, str)
+                and hatch_value != '-'
+                and hatch_value.strip()
+                and hatch_value.upper() != 'SOLID'
+            )
+
+            if fill_enabled or hatch_active:
+                # Считаем координаты один раз для обоих слоёв
                 # МИГРАЦИЯ POLYGON → MULTIPOLYGON: упрощённый паттерн
                 polygons = geometry.asMultiPolygon() if geometry.isMultipart() else [geometry.asPolygon()]
 
                 for polygon in polygons:
-                    if polygon:
-                        exterior = polygon[0]
-                        coords = [CPM.round_coordinates(pt.x(), pt.y(), coordinate_precision) for pt in exterior]
-                        coords = self._remove_closing_point(coords)
+                    if not polygon:
+                        continue
+                    exterior = polygon[0]
+                    coords = [CPM.round_coordinates(pt.x(), pt.y(), coordinate_precision) for pt in exterior]
+                    coords = self._remove_closing_point(coords)
 
-                        if len(coords) > 2:
-                            # Подготавливаем координаты дырок
-                            hole_coords_list = []
-                            for hole in polygon[1:]:
-                                h_coords = [CPM.round_coordinates(pt.x(), pt.y(), coordinate_precision) for pt in hole]
-                                h_coords = self._remove_closing_point(h_coords)
-                                if len(h_coords) > 2:
-                                    hole_coords_list.append(h_coords)
+                    if len(coords) <= 2:
+                        continue
 
-                            # Штриховка с ByLayer (наследует цвет от слоя)
-                            hatch_attribs = {'layer': layer_name}
-                            # Если есть отдельный цвет штриховки — используем его
-                            hatch_color = style.get('hatch_color')
-                            if hatch_color is not None:
-                                hatch_attribs['color'] = hatch_color
-                            self.hatch_manager.apply_hatch(
-                                msp, coords, style, hatch_attribs,
-                                holes=hole_coords_list if hole_coords_list else None
-                            )
+                    # Подготавливаем координаты дырок
+                    hole_coords_list = []
+                    for hole in polygon[1:]:
+                        h_coords = [CPM.round_coordinates(pt.x(), pt.y(), coordinate_precision) for pt in hole]
+                        h_coords = self._remove_closing_point(h_coords)
+                        if len(h_coords) > 2:
+                            hole_coords_list.append(h_coords)
+                    holes_arg = hole_coords_list if hole_coords_list else None
+
+                    # 1) Заливка SOLID (нижний слой)
+                    if fill_enabled:
+                        fill_style = {'hatch': 'SOLID'}
+                        fill_attribs = {'layer': layer_name}
+                        fill_color = style.get('fill_color')
+                        if fill_color is not None:
+                            fill_attribs['color'] = fill_color
+                        self.hatch_manager.apply_hatch(
+                            msp, coords, fill_style, fill_attribs, holes=holes_arg
+                        )
+
+                    # 2) Штриховка ANSI* (верхний слой) — без SOLID
+                    if hatch_active:
+                        hatch_attribs = {'layer': layer_name}
+                        hatch_color = style.get('hatch_color')
+                        if hatch_color is not None:
+                            hatch_attribs['color'] = hatch_color
+                        self.hatch_manager.apply_hatch(
+                            msp, coords, style, hatch_attribs, holes=holes_arg
+                        )
 
         # === ЭКСПОРТ ПОДПИСЕЙ НА СЛОЙ _Номер ===
         if self.label_exporter and self.ref_managers:

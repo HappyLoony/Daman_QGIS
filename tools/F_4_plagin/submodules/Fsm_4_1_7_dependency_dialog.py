@@ -399,14 +399,24 @@ class DependencyTabWidget(QWidget):
 
         if success:
             if pending_restart:
-                # Успех, но нужен перезапуск
+                # Успех, но нужен перезапуск — перепроверку НЕ запускаем.
+                # Заблокированные .pyd (переименованы в .old) не дадут
+                # корректно импортировать новые версии без restart QGIS.
+                # Автоматическая перепроверка висла бы на import cryptography.
                 self.update_install_log(f"\n<b style='color: #2196F3'>{message}</b>")
+                self.update_install_log(
+                    "\n<b>Перезапустите QGIS</b> для завершения обновления "
+                    "заблокированных библиотек.\n"
+                    "После перезапуска запустите проверку зависимостей повторно."
+                )
+                self.install_button.setEnabled(True)
+                self.update_button.setEnabled(True)
             else:
                 self.update_install_log(f"\n<b style='color: green'>{message}</b>")
-            self.update_install_log("\nПерепроверка зависимостей...")
-            # Автоматическая перепроверка через контейнер
-            from qgis.PyQt.QtCore import QTimer
-            QTimer.singleShot(1000, self.request_recheck.emit)
+                self.update_install_log("\nПерепроверка зависимостей...")
+                # Автоматическая перепроверка через контейнер
+                from qgis.PyQt.QtCore import QTimer
+                QTimer.singleShot(1000, self.request_recheck.emit)
         else:
             if pending_restart:
                 # Ошибки есть, но часть обновлений ожидает перезапуска

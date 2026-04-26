@@ -23,7 +23,7 @@ from Daman_QGIS.constants import (
     LAYER_ZOUIT_PREFIX, LAYER_SELECTION_ZOUIT,
     MAX_FIELD_LEN, BOUNDARY_INNER_BUFFER_M, BUFFER_SEGMENTS
 )
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_error
 from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_4_geometry_processor import Fsm_2_1_5_GeometryProcessor
 from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_2_layer_builder import Fsm_2_1_6_LayerBuilder
 from Daman_QGIS.managers import CoordinatePrecisionManager
@@ -119,19 +119,20 @@ class Fsm_2_1_10_ZouitSelection:
             for source_layer in zouit_layers:
                 source_name = source_layer.name()
 
-                # Разные endpoints могут писать в Le_1_2_5_* с разной схемой
-                # (напр. ООПТ ЕГРН cat=472825 даёт title/category вместо name_by_doc/type_zone).
-                # Логируем один раз на слой какие из ожидаемых полей отсутствуют —
-                # в перечне они будут NULL
+                # NSPD может вернуть обрезанную схему (не все поля expected_fields
+                # приходят в конкретной области — public-view, неполные данные ЕГРН и т.п.).
+                # Это нормальная ситуация, не ошибка плагина. _attr_or_none ниже
+                # безопасно отдаёт None для отсутствующих полей. Логируем info-level
+                # для диагностики, без warning-шума в production.
                 source_field_names = set(source_layer.fields().names())
                 missing_fields = [
                     f for f in ("reg_numb_border", "type_zone", "name_by_doc")
                     if f not in source_field_names
                 ]
                 if missing_fields:
-                    log_warning(
-                        f"Fsm_2_1_10: слой {source_name} не содержит полей {missing_fields} — "
-                        f"в перечне будут NULL (или fallback: title→name_by_doc, category→type_zone)"
+                    log_info(
+                        f"Fsm_2_1_10: слой {source_name} — обрезанная NSPD-схема, "
+                        f"отсутствуют {missing_fields}, в перечне будут NULL"
                     )
 
                 # Трансформации СК (source → project)
@@ -157,22 +158,12 @@ class Fsm_2_1_10_ZouitSelection:
                         new_feature = QgsFeature(result_layer.fields())
                         new_feature.setGeometry(QgsGeometry(final_geom))
 
-                        # Маппинг 4 полей с защитой от отсутствующих атрибутов (fallback для ООПТ ЕГРН)
+                        # Маппинг 4 полей. _attr_or_none защищает от KeyError,
+                        # если NSPD вернул обрезанную схему без какого-то поля
                         new_feature.setAttribute("Слой", source_name)
-                        new_feature.setAttribute(
-                            "reg_numb_border",
-                            self._attr_or_none(feature, "reg_numb_border")
-                        )
-                        new_feature.setAttribute(
-                            "type_zone",
-                            self._attr_or_none(feature, "type_zone")
-                            or self._attr_or_none(feature, "category")
-                        )
-                        new_feature.setAttribute(
-                            "name_by_doc",
-                            self._attr_or_none(feature, "name_by_doc")
-                            or self._attr_or_none(feature, "title")
-                        )
+                        new_feature.setAttribute("reg_numb_border", self._attr_or_none(feature, "reg_numb_border"))
+                        new_feature.setAttribute("type_zone", self._attr_or_none(feature, "type_zone"))
+                        new_feature.setAttribute("name_by_doc", self._attr_or_none(feature, "name_by_doc"))
 
                         result_layer.addFeature(new_feature)
                         selected_count += 1
@@ -221,8 +212,8 @@ class Fsm_2_1_10_ZouitSelection:
         """Безопасное чтение атрибута feature по имени.
 
         PyQGIS QgsFeature.attribute(name) бросает KeyError если поля нет в схеме.
-        Для Le_1_2_5_21_WFS_ЗОУИТ_ОЗ_ООПТ схема зависит от того, какой endpoint
-        пришёл первым (EP 12 vs EP 27 в Base_api_endpoints.json) — у них разные поля.
+        NSPD в конкретной области может вернуть обрезанную схему (без части
+        expected_fields), поэтому обращение к полю должно быть защищённым.
 
         Returns:
             Значение атрибута или None если поля нет.

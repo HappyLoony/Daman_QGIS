@@ -244,10 +244,13 @@ class TestMsm462:
                 SpaceCalculator,
             )
 
-            # ref_point=7 (TopLeft): top-left = (x, y) = (200, 205), right=250
+            # ref_point=7 (TopLeft): top-left = (x, y) = (200, 180), right=250
+            # Y-диапазон легенды: [205 - 100*0.45; 205] = [160; 205]
+            # overview должен пересекаться с этим диапазоном, иначе Y-фильтр его отсечёт.
+            # y=180: TopLeft overlay top=180, bottom=230 → пересекается [160;205].
             config_topleft = {
                 'legend_x': 20, 'legend_y': 205, 'legend_ref_point': 1,
-                'overview_map_x': 200, 'overview_map_y': 205,
+                'overview_map_x': 200, 'overview_map_y': 180,
                 'overview_map_width': 50, 'overview_map_height': 50,
                 'overview_map_ref_point': 7,  # TopLeft
                 'legend_overlay_gap_mm': 5,
@@ -259,7 +262,8 @@ class TestMsm462:
             # nearest_right = 200 (left edge), max_width = 200-20-5 = 175
             expected_tl = 200 - 20 - 5
 
-            # ref_point=3 (LowerRight): top-left = (150, 155), left=150
+            # ref_point=3 (LowerRight): anchor (200, 180) = bottom-right,
+            # top-left = (150, 130), bottom=180 → пересекается с [160;205].
             config_lr = dict(config_topleft)
             config_lr['overview_map_ref_point'] = 3
             calc2 = SpaceCalculator(config_provider=lambda k: config_lr)
@@ -317,12 +321,13 @@ class TestMsm462:
 
             # overview справа с left=150, north_arrow справа с left=120
             # → nearest_right = 120 (меньше = ближе)
+            # Y=180 чтобы оба overlay попадали в Y-диапазон легенды [160;205].
             synthetic = {
                 'legend_x': 20, 'legend_y': 205, 'legend_ref_point': 1,
-                'overview_map_x': 150, 'overview_map_y': 205,
+                'overview_map_x': 150, 'overview_map_y': 180,
                 'overview_map_width': 40, 'overview_map_height': 40,
                 'overview_map_ref_point': 7,  # TopLeft → left=150
-                'north_arrow_x': 120, 'north_arrow_y': 205,
+                'north_arrow_x': 120, 'north_arrow_y': 180,
                 'north_arrow_width': 20, 'north_arrow_height': 20,
                 'north_arrow_ref_point': 7,  # TopLeft → left=120
                 'legend_overlay_gap_mm': 5,

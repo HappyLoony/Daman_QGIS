@@ -45,6 +45,11 @@ class StyleManager:
     PROP_HATCH = "autocad/hatch"
     PROP_HATCH_SCALE = "autocad/hatch_scale"
     PROP_HATCH_COLOR = "autocad/hatch_color"
+    PROP_HATCH_TRANSPARENCY = "autocad/hatch_transparency"
+    # Раздельная заливка (Заливка, Цвет заливки, Прозрачность заливки)
+    PROP_FILL = "autocad/fill"
+    PROP_FILL_COLOR = "autocad/fill_color"
+    PROP_FILL_TRANSPARENCY = "autocad/fill_transparency"
 
     def __init__(self):
         """Инициализация менеджера стилей"""
@@ -514,9 +519,13 @@ class StyleManager:
         # line_scale: для линий = ltscale, для точек = диаметр круга (мм)
         line_scale = autocad_style.get('line_scale', 1.0)
 
-        # Hatch: преобразуем "-" в None
+        # Hatch: преобразуем "-" в None.
+        # Legacy: 'SOLID' в Штриховке больше не поддерживается — заливка
+        # теперь управляется отдельной колонкой 'fill'. Игнорируем 'SOLID'.
         hatch = autocad_style.get('hatch', '-')
         if hatch == '-' or not hatch or (isinstance(hatch, str) and not hatch.strip()):
+            hatch = None
+        elif isinstance(hatch, str) and hatch.upper() == 'SOLID':
             hatch = None
 
         hatch_scale = autocad_style.get('hatch_scale', 1.0)
@@ -526,6 +535,37 @@ class StyleManager:
             hatch_color_index = self._rgb_to_autocad_color(hatch_color_rgb)
         else:
             hatch_color_index = None
+
+        # Прозрачность штриховки (отдельно от line_transparency).
+        # '-' / None → 0 (непрозрачно по умолчанию).
+        hatch_transparency_raw = autocad_style.get('hatch_transparency', 0)
+        try:
+            hatch_transparency = int(hatch_transparency_raw)
+        except (ValueError, TypeError):
+            hatch_transparency = 0
+
+        # Раздельная заливка (новая колонка Заливка / Цвет заливки / Прозрачность заливки)
+        fill_value = autocad_style.get('fill', 0)
+        if isinstance(fill_value, bool):
+            fill_enabled = fill_value
+        elif isinstance(fill_value, (int, float)):
+            fill_enabled = int(fill_value) == 1
+        elif isinstance(fill_value, str):
+            fill_enabled = fill_value.strip().lower() in ('1', 'true', 'yes', 'да')
+        else:
+            fill_enabled = False
+
+        fill_color_rgb = autocad_style.get('fill_color_RGB', '')
+        if fill_color_rgb and fill_color_rgb != '-':
+            fill_color_index = self._rgb_to_autocad_color(fill_color_rgb)
+        else:
+            fill_color_index = None
+
+        fill_transparency_raw = autocad_style.get('fill_transparency', 0)
+        try:
+            fill_transparency = int(fill_transparency_raw)
+        except (ValueError, TypeError):
+            fill_transparency = 0
 
         # Сохраняем в customProperty
         layer.setCustomProperty(self.PROP_LINETYPE, linetype)
@@ -537,6 +577,7 @@ class StyleManager:
         if hatch:
             layer.setCustomProperty(self.PROP_HATCH, hatch)
             layer.setCustomProperty(self.PROP_HATCH_SCALE, hatch_scale)
+            layer.setCustomProperty(self.PROP_HATCH_TRANSPARENCY, hatch_transparency)
             if hatch_color_index is not None:
                 layer.setCustomProperty(self.PROP_HATCH_COLOR, hatch_color_index)
             else:
@@ -546,6 +587,19 @@ class StyleManager:
             layer.removeCustomProperty(self.PROP_HATCH)
             layer.removeCustomProperty(self.PROP_HATCH_SCALE)
             layer.removeCustomProperty(self.PROP_HATCH_COLOR)
+            layer.removeCustomProperty(self.PROP_HATCH_TRANSPARENCY)
+
+        if fill_enabled:
+            layer.setCustomProperty(self.PROP_FILL, 1)
+            layer.setCustomProperty(self.PROP_FILL_TRANSPARENCY, fill_transparency)
+            if fill_color_index is not None:
+                layer.setCustomProperty(self.PROP_FILL_COLOR, fill_color_index)
+            else:
+                layer.removeCustomProperty(self.PROP_FILL_COLOR)
+        else:
+            layer.removeCustomProperty(self.PROP_FILL)
+            layer.removeCustomProperty(self.PROP_FILL_COLOR)
+            layer.removeCustomProperty(self.PROP_FILL_TRANSPARENCY)
 
     def _rgb_to_autocad_color(self, rgb_string: str) -> int:
         """
@@ -662,6 +716,10 @@ class StyleManager:
                 'hatch': hatch_value,
                 'hatch_scale': layer.customProperty(self.PROP_HATCH_SCALE, 1.0),
                 'hatch_color': layer.customProperty(self.PROP_HATCH_COLOR),
+                'hatch_transparency': layer.customProperty(self.PROP_HATCH_TRANSPARENCY, 0),
+                'fill': layer.customProperty(self.PROP_FILL, 0),
+                'fill_color': layer.customProperty(self.PROP_FILL_COLOR),
+                'fill_transparency': layer.customProperty(self.PROP_FILL_TRANSPARENCY, 0),
             }
 
         # Если нет сохраненных атрибутов - пытаемся получить из Base_layers.json
@@ -678,9 +736,37 @@ class StyleManager:
                 hatch = autocad_style.get('hatch', '-')
                 if hatch == '-' or not hatch:
                     hatch = None
+                elif isinstance(hatch, str) and hatch.upper() == 'SOLID':
+                    # Legacy: SOLID в Штриховке игнорируется (заливка через 'fill')
+                    hatch = None
 
                 hatch_color_rgb_str = autocad_style.get('hatch_color_RGB', '')
                 hatch_color = self._rgb_to_autocad_color(hatch_color_rgb_str) if hatch_color_rgb_str and hatch_color_rgb_str != '-' else None
+
+                # Fill (раздельная заливка)
+                fill_raw = autocad_style.get('fill', 0)
+                if isinstance(fill_raw, bool):
+                    fill_value = 1 if fill_raw else 0
+                elif isinstance(fill_raw, (int, float)):
+                    fill_value = int(fill_raw)
+                elif isinstance(fill_raw, str):
+                    fill_value = 1 if fill_raw.strip().lower() in ('1', 'true', 'yes', 'да') else 0
+                else:
+                    fill_value = 0
+                fill_color_rgb_str = autocad_style.get('fill_color_RGB', '')
+                fill_color = self._rgb_to_autocad_color(fill_color_rgb_str) if fill_color_rgb_str and fill_color_rgb_str != '-' else None
+
+                hatch_transparency_raw = autocad_style.get('hatch_transparency', 0)
+                try:
+                    hatch_transparency_val = int(hatch_transparency_raw)
+                except (ValueError, TypeError):
+                    hatch_transparency_val = 0
+
+                fill_transparency_raw = autocad_style.get('fill_transparency', 0)
+                try:
+                    fill_transparency_val = int(fill_transparency_raw)
+                except (ValueError, TypeError):
+                    fill_transparency_val = 0
 
                 return {
                     'linetype': autocad_style.get('linetype', 'CONTINUOUS'),
@@ -691,6 +777,10 @@ class StyleManager:
                     'hatch': hatch,
                     'hatch_scale': autocad_style.get('hatch_scale', 1.0),
                     'hatch_color': hatch_color,
+                    'hatch_transparency': hatch_transparency_val,
+                    'fill': fill_value,
+                    'fill_color': fill_color,
+                    'fill_transparency': fill_transparency_val,
                 }
         except Exception as e:
             log_warning(f"StyleManager: Не удалось загрузить стиль для '{layer.name()}': {e}")
