@@ -47,7 +47,11 @@ class RegionalModifierManager:
         if metadata is None:
             metadata = self._load_metadata()
 
-        return metadata.get('1_4_1_code_region')
+        region = metadata.get('1_4_region_code')
+        # "-" означает "Не указано" — для модификаторов трактуется как None
+        if region == '-':
+            return None
+        return region
 
     def is_region(self, code: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """

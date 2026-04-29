@@ -44,8 +44,10 @@ class StyleManager:
     PROP_LINE_SCALE = "autocad/line_scale"
     PROP_HATCH = "autocad/hatch"
     PROP_HATCH_SCALE = "autocad/hatch_scale"
+    PROP_HATCH_ANGLE = "autocad/hatch_angle"
     PROP_HATCH_COLOR = "autocad/hatch_color"
     PROP_HATCH_TRANSPARENCY = "autocad/hatch_transparency"
+    PROP_HATCH_LINEWEIGHT = "autocad/hatch_lineweight"
     # Раздельная заливка (Заливка, Цвет заливки, Прозрачность заливки)
     PROP_FILL = "autocad/fill"
     PROP_FILL_COLOR = "autocad/fill_color"
@@ -530,6 +532,22 @@ class StyleManager:
 
         hatch_scale = autocad_style.get('hatch_scale', 1.0)
 
+        # hatch_angle: 0..360, default 0. '-' / None трактуем как 0.
+        hatch_angle_raw = autocad_style.get('hatch_angle', 0)
+        try:
+            hatch_angle = int(hatch_angle_raw)
+        except (ValueError, TypeError):
+            hatch_angle = 0
+
+        # hatch_global_lineweight: толщина линий штриховки в мм (float),
+        # сохраняется как int сотых мм по аналогии с PROP_LINEWEIGHT.
+        hatch_lineweight_mm_raw = autocad_style.get('hatch_global_lineweight', 0)
+        try:
+            hatch_lineweight_mm = float(hatch_lineweight_mm_raw)
+        except (ValueError, TypeError):
+            hatch_lineweight_mm = 0.0
+        hatch_lineweight = int(hatch_lineweight_mm * 100)
+
         hatch_color_rgb = autocad_style.get('hatch_color_RGB', '')
         if hatch_color_rgb and hatch_color_rgb != '-':
             hatch_color_index = self._rgb_to_autocad_color(hatch_color_rgb)
@@ -577,7 +595,9 @@ class StyleManager:
         if hatch:
             layer.setCustomProperty(self.PROP_HATCH, hatch)
             layer.setCustomProperty(self.PROP_HATCH_SCALE, hatch_scale)
+            layer.setCustomProperty(self.PROP_HATCH_ANGLE, hatch_angle)
             layer.setCustomProperty(self.PROP_HATCH_TRANSPARENCY, hatch_transparency)
+            layer.setCustomProperty(self.PROP_HATCH_LINEWEIGHT, hatch_lineweight)
             if hatch_color_index is not None:
                 layer.setCustomProperty(self.PROP_HATCH_COLOR, hatch_color_index)
             else:
@@ -586,8 +606,10 @@ class StyleManager:
             # Удаляем hatch если его нет
             layer.removeCustomProperty(self.PROP_HATCH)
             layer.removeCustomProperty(self.PROP_HATCH_SCALE)
+            layer.removeCustomProperty(self.PROP_HATCH_ANGLE)
             layer.removeCustomProperty(self.PROP_HATCH_COLOR)
             layer.removeCustomProperty(self.PROP_HATCH_TRANSPARENCY)
+            layer.removeCustomProperty(self.PROP_HATCH_LINEWEIGHT)
 
         if fill_enabled:
             layer.setCustomProperty(self.PROP_FILL, 1)
@@ -691,6 +713,8 @@ class StyleManager:
                 - line_scale: Масштаб типа линии / диаметр круга для точек (мм)
                 - hatch: Паттерн штриховки (ANSI31, ANSI32, и т.д.) или None
                 - hatch_scale: Масштаб штриховки (по умолчанию 1.0)
+                - hatch_angle: Угол штриховки в градусах (0..360, по умолчанию 0)
+                - hatch_lineweight: Толщина линий штриховки в сотых мм (0 = BYLAYER)
 
         Examples:
             >>> manager = StyleManager()
@@ -715,8 +739,10 @@ class StyleManager:
                 'line_scale': layer.customProperty(self.PROP_LINE_SCALE, 1.0),
                 'hatch': hatch_value,
                 'hatch_scale': layer.customProperty(self.PROP_HATCH_SCALE, 1.0),
+                'hatch_angle': layer.customProperty(self.PROP_HATCH_ANGLE, 0),
                 'hatch_color': layer.customProperty(self.PROP_HATCH_COLOR),
                 'hatch_transparency': layer.customProperty(self.PROP_HATCH_TRANSPARENCY, 0),
+                'hatch_lineweight': layer.customProperty(self.PROP_HATCH_LINEWEIGHT, 0),
                 'fill': layer.customProperty(self.PROP_FILL, 0),
                 'fill_color': layer.customProperty(self.PROP_FILL_COLOR),
                 'fill_transparency': layer.customProperty(self.PROP_FILL_TRANSPARENCY, 0),
@@ -768,6 +794,19 @@ class StyleManager:
                 except (ValueError, TypeError):
                     fill_transparency_val = 0
 
+                hatch_angle_raw = autocad_style.get('hatch_angle', 0)
+                try:
+                    hatch_angle_val = int(hatch_angle_raw)
+                except (ValueError, TypeError):
+                    hatch_angle_val = 0
+
+                hatch_lineweight_mm_raw = autocad_style.get('hatch_global_lineweight', 0)
+                try:
+                    hatch_lineweight_mm = float(hatch_lineweight_mm_raw)
+                except (ValueError, TypeError):
+                    hatch_lineweight_mm = 0.0
+                hatch_lineweight_val = int(hatch_lineweight_mm * 100)
+
                 return {
                     'linetype': autocad_style.get('linetype', 'CONTINUOUS'),
                     'color': color_index,
@@ -776,8 +815,10 @@ class StyleManager:
                     'line_scale': autocad_style.get('line_scale', 1.0),
                     'hatch': hatch,
                     'hatch_scale': autocad_style.get('hatch_scale', 1.0),
+                    'hatch_angle': hatch_angle_val,
                     'hatch_color': hatch_color,
                     'hatch_transparency': hatch_transparency_val,
+                    'hatch_lineweight': hatch_lineweight_val,
                     'fill': fill_value,
                     'fill_color': fill_color,
                     'fill_transparency': fill_transparency_val,
@@ -793,5 +834,7 @@ class StyleManager:
             'transparency': 0,
             'line_scale': 1.0,
             'hatch': None,
-            'hatch_scale': 1.0
+            'hatch_scale': 1.0,
+            'hatch_angle': 0,
+            'hatch_lineweight': 0,
         }

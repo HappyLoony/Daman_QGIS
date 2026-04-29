@@ -210,10 +210,10 @@ class F_0_3_EditProjectProperties(BaseTool):
                           'Рабочее название (для папок и файлов)')
             log_info(f"F_0_3: Изменено рабочее название: {updated_data['working_name']}")
 
-        if 'full_name' in changed_fields:
-            db.set_metadata('1_1_full_name', updated_data['full_name'],
+        if 'object_full_name' in changed_fields:
+            db.set_metadata('1_1_object_full_name', updated_data['object_full_name'],
                           'Полное наименование объекта')
-            log_info(f"F_0_3: Изменено полное наименование: {updated_data['full_name']}")
+            log_info(f"F_0_3: Изменено полное наименование: {updated_data['object_full_name']}")
 
         if 'object_type' in changed_fields:
             db.set_metadata('1_2_object_type', updated_data['object_type'],
@@ -272,24 +272,24 @@ class F_0_3_EditProjectProperties(BaseTool):
         crs_changed = False
 
         if 'crs' in changed_fields:
-            db.set_metadata('1_4_crs_epsg', str(updated_data['crs_epsg']),
+            db.set_metadata('1_4_2_crs_epsg', str(updated_data['crs_epsg']),
                           'Код системы координат (EPSG или USER)')
-            db.set_metadata('1_4_crs_wkt', updated_data['crs_wkt'],
+            db.set_metadata('1_4_2_crs_wkt', updated_data['crs_wkt'],
                           'WKT определение системы координат')
-            db.set_metadata('1_4_crs_description', updated_data['crs_description'],
+            db.set_metadata('1_4_2_crs_description', updated_data['crs_description'],
                           'Описание системы координат')
             crs_changed = True
             log_info(f"F_0_3: Изменена система координат: {updated_data['crs_description']}")
 
-        if 'code_region' in changed_fields:
-            db.set_metadata('1_4_1_code_region', updated_data['code_region'],
+        if 'region_code' in changed_fields:
+            db.set_metadata('1_4_region_code', updated_data['region_code'],
                           'Код региона')
-            log_info(f"F_0_3: Изменен код региона: {updated_data['code_region']}")
+            log_info(f"F_0_3: Изменен код региона: {updated_data['region_code']}")
 
-        if 'code_zone' in changed_fields:
-            db.set_metadata('1_4_2_code_zone', updated_data['code_zone'],
+        if 'zone_code' in changed_fields:
+            db.set_metadata('1_4_1_zone_code', updated_data['zone_code'],
                           'Код зоны')
-            log_info(f"F_0_3: Изменен код зоны: {updated_data['code_zone']}")
+            log_info(f"F_0_3: Изменен код зоны: {updated_data['zone_code']}")
 
         return crs_changed
 
@@ -305,8 +305,8 @@ class F_0_3_EditProjectProperties(BaseTool):
         if not self.project_manager or not self.project_manager.settings:
             return
 
-        if 'full_name' in changed_fields:
-            self.project_manager.settings.object_name = updated_data['full_name']
+        if 'object_full_name' in changed_fields:
+            self.project_manager.settings.object_name = updated_data['object_full_name']
         if 'object_type' in changed_fields:
             self.project_manager.settings.object_type = updated_data['object_type']
         if 'crs' in changed_fields:
@@ -340,8 +340,8 @@ class F_0_3_EditProjectProperties(BaseTool):
         changes = []
         if 'working_name' in changed_fields:
             changes.append(f"• Рабочее название: {updated_data['working_name']}")
-        if 'full_name' in changed_fields:
-            changes.append(f"• Полное наименование: {updated_data['full_name']}")
+        if 'object_full_name' in changed_fields:
+            changes.append(f"• Полное наименование: {updated_data['object_full_name']}")
         if 'object_type' in changed_fields:
             changes.append(f"• Тип: {updated_data['object_type_name']}")
         if 'object_type_value' in changed_fields:
@@ -364,10 +364,10 @@ class F_0_3_EditProjectProperties(BaseTool):
             changes.append(f"• СК: {updated_data['crs_description']}")
             if crs_changed:
                 changes.append("• СК переопределена для всех слоев")
-        if 'code_region' in changed_fields:
-            changes.append(f"• Код региона: {updated_data['code_region']}")
-        if 'code_zone' in changed_fields:
-            changes.append(f"• Код зоны: {updated_data['code_zone']}")
+        if 'region_code' in changed_fields:
+            changes.append(f"• Код региона: {updated_data['region_code']}")
+        if 'zone_code' in changed_fields:
+            changes.append(f"• Код зоны: {updated_data['zone_code']}")
         if 'company' in changed_fields:
             changes.append(f"• Компания: {updated_data['company']}")
         if 'city' in changed_fields:

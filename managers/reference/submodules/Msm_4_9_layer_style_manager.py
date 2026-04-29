@@ -118,7 +118,10 @@ class LayerStyleManager:
                 'line_global_weight': float,  # Толщина линии (для точек: толщина окружности)
                 'line_transparency': int,
                 'line_scale': float,  # Для линий: ltscale, для точек: диаметр круга
-                'hatch': str,  # "SOLID"/"ANSI31"/"HEX"/"-"
+                'fill': int,  # 1 = заливка включена, 0 = без заливки
+                'fill_color_RGB': str,  # "R,G,B"
+                'fill_transparency': int,
+                'hatch': str,  # "ANSI31"/"HEX"/"-" (SOLID — legacy, заливка теперь в 'fill')
                 'hatch_scale': float,
                 'hatch_angle': int,
                 'hatch_color_RGB': str,  # "R,G,B"/"-"
@@ -149,6 +152,9 @@ class LayerStyleManager:
             'line_transparency': self._parse_int(line_transparency, default=0),
             # line_scale: для линий = масштаб типа линии (ltscale), для точек = диаметр круга
             'line_scale': self._parse_float(layer.get('line_scale', 1), default=1.0),
+            'fill': layer.get('fill', 0),
+            'fill_color_RGB': layer.get('fill_color_RGB', '255,255,255'),
+            'fill_transparency': self._parse_int(layer.get('fill_transparency', 0), default=0),
             'hatch': layer.get('hatch', '-'),
             'hatch_scale': self._parse_float(layer.get('hatch_scale', '-'), default=1.0),
             'hatch_angle': self._parse_int(layer.get('hatch_angle', '-'), default=0),

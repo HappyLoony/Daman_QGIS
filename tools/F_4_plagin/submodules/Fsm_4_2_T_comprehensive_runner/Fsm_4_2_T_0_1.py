@@ -290,11 +290,11 @@ class TestF01:
             # Проверяем структуру метаданных
             required_metadata = [
                 '1_0_working_name',
-                '1_1_full_name',
+                '1_1_object_full_name',
                 '1_2_object_type',
                 '1_2_object_type_name',
-                '1_4_crs_epsg',
-                '1_4_crs_wkt',
+                '1_4_2_crs_epsg',
+                '1_4_2_crs_wkt',
             ]
 
             self.logger.info(f"Обязательные метаданные ({len(required_metadata)} полей):")

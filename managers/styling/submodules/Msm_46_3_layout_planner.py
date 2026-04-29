@@ -6,11 +6,23 @@ Msm_46_3: LayoutPlanner — Детерминированный подбор па
 1. col=1 с максимально широким wrap
 2. col=2, col=3 при необходимости
 3. reduced symbols при необходимости
-4. mode='overflow' если не fits (только если placement_mode='overflow'),
-   иначе 'inline' + reason='tight_inline_may_overflow_visually'
+4. tight plan + reason='tight_inline_may_overflow_visually' если не fits
 
-wrap_text — перенос Fsm_1_4_5.wrap_legend_text, но max_length вычисляется
-из available width (НЕ хардкод 100): `int(text_width / char_width_mm)`.
+OUTSIDE-routing перехвачен в M_46.facade (early return ДО вызова planner),
+поэтому planner работает только в DYNAMIC / FIXED_PANEL контексте. Поле
+`LegendPlan.mode` для логов всегда DYNAMIC ("planner-internal"); реальную
+strategy выбирает M_46.facade через choose_strategy(legend_layout_mode).
+
+wrap_text — pixel-based перенос через QFontMetricsF.horizontalAdvance().
+Жадный wrap по словам с реальным измерением ширины строки в мм. Точнее
+char-count приближения (учитывает разную ширину глифов: цифры/латиница
+~2.5 мм, кириллица ~2.8-2.9 мм для Avenir Next 14pt).
+
+# TODO QGIS 3.44+: после апгрейда LTR можно использовать встроенный
+# legend.setAutoWrapLength(text_width_mm) для рендера и удалить
+# _apply_wrap_to_titles в Msm_46_4. Planner и его pixel-based wrap_text
+# всё равно нужны — нативный setAutoWrapLength рендерит, но не предсказывает
+# сколько строк выйдет (нужно для column_count и compaction).
 
 _predict_height — OPT-6 simplified: total / col_count. Полный greedy fill
 simulation deferred до v2 (trigger: `legend/predict_mismatch_count` >10%).
@@ -20,14 +32,14 @@ simulation deferred до v2 (trigger: `legend/predict_mismatch_count` >10%).
 
 from typing import Any, Callable, Dict, List, Optional
 
-from qgis.PyQt.QtGui import QFont, QFontMetrics
+from qgis.PyQt.QtGui import QFont, QFontMetricsF
 
 from Daman_QGIS.utils import log_info, log_warning
 from .Msm_46_types import (
     AvailableSpace,
     LegendContent,
+    LegendLayoutMode,
     LegendPlan,
-    PlacementMode,
 )
 
 MODULE_ID = "Msm_46_3"
@@ -41,10 +53,20 @@ MAX_COLUMNS = 3
 # 14pt ≈ 5.6 мм с учётом QGIS legend internal padding
 LINE_HEIGHT_MM_PER_PT = 0.4
 LEGEND_TITLE_HEIGHT_MM = 7.0  # "Условные обозначения:" заголовок
-LEGEND_PADDING_MM = 3.0       # отступ внутри рамки легенды
+# LEGEND_PADDING_MM — "буфер" между symbol и текстом + правый край.
+# Реальные QGIS отступы: boxSpace=2 (с каждой стороны), label_margin_left=5
+# (между symbol и label) → суммарно 4-7 мм. Берём 2.0 как min consensus —
+# даёт liberalнее text_width, легенда чуть шире, но строки на грани (~79 мм)
+# реалистично помещаются. При overflow Msm_46_4.FixedPanelPlacement clamp'ит.
+LEGEND_PADDING_MM = 2.0
 INTER_ITEM_SPACING_MM = 2.0   # межстрочный интервал между items
-DEFAULT_CHAR_WIDTH_MM = 2.5   # fallback для 14pt GOST 2.304
 DEFAULT_FONT_SIZE_PT = 14
+
+# Конверсия pixel → mm для QFontMetricsF (Qt logical DPI = 96).
+# QFontMetricsF.horizontalAdvance возвращает в pixels. Шрифт в pt — абсолютная
+# единица (1pt = 0.353 мм), но Qt считает metrics в device pixels на screen DPI.
+# При экспорте в PDF QGIS использует те же metrics — соотношение сохраняется.
+PX_TO_MM = 25.4 / 96.0
 
 
 def _default_config_provider(config_key: str) -> Optional[Dict[str, Any]]:
@@ -73,49 +95,55 @@ class LayoutPlanner:
         self._provider = config_provider or _default_config_provider
 
     @staticmethod
-    def wrap_text(text: str, max_length: int) -> str:
+    def wrap_text(
+        text: str,
+        max_width_mm: float,
+        font_metrics: QFontMetricsF,
+    ) -> str:
         """
-        Разбить text на строки через \\n, длина каждой <= max_length символов.
+        Разбить text на строки через \\n, ширина каждой <= max_width_mm.
 
-        Разбивает по словам. Слово длиннее max_length остаётся на своей строке
-        как есть (не режется посимвольно).
+        Pixel-based wrap через QFontMetricsF.horizontalAdvance() — точная ширина
+        в pixels конвертируется в мм через PX_TO_MM. Жадный wrap по словам.
+        Слово шире max_width_mm остаётся на отдельной строке как есть
+        (не режется посимвольно).
 
-        Перенос из Fsm_1_4_5.wrap_legend_text, но max_length — параметр
-        (вычисляется из available width), не хардкод 100.
+        Точнее char-count приближения: учитывает разную ширину глифов кириллицы
+        (~2.8-2.9 мм для 14pt) и латиницы/цифр (~2.5 мм).
 
         Args:
             text: исходный текст
-            max_length: максимальная длина строки в символах (>= 1)
+            max_width_mm: максимальная ширина строки в мм (> 0)
+            font_metrics: QFontMetricsF на актуальном шрифте легенды
 
         Returns:
             text с \\n разделителями между строками.
         """
         if not text:
             return text
-        if max_length <= 0 or len(text) <= max_length:
+
+        def width_mm(s: str) -> float:
+            return font_metrics.horizontalAdvance(s) * PX_TO_MM
+
+        if max_width_mm <= 0 or width_mm(text) <= max_width_mm:
             return text
 
         words = text.split()
         lines: List[str] = []
         current: List[str] = []
-        current_len = 0
 
         for word in words:
-            word_len = len(word)
-            separator = 1 if current else 0
-            if current_len + separator + word_len > max_length:
+            candidate = ' '.join(current + [word]) if current else word
+            if width_mm(candidate) > max_width_mm:
                 if current:
                     lines.append(' '.join(current))
                     current = [word]
-                    current_len = word_len
                 else:
-                    # слово само длиннее max_length — оставляем как есть
+                    # слово само шире max_width_mm — оставляем как есть
                     lines.append(word)
                     current = []
-                    current_len = 0
             else:
                 current.append(word)
-                current_len += separator + word_len
 
         if current:
             lines.append(' '.join(current))
@@ -134,11 +162,12 @@ class LayoutPlanner:
         Args:
             content: результат M_46._collect_content (input pipe)
             space: результат Msm_46_2.calculate
-            config_key: ключ Base_layout (для font, placement_mode, min_*)
+            config_key: ключ Base_layout (для font, min_symbol_*)
 
         Returns:
-            LegendPlan с mode='inline' если fits, иначе mode согласно
-            placement_mode из config (inline tight либо overflow).
+            LegendPlan с mode=DYNAMIC ("planner-internal" значение для логов).
+            При не-fit возвращает максимально уплотнённый план с
+            reason='tight_inline_may_overflow_visually'.
 
         Raises:
             RuntimeError: config_key не найден
@@ -149,23 +178,59 @@ class LayoutPlanner:
                 f"{MODULE_ID}: config_key '{config_key}' не найден"
             )
 
-        placement_mode = str(
-            config.get('legend_placement_mode', PlacementMode.INLINE)
-        )
+        # Routing по legend_layout_mode выполняется в M_46.plan_and_apply
+        # (OUTSIDE — early return до вызова planner). Здесь planner работает
+        # только в DYNAMIC / FIXED_PANEL контексте; для логов в LegendPlan.mode
+        # пишется DYNAMIC как "planner-internal" значение (выбор strategy
+        # делает M_46.facade через choose_strategy(mode), а не через plan.mode).
         min_sym_w = float(config.get('legend_min_symbol_width', 10))
         min_sym_h = float(config.get('legend_min_symbol_height', 3.5))
-        min_wrap = int(config.get('legend_min_wrap_length', 40))
         font_family = str(config.get('font_family', 'GOST 2.304'))
         font_size_pt = int(config.get('font_size_pt', DEFAULT_FONT_SIZE_PT))
+        # legend_letter_spacing_pt: AbsoluteSpacing в pt. 0 = default, <0 = compress.
+        # Применяется к font для metrics И к стилям легенды в Msm_46_4.strategy.
+        # Защита: PercentageSpacing ломает QGIS legend renderer (character-wrap),
+        # поэтому используем только AbsoluteSpacing.
+        letter_spacing_pt = float(config.get('legend_letter_spacing_pt') or 0.0)
 
-        char_width_mm = self._estimate_char_width_mm(font_family, font_size_pt)
+        # QFontMetricsF на актуальном шрифте С letter-spacing — для точного
+        # pixel-based wrap. Если letter_spacing_pt < 0, буквы плотнее, в строку
+        # помещается больше chars → wrap_text/predict_height точнее.
+        font = QFont(font_family, font_size_pt)
+        if letter_spacing_pt != 0.0:
+            font.setLetterSpacing(QFont.AbsoluteSpacing, letter_spacing_pt)
+        font_metrics = QFontMetricsF(font)
         line_height_mm = font_size_pt * LINE_HEIGHT_MM_PER_PT
 
-        # Пустой content — тривиальный план
+        # Самое длинное слово в content (в мм через QFontMetricsF) — defines
+        # minimum text_width per col. wrap_text не дробит слова: если слово
+        # шире text_width, candidate реально займёт ширину max_word_mm в каждой
+        # колонке, что превышает col_width. Пропускаем такой candidate.
+        max_word_mm = 0.0
+        max_word_text = ""
+        if content.items:
+            for item in content.items:
+                if not item.title:
+                    continue
+                for word in item.title.split():
+                    w_mm = font_metrics.horizontalAdvance(word) * PX_TO_MM
+                    if w_mm > max_word_mm:
+                        max_word_mm = w_mm
+                        max_word_text = word
+        log_info(
+            f"{MODULE_ID}: font={font_family} {font_size_pt}pt "
+            f"letter_sp={letter_spacing_pt:+.1f}pt, "
+            f"line_height={line_height_mm:.2f} мм, "
+            f"max_word='{max_word_text}' ({max_word_mm:.1f} мм)"
+        )
+
+        # Пустой content — тривиальный план. wrap_length=0 (wrap не
+        # применяется при отсутствии items; значение чисто для контракта
+        # LegendPlan).
         if content.count == 0:
             return LegendPlan(
-                mode=PlacementMode.INLINE,
-                wrap_length=min_wrap,
+                mode=LegendLayoutMode.DYNAMIC,
+                wrap_length=0,
                 column_count=1,
                 symbol_width=DEFAULT_SYMBOL_WIDTH,
                 symbol_height=DEFAULT_SYMBOL_HEIGHT,
@@ -173,6 +238,10 @@ class LayoutPlanner:
                 predicted_height_mm=(
                     LEGEND_TITLE_HEIGHT_MM + 2 * LEGEND_PADDING_MM
                 ),
+                width_mm=space.max_width_mm,
+                height_max_mm=space.max_height_mm,
+                text_width_mm=0.0,
+                letter_spacing_pt=letter_spacing_pt,
                 reason=None,
             )
 
@@ -195,126 +264,117 @@ class LayoutPlanner:
             if text_width <= 0:
                 continue
 
-            wrap_length = max(min_wrap, int(text_width / char_width_mm))
+            # Длинное слово не помещается в text_width в pixel-based терминах.
+            if max_word_mm > text_width:
+                log_info(
+                    f"{MODULE_ID}: candidate col={col}, sym={sym_w}x{sym_h} skip — "
+                    f"max_word '{max_word_text}' ({max_word_mm:.1f} мм) "
+                    f"> text_width ({text_width:.1f} мм)"
+                )
+                continue
+
+            # wrap_length для логов и LegendPlan (int approx). Реальный wrap в
+            # стратегиях делается через wrap_text(text, text_width, font_metrics)
+            # — pixel-based, не использует это число.
+            avg_char_mm = font_metrics.averageCharWidth() * PX_TO_MM
+            wrap_length = int(text_width / avg_char_mm) if avg_char_mm > 0 else 1
+            log_info(
+                f"{MODULE_ID}: candidate col={col}, sym={sym_w}x{sym_h}, "
+                f"text_width={text_width:.1f} мм, ~wrap_chars={wrap_length}"
+            )
             predicted_h = self._predict_height(
-                content, wrap_length, col, sym_h, line_height_mm
+                content, text_width, font_metrics, col, sym_h, line_height_mm
             )
             predicted_w = space.max_width_mm
 
             last_prediction = (
-                col, sym_w, sym_h, wrap_length, predicted_w, predicted_h,
+                col, sym_w, sym_h, wrap_length, text_width,
+                predicted_w, predicted_h,
             )
 
             if predicted_h <= space.max_height_mm:
                 log_info(
-                    f"{MODULE_ID}: План col={col}, wrap={wrap_length}, "
-                    f"sym={sym_w}x{sym_h}, "
+                    f"{MODULE_ID}: План col={col}, wrap~={wrap_length}ch, "
+                    f"text_w={text_width:.1f} мм, sym={sym_w}x{sym_h}, "
                     f"h={predicted_h:.0f}/{space.max_height_mm:.0f} мм"
                 )
                 return LegendPlan(
-                    mode=PlacementMode.INLINE,
+                    mode=LegendLayoutMode.DYNAMIC,
                     wrap_length=wrap_length,
                     column_count=col,
                     symbol_width=sym_w,
                     symbol_height=sym_h,
                     predicted_width_mm=predicted_w,
                     predicted_height_mm=predicted_h,
+                    width_mm=space.max_width_mm,
+                    height_max_mm=space.max_height_mm,
+                    text_width_mm=text_width,
+                    letter_spacing_pt=letter_spacing_pt,
                     reason=None,
                 )
 
         # Не fits ни в одном кандидате — fallback
         if last_prediction is None:
-            # Экстремальный случай: space.max_width_mm слишком мал для любого col
+            # Экстремальный случай: space.max_width_mm слишком мал для любого col.
+            # wrap_length=1 — деградированный fallback (1 символ на строку),
+            # содержимое почти наверняка визуально сломается, но это лучше чем
+            # 0/отрицательное значение в LegendPlan.
             log_warning(
                 f"{MODULE_ID}: max_width={space.max_width_mm:.1f} мм недостаточно "
-                f"для минимального symbol+padding. Fallback min_wrap."
+                f"для минимального symbol+padding. Деградированный fallback."
             )
             return LegendPlan(
-                mode=PlacementMode.INLINE,
-                wrap_length=min_wrap,
+                mode=LegendLayoutMode.DYNAMIC,
+                wrap_length=1,
                 column_count=1,
                 symbol_width=min_sym_w,
                 symbol_height=min_sym_h,
                 predicted_width_mm=space.max_width_mm,
                 predicted_height_mm=space.max_height_mm,
+                width_mm=space.max_width_mm,
+                height_max_mm=space.max_height_mm,
+                text_width_mm=max(
+                    space.max_width_mm - min_sym_w - LEGEND_PADDING_MM * 2,
+                    1.0,
+                ),
+                letter_spacing_pt=letter_spacing_pt,
                 reason='space_too_narrow_for_any_column',
             )
 
-        col, sym_w, sym_h, wrap_length, predicted_w, predicted_h = last_prediction
+        (col, sym_w, sym_h, wrap_length, text_width,
+         predicted_w, predicted_h) = last_prediction
 
-        if placement_mode == PlacementMode.OVERFLOW:
-            log_warning(
-                f"{MODULE_ID}: Легенда не fits inline "
-                f"(h={predicted_h:.0f}>{space.max_height_mm:.0f} мм) → mode=overflow"
-            )
-            return LegendPlan(
-                mode=PlacementMode.OVERFLOW,
-                wrap_length=wrap_length,
-                column_count=col,
-                symbol_width=sym_w,
-                symbol_height=sym_h,
-                predicted_width_mm=predicted_w,
-                predicted_height_mm=predicted_h,
-                reason=(
-                    f'overflow_h_{predicted_h:.0f}_vs_'
-                    f'{space.max_height_mm:.0f}'
-                ),
-            )
-
-        # mode=inline, но не fits — возвращаем максимально уплотнённый план
-        log_warning(
-            f"{MODULE_ID}: Легенда не fits, placement_mode=inline — "
-            f"возврат tight plan, возможен визуальный overflow"
+        # Не fits ни в одном кандидате — возвращаем максимально уплотнённый
+        # план. Routing OUTSIDE происходит в M_46.facade ДО вызова planner,
+        # поэтому здесь mode плана всегда DYNAMIC ("planner-internal").
+        # Strategy выбирается в M_46.facade через choose_strategy(mode из
+        # config), не через plan.mode.
+        log_info(
+            f"{MODULE_ID}: Легенда не fits — возврат tight plan, "
+            f"возможен визуальный overflow"
         )
         return LegendPlan(
-            mode=PlacementMode.INLINE,
+            mode=LegendLayoutMode.DYNAMIC,
             wrap_length=wrap_length,
             column_count=col,
             symbol_width=sym_w,
             symbol_height=sym_h,
             predicted_width_mm=predicted_w,
             predicted_height_mm=predicted_h,
+            width_mm=space.max_width_mm,
+            height_max_mm=space.max_height_mm,
+            text_width_mm=text_width,
+            letter_spacing_pt=letter_spacing_pt,
             reason='tight_inline_may_overflow_visually',
         )
 
     # === Private helpers ===
 
-    @staticmethod
-    def _estimate_char_width_mm(font_family: str, font_size_pt: int) -> float:
-        """
-        Оценить ширину типичного русского символа в мм через QFontMetrics.
-
-        Использует horizontalAdvance('а') с конверсией px → mm через DPI.
-        Fallback на DEFAULT_CHAR_WIDTH_MM при невалидном DPI.
-        """
-        try:
-            font = QFont(font_family, font_size_pt)
-            fm = QFontMetrics(font)
-            advance_px = float(fm.horizontalAdvance("а"))
-
-            # fontDpi() добавлен в Qt 5.15+. Для раннего Qt — fallback.
-            dpi = None
-            if hasattr(fm, 'fontDpi'):
-                try:
-                    dpi = float(fm.fontDpi())
-                except Exception:
-                    dpi = None
-
-            if dpi and dpi > 0 and advance_px > 0:
-                # px → inch → mm
-                return advance_px / dpi * 25.4
-        except Exception as e:
-            log_warning(
-                f"{MODULE_ID}: QFontMetrics error '{e}', "
-                f"fallback char_width={DEFAULT_CHAR_WIDTH_MM} мм"
-            )
-
-        return DEFAULT_CHAR_WIDTH_MM
-
     def _predict_height(
         self,
         content: LegendContent,
-        wrap_length: int,
+        text_width_mm: float,
+        font_metrics: QFontMetricsF,
         col_count: int,
         symbol_height: float,
         line_height_mm: float,
@@ -332,7 +392,9 @@ class LayoutPlanner:
         """
         total_item_heights = 0.0
         for item in content.items:
-            wrapped = LayoutPlanner.wrap_text(item.title, wrap_length)
+            wrapped = LayoutPlanner.wrap_text(
+                item.title, text_width_mm, font_metrics
+            )
             line_count = wrapped.count('\n') + 1
             item_height = max(symbol_height, line_count * line_height_mm)
             total_item_heights += item_height + INTER_ITEM_SPACING_MM

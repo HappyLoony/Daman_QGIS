@@ -183,11 +183,11 @@ class TestF02:
             # Создаем метаданные
             metadata = {
                 '1_0_working_name': 'Test_Open_Project',
-                '1_1_full_name': 'Тестовый проект для открытия',
+                '1_1_object_full_name': 'Тестовый проект для открытия',
                 '1_2_object_type': 'area',
                 '1_2_object_type_name': 'Площадной',
-                '1_4_crs_epsg': '32637',
-                '1_4_crs_wkt': QgsCoordinateReferenceSystem('EPSG:32637').toWkt(),
+                '1_4_2_crs_epsg': '32637',
+                '1_4_2_crs_wkt': QgsCoordinateReferenceSystem('EPSG:32637').toWkt(),
             }
 
             # Сохраняем метаданные в ProjectManager
@@ -270,9 +270,9 @@ class TestF02:
             # Проверяем обязательные поля
             required_fields = [
                 '1_0_working_name',
-                '1_1_full_name',
+                '1_1_object_full_name',
                 '1_2_object_type',
-                '1_4_crs_epsg',
+                '1_4_2_crs_epsg',
             ]
 
             for field in required_fields:
@@ -282,8 +282,8 @@ class TestF02:
                     self.logger.fail(f"Обязательное поле '{field}' отсутствует!")
 
             # Проверяем корректность CRS
-            if '1_4_crs_epsg' in metadata:
-                epsg = metadata['1_4_crs_epsg']
+            if '1_4_2_crs_epsg' in metadata:
+                epsg = metadata['1_4_2_crs_epsg']
                 crs = QgsCoordinateReferenceSystem(f'EPSG:{epsg}')
 
                 self.logger.check(
@@ -623,14 +623,14 @@ class TestF02:
             # Тест с WKT
             test_wkt = QgsCoordinateReferenceSystem('EPSG:32637').toWkt()
             metadata_wkt = {
-                '1_4_crs_wkt': {'value': test_wkt}
+                '1_4_2_crs_wkt': {'value': test_wkt}
             }
             self.module._restore_crs(metadata_wkt)
             self.logger.success("_restore_crs с WKT работает")
 
             # Тест с EPSG
             metadata_epsg = {
-                '1_4_crs_epsg': {'value': '32637'}
+                '1_4_2_crs_epsg': {'value': '32637'}
             }
             self.module._restore_crs(metadata_epsg)
             self.logger.success("_restore_crs с EPSG работает")

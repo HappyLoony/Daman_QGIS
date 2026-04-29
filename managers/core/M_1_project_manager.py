@@ -381,20 +381,20 @@ class ProjectManager:
             return
 
         # Полное наименование объекта
-        if '1_1_full_name' in metadata:
-            self.settings.object_name = metadata['1_1_full_name']['value']
+        if '1_1_object_full_name' in metadata:
+            self.settings.object_name = metadata['1_1_object_full_name']['value']
 
         # Тип объекта
         if '1_2_object_type' in metadata:
             self.settings.object_type = metadata['1_2_object_type']['value']
 
         # Описание СК
-        if '1_4_crs_description' in metadata:
-            self.settings.crs_description = metadata['1_4_crs_description']['value']
+        if '1_4_2_crs_description' in metadata:
+            self.settings.crs_description = metadata['1_4_2_crs_description']['value']
 
         # EPSG код СК (поддержка USER:XXXXX для пользовательских CRS)
-        if '1_4_crs_epsg' in metadata:
-            crs_value = metadata['1_4_crs_epsg']['value']
+        if '1_4_2_crs_epsg' in metadata:
+            crs_value = metadata['1_4_2_crs_epsg']['value']
             # Если это пользовательская CRS (USER:XXXXX), сохраняем как строку
             if isinstance(crs_value, str) and crs_value.upper().startswith('USER:'):
                 self.settings.crs_epsg = crs_value
@@ -758,14 +758,14 @@ class ProjectManager:
         if not self.project_db:
             return None
         try:
-            region_data = self.project_db.get_metadata('1_4_1_code_region')
+            region_data = self.project_db.get_metadata('1_4_region_code')
             if not region_data:
                 return None
             region = region_data.get('value', '').strip()
-            if not region:
+            if not region or region == '-':
                 return None
 
-            zone_data = self.project_db.get_metadata('1_4_2_code_zone')
+            zone_data = self.project_db.get_metadata('1_4_1_zone_code')
             zone = zone_data.get('value', '').strip() if zone_data else ''
 
             if zone and zone != '-':

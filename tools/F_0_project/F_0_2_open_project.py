@@ -182,6 +182,12 @@ class F_0_2_OpenProject(BaseTool):
             # Восстанавливаем СК из метаданных
             self._restore_crs(metadata)
 
+            # Подтягиваем код региона и зоны для последующего использования
+            # (используется в pipeline кэше, региональных модификаторах и BaseExporter)
+            region_code = metadata.get('1_4_region_code', {}).get('value', '-') if '1_4_region_code' in metadata else '-'
+            zone_code = metadata.get('1_4_1_zone_code', {}).get('value', '-') if '1_4_1_zone_code' in metadata else '-'
+            log_info(f"F_0_2: Регион/зона проекта: {region_code}/{zone_code}")
+
             # Показываем информацию о проекте
             self._show_project_info(project_path, metadata)
     
@@ -196,17 +202,17 @@ class F_0_2_OpenProject(BaseTool):
             crs = None
             
             # Сначала пытаемся через WKT (для пользовательских СК)
-            if '1_4_crs_wkt' in metadata:
+            if '1_4_2_crs_wkt' in metadata:
                 crs = QgsCoordinateReferenceSystem()
-                crs.createFromWkt(metadata['1_4_crs_wkt']['value'])
+                crs.createFromWkt(metadata['1_4_2_crs_wkt']['value'])
                 if crs.isValid():
                     QgsProject.instance().setCrs(crs)
                     log_info(f"F_0_2: Система координат восстановлена из WKT: {crs.description()}")
                     return
 
             # Если WKT не удалось, пытаемся через EPSG (поддержка USER:XXXXX)
-            if '1_4_crs_epsg' in metadata:
-                crs = create_crs_from_string(metadata['1_4_crs_epsg']['value'])
+            if '1_4_2_crs_epsg' in metadata:
+                crs = create_crs_from_string(metadata['1_4_2_crs_epsg']['value'])
                 if crs:
                     QgsProject.instance().setCrs(crs)
                     log_info(f"F_0_2: Система координат восстановлена: {crs.authid()} - {crs.description()}")
@@ -247,8 +253,8 @@ class F_0_2_OpenProject(BaseTool):
         """
         # Получаем имя объекта для сообщения
         object_name = None
-        if '1_1_full_name' in metadata:
-            object_name = metadata['1_1_full_name']['value']
+        if '1_1_object_full_name' in metadata:
+            object_name = metadata['1_1_object_full_name']['value']
         else:
             object_name = os.path.basename(project_path)
 

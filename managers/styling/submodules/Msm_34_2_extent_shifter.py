@@ -14,13 +14,22 @@ Msm_34_2: ExtentShifter — Сдвиг экстента main_map под overlay 
 Используется: M_34_layout_manager.py
 """
 
-from typing import Optional
+from typing import Optional, Tuple
 
 from qgis.core import (
-    QgsPrintLayout, QgsLayoutItemMap, QgsLayoutItemLegend
+    QgsPrintLayout, QgsLayoutItemMap, QgsLayoutItemLegend, QgsLayoutItem
 )
 
 from Daman_QGIS.utils import log_info, log_warning
+
+from .Msm_46_types import LegendLayoutMode
+
+
+# Tolerance для bbox-intersection: компенсирует frame-stroke padding
+# в QGraphicsItem.sceneBoundingRect() (~0.3-0.5 мм при frame=True) +
+# Qt sub-pixel jitter (~0.1 мм) + safety margin (~0.4 мм) = 1 мм.
+# Реальные overlap'ы в F_1_4 dynamic режиме > 5 мм — детектируются.
+BBOX_TOLERANCE_MM = 1.0
 
 
 class ExtentShifter:
@@ -28,11 +37,16 @@ class ExtentShifter:
     Сдвиг экстента main_map под overlay легенды.
 
     Алгоритм (один проход, без итераций):
+    0. Bbox-intersection: получить bbox main_map / legend / overview_map в
+       page coords. Если legend / overview не пересекают main_map — соответ-
+       ствующая safe-фракция = 1.0 (shift в эту сторону не применяется).
+       Поддерживает макеты с overlay (A4_DPT) и с правой полосой (A3_MP).
     1. Forced render (exportToImage в tmp) для инициализации paint pipeline.
        sizeWithUnits() возвращает 0 до первого paint — workaround QGIS.
     2. Измерение фактического bbox легенды.
-    3. Пересчёт экстента через M_18.add_padding_south_extended с
-       safe_fraction = (map_h - leg_h) / map_h, clamp [0.3, 0.95].
+    3. Пересчёт экстента через M_18.add_padding_overlay_safe с
+       safe_fraction = (map_h - leg_h) / map_h, clamp [0.3, 0.95]
+       (clamp применяется только при наличии overlap).
     """
 
     def shift_extent_for_legend(
@@ -53,6 +67,33 @@ class ExtentShifter:
             True при успехе, False при отсутствии legend/main_map или
             при нулевом bbox легенды.
         """
+        # Routing по режиму через customProperty (установлено Msm_34_1.build).
+        # RuntimeError если customProperty отсутствует — означает что layout
+        # создан минуя Msm_34_1 (consistency с §7.5 crash-first).
+        config_key = layout.customProperty('layout/config_key')
+        if not config_key:
+            raise RuntimeError(
+                "Msm_34_2: layout без customProperty 'layout/config_key' — "
+                "макет должен быть создан через Msm_34_1.create_layout(). "
+                "Тесты, создающие QgsPrintLayout напрямую, должны устанавливать "
+                "customProperty вручную либо моки M_34.adapt_legend."
+            )
+
+        from Daman_QGIS.managers import registry
+        layout_mgr = registry.get('M_34')
+        config = (
+            layout_mgr.get_layout_config_by_key(config_key)
+            if layout_mgr is not None else None
+        )
+        mode = config.get('legend_layout_mode') if config else None
+
+        if mode != LegendLayoutMode.DYNAMIC:
+            log_info(
+                f"Msm_34_2: режим {mode} для config_key={config_key} — "
+                f"extent shift не требуется (skip)"
+            )
+            return True
+
         legend = self._find_legend(layout)
         main_map = self._find_main_map(layout)
 
@@ -150,6 +191,61 @@ class ExtentShifter:
         overview_width = self._measure_overview_width(layout)
         overview_height = self._measure_overview_height(layout)
 
+        # === Bbox-intersection: определить какие overlay реально пересекают main_map ===
+        main_bbox = self._get_item_page_bbox(layout, 'main_map')
+        legend_bbox = self._get_item_page_bbox(layout, 'legend')
+        overview_bbox = self._get_item_page_bbox(layout, 'overview_map')
+
+        if main_bbox is None:
+            log_warning("Msm_34_2: main_map bbox не получен — сдвиг экстента пропущен")
+            return
+
+        log_info(
+            f"Msm_34_2: bbox main_map = "
+            f"({main_bbox[0]:.1f}, {main_bbox[1]:.1f}, "
+            f"{main_bbox[2]:.1f}, {main_bbox[3]:.1f}) мм"
+        )
+        if legend_bbox is not None:
+            log_info(
+                f"Msm_34_2: bbox legend = "
+                f"({legend_bbox[0]:.1f}, {legend_bbox[1]:.1f}, "
+                f"{legend_bbox[2]:.1f}, {legend_bbox[3]:.1f}) мм"
+            )
+        if overview_bbox is not None:
+            log_info(
+                f"Msm_34_2: bbox overview = "
+                f"({overview_bbox[0]:.1f}, {overview_bbox[1]:.1f}, "
+                f"{overview_bbox[2]:.1f}, {overview_bbox[3]:.1f}) мм"
+            )
+
+        legend_overlaps = (
+            legend_bbox is not None
+            and self._bbox_intersects(main_bbox, legend_bbox)
+        )
+        overview_overlaps = (
+            overview_bbox is not None
+            and self._bbox_intersects(main_bbox, overview_bbox)
+        )
+
+        log_info(
+            f"Msm_34_2: legend пересекает main_map = {legend_overlaps} "
+            f"(tolerance={BBOX_TOLERANCE_MM}), "
+            f"overview пересекает main_map = {overview_overlaps}"
+        )
+
+        # Early return: если ни legend, ни overview не пересекают main_map —
+        # extent остаётся как был установлен apply_main_map_extent (стабильный
+        # для всех схем при одинаковом bbox main_map). Не вызываем
+        # add_padding_overlay_safe чтобы runtime legend_height (разная для каждой
+        # схемы из-за разного количества пунктов) не влиял на масштаб main_map.
+        if not legend_overlaps and not overview_overlaps:
+            log_info(
+                "Msm_34_2: legend и overview оба вне main_map — extent не "
+                "пересчитывается, остаётся как после apply_main_map_extent "
+                "(масштаб стабильный)"
+            )
+            return
+
         # Safe-зоны (без overlay_buf в мм считаются по реальным размерам main_map)
         top_band_h = map_height - max(legend_height, overview_height + overlay_buf)
         left_col_w = map_width - overview_width - overlay_buf if overview_width > 0 else map_width
@@ -181,13 +277,35 @@ class ExtentShifter:
             safe_south = (map_height - legend_height) / map_height
             safe_east = left_col_w / map_width
 
-        safe_south = max(0.3, min(safe_south, 0.95))
-        safe_east = max(0.3, min(safe_east, 0.95)) if safe_east < 1.0 else 1.0
+        # Clamp применяем только при наличии overlap (safe < 1.0).
+        # При safe == 1.0 (нет overlap) — оставляем 1.0 как маркер «без shift».
+        if legend_overlaps:
+            safe_south = max(0.3, min(safe_south, 0.95))
+        # else: safe_south остаётся как посчитан adaptive mode'ом — дальше override
+
+        if overview_overlaps:
+            safe_east = max(0.3, min(safe_east, 0.95)) if safe_east < 1.0 else 1.0
+        # else: override ниже
 
         log_info(
             f"Msm_34_2: Adaptive mode={mode} (obj_aspect={obj_aspect:.2f}, "
             f"top_band_aspect={top_band_aspect:.2f}, left_col_aspect={left_col_aspect:.2f})"
         )
+
+        # === Override: если элемент вне main_map, safe = 1.0 (shift не нужен) ===
+        if not legend_overlaps:
+            safe_south = 1.0
+            log_info(
+                "Msm_34_2: legend вне main_map → safe_south=1.0 "
+                "(сдвиг экстента на юг не требуется)"
+            )
+
+        if not overview_overlaps:
+            safe_east = 1.0
+            log_info(
+                "Msm_34_2: overview вне main_map → safe_east=1.0 "
+                "(сдвиг экстента на восток не требуется)"
+            )
 
         extent_manager = registry.get('M_18')
 
@@ -223,9 +341,60 @@ class ExtentShifter:
         log_info(
             f"Msm_34_2: Экстент пересчитан "
             f"(safe_south={safe_south:.2f}, safe_east={safe_east:.2f}, "
+            f"legend_overlap={legend_overlaps}, overview_overlap={overview_overlaps}, "
             f"legend={legend_height:.0f} мм, overview={overview_width:.0f}x{overview_height:.0f} мм, "
             f"размер {original_width:.0f}x{original_height:.0f} мм)"
         )
+
+    def _get_item_page_bbox(
+        self, layout: QgsPrintLayout, item_id: str
+    ) -> Optional[Tuple[float, float, float, float]]:
+        """Вернуть (left, top, right, bottom) элемента в page coords (мм).
+
+        Использует Qt-метод sceneBoundingRect() — это детерминированный bbox
+        в scene coords без необходимости учитывать referencePoint(). В layout
+        с одной страницей scene = page, в multi-page — координата top отражает
+        смещение страниц, но для нас достаточно относительного пересечения
+        внутри одной страницы (main_map / legend / overview всегда на одной
+        странице A3/A4 макета).
+
+        Возвращает None если элемент не найден.
+        """
+        for item in layout.items():
+            if not isinstance(item, QgsLayoutItem):
+                continue
+            if item.id() != item_id:
+                continue
+            rect = item.sceneBoundingRect()
+            return (rect.left(), rect.top(), rect.right(), rect.bottom())
+        return None
+
+    @staticmethod
+    def _bbox_intersects(
+        a: Tuple[float, float, float, float],
+        b: Tuple[float, float, float, float],
+        tol: float = BBOX_TOLERANCE_MM,
+    ) -> bool:
+        """Проверка пересечения двух bbox (left, top, right, bottom) с tolerance.
+
+        Tolerance компенсирует frame-stroke padding в sceneBoundingRect()
+        при math-touching layout (см. §13 R6 плана). По умолчанию 1.0 мм —
+        выше уровня rounding error, ниже минимального cartographic overlap'а.
+
+        Args:
+            a, b: bbox в формате (left, top, right, bottom) мм
+            tol: терпимость в мм (default = BBOX_TOLERANCE_MM)
+
+        Returns:
+            True если bbox пересекаются с превышением tol по обоим осям.
+        """
+        a_left, a_top, a_right, a_bottom = a
+        b_left, b_top, b_right, b_bottom = b
+        if a_right - tol <= b_left or b_right - tol <= a_left:
+            return False
+        if a_bottom - tol <= b_top or b_bottom - tol <= a_top:
+            return False
+        return True
 
     def _measure_height(self, legend: QgsLayoutItemLegend) -> float:
         """Измерить высоту легенды: sizeWithUnits -> fallback rect()."""

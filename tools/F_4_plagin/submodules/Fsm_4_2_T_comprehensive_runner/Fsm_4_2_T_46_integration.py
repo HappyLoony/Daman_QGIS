@@ -129,7 +129,7 @@ class TestFsm4246Integration:
                 'legend/predicted_height_mm', 0.0
             )
             mode_ok = result.mode_applied in (
-                'inline', 'overflow_fallback_inline',
+                'dynamic', 'outside_stub',
             )
 
             self.logger.check(
@@ -175,7 +175,7 @@ class TestFsm4246Integration:
             )
 
             mode_ok = result.mode_applied in (
-                'inline', 'overflow_fallback_inline',
+                'dynamic', 'outside_stub',
             )
             completed = isinstance(result, LegendResult) and mode_ok
 

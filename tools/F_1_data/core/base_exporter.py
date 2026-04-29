@@ -100,21 +100,21 @@ class BaseExporter(QObject):
         from Daman_QGIS.database.project_db import ProjectDB
         project_db = ProjectDB(gpkg_path)
 
-        # Формируем название СК из code_region и code_zone
+        # Формируем название СК из region_code и zone_code
         crs_display_name = self._build_crs_display_name(project_db)
 
         # Получаем СК проекта
         project_crs = None
 
         # Сначала пытаемся через WKT
-        crs_wkt_data = project_db.get_metadata('1_4_crs_wkt')
+        crs_wkt_data = project_db.get_metadata('1_4_2_crs_wkt')
         if crs_wkt_data and crs_wkt_data['value']:
             project_crs = QgsCoordinateReferenceSystem()
             project_crs.createFromWkt(crs_wkt_data['value'])
 
         # Если не получилось, пробуем через EPSG
         if not project_crs or not project_crs.isValid():
-            crs_epsg_data = project_db.get_metadata('1_4_crs_epsg')
+            crs_epsg_data = project_db.get_metadata('1_4_2_crs_epsg')
             if crs_epsg_data and crs_epsg_data['value']:
                 project_crs = create_crs_from_string(crs_epsg_data['value'])
 
@@ -137,19 +137,19 @@ class BaseExporter(QObject):
         Returns:
             official_name из Base_CRS.json или None
         """
-        code_region_data = project_db.get_metadata('1_4_1_code_region')
-        code_region = code_region_data['value'] if code_region_data else None
+        region_code_data = project_db.get_metadata('1_4_region_code')
+        region_code = region_code_data['value'] if region_code_data else None
 
-        if not code_region:
+        if not region_code or region_code == '-':
             return None
 
         from Daman_QGIS.managers.reference.submodules.Msm_4_19_crs_reference_manager import CRSReferenceManager
         crs_ref = CRSReferenceManager()
-        code_zone_data = project_db.get_metadata('1_4_2_code_zone')
-        zone = code_zone_data['value'] if code_zone_data else '-'
+        zone_code_data = project_db.get_metadata('1_4_1_zone_code')
+        zone = zone_code_data['value'] if zone_code_data else '-'
         if not zone:
             zone = '-'
-        entry = crs_ref.get_crs_entry(code_region, zone)
+        entry = crs_ref.get_crs_entry(region_code, zone)
         if entry:
             return entry.get('official_name')
         return None

@@ -34,6 +34,8 @@ class DxfHatchManager:
             style: Стиль со значениями:
                 - hatch: тип штриховки ('SOLID', 'ANSI31', и т.д.)
                 - hatch_scale: масштаб штриховки (по умолчанию 1.0)
+                - hatch_angle: угол штриховки в градусах (по умолчанию 0)
+                - hatch_lineweight: толщина линий штриховки в сотых мм (0 = BYLAYER), только для не-SOLID
             dxf_attribs: Атрибуты DXF со значениями:
                 - color: цвет штриховки (256 = BYLAYER, 7 = белый/чёрный)
                 - layer: имя слоя DXF
@@ -53,7 +55,19 @@ class DxfHatchManager:
                 log_debug(f"Fsm_dxf_4: Применена сплошная штриховка SOLID")
             else:
                 hatch.set_pattern_fill(hatch_type, scale=hatch_scale, angle=hatch_angle)
-                log_debug(f"Fsm_dxf_4: Применена штриховка {hatch_type}, масштаб={hatch_scale}, угол={hatch_angle}")
+                # ezdxf: entity.dxf.lineweight — int сотых мм (0..211), -1=BYLAYER.
+                # Применяем только для pattern hatch и только если значение явно задано (>0).
+                hatch_lineweight = style.get('hatch_lineweight', 0)
+                try:
+                    lw = int(hatch_lineweight)
+                except (ValueError, TypeError):
+                    lw = 0
+                if lw > 0:
+                    try:
+                        hatch.dxf.lineweight = max(0, min(lw, 211))
+                    except Exception as lw_err:
+                        log_warning(f"Fsm_dxf_4: Не удалось применить lineweight={lw}: {lw_err}")
+                log_debug(f"Fsm_dxf_4: Применена штриховка {hatch_type}, масштаб={hatch_scale}, угол={hatch_angle}, lineweight={lw}")
 
             # Добавляем внешний контур как границу штриховки
             hatch.paths.add_polyline_path(

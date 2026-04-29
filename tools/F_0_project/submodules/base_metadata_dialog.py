@@ -125,25 +125,25 @@ class BaseMetadataDialog(BaseResponsiveDialog):
         Преобразование коротких ключей в полные для валидации
 
         Args:
-            metadata: Словарь с короткими ключами (working_name, full_name и т.д.)
+            metadata: Словарь с короткими ключами (working_name, object_full_name и т.д.)
 
         Returns:
-            Словарь с полными ключами (1_0_working_name, 1_1_full_name и т.д.)
+            Словарь с полными ключами (1_0_working_name, 1_1_object_full_name и т.д.)
         """
         # Для enum-полей используем *_name значения (отображаемые тексты)
         # вместо ключей, так как валидатор проверяет по отображаемым значениям
         mapped = {
             '1_0_working_name': metadata.get('working_name'),
-            '1_1_full_name': metadata.get('full_name'),
+            '1_1_object_full_name': metadata.get('object_full_name'),
             '1_2_object_type': metadata.get('object_type_name'),  # Используем _name для enum
             '1_2_1_object_type_value': metadata.get('object_type_value_name'),  # Используем _name для enum
             '1_3_project_folder': metadata.get('project_folder'),
-            '1_4_crs': metadata.get('crs'),
-            '1_4_crs_description': metadata.get('crs_description'),
-            '1_4_crs_epsg': metadata.get('crs_epsg'),
-            '1_4_crs_wkt': metadata.get('crs_wkt'),
-            '1_4_1_code_region': metadata.get('code_region'),  # Код региона
-            '1_4_2_code_zone': metadata.get('code_zone'),  # Код зоны
+            '1_4_region_code': metadata.get('region_code'),
+            '1_4_1_zone_code': metadata.get('zone_code'),
+            '1_4_2_crs': metadata.get('crs'),
+            '1_4_2_crs_description': metadata.get('crs_description'),
+            '1_4_2_crs_epsg': metadata.get('crs_epsg'),
+            '1_4_2_crs_wkt': metadata.get('crs_wkt'),
             '1_5_doc_type': metadata.get('doc_type_name'),  # Используем _name для enum
             '1_6_stage': metadata.get('stage_name'),  # Используем _name для enum
             '1_7_is_single_object': "Да" if metadata.get('is_single_object', True) else "Нет",
@@ -163,10 +163,10 @@ class BaseMetadataDialog(BaseResponsiveDialog):
 
         # Добавляем остальные ключи как есть (для служебных полей)
         for key, value in metadata.items():
-            if key not in ['working_name', 'full_name', 'object_type', 'object_type_name',
+            if key not in ['working_name', 'object_full_name', 'object_type', 'object_type_name',
                           'object_type_value', 'object_type_value_name', 'project_folder',
                           'crs', 'crs_description', 'crs_epsg', 'crs_wkt',
-                          'code_region', 'code_zone',
+                          'region_code', 'zone_code',
                           'doc_type', 'doc_type_name', 'stage', 'stage_name',
                           'is_single_object', 'code',
                           'release_date', 'company', 'city', 'customer', 'general_director',

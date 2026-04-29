@@ -3,22 +3,22 @@
 Fsm_4_2_T_46_4 — Тесты Msm_46_4_PlacementStrategy.
 
 Покрытие:
-- Импорт модуля (PlacementStrategy ABC, InlinePlacement, OverflowPlacement, choose_strategy)
+- Импорт модуля (PlacementStrategy ABC, DynamicPlacement, OutsidePlacement, choose_strategy)
 - ABC не инстанцируется напрямую
-- choose_strategy('inline') → InlinePlacement
-- choose_strategy('overflow') → OverflowPlacement
+- choose_strategy('dynamic') → DynamicPlacement
+- choose_strategy('outside') → OutsidePlacement
 - choose_strategy unknown → ValueError с префиксом Msm_46_4
-- InlinePlacement.apply применяет column_count, symbol_width/height
-- InlinePlacement.apply применяет wrap к title через customProperty
-- InlinePlacement.apply без legend → success=False, warning
-- OverflowPlacement.apply (smoke) → success, mode_applied с подстрокой 'overflow'
+- DynamicPlacement.apply применяет column_count, symbol_width/height
+- DynamicPlacement.apply применяет wrap к title через customProperty
+- DynamicPlacement.apply без legend → success=False, warning
+- OutsidePlacement.apply (smoke) → stub: success=False, mode_applied='outside_stub'
 """
 
 from typing import Any
 
 
 class TestMsm464:
-    """Тесты Msm_46_4 PlacementStrategy (InlinePlacement + OverflowPlacement stub)."""
+    """Тесты Msm_46_4 PlacementStrategy (DynamicPlacement + OutsidePlacement stub)."""
 
     def __init__(self, iface: Any, logger: Any) -> None:
         self.iface = iface
@@ -83,7 +83,7 @@ class TestMsm464:
 
     def _make_plan(
         self,
-        mode: str = 'inline',
+        mode: str = 'dynamic',
         wrap_length: int = 30,
         column_count: int = 2,
         symbol_width: float = 12.0,
@@ -99,23 +99,25 @@ class TestMsm464:
             symbol_height=symbol_height,
             predicted_width_mm=100.0,
             predicted_height_mm=50.0,
+            width_mm=130.0,
+            height_max_mm=80.0,
             reason=reason,
         )
 
     # === Группа 1: Импорт + ABC ===
 
     def test_01_import(self) -> None:
-        """ТЕСТ 1: Импорт PlacementStrategy, InlinePlacement, OverflowPlacement, choose_strategy."""
+        """ТЕСТ 1: Импорт PlacementStrategy, DynamicPlacement, OutsidePlacement, choose_strategy."""
         self.logger.section("1. Импорт модуля")
         try:
             from Daman_QGIS.managers.styling.submodules.Msm_46_4_placement_strategy import (
-                PlacementStrategy, InlinePlacement, OverflowPlacement, choose_strategy,
+                PlacementStrategy, DynamicPlacement, OutsidePlacement, choose_strategy,
             )
             self.logger.check(
                 all([
                     PlacementStrategy is not None,
-                    callable(InlinePlacement),
-                    callable(OverflowPlacement),
+                    callable(DynamicPlacement),
+                    callable(OutsidePlacement),
                     callable(choose_strategy),
                 ]),
                 "Все сущности импортированы",
@@ -147,33 +149,33 @@ class TestMsm464:
     # === Группа 2: choose_strategy ===
 
     def test_03_choose_strategy_inline(self) -> None:
-        """ТЕСТ 3: choose_strategy('inline') → InlinePlacement."""
-        self.logger.section("3. choose_strategy inline")
+        """ТЕСТ 3: choose_strategy('dynamic') → DynamicPlacement."""
+        self.logger.section("3. choose_strategy dynamic")
         try:
             from Daman_QGIS.managers.styling.submodules.Msm_46_4_placement_strategy import (
-                choose_strategy, InlinePlacement,
+                choose_strategy, DynamicPlacement,
             )
-            s = choose_strategy('inline')
+            s = choose_strategy('dynamic')
             self.logger.check(
-                isinstance(s, InlinePlacement),
-                f"choose_strategy('inline') → {type(s).__name__}",
-                f"Ожидался InlinePlacement, получено {type(s).__name__}",
+                isinstance(s, DynamicPlacement),
+                f"choose_strategy('dynamic') → {type(s).__name__}",
+                f"Ожидался DynamicPlacement, получено {type(s).__name__}",
             )
         except Exception as e:
             self.logger.fail(f"Ошибка: {e}")
 
     def test_04_choose_strategy_overflow(self) -> None:
-        """ТЕСТ 4: choose_strategy('overflow') → OverflowPlacement."""
-        self.logger.section("4. choose_strategy overflow")
+        """ТЕСТ 4: choose_strategy('outside') → OutsidePlacement."""
+        self.logger.section("4. choose_strategy outside")
         try:
             from Daman_QGIS.managers.styling.submodules.Msm_46_4_placement_strategy import (
-                choose_strategy, OverflowPlacement,
+                choose_strategy, OutsidePlacement,
             )
-            s = choose_strategy('overflow')
+            s = choose_strategy('outside')
             self.logger.check(
-                isinstance(s, OverflowPlacement),
-                f"choose_strategy('overflow') → {type(s).__name__}",
-                f"Ожидался OverflowPlacement, получено {type(s).__name__}",
+                isinstance(s, OutsidePlacement),
+                f"choose_strategy('outside') → {type(s).__name__}",
+                f"Ожидался OutsidePlacement, получено {type(s).__name__}",
             )
         except Exception as e:
             self.logger.fail(f"Ошибка: {e}")
@@ -200,22 +202,22 @@ class TestMsm464:
         except Exception as e:
             self.logger.fail(f"Ошибка: {e}")
 
-    # === Группа 3: InlinePlacement.apply ===
+    # === Группа 3: DynamicPlacement.apply ===
 
     def test_06_inline_applies_column_and_symbol(self) -> None:
-        """ТЕСТ 6: InlinePlacement.apply применяет columnCount, symbolWidth/Height."""
-        self.logger.section("6. InlinePlacement: column/symbol")
+        """ТЕСТ 6: DynamicPlacement.apply применяет columnCount, symbolWidth/Height."""
+        self.logger.section("6. DynamicPlacement: column/symbol")
         try:
             from qgis.core import QgsProject
             from Daman_QGIS.managers.styling.submodules.Msm_46_4_placement_strategy import (
-                InlinePlacement,
+                DynamicPlacement,
             )
             layout, legend, layer = self._layout_with_legend_and_layer("Слой")
             try:
                 plan = self._make_plan(
                     column_count=2, symbol_width=12, symbol_height=4,
                 )
-                result = InlinePlacement().apply(layout, plan)
+                result = DynamicPlacement().apply(layout, plan)
                 self.logger.check(
                     result.success is True,
                     f"LegendResult.success={result.success}",
@@ -236,12 +238,12 @@ class TestMsm464:
             self.logger.fail(f"Ошибка: {e}")
 
     def test_07_inline_applies_wrap_to_title(self) -> None:
-        """ТЕСТ 7: InlinePlacement.apply оборачивает длинный title через \\n."""
-        self.logger.section("7. InlinePlacement: wrap title")
+        """ТЕСТ 7: DynamicPlacement.apply оборачивает длинный title через \\n."""
+        self.logger.section("7. DynamicPlacement: wrap title")
         try:
             from qgis.core import QgsProject
             from Daman_QGIS.managers.styling.submodules.Msm_46_4_placement_strategy import (
-                InlinePlacement,
+                DynamicPlacement,
             )
             long_title = (
                 "Очень длинное название слоя границ земельных участков "
@@ -250,7 +252,7 @@ class TestMsm464:
             layout, legend, layer = self._layout_with_legend_and_layer(long_title)
             try:
                 plan = self._make_plan(wrap_length=20)
-                InlinePlacement().apply(layout, plan)
+                DynamicPlacement().apply(layout, plan)
 
                 # Проверяем что title был обёрнут
                 wrapped_found = False
@@ -276,15 +278,15 @@ class TestMsm464:
             self.logger.fail(f"Ошибка: {e}")
 
     def test_08_inline_missing_legend_returns_failure(self) -> None:
-        """ТЕСТ 8: InlinePlacement.apply без legend → LegendResult(success=False)."""
-        self.logger.section("8. InlinePlacement: нет legend")
+        """ТЕСТ 8: DynamicPlacement.apply без legend → LegendResult(success=False)."""
+        self.logger.section("8. DynamicPlacement: нет legend")
         try:
             from Daman_QGIS.managers.styling.submodules.Msm_46_4_placement_strategy import (
-                InlinePlacement,
+                DynamicPlacement,
             )
             empty_layout = self._new_layout()
             plan = self._make_plan()
-            result = InlinePlacement().apply(empty_layout, plan)
+            result = DynamicPlacement().apply(empty_layout, plan)
             self.logger.check(
                 result.success is False and result.warning is not None,
                 f"success={result.success}, warning={result.warning}",
@@ -293,25 +295,25 @@ class TestMsm464:
         except Exception as e:
             self.logger.fail(f"Ошибка: {e}")
 
-    # === Группа 4: OverflowPlacement smoke ===
+    # === Группа 4: OutsidePlacement smoke ===
 
     def test_09_overflow_stub_smoke(self) -> None:
-        """ТЕСТ 9: OverflowPlacement.apply — smoke: no crash, fallback на InlinePlacement."""
-        self.logger.section("9. OverflowPlacement: stub smoke")
+        """ТЕСТ 9: OutsidePlacement.apply — stub: success=False, mode_applied='outside_stub'."""
+        self.logger.section("9. OutsidePlacement: stub smoke")
         try:
             from qgis.core import QgsProject
             from Daman_QGIS.managers.styling.submodules.Msm_46_4_placement_strategy import (
-                OverflowPlacement,
+                OutsidePlacement,
             )
             layout, legend, layer = self._layout_with_legend_and_layer("Слой 1")
             try:
-                plan = self._make_plan(mode='overflow', reason='test_overflow')
-                result = OverflowPlacement().apply(layout, plan)
+                plan = self._make_plan(mode='outside', reason='test_outside')
+                result = OutsidePlacement().apply(layout, plan)
                 self.logger.check(
-                    result.success is True
-                    and 'overflow' in result.mode_applied,
+                    result.success is False
+                    and result.mode_applied == 'outside_stub',
                     f"mode_applied={result.mode_applied}, success={result.success}",
-                    f"OverflowPlacement stub не отработал: {result}",
+                    f"OutsidePlacement stub не отработал: {result}",
                 )
                 self.logger.check(
                     result.warning is not None

@@ -216,7 +216,7 @@ class TestFsm4246:
         self.logger.section("2. Pipeline 5 слоёв → inline")
         try:
             from Daman_QGIS.managers.styling.submodules.Msm_46_types import (
-                LegendResult, PlacementMode,
+                LegendResult, LegendLayoutMode,
             )
 
             layout = self._new_layout()
@@ -229,7 +229,7 @@ class TestFsm4246:
             self.logger.check(
                 isinstance(result, LegendResult)
                 and result.success is True
-                and result.mode_applied == PlacementMode.INLINE,
+                and result.mode_applied == LegendLayoutMode.DYNAMIC,
                 f"success={result.success}, mode={result.mode_applied}",
                 f"Неуспех: success={result.success}, "
                 f"mode={result.mode_applied}, warning={result.warning}",
@@ -412,12 +412,12 @@ class TestFsm4246:
             mgr = self._build_manager_with_synthetic_config()
             result = mgr.plan_and_apply(layout, config_key='synthetic_A4_DPT')
 
-            # Stub OverflowPlacement делает fallback → inline либо
-            # LayoutPlanner вернул inline tight с reason warning.
+            # LayoutPlanner вернул dynamic tight с reason warning либо
+            # OutsidePlacement stub (success=False, mode_applied='outside_stub').
             # Crash-first: исключений быть не должно, иначе тест упадёт
             # выше через except блок.
             mode_ok = result.mode_applied in (
-                'inline', 'overflow_fallback_inline',
+                'dynamic', 'outside_stub',
             )
             self.logger.check(
                 isinstance(result, LegendResult) and mode_ok,

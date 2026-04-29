@@ -93,7 +93,7 @@ class F_0_1_NewProject(BaseTool):
         """Сохранение обязательных метаданных проекта"""
         db.set_metadata('1_0_working_name', project_data['working_name'],
                        'Рабочее название (для папок и файлов)')
-        db.set_metadata('1_1_full_name', project_data['full_name'],
+        db.set_metadata('1_1_object_full_name', project_data['object_full_name'],
                        'Полное наименование объекта')
         db.set_metadata('1_2_object_type', project_data['object_type'],
                        'Тип объекта (area - площадной, linear - линейный)')
@@ -111,25 +111,23 @@ class F_0_1_NewProject(BaseTool):
         db.set_metadata('1_3_project_folder', full_project_path,
                        'Путь к папке проекта')
 
-        db.set_metadata('1_4_crs_epsg', str(project_data['crs_epsg']),
+        # Код региона (обязательное поле, ручной ввод)
+        db.set_metadata('1_4_region_code', project_data.get('region_code', '-'),
+                       'Код региона (например: 23, 89; "-" для кастомной CRS)')
+
+        # Код зоны (обязательное поле, "-" для регионов без зон или кастомной CRS)
+        db.set_metadata('1_4_1_zone_code', project_data.get('zone_code', '-'),
+                       'Код зоны МСК (например: 1, 2; "-" для регионов без зон)')
+
+        db.set_metadata('1_4_2_crs_epsg', str(project_data['crs_epsg']),
                        'Код системы координат (EPSG или USER)')
 
         if project_data['crs']:
-            db.set_metadata('1_4_crs_wkt', project_data['crs'].toWkt(),
+            db.set_metadata('1_4_2_crs_wkt', project_data['crs'].toWkt(),
                            'WKT определение системы координат')
 
-        db.set_metadata('1_4_crs_description', project_data['crs_description'],
+        db.set_metadata('1_4_2_crs_description', project_data['crs_description'],
                        'Описание системы координат')
-
-        # Код региона (обязательное поле, ручной ввод)
-        db.set_metadata('1_4_1_code_region', project_data.get('code_region', ''),
-                       'Код региона (например: 23, 89)')
-
-        # Код зоны (условное поле - пустое для фиксированных регионов)
-        code_zone = project_data.get('code_zone', '')
-        if code_zone:
-            db.set_metadata('1_4_2_code_zone', code_zone,
-                           'Код зоны МСК (например: 1, 2)')
 
         db.set_metadata('1_5_doc_type', project_data['doc_type'],
                        'Тип документации (dpt - ДПТ, masterplan - Мастер-план)')

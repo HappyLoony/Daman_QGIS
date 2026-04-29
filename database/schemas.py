@@ -20,9 +20,9 @@ METADATA_FIELDS = {
         'placeholder': 'Обязательно',
         'description': 'Используется для названия папок и файлов'
     },
-    '1_1_full_name': {
+    '1_1_object_full_name': {
         'ui_name': 'Полное наименование объекта',
-        'db_key': '1_1_full_name',
+        'db_key': '1_1_object_full_name',
         'required': True,
         'placeholder': 'Обязательно',
         'description': 'Используется в документах и макетах'
@@ -41,9 +41,23 @@ METADATA_FIELDS = {
         'placeholder': 'Обязательно',
         'description': 'Путь к папке проекта'
     },
-    '1_4_crs': {
+    '1_4_region_code': {
+        'ui_name': 'Код региона',
+        'db_key': '1_4_region_code',
+        'required': True,
+        'placeholder': None,  # ComboBox
+        'description': 'Код субъекта РФ (например: 23, 78)'
+    },
+    '1_4_1_zone_code': {
+        'ui_name': 'Код зоны',
+        'db_key': '1_4_1_zone_code',
+        'required': True,
+        'placeholder': None,  # ComboBox
+        'description': 'Код зоны МСК (например: 1, 2; "-" для регионов без зон)'
+    },
+    '1_4_2_crs': {
         'ui_name': 'Система координат',
-        'db_key': '1_4_crs',  # Включает crs_epsg, crs_wkt, crs_description
+        'db_key': '1_4_2_crs',  # Включает crs_epsg, crs_wkt, crs_description
         'required': True,
         'placeholder': None,  # CRS Widget
         'description': 'Система координат проекта'

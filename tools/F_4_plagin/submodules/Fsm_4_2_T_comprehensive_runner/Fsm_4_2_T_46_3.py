@@ -15,7 +15,6 @@ QFontMetrics + формульное предсказание высоты.
 - plan: inline mode + не fits → tight plan с reason
 - plan: empty content → валидный план
 - plan: RuntimeError на unknown config_key
-- plan: respects min_wrap_length
 """
 
 from typing import Any
@@ -44,7 +43,6 @@ class TestMsm463:
             self.test_09_plan_inline_tight_when_doesnt_fit()
             self.test_10_plan_empty_content()
             self.test_11_plan_raises_on_unknown_config()
-            self.test_12_plan_respects_min_wrap_length()
         except Exception as e:
             self.logger.error(f"Критическая ошибка тестов Msm_46_3: {str(e)}")
             import traceback
@@ -74,7 +72,7 @@ class TestMsm463:
 
     def _config_inline(self):
         return {
-            'legend_placement_mode': 'inline',
+            'legend_placement_mode': 'dynamic',
             'legend_min_symbol_width': 10,
             'legend_min_symbol_height': 3.5,
             'legend_min_wrap_length': 40,
@@ -84,7 +82,7 @@ class TestMsm463:
 
     def _config_overflow(self):
         cfg = self._config_inline()
-        cfg['legend_placement_mode'] = 'overflow'
+        cfg['legend_placement_mode'] = 'outside'
         return cfg
 
     def _planner_with(self, config):
@@ -113,6 +111,11 @@ class TestMsm463:
 
     # === Группа 2: wrap_text ===
 
+    def _font_metrics(self):
+        """Helper: QFontMetricsF на тестовом шрифте Arial 14pt."""
+        from qgis.PyQt.QtGui import QFont, QFontMetricsF
+        return QFontMetricsF(QFont("Arial", 14))
+
     def test_02_wrap_text_short_unchanged(self) -> None:
         """ТЕСТ 2: wrap_text короткого текста не вставляет \\n."""
         self.logger.section("2. wrap_text: короткий текст")
@@ -120,10 +123,11 @@ class TestMsm463:
             from Daman_QGIS.managers.styling.submodules.Msm_46_3_layout_planner import (
                 LayoutPlanner,
             )
-            result = LayoutPlanner.wrap_text("short", 100)
+            # 200 мм — заведомо больше длины 'short'
+            result = LayoutPlanner.wrap_text("short", 200.0, self._font_metrics())
             self.logger.check(
                 result == "short" and '\n' not in result,
-                f"'short' с max=100 → '{result}'",
+                f"'short' в 200 мм → '{result}'",
                 f"Неожиданный результат: '{result}'",
             )
         except Exception as e:
@@ -136,7 +140,10 @@ class TestMsm463:
             from Daman_QGIS.managers.styling.submodules.Msm_46_3_layout_planner import (
                 LayoutPlanner,
             )
-            result = LayoutPlanner.wrap_text("a b c d e f g h i j k l", 10)
+            # 15 мм — узко, 12 однобуквенных слов не поместятся в одну строку
+            result = LayoutPlanner.wrap_text(
+                "a b c d e f g h i j k l", 15.0, self._font_metrics()
+            )
             self.logger.check(
                 '\n' in result,
                 f"Вставлен хотя бы один \\n: '{result}'",
@@ -146,13 +153,16 @@ class TestMsm463:
             self.logger.fail(f"Ошибка: {e}")
 
     def test_04_wrap_text_long_unbreakable_word(self) -> None:
-        """ТЕСТ 4: Слово длиннее max_length остаётся на своей строке."""
+        """ТЕСТ 4: Слово шире max_width_mm остаётся на своей строке."""
         self.logger.section("4. wrap_text: неразбиваемое слово")
         try:
             from Daman_QGIS.managers.styling.submodules.Msm_46_3_layout_planner import (
                 LayoutPlanner,
             )
-            result = LayoutPlanner.wrap_text("supercalifragilistic", 10)
+            # 10 мм — узко, длинное слово точно не поместится
+            result = LayoutPlanner.wrap_text(
+                "supercalifragilistic", 10.0, self._font_metrics()
+            )
             self.logger.check(
                 "supercalifragilistic" in result,
                 f"Неразбиваемое слово сохранено целиком: '{result}'",
@@ -162,14 +172,15 @@ class TestMsm463:
             self.logger.fail(f"Ошибка: {e}")
 
     def test_05_wrap_text_preserves_sentence(self) -> None:
-        """ТЕСТ 5: Фраза влезающая в max_length возвращается без \\n."""
-        self.logger.section("5. wrap_text: фраза в пределах max_length")
+        """ТЕСТ 5: Фраза влезающая в max_width возвращается без \\n."""
+        self.logger.section("5. wrap_text: фраза в пределах max_width")
         try:
             from Daman_QGIS.managers.styling.submodules.Msm_46_3_layout_planner import (
                 LayoutPlanner,
             )
             text = "Границы работ"
-            result = LayoutPlanner.wrap_text(text, 40)
+            # 100 мм — заведомо больше реальной ширины текста
+            result = LayoutPlanner.wrap_text(text, 100.0, self._font_metrics())
             self.logger.check(
                 result == text,
                 f"Фраза сохранена: '{result}'",
@@ -191,9 +202,9 @@ class TestMsm463:
                 config_key='synthetic_A4',
             )
             self.logger.check(
-                plan.mode == 'inline' and plan.column_count == 1,
+                plan.mode == 'dynamic' and plan.column_count == 1,
                 f"mode={plan.mode}, col={plan.column_count}",
-                f"Ожидалось inline/col=1, получено {plan.mode}/{plan.column_count}",
+                f"Ожидалось dynamic/col=1, получено {plan.mode}/{plan.column_count}",
             )
             self.logger.check(
                 plan.symbol_width >= 10 and plan.predicted_height_mm >= 0,
@@ -230,8 +241,8 @@ class TestMsm463:
             self.logger.fail(f"Ошибка: {e}")
 
     def test_08_plan_overflow_mode(self) -> None:
-        """ТЕСТ 8: Очень много items + placement_mode=overflow → mode=overflow."""
-        self.logger.section("8. plan: overflow mode")
+        """ТЕСТ 8: Очень много items + placement_mode=outside → mode=outside."""
+        self.logger.section("8. plan: outside mode")
         try:
             titles = [
                 "Очень длинное название слоя границ земельных участков " * 3
@@ -239,20 +250,20 @@ class TestMsm463:
             planner = self._planner_with(self._config_overflow())
             plan = planner.plan(
                 content=self._make_content(titles),
-                space=self._make_space(w=192, h=50),  # маленький h принудит overflow
+                space=self._make_space(w=192, h=50),  # маленький h принудит outside
                 config_key='synthetic_A4',
             )
             self.logger.check(
-                plan.mode == 'overflow' and plan.reason is not None,
+                plan.mode == 'outside' and plan.reason is not None,
                 f"mode={plan.mode}, reason={plan.reason}",
-                f"Ожидался overflow с reason, получено {plan.mode}/{plan.reason}",
+                f"Ожидался outside с reason, получено {plan.mode}/{plan.reason}",
             )
         except Exception as e:
             self.logger.fail(f"Ошибка: {e}")
 
     def test_09_plan_inline_tight_when_doesnt_fit(self) -> None:
-        """ТЕСТ 9: inline mode + не fits → tight plan, mode='inline', reason!=None."""
-        self.logger.section("9. plan: inline tight с reason")
+        """ТЕСТ 9: dynamic mode + не fits → tight plan, mode='dynamic', reason!=None."""
+        self.logger.section("9. plan: dynamic tight с reason")
         try:
             titles = ["Длинное название слоя границ " * 3] * 30
             planner = self._planner_with(self._config_inline())
@@ -262,9 +273,9 @@ class TestMsm463:
                 config_key='synthetic_A4',
             )
             self.logger.check(
-                plan.mode == 'inline' and plan.reason is not None,
+                plan.mode == 'dynamic' and plan.reason is not None,
                 f"mode={plan.mode}, reason={plan.reason}",
-                f"Ожидался inline+reason, получено {plan.mode}/{plan.reason}",
+                f"Ожидался dynamic+reason, получено {plan.mode}/{plan.reason}",
             )
         except Exception as e:
             self.logger.fail(f"Ошибка: {e}")
@@ -280,7 +291,7 @@ class TestMsm463:
                 config_key='synthetic_A4',
             )
             self.logger.check(
-                plan.mode == 'inline' and plan.predicted_height_mm >= 0
+                plan.mode == 'dynamic' and plan.predicted_height_mm >= 0
                 and plan.column_count == 1,
                 f"mode={plan.mode}, h={plan.predicted_height_mm:.1f}, col={plan.column_count}",
                 "Пустой content дал некорректный план",
@@ -317,23 +328,3 @@ class TestMsm463:
         except Exception as e:
             self.logger.fail(f"Ошибка: {e}")
 
-    def test_12_plan_respects_min_wrap_length(self) -> None:
-        """ТЕСТ 12: wrap_length >= min_wrap_length либо mode='overflow'."""
-        self.logger.section("12. plan: min_wrap_length respected")
-        try:
-            titles = ["Название слоя"] * 10
-            planner = self._planner_with(self._config_inline())
-            # Очень узкое пространство — должно заставить уменьшить wrap
-            plan = planner.plan(
-                content=self._make_content(titles),
-                space=self._make_space(w=50, h=200),
-                config_key='synthetic_A4',
-            )
-            self.logger.check(
-                plan.wrap_length >= 40 or plan.mode == 'overflow'
-                or plan.reason is not None,
-                f"wrap={plan.wrap_length}, mode={plan.mode}, reason={plan.reason}",
-                f"min_wrap нарушен: wrap={plan.wrap_length}, mode={plan.mode}",
-            )
-        except Exception as e:
-            self.logger.fail(f"Ошибка: {e}")

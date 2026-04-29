@@ -59,9 +59,9 @@ class EditProjectDialog(BaseMetadataDialog):
         required_layout.addRow("Рабочее название (для папок):", self.working_name_edit)
         
         # 1_1 Полное наименование объекта
-        self.full_name_edit = QLineEdit()
-        self.full_name_edit.setPlaceholderText("Обязательно")
-        required_layout.addRow("Полное наименование объекта:", self.full_name_edit)
+        self.object_full_name_edit = QLineEdit()
+        self.object_full_name_edit.setPlaceholderText("Обязательно")
+        required_layout.addRow("Полное наименование объекта:", self.object_full_name_edit)
         
         # 1_2 Тип объекта
         self.object_type_combo = QComboBox()
@@ -129,19 +129,9 @@ class EditProjectDialog(BaseMetadataDialog):
         # Группа системы координат
         crs_group = QGroupBox("Система координат")
         crs_layout = QVBoxLayout()
-        
-        # Текущая СК (только для отображения)
-        current_crs_layout = QHBoxLayout()
-        current_crs_layout.addWidget(QLabel("Текущая СК:"))
-        self.current_crs_label = QLabel()
-        self.current_crs_label.setWordWrap(True)
-        self.current_crs_label.setStyleSheet("QLabel { color: #0066cc; }")
-        current_crs_layout.addWidget(self.current_crs_label, 1)
-        crs_layout.addLayout(current_crs_layout)
-        
-        # Новая СК
-        new_crs_layout = QHBoxLayout()
-        new_crs_layout.addWidget(QLabel("Новая СК:"))
+
+        # Создание CRS-виджета ДО комбобоксов региона/зоны:
+        # _on_zone_changed обращается к self.crs_widget при каскадном обновлении
         self.crs_widget = QgsProjectionSelectionWidget()
         self.crs_widget.setOptionVisible(
             QgsProjectionSelectionWidget.CurrentCrs, False
@@ -155,28 +145,14 @@ class EditProjectDialog(BaseMetadataDialog):
         # Пытаемся отключить tooltip для всех дочерних виджетов
         for child in self.crs_widget.findChildren(QWidget):
             child.setToolTip("")
-        
+
         # Подключаем обработчик изменения СК
         self.crs_widget.crsChanged.connect(self.on_crs_changed)
-        
-        new_crs_layout.addWidget(self.crs_widget, 1)
-        crs_layout.addLayout(new_crs_layout)
-        
-        # Предупреждение о переопределении СК
-        warning_label = QLabel(
-            "<b style='color: #ff6600;'>⚠ Внимание:</b> Изменение СК выполнит <b>переопределение</b> "
-            "системы координат для всех слоев проекта.<br>"
-            "Координаты объектов <b>НЕ будут</b> трансформированы.<br>"
-            "Используйте только для исправления ошибочно заданной СК!"
-        )
-        warning_label.setWordWrap(True)
-        warning_label.setStyleSheet("QLabel { background-color: #fff3cd; padding: 10px; border: 1px solid #ffc107; border-radius: 3px; }")
-        crs_layout.addWidget(warning_label)
 
-        # Форма для кода региона и зоны
+        # Форма для кода региона и зоны (размещается ПЕРВОЙ в crs_group)
         region_form = QFormLayout()
 
-        # 1_4_1 Код региона (ОБЯЗАТЕЛЬНОЕ поле, выбор из списка Base_CRS.json)
+        # 1_4 Код региона (ОБЯЗАТЕЛЬНОЕ поле, выбор из списка Base_CRS.json)
         self.region_code_combo = QComboBox()
         self.region_code_combo.setStyleSheet("QComboBox { combobox-popup: 0; }")
         self.region_code_combo.setMaxVisibleItems(12)
@@ -195,19 +171,40 @@ class EditProjectDialog(BaseMetadataDialog):
         self.region_code_combo.currentIndexChanged.connect(self._on_region_changed)
         region_form.addRow("Регион:", self.region_code_combo)
 
-        # 1_4_2 Код зоны (каскадный выбор из данных региона)
+        # 1_4_1 Код зоны (каскадный выбор из данных региона)
         self.zone_code_combo = QComboBox()
         self.zone_code_combo.addItem("-", "-")
         self.zone_code_combo.setEnabled(False)
         self.zone_code_combo.currentIndexChanged.connect(self._on_zone_changed)
         region_form.addRow("Зона:", self.zone_code_combo)
 
-        # Информационная метка о типе региона
-        self.region_hint_label = QLabel()
-        self.region_hint_label.setStyleSheet("color: gray; font-style: italic;")
-        region_form.addRow("", self.region_hint_label)
-
         crs_layout.addLayout(region_form)
+
+        # Текущая СК (только для отображения)
+        current_crs_layout = QHBoxLayout()
+        current_crs_layout.addWidget(QLabel("Текущая СК:"))
+        self.current_crs_label = QLabel()
+        self.current_crs_label.setWordWrap(True)
+        self.current_crs_label.setStyleSheet("QLabel { color: #0066cc; }")
+        current_crs_layout.addWidget(self.current_crs_label, 1)
+        crs_layout.addLayout(current_crs_layout)
+
+        # Новая СК (1_4_2)
+        new_crs_layout = QHBoxLayout()
+        new_crs_layout.addWidget(QLabel("Новая СК:"))
+        new_crs_layout.addWidget(self.crs_widget, 1)
+        crs_layout.addLayout(new_crs_layout)
+
+        # Предупреждение о переопределении СК
+        warning_label = QLabel(
+            "<b style='color: #ff6600;'>⚠ Внимание:</b> Изменение СК выполнит <b>переопределение</b> "
+            "системы координат для всех слоев проекта.<br>"
+            "Координаты объектов <b>НЕ будут</b> трансформированы.<br>"
+            "Используйте только для исправления ошибочно заданной СК!"
+        )
+        warning_label.setWordWrap(True)
+        warning_label.setStyleSheet("QLabel { background-color: #fff3cd; padding: 10px; border: 1px solid #ffc107; border-radius: 3px; }")
+        crs_layout.addWidget(warning_label)
 
         crs_group.setLayout(crs_layout)
         content_layout.addWidget(crs_group)
@@ -355,9 +352,9 @@ class EditProjectDialog(BaseMetadataDialog):
             )
 
         # Полное наименование объекта
-        if '1_1_full_name' in self.current_metadata:
-            self.full_name_edit.setText(
-                self.current_metadata['1_1_full_name'].get('value', '')
+        if '1_1_object_full_name' in self.current_metadata:
+            self.object_full_name_edit.setText(
+                self.current_metadata['1_1_object_full_name'].get('value', '')
             )
 
         # Тип объекта
@@ -421,31 +418,31 @@ class EditProjectDialog(BaseMetadataDialog):
 
         # Текущая система координат
         crs_desc = ""
-        if '1_4_crs_description' in self.current_metadata:
-            crs_desc = self.current_metadata['1_4_crs_description'].get('value', '')
+        if '1_4_2_crs_description' in self.current_metadata:
+            crs_desc = self.current_metadata['1_4_2_crs_description'].get('value', '')
 
         self.current_crs_label.setText(crs_desc if crs_desc else "Не задана")
 
         # Устанавливаем текущую СК в виджет выбора
-        if '1_4_crs_wkt' in self.current_metadata:
+        if '1_4_2_crs_wkt' in self.current_metadata:
             crs = QgsCoordinateReferenceSystem()
-            crs.createFromWkt(self.current_metadata['1_4_crs_wkt'].get('value', ''))
+            crs.createFromWkt(self.current_metadata['1_4_2_crs_wkt'].get('value', ''))
             if crs.isValid():
                 self.crs_widget.setCrs(crs)
 
         # Короткое название СК (crs_short_name) теперь генерируется динамически
-        # в BaseExporter._build_crs_display_name() из code_region и code_zone
+        # в BaseExporter._build_crs_display_name() из region_code и zone_code
 
         # Отключаем tooltip после установки СК
         self.crs_widget.setToolTip("")
         for child in self.crs_widget.findChildren(QWidget):
             child.setToolTip("")
 
-        # Загрузка кода региона (1_4_1)
+        # Загрузка кода региона (1_4)
         self.region_code_combo.blockSignals(True)
-        if '1_4_1_code_region' in self.current_metadata:
-            region_code = self.current_metadata['1_4_1_code_region'].get('value', '')
-            if region_code:
+        if '1_4_region_code' in self.current_metadata:
+            region_code = self.current_metadata['1_4_region_code'].get('value', '-')
+            if region_code and region_code != '-':
                 # Ищем по data (region_code), не по тексту
                 for i in range(self.region_code_combo.count()):
                     if self.region_code_combo.itemData(i) == region_code:
@@ -456,10 +453,10 @@ class EditProjectDialog(BaseMetadataDialog):
         # Триггерим каскад зоны
         self._on_region_changed(self.region_code_combo.currentIndex())
 
-        # Загрузка кода зоны (1_4_2) — установить в combo после каскада
-        if '1_4_2_code_zone' in self.current_metadata:
-            zone_code = self.current_metadata['1_4_2_code_zone'].get('value', '')
-            if zone_code:
+        # Загрузка кода зоны (1_4_1) — установить в combo после каскада
+        if '1_4_1_zone_code' in self.current_metadata:
+            zone_code = self.current_metadata['1_4_1_zone_code'].get('value', '-')
+            if zone_code and zone_code != '-':
                 for i in range(self.zone_code_combo.count()):
                     if self.zone_code_combo.itemData(i) == zone_code:
                         self.zone_code_combo.setCurrentIndex(i)
@@ -558,7 +555,7 @@ class EditProjectDialog(BaseMetadataDialog):
             crs: Система координат (передается автоматически сигналом crsChanged, игнорируется)
         """
         # Короткое название СК (crs_short_name) теперь генерируется динамически
-        # в BaseExporter._build_crs_display_name() из code_region и code_zone
+        # в BaseExporter._build_crs_display_name() из region_code и zone_code
         pass
 
     def _on_region_changed(self, index: int):
@@ -572,8 +569,6 @@ class EditProjectDialog(BaseMetadataDialog):
             self.zone_code_combo.addItem("-", "-")
             self.zone_code_combo.setEnabled(False)
             self.crs_widget.setEnabled(True)
-            self.region_hint_label.setText("CRS выбирается вручную")
-            self.region_hint_label.setStyleSheet("color: orange; font-style: italic;")
             self.zone_code_combo.blockSignals(False)
             return
 
@@ -603,9 +598,6 @@ class EditProjectDialog(BaseMetadataDialog):
             for z in sorted(zones):
                 self.zone_code_combo.addItem(f"Зона {z}", z)
             self.zone_code_combo.setEnabled(True)
-
-        self.region_hint_label.setText(region_data['region_name'])
-        self.region_hint_label.setStyleSheet("color: gray; font-style: italic;")
 
         self.zone_code_combo.blockSignals(False)
 
@@ -694,18 +686,20 @@ class EditProjectDialog(BaseMetadataDialog):
 
         # Дескрипторы полей: (field_name, metadata_key, widget, extraction_method)
         # extraction_method: 'text' = QLineEdit.text().strip()
-        #                    'combo_data' = QComboBox.currentData()
+        #                    'combo_data' = QComboBox.currentData() (None -> '')
+        #                    'combo_data_dash' = QComboBox.currentData() (None -> '-', для required-полей)
         #                    'combo_text' = QComboBox.currentText().strip()
         field_descriptors = [
             ('working_name', '1_0_working_name', self.working_name_edit, 'text'),
-            ('full_name', '1_1_full_name', self.full_name_edit, 'text'),
+            ('object_full_name', '1_1_object_full_name', self.object_full_name_edit, 'text'),
             ('object_type', '1_2_object_type', self.object_type_combo, 'combo_data'),
             ('doc_type', '1_5_doc_type', self.doc_type_combo, 'combo_data'),
             ('stage', '1_6_stage', self.stage_combo, 'combo_data'),
             ('project_folder', '1_3_project_folder', self.folder_edit, 'text'),
             ('code', '2_1_code', self.code_edit, 'text'),
             ('release_date', '2_2_date', self.release_date_edit, 'text'),
-            ('code_region', '1_4_1_code_region', self.region_code_combo, 'combo_data'),
+            ('region_code', '1_4_region_code', self.region_code_combo, 'combo_data_dash'),
+            ('zone_code', '1_4_1_zone_code', self.zone_code_combo, 'combo_data_dash'),
             ('company', '2_3_company', self.company_combo, 'combo_text'),
             ('city', '2_4_city', self.city_combo, 'combo_text'),
             ('customer', '2_5_customer', self.customer_edit, 'text'),
@@ -732,12 +726,18 @@ class EditProjectDialog(BaseMetadataDialog):
                 new_val = widget.currentData()
                 if new_val is None:
                     new_val = ''
+            elif method == 'combo_data_dash':
+                new_val = widget.currentData()
+                if new_val is None:
+                    new_val = '-'
             elif method == 'combo_text':
                 new_val = widget.currentText().strip()
             else:
                 new_val = ''
 
-            old_val = self.current_metadata.get(meta_key, {}).get('value', '')
+            # Для required-полей с дефолтом "-" — сравниваем с тем же дефолтом
+            default_old = '-' if method == 'combo_data_dash' else ''
+            old_val = self.current_metadata.get(meta_key, {}).get('value', default_old)
             if old_val != new_val:
                 changed_fields.append(field_name)
 
@@ -759,17 +759,10 @@ class EditProjectDialog(BaseMetadataDialog):
             changed_fields.append('object_type_value')
 
         # CRS: сравнение по описанию
-        old_crs_desc = self.current_metadata.get('1_4_crs_description', {}).get('value', '')
+        old_crs_desc = self.current_metadata.get('1_4_2_crs_description', {}).get('value', '')
         new_crs_desc = crs.description() if crs else ""
         if old_crs_desc != new_crs_desc:
             changed_fields.append('crs')
-
-        # code_zone: из каскадного combo
-        old_code_zone = self.current_metadata.get('1_4_2_code_zone', {}).get('value', '')
-        zone = self.zone_code_combo.currentData() or '-'
-        new_code_zone = '' if zone == '-' else zone
-        if old_code_zone != new_code_zone:
-            changed_fields.append('code_zone')
 
         # Значение линейного объекта (только если активно)
         object_type_value = None
@@ -790,7 +783,6 @@ class EditProjectDialog(BaseMetadataDialog):
             'crs_epsg': crs.postgisSrid() if crs else 0,
             'crs_description': new_crs_desc,
             'crs_wkt': crs.toWkt() if crs else "",
-            'code_zone': new_code_zone,
             'changed_fields': changed_fields,
         })
 

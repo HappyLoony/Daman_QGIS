@@ -190,10 +190,15 @@ class AutoCADToQGISConverter:
         # Удаляем дефолтный layer (пустой SimpleFill), добавлять будем свои
         symbol.deleteSymbolLayer(0)
 
-        # ===== НИЖНИЙ СЛОЙ: ЗАЛИВКА =====
+        # ===== НИЖНИЙ СЛОЙ: ЗАЛИВКА (всегда обязателен) =====
+        # QgsFillSymbol должен содержать минимум один QgsSimpleFillSymbolLayer
+        # для явного контроля заливки. Без него QGIS рендерит полигон
+        # дефолтной чёрной заливкой (баг проявляется при fill=0 + hatch='-').
         if fill_enabled:
             fill_layer = self._create_fill_layer(style)
-            symbol.appendSymbolLayer(fill_layer)
+        else:
+            fill_layer = self._create_no_fill_layer()
+        symbol.appendSymbolLayer(fill_layer)
 
         # ===== СРЕДНИЙ СЛОЙ(И): ШТРИХОВКА =====
         if hatch not in ('-', '', None) and hatch.startswith('ANSI'):
@@ -220,6 +225,20 @@ class AutoCADToQGISConverter:
         color.setAlphaF(opacity)
         fill_layer.setFillColor(color)
         fill_layer.setBrushStyle(Qt.BrushStyle.SolidPattern)
+        fill_layer.setStrokeStyle(Qt.PenStyle.NoPen)
+        return fill_layer
+
+    def _create_no_fill_layer(self) -> QgsSimpleFillSymbolLayer:
+        """
+        Создать слой без заливки (BrushStyle=NoBrush) и без контура (PenStyle=NoPen).
+
+        Используется когда у слоя fill=0 и hatch='-' — контур рисуется
+        отдельным верхним слоем через _create_outline_layer. Этот слой нужен
+        исключительно чтобы QgsFillSymbol содержал хотя бы один
+        QgsSimpleFillSymbolLayer и не применял дефолтную чёрную заливку.
+        """
+        fill_layer = QgsSimpleFillSymbolLayer()
+        fill_layer.setBrushStyle(Qt.BrushStyle.NoBrush)
         fill_layer.setStrokeStyle(Qt.PenStyle.NoPen)
         return fill_layer
 

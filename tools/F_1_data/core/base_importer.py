@@ -47,7 +47,7 @@ class BaseImporter(ABC):
         # Получаем СК из метаданных проекта
         if self.project_manager and self.project_manager.project_db:
             # Сначала пытаемся получить WKT (для пользовательских СК)
-            crs_wkt = self.project_manager.project_db.get_metadata('1_4_crs_wkt')
+            crs_wkt = self.project_manager.project_db.get_metadata('1_4_2_crs_wkt')
             if crs_wkt and 'value' in crs_wkt:
                 crs = QgsCoordinateReferenceSystem()
                 crs.createFromWkt(crs_wkt['value'])
@@ -58,7 +58,7 @@ class BaseImporter(ABC):
                     return crs
 
             # Если WKT нет, пытаемся через EPSG код (поддержка USER:XXXXX)
-            crs_epsg = self.project_manager.project_db.get_metadata('1_4_crs_epsg')
+            crs_epsg = self.project_manager.project_db.get_metadata('1_4_2_crs_epsg')
             if crs_epsg and 'value' in crs_epsg:
                 crs = create_crs_from_string(crs_epsg['value'])
                 if crs:

@@ -59,14 +59,31 @@ class SpaceBoundaries:
 
 @dataclass(frozen=True)
 class LegendPlan:
-    """План размещения легенды (результат Msm_46_3.plan)."""
-    mode: str  # 'inline' | 'overflow' — см. PlacementMode
+    """
+    План размещения легенды (результат Msm_46_3.plan).
+
+    Поля width_mm и height_max_mm пробрасываются из AvailableSpace в planner
+    и используются strategy-классами Msm_46_4 (особенно FixedPanelPlacement,
+    которому нужны явные размеры панели для clamp-resize при overflow).
+
+    text_width_mm — фактическая ширина text-area (за вычетом symbol_width и
+    внутренних margin'ов), используется для pixel-based wrap в стратегиях.
+    """
+    mode: str  # см. LegendLayoutMode (DYNAMIC | FIXED_PANEL | OUTSIDE)
     wrap_length: int
     column_count: int
     symbol_width: float
     symbol_height: float
     predicted_width_mm: float
     predicted_height_mm: float
+    width_mm: float           # max ширина из AvailableSpace (пробрасывается planner-ом)
+    height_max_mm: float      # max высота из AvailableSpace
+    text_width_mm: float = 0.0  # ширина text-area (для pixel-based wrap_text в стратегиях)
+    # Letter-spacing в pt (AbsoluteSpacing). 0 = default. <0 = compress букв.
+    # Применяется к Title/Group/Subgroup/SymbolLabel в strategy через QFont.
+    # ВАЖНО: AbsoluteSpacing, НЕ PercentageSpacing — последний ломает QGIS
+    # legend renderer (character-wraps текст).
+    letter_spacing_pt: float = 0.0
     reason: Optional[str] = None
 
 
@@ -80,18 +97,18 @@ class LegendResult:
     warning: Optional[str] = None
 
 
-class PlacementMode:
-    """
-    Строковые константы режимов размещения легенды.
+class LegendLayoutMode:
+    """Режимы размещения легенды (Base_layout.legend_layout_mode).
 
-    Используются в LegendPlan.mode и Base_layout поле legend_placement_mode.
+    Используется в LegendPlan.mode и для маршрутизации в M_46.plan_and_apply.
     Класс без dataclass — контейнер enum-like констант (проект использует
     строки для совместимости с Base_layout JSON, не IntEnum/StrEnum).
     """
-    INLINE = 'inline'
-    OVERFLOW = 'overflow'
+    DYNAMIC = 'dynamic'
+    FIXED_PANEL = 'fixed_panel'
+    OUTSIDE = 'outside'
 
-    ALL: Tuple[str, ...] = (INLINE, OVERFLOW)
+    ALL: Tuple[str, ...] = (DYNAMIC, FIXED_PANEL, OUTSIDE)
 
     @classmethod
     def is_valid(cls, mode: str) -> bool:

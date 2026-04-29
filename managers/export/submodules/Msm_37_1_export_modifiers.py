@@ -507,7 +507,7 @@ class Region78FormatModifier(ExportModifier):
         """
         descriptor = self._get_descriptor(template_id, layer_name)
 
-        full_name = metadata.get('1_1_full_name', '')
+        full_name = metadata.get('1_1_object_full_name', '')
 
         # Единственное/множественное число из метаданных
         is_single = metadata.get('1_7_is_single_object', 'Да') == 'Да'
@@ -561,7 +561,7 @@ class Region78FormatModifier(ExportModifier):
         else:
             descriptor = self.MERGED_DESCRIPTOR_ZU
 
-        full_name = metadata.get('1_1_full_name', '')
+        full_name = metadata.get('1_1_object_full_name', '')
 
         is_single = metadata.get('1_7_is_single_object', 'Да') == 'Да'
         phrase_map = (

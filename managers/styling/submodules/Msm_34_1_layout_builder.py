@@ -26,6 +26,8 @@ from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
 from Daman_QGIS.constants import EXPORT_DPI_ROSREESTR, DOC_TYPE_FONTS
 
+from .Msm_46_types import LegendLayoutMode
+
 
 class LayoutBuilder:
     """
@@ -173,6 +175,11 @@ class LayoutBuilder:
             self._layout = QgsPrintLayout(QgsProject.instance())
             self._layout.initializeDefaults()
             self._layout.setName(layout_name)
+
+            # Сохраняем config_key как customProperty для использования
+            # в Msm_34_2.shift_extent_for_legend (mode lookup без передачи
+            # config_key через API сигнатуру M_34.adapt_legend).
+            self._layout.setCustomProperty('layout/config_key', config_key)
 
             # Настраиваем страницу
             self._setup_page(params)
@@ -373,14 +380,36 @@ class LayoutBuilder:
         Returns:
             QgsLayoutItemLegend или None
         """
-        x = params.get('legend_x', 10)
-        y = params.get('legend_y', 199)
+        # Routing по legend_layout_mode (из v0.4 рефакторинга):
+        # - dynamic → legend_dynamic_x/y/ref_point
+        # - fixed_panel → legend_panel_x/y/ref_point
+        # - outside → legend_outside_x/y/ref_point
+        layout_mode = params.get('legend_layout_mode', LegendLayoutMode.DYNAMIC)
+        prefix_map = {
+            LegendLayoutMode.DYNAMIC: 'legend_dynamic_',
+            LegendLayoutMode.FIXED_PANEL: 'legend_panel_',
+            LegendLayoutMode.OUTSIDE: 'legend_outside_',
+        }
+        prefix = prefix_map.get(layout_mode)
+        if prefix is None:
+            raise ValueError(
+                f"Msm_34_1: некорректный legend_layout_mode='{layout_mode}'"
+            )
+
+        x = float(params[f'{prefix}x'])
+        y = float(params[f'{prefix}y'])
+        ref_point_num = int(params[f'{prefix}ref_point'])
+        ref_point = self._REF_POINTS[ref_point_num]
+
+        log_info(
+            f"Msm_34_1: legend mode={layout_mode}, поля {prefix}x={x}, "
+            f"{prefix}y={y}, {prefix}ref_point={ref_point_num}"
+        )
+
         # Начальные значения (M_34.adapt_legend() может адаптировать после заполнения)
         column_count = 1
         symbol_width = 15
         symbol_height = 5
-
-        ref_point = self._REF_POINTS[params['legend_ref_point']]
 
         legend = QgsLayoutItemLegend(self._layout)
         legend.setId('legend')
@@ -399,8 +428,9 @@ class LayoutBuilder:
         # Текст будет разбит по \n (применяется в Fsm_1_4_5_layout_manager.wrap_legend_text)
         legend.setWrapString('\n')
 
-        # Рамка и фон
-        legend.setFrameEnabled(True)
+        # Frame state — единственное место установки: стратегии Msm_46_4
+        # (DynamicPlacement → True, FixedPanelPlacement → False, OutsidePlacement → не трогает)
+        # через M_46.plan_and_apply. Здесь не устанавливаем.
         legend.setBackgroundEnabled(True)
 
         # Настройка стилей текста легенды

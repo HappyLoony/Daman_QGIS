@@ -461,9 +461,9 @@ class ExportUtils:
         if layer_info:
             variables.update(layer_info)
 
-        # CRS: используем 1_4_crs_description (человекочитаемое название СК)
-        if '1_4_crs_description' in variables:
-            variables['crs_name'] = variables['1_4_crs_description']
+        # CRS: используем 1_4_2_crs_description (человекочитаемое название СК)
+        if '1_4_2_crs_description' in variables:
+            variables['crs_name'] = variables['1_4_2_crs_description']
 
         # object_type из метаданных
         if '1_2_object_type' in variables:

@@ -18,7 +18,7 @@ from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.title_generator import TitleGenerator
 from Daman_QGIS.managers import registry
 from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
-    find_legend, is_layer_hidden_from_print,
+    find_legend,
 )
 
 
@@ -308,7 +308,7 @@ class LayoutManager:
 
         # Значения по умолчанию
         metadata_dict = {
-            "1_1_full_name": "объекта",
+            "1_1_object_full_name": "объекта",
             "1_2_object_type": "Площадной",
             "1_2_1_object_type_value": "-",
             "1_5_doc_type": "ДПТ",
@@ -400,15 +400,12 @@ class LayoutManager:
                     metadata_dict[key] = metadata['value']
 
         # Добавляем слои в легенду в правильном порядке
-        # Сначала проверяем слой границ работ (L_1_1_1)
-        hidden_from_legend: list = []
+        # Сначала проверяем слой границ работ (L_1_1_1).
+        # Флаг not_print игнорируется: слой явно используется в F_1_4
+        # (пользовательский выбор через Fsm_1_4_8_graphics_request_dialog).
         for layer_id in selected_layer_ids:
             layer = project.mapLayer(layer_id)
             if layer and layer.name() == 'L_1_1_1_Границы_работ':
-                # Фильтр not_print (Base_layers)
-                if is_layer_hidden_from_print(layer.name()):
-                    hidden_from_legend.append(layer.name())
-                    break
                 layer_node = root_group.addLayer(layer)
                 if layer_node:
                     # Название слоя границ — description из Base_layers
@@ -458,13 +455,10 @@ class LayoutManager:
             # Сортируем по порядку из Base_layers.json
             selected_layers_with_order.sort(key=lambda x: x[2])
 
-            # Добавляем слои в легенду
+            # Добавляем слои в легенду.
+            # Флаг not_print игнорируется: слои попадают сюда из nspd_layers,
+            # т.е. явный пользовательский выбор через Fsm_1_4_8 GUI.
             for layer_name, legend_title, order in selected_layers_with_order:
-                # Фильтр not_print (Base_layers): слои, скрытые от печати,
-                # не должны попадать в легенду
-                if is_layer_hidden_from_print(layer_name):
-                    hidden_from_legend.append(layer_name)
-                    continue
                 # Ищем слой в проекте
                 found_layer = None
                 for layer_id, layer in project.mapLayers().items():
@@ -479,12 +473,6 @@ class LayoutManager:
                         # Wrap применит M_46 (Msm_46_4.InlinePlacement) на основе плана
                         wrapped_title = legend_title
                         layer_node.setCustomProperty("legend/title-label", wrapped_title)
-
-        if hidden_from_legend:
-            log_info(
-                f"Fsm_1_4_5: Исключены not_print слои из легенды: "
-                f"{', '.join(hidden_from_legend)}"
-            )
 
         # Обновляем размер легенды
         legend.adjustBoxSize()
@@ -528,7 +516,6 @@ class LayoutManager:
 
         main_theme_layers = []
         overview_theme_layers = []
-        hidden_from_print: list = []
 
         # ВАЖНО: Новый формат nspd_layers = {layer_name: True}
         # Создаём множество выбранных слоёв для быстрого поиска
@@ -564,12 +551,11 @@ class LayoutManager:
             if not layer_is_selected:
                 continue
 
-            # Фильтр not_print (Base_layers): слои, скрытые от печати,
-            # не должны попадать в темы main_map и overview_map
-            if is_layer_hidden_from_print(layer_name):
-                hidden_from_print.append(layer_name)
-                continue
-            
+            # Флаг not_print игнорируется: слои попадают сюда либо как
+            # явный пользовательский выбор (selected_layer_names из
+            # Fsm_1_4_8 GUI), либо как обязательная инфраструктура
+            # (L_1_1_1 границы работ, L_1_3_* подложки).
+
             # ГЛАВНАЯ КАРТА: Используем L_1_3_2_NSPD_Ref (НСПД) по умолчанию
             # Если use_satellite=True - показываем ЕЭКО ортофото (L_1_3_1), скрываем схематичные подложки НСПД
             # Если use_satellite=False - показываем L_1_3_2_NSPD_Ref, скрываем ортофото
@@ -618,11 +604,6 @@ class LayoutManager:
 
         log_info(f"Fsm_1_4_5: Создана тема 'F_1_4_1_main_map' с {len(main_theme_layers)} слоями")
         log_info(f"Fsm_1_4_5: Создана тема 'F_1_4_2_overview_map' с {len(overview_theme_layers)} слоями")
-        if hidden_from_print:
-            log_info(
-                f"Fsm_1_4_5: Исключены not_print слои из тем макетов: "
-                f"{', '.join(hidden_from_print)}"
-            )
 
         # Применяем темы к картам в макете
         for item in layout.items():

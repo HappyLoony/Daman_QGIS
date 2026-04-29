@@ -169,8 +169,15 @@ class LabelManager:
             settings = self.collision_manager.apply_collision_rules(settings, full_config, layer)
 
             # 6. Применяем к слою
+            # Доминантный флаг M_45 (lazy import — избегаем циклических зависимостей)
+            from Daman_QGIS.managers.infrastructure.M_45_labels_toggle_manager import (
+                get_labels_toggle,
+            )
+            toggle = get_labels_toggle()
+            visible = toggle.is_labels_visible() if toggle else True
+
             layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
-            layer.setLabelsEnabled(settings.enabled)
+            layer.setLabelsEnabled(settings.enabled and visible)
             layer.triggerRepaint()
 
             # Обновляем счётчики

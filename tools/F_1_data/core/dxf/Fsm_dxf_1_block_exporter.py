@@ -524,6 +524,19 @@ class DxfBlockExporter:
                 hatch.set_pattern_fill('SOLID')
             else:
                 hatch.set_pattern_fill(hatch_type, scale=hatch_scale, angle=hatch_angle)
+                # ezdxf: entity.dxf.lineweight — int сотых мм (0..211), -1=BYLAYER.
+                # Только для pattern hatch и только если значение явно задано (>0).
+                hatch_lineweight = style.get('hatch_lineweight', 0)
+                try:
+                    lw = int(hatch_lineweight)
+                except (ValueError, TypeError):
+                    lw = 0
+                if lw > 0:
+                    try:
+                        hatch.dxf.lineweight = max(0, min(lw, 211))
+                        log_debug(f"Fsm_dxf_1: Штриховка {hatch_type} lineweight={lw}")
+                    except Exception as lw_err:
+                        log_warning(f"Fsm_dxf_1: Не удалось применить lineweight={lw}: {lw_err}")
 
             # Добавляем внешний контур как границу штриховки
             hatch.paths.add_polyline_path(

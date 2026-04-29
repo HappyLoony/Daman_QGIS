@@ -11,7 +11,10 @@ import os
 import fnmatch
 from typing import Optional, List, Dict, Any, Set, Tuple
 
-from qgis.PyQt.QtWidgets import QMessageBox, QFileDialog, QApplication
+from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtWidgets import (
+    QMessageBox, QFileDialog, QApplication, QProgressDialog
+)
 from qgis.core import (
     QgsProject, QgsMapThemeCollection, QgsLayoutExporter,
     QgsLayoutItemMap, QgsLayoutItemLabel, QgsLayoutItemLegend,
@@ -90,152 +93,262 @@ class F_6_6_MasterPlan(BaseTool):
         self._created_themes: List[str] = []
 
     def run(self) -> None:
-        """Запуск функции."""
+        """Запуск функции.
+
+        Использует QProgressDialog для информирования о текущем этапе
+        (между этапами могут быть паузы 1-12 сек: создание макетов,
+        DaData, M_46 plan_and_apply, M_34 adapt_legend). Без прогресса
+        пользователь думает что плагин завис.
+        """
         log_info("F_6_6: Запуск функции Мастер-план")
 
         # Проверка проекта
         if not self.check_project_opened():
             return
 
-        # 1. Загрузить Base_drawings.json, отфильтровать по doc_type="Мастер-план"
-        ref_managers = get_reference_managers()
-        all_drawings = ref_managers.drawings.get_drawings()
-
-        master_plan_drawings = [
-            d for d in all_drawings
-            if d.get('doc_type') == 'Мастер-план'
-        ]
-
-        if not master_plan_drawings:
-            log_warning("F_6_6: Нет записей с doc_type='Мастер-план' в Base_drawings.json")
-            QMessageBox.warning(
-                self.iface.mainWindow(),
-                "Мастер-план",
-                "В справочнике чертежей нет записей для мастер-плана."
-            )
-            return
-
-        # 2. Фильтрация: visible_layers не null (слои могут отсутствовать — warning)
-        available_drawings = self._filter_available_drawings(master_plan_drawings)
-
-        if not available_drawings:
-            log_warning("F_6_6: Нет схем с заполненными visible_layers")
-            QMessageBox.warning(
-                self.iface.mainWindow(),
-                "Мастер-план",
-                "Нет схем с заполненными слоями (visible_layers)."
-            )
-            return
-
-        log_info(f"F_6_6: Доступно {len(available_drawings)} схем из {len(master_plan_drawings)}")
-
-        # 2.5. Получение адреса территории через M_39 DaData
-        location_text = self._get_location_text()
-
-        # 3. Диалог выбора схем и папки экспорта
-        dialog = Fsm_6_6_1_Dialog(
-            available_drawings, location_text, self.iface.mainWindow()
+        # Создаём общий QProgressDialog (модальный к QGIS).
+        # parent=iface.mainWindow() — обычно всегда доступен в QGIS plugin runtime.
+        # Если по какой-то причине None — прогресс остаётся top-level окном.
+        parent = self.iface.mainWindow() if self.iface else None
+        progress = QProgressDialog(
+            "Запуск...",
+            None,  # cancel disabled — F_6_6 не отменяется частично
+            0, 100,
+            parent
         )
-        if dialog.exec() == 0:
-            log_info("F_6_6: Отмена пользователем")
-            return
+        progress.setWindowTitle("Мастер-план")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        # 0 = показать сразу (default 4000мс перекрывает большинство этапов)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
 
-        selected_drawings = dialog.get_selected_drawings()
-        output_folder = dialog.get_output_folder()
-        location_text = dialog.get_location_text()
+        def _step(percent: int, label: str) -> None:
+            """Обновить прогресс: лейбл + процент + processEvents."""
+            progress.setLabelText(label)
+            progress.setValue(percent)
+            QApplication.processEvents()
 
-        if not selected_drawings:
-            log_warning("F_6_6: Не выбрано ни одной схемы")
-            return
+        try:
+            _step(0, "1/12: Загрузка справочника схем...")
+            progress.show()
+            QApplication.processEvents()
 
-        if not output_folder:
-            log_warning("F_6_6: Не указана папка экспорта")
-            return
+            # 1. Загрузить Base_drawings.json, отфильтровать по doc_type="Мастер-план"
+            ref_managers = get_reference_managers()
+            all_drawings = ref_managers.drawings.get_drawings()
 
-        os.makedirs(output_folder, exist_ok=True)
+            master_plan_drawings = [
+                d for d in all_drawings
+                if d.get('doc_type') == 'Мастер-план'
+            ]
 
-        log_info(
-            f"F_6_6: Выбрано {len(selected_drawings)} схем, "
-            f"папка: {output_folder}"
-        )
-
-        # 4. Layout manager (нужен раньше для main preview)
-        layout_mgr = Fsm_6_6_2_LayoutManager(self.iface)
-
-        # 4a. Диалог масштаба основной карты (одноразовый по первой схеме)
-        # Применяется глобально ко ВСЕМ схемам как множитель базового масштаба.
-        main_scale_factor = self._get_main_scale_factor(
-            selected_drawings[0], layout_mgr
-        )
-        if main_scale_factor is None:
-            log_info("F_6_6: Отмена выбора масштаба основной карты")
-            return
-
-        # 4b. Диалог масштаба обзорной карты (аналог Fsm_1_4_10)
-        overview_scale_factor = self._get_overview_scale_factor()
-        if overview_scale_factor is None:
-            log_info("F_6_6: Отмена выбора масштаба обзорной карты")
-            return
-
-        # 5. Генерация PDF для каждой выбранной схемы
-        pdf_paths: List[str] = []
-        self._created_themes = []
-
-        total = len(selected_drawings)
-        for i, drawing in enumerate(selected_drawings):
-            drawing_name = drawing.get('drawing_name', f'Схема_{i + 1}')
-            log_info(f"F_6_6: Обработка схемы {i + 1}/{total}: {drawing_name}")
-
-            try:
-                pdf_path = self._generate_single_scheme(
-                    drawing=drawing,
-                    index=i,
-                    output_folder=output_folder,
-                    layout_mgr=layout_mgr,
-                    overview_scale_factor=overview_scale_factor,
-                    main_scale_factor=main_scale_factor,
-                    location_text=location_text
+            if not master_plan_drawings:
+                log_warning("F_6_6: Нет записей с doc_type='Мастер-план' в Base_drawings.json")
+                progress.close()
+                QMessageBox.warning(
+                    self.iface.mainWindow(),
+                    "Мастер-план",
+                    "В справочнике чертежей нет записей для мастер-плана."
                 )
-                if pdf_path:
-                    pdf_paths.append(pdf_path)
-                    log_info(f"F_6_6: Схема экспортирована: {pdf_path}")
+                return
+
+            _step(10, "2/12: Поиск доступных схем в проекте...")
+
+            # 2. Фильтрация: visible_layers не null (слои могут отсутствовать — warning)
+            available_drawings = self._filter_available_drawings(master_plan_drawings)
+
+            if not available_drawings:
+                log_warning("F_6_6: Нет схем с заполненными visible_layers")
+                progress.close()
+                QMessageBox.warning(
+                    self.iface.mainWindow(),
+                    "Мастер-план",
+                    "Нет схем с заполненными слоями (visible_layers)."
+                )
+                return
+
+            log_info(f"F_6_6: Доступно {len(available_drawings)} схем из {len(master_plan_drawings)}")
+
+            _step(15, "3/12: Получение адреса территории (DaData)...")
+
+            # 2.5. Получение адреса территории через M_39 DaData
+            location_text = self._get_location_text()
+
+            _step(20, "4/12: Ожидание выбора схем пользователем...")
+            progress.hide()  # скрываем чтобы не перекрывать модальный диалог
+
+            # 3. Диалог выбора схем и папки экспорта
+            dialog = Fsm_6_6_1_Dialog(
+                available_drawings, location_text, self.iface.mainWindow()
+            )
+            if dialog.exec() == 0:
+                log_info("F_6_6: Отмена пользователем")
+                return
+
+            selected_drawings = dialog.get_selected_drawings()
+            output_folder = dialog.get_output_folder()
+            location_text = dialog.get_location_text()
+
+            if not selected_drawings:
+                log_warning("F_6_6: Не выбрано ни одной схемы")
+                return
+
+            if not output_folder:
+                log_warning("F_6_6: Не указана папка экспорта")
+                return
+
+            os.makedirs(output_folder, exist_ok=True)
+
+            log_info(
+                f"F_6_6: Выбрано {len(selected_drawings)} схем, "
+                f"папка: {output_folder}"
+            )
+
+            progress.show()
+            _step(30, "5/12: Подготовка превью основной карты...")
+
+            # 4. Layout manager (нужен раньше для main preview)
+            layout_mgr = Fsm_6_6_2_LayoutManager(self.iface)
+
+            _step(35, "6/12: Ожидание выбора масштаба основной карты...")
+            # Превью-диалог сам показывает progress bar тайлов; общий progress
+            # остаётся видимым с поясняющим текстом, чтобы UX не моргал.
+
+            # 4a. Диалог масштаба основной карты (одноразовый по первой схеме)
+            # Применяется глобально ко ВСЕМ схемам как множитель базового масштаба.
+            main_scale_factor = self._get_main_scale_factor(
+                selected_drawings[0], layout_mgr
+            )
+            if main_scale_factor is None:
+                log_info("F_6_6: Отмена выбора масштаба основной карты")
+                return
+
+            _step(50, "7/12: Подготовка превью обзорной карты...")
+
+            _step(55, "8/12: Ожидание выбора масштаба обзорной карты...")
+
+            # 4b. Диалог масштаба обзорной карты (аналог Fsm_1_4_10)
+            overview_scale_factor = self._get_overview_scale_factor(
+                selected_drawings[0], layout_mgr
+            )
+            if overview_scale_factor is None:
+                log_info("F_6_6: Отмена выбора масштаба обзорной карты")
+                return
+
+            _step(70, "9/12: Применение подписей через M_12...")
+
+            # 4c. === ПРИМЕНЕНИЕ ПОДПИСЕЙ ===
+            # ВАЖНО: Принудительно обновляем подписи для ВСЕХ слоёв
+            # Причина: при отладке нужно гарантировать что настройки актуальные
+            # из Base_labels.json. Также автоматически уважает флаг M_45 через
+            # M_12.apply_labels (доминантный флаг видимости подписей).
+            try:
+                from Daman_QGIS.managers import LabelManager
+
+                label_manager = LabelManager()
+
+                # Настраиваем глобальный движок коллизий (ОДИН РАЗ)
+                label_manager.configure_global_engine(self.iface)
+                log_info("F_6_6: Глобальный движок коллизий подписей настроен")
+
+                # Принудительно применяем подписи ко ВСЕМ векторным слоям
+                project = QgsProject.instance()
+                applied_count = 0
+                skipped_count = 0
+                for layer_id, layer in project.mapLayers().items():
+                    if layer.type() == 0:  # Векторный слой
+                        layer_name = layer.name()
+                        if label_manager.apply_labels(layer, layer_name):
+                            applied_count += 1
+                        else:
+                            skipped_count += 1
+                log_info(f"F_6_6: Подписи обновлены: {applied_count} слоёв, пропущено: {skipped_count}")
+
             except Exception as e:
-                log_error(f"F_6_6: Ошибка при генерации схемы '{drawing_name}': {e}")
-                continue
+                log_warning(f"F_6_6: Не удалось настроить движок подписей: {str(e)}")
+                import traceback
+                log_warning(f"F_6_6: {traceback.format_exc()}")
 
-        if not pdf_paths:
-            log_error("F_6_6: Не удалось создать ни одного PDF")
-            QMessageBox.critical(
-                self.iface.mainWindow(),
-                "Мастер-план",
-                "Не удалось создать ни одного PDF."
-            )
-            return
+            # 5. Генерация PDF для каждой выбранной схемы
+            pdf_paths: List[str] = []
+            self._created_themes = []
 
-        # 6. Склейка PDF в один файл
-        assembler = Fsm_6_6_3_PdfAssembler()
-        merged_filename = "Мастер-план.pdf"
-        merged_path = os.path.join(output_folder, merged_filename)
+            total = len(selected_drawings)
+            for i, drawing in enumerate(selected_drawings):
+                drawing_name = drawing.get('drawing_name', f'Схема_{i + 1}')
+                log_info(f"F_6_6: Обработка схемы {i + 1}/{total}: {drawing_name}")
 
-        merge_success = assembler.merge(pdf_paths, merged_path)
+                # Этапы 10/12 — генерация: 75% + (i/total)*15% → 75-90%
+                pct = 75 + int((i / max(total, 1)) * 15)
+                _step(
+                    pct,
+                    f"10/12: Генерация схемы {i + 1}/{total}: {drawing_name}"
+                )
 
-        # 7. Темы НЕ удаляются: они нужны сохранённым макетам для
-        # корректного отображения при открытии в редакторе макетов.
-        # При повторном запуске F_6_6 темы перезаписываются через
-        # theme_collection.insert() (upsert-семантика QGIS).
+                try:
+                    pdf_path = self._generate_single_scheme(
+                        drawing=drawing,
+                        index=i,
+                        output_folder=output_folder,
+                        layout_mgr=layout_mgr,
+                        overview_scale_factor=overview_scale_factor,
+                        main_scale_factor=main_scale_factor,
+                        location_text=location_text
+                    )
+                    if pdf_path:
+                        pdf_paths.append(pdf_path)
+                        log_info(f"F_6_6: Схема экспортирована: {pdf_path}")
+                except Exception as e:
+                    log_error(f"F_6_6: Ошибка при генерации схемы '{drawing_name}': {e}")
+                    continue
 
-        # 8. Открытие результата
-        if merge_success:
-            log_success(f"F_6_6: Мастер-план создан: {merged_path}")
-            self._open_result(merged_path)
-        else:
-            log_warning("F_6_6: Склейка не удалась, отдельные PDF сохранены")
-            self.iface.messageBar().pushMessage(
-                "Мастер-план",
-                f"Создано {len(pdf_paths)} отдельных PDF в {output_folder}",
-                level=Qgis.MessageLevel.Warning,
-                duration=5
-            )
+            if not pdf_paths:
+                log_error("F_6_6: Не удалось создать ни одного PDF")
+                progress.close()
+                QMessageBox.critical(
+                    self.iface.mainWindow(),
+                    "Мастер-план",
+                    "Не удалось создать ни одного PDF."
+                )
+                return
+
+            _step(95, "11/12: Склейка PDF в один файл...")
+
+            # 6. Склейка PDF в один файл
+            assembler = Fsm_6_6_3_PdfAssembler()
+            merged_filename = "Мастер-план.pdf"
+            merged_path = os.path.join(output_folder, merged_filename)
+
+            merge_success = assembler.merge(pdf_paths, merged_path)
+
+            # 7. Темы НЕ удаляются: они нужны сохранённым макетам для
+            # корректного отображения при открытии в редакторе макетов.
+            # При повторном запуске F_6_6 темы перезаписываются через
+            # theme_collection.insert() (upsert-семантика QGIS).
+
+            _step(100, "12/12: Готово.")
+
+            # 8. Открытие результата
+            if merge_success:
+                log_success(f"F_6_6: Мастер-план создан: {merged_path}")
+                self._open_result(merged_path)
+            else:
+                log_warning("F_6_6: Склейка не удалась, отдельные PDF сохранены")
+                self.iface.messageBar().pushMessage(
+                    "Мастер-план",
+                    f"Создано {len(pdf_paths)} отдельных PDF в {output_folder}",
+                    level=Qgis.MessageLevel.Warning,
+                    duration=5
+                )
+
+        finally:
+            # Гарантированное закрытие прогресса при любом сценарии
+            # (отмена, ошибка, успех)
+            try:
+                progress.close()
+            except Exception:
+                pass
 
     def _filter_available_drawings(
         self, drawings: List[Dict]
@@ -306,7 +419,7 @@ class F_6_6_MasterPlan(BaseTool):
 
             from qgis.core import (
                 QgsCoordinateReferenceSystem, QgsCoordinateTransform,
-                QgsDistanceArea
+                QgsDistanceArea, QgsPointXY
             )
             feature = next(boundaries_layer.getFeatures())
 
@@ -323,7 +436,20 @@ class F_6_6_MasterPlan(BaseTool):
                 QgsCoordinateReferenceSystem('EPSG:4326'),
                 QgsProject.instance()
             )
-            wgs_point = transform.transform(centroid)
+
+            # Multi-point геокодирование: центроид + 4 угла bbox.
+            # На горных/приграничных территориях (Ингушетия, Алтай, ДВ)
+            # центроид может попасть в "пустую" точку без адресов в ФИАС
+            # (DaData возвращает результаты только из ФИАС в радиусе ≤1000м).
+            # M_39 кэширует по округлённым lat/lon (~10м), повторы дёшевы.
+            bbox = feature.geometry().boundingBox()
+            corners = [
+                QgsPointXY(bbox.xMinimum(), bbox.yMaximum()),  # NW
+                QgsPointXY(bbox.xMaximum(), bbox.yMaximum()),  # NE
+                QgsPointXY(bbox.xMinimum(), bbox.yMinimum()),  # SW
+                QgsPointXY(bbox.xMaximum(), bbox.yMinimum()),  # SE
+            ]
+            points = [centroid] + corners  # центроид первым (приоритет)
 
             # Запрос к DaData
             geocoder = registry.get('M_39')
@@ -335,9 +461,27 @@ class F_6_6_MasterPlan(BaseTool):
                 log_warning("F_6_6: M_39 DaData не настроен")
                 return ''
 
-            result = geocoder.geolocate(lat=wgs_point.y(), lon=wgs_point.x())
+            result = None
+            for i, point in enumerate(points):
+                wgs = transform.transform(point)
+                result = geocoder.geolocate(
+                    lat=wgs.y(), lon=wgs.x(), radius_meters=1000
+                )
+                if result:
+                    if i > 0:
+                        log_info(
+                            f"F_6_6: DaData нашёл адрес по точке {i + 1}/{len(points)} "
+                            f"(угол bbox), центроид пуст"
+                        )
+                    break
+
             if not result:
-                log_warning("F_6_6: DaData не вернул результат")
+                # Нормальная ситуация для горных/приграничных территорий —
+                # не баг, а отсутствие адреса в ФИАС. Уровень INFO.
+                log_info(
+                    f"F_6_6: DaData не нашёл адрес ни по одной из {len(points)} точек "
+                    f"(центроид + 4 угла bbox, радиус 1000м)"
+                )
                 return ''
 
             # Собираем адрес (без street — для территории нужен уровень район)
@@ -367,13 +511,22 @@ class F_6_6_MasterPlan(BaseTool):
 
         return ''
 
-    def _get_overview_scale_factor(self) -> Optional[float]:
+    def _get_overview_scale_factor(
+        self,
+        first_drawing: Dict,
+        layout_mgr: 'Fsm_6_6_2_LayoutManager',
+    ) -> Optional[float]:
         """
         Показать диалог выбора масштаба обзорной карты.
         Аналог Fsm_1_4_10, но без привязки к конкретному layout.
 
         Создаёт временный layout для получения overview_map,
         показывает OverviewPreviewDialog, возвращает scale_factor.
+
+        Args:
+            first_drawing: Первая выбранная схема (для заполнения легенды
+                тем же visible_layers что будет в финале).
+            layout_mgr: Менеджер макетов F_6_6 (для update_legend).
 
         Returns:
             float scale_factor или None при отмене
@@ -400,6 +553,16 @@ class F_6_6_MasterPlan(BaseTool):
 
         _temp_theme = '_F_6_6_temp_overview'
 
+        # Развернуть visible_layers первой схемы для легенды (как в финале)
+        visible_layers_first = first_drawing.get('visible_layers', []) or []
+        project_layer_names = {
+            layer.name() for layer in project.mapLayers().values()
+        }
+        visible_resolved, _ = _expand_layer_patterns(
+            visible_layers_first, project_layer_names
+        )
+        main_layers_first = visible_resolved + [_MAIN_MAP_BASEMAP]
+
         try:
             # Находим overview_map
             overview_map = None
@@ -420,6 +583,12 @@ class F_6_6_MasterPlan(BaseTool):
             # Привязываем тему к overview_map
             overview_map.setFollowVisibilityPreset(True)
             overview_map.setFollowVisibilityPresetName(_temp_theme)
+
+            # Заполняем легенду visible_layers первой схемы (как в финале):
+            # без update_legend QgsLayoutItemLegend в режиме autoUpdateModel
+            # собирает все видимые слои проекта → preview не соответствует
+            # финальному PDF.
+            layout_mgr.update_legend(temp_layout, main_layers_first)
 
             # Устанавливаем базовый масштаб
             overview_map.setScale(overview_base_scale)
@@ -520,6 +689,12 @@ class F_6_6_MasterPlan(BaseTool):
             self._create_map_theme(_temp_theme, main_layers)
             main_map.setFollowVisibilityPreset(True)
             main_map.setFollowVisibilityPresetName(_temp_theme)
+
+            # Заполнить легенду тем же visible_layers что будет в финале
+            # (без update_legend QgsLayoutItemLegend в режиме autoUpdateModel
+            # собирает все ~66 видимых слоёв проекта → не fits 128 мм →
+            # M_46 даёт tight план → preview не соответствует финальному PDF).
+            layout_mgr.update_legend(temp_layout, main_layers)
 
             # Применить экстент по границам работ + M_46 + adapt_legend
             # (та же цепочка что в _generate_single_scheme — даст реальный

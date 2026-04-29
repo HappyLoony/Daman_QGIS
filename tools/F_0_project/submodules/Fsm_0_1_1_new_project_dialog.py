@@ -55,9 +55,9 @@ class NewProjectDialog(BaseMetadataDialog):
         form_layout.addRow("Рабочее название (для папок):", self.working_name_edit)
         
         # 1_1 Полное наименование объекта
-        self.full_name_edit = QLineEdit()
-        self.full_name_edit.setPlaceholderText("Обязательно")
-        form_layout.addRow("Полное наименование объекта:", self.full_name_edit)
+        self.object_full_name_edit = QLineEdit()
+        self.object_full_name_edit.setPlaceholderText("Обязательно")
+        form_layout.addRow("Полное наименование объекта:", self.object_full_name_edit)
         
         # 1_2 Тип объекта
         self.object_type_combo = QComboBox()
@@ -113,14 +113,15 @@ class NewProjectDialog(BaseMetadataDialog):
         self.folder_edit.setReadOnly(True)
         self.folder_edit.setPlaceholderText("Обязательно")
         folder_layout.addWidget(self.folder_edit)
-        
+
         self.folder_button = QPushButton("Обзор...")
         self.folder_button.clicked.connect(self.select_folder)
         folder_layout.addWidget(self.folder_button)
-        
+
         form_layout.addRow("Папка проекта:", folder_layout)
-        
-        # 1_4 Система координат (кастомный виджет с кнопкой)
+
+        # Создание CRS-виджетов ДО комбобоксов региона/зоны,
+        # так как _on_zone_changed обращается к self.crs_label и self.selected_crs
         self.selected_crs = QgsCoordinateReferenceSystem()  # Хранение выбранной СК
 
         crs_layout = QHBoxLayout()
@@ -133,9 +134,7 @@ class NewProjectDialog(BaseMetadataDialog):
         self.crs_button.clicked.connect(self.select_crs)
         crs_layout.addWidget(self.crs_button)
 
-        form_layout.addRow("Система координат:", crs_layout)
-
-        # 1_4_1 Регион (из Base_CRS.json)
+        # 1_4 Регион (из Base_CRS.json)
         self.region_code_combo = QComboBox()
         self.region_code_combo.setStyleSheet("QComboBox { combobox-popup: 0; }")
         self.region_code_combo.setMaxVisibleItems(12)
@@ -157,17 +156,15 @@ class NewProjectDialog(BaseMetadataDialog):
         self.region_code_combo.currentIndexChanged.connect(self._on_region_changed)
         form_layout.addRow("Регион:", self.region_code_combo)
 
-        # 1_4_2 Зона (каскад от региона)
+        # 1_4_1 Зона (каскад от региона)
         self.zone_code_combo = QComboBox()
         self.zone_code_combo.addItem("-", "-")
         self.zone_code_combo.setEnabled(False)
         self.zone_code_combo.currentIndexChanged.connect(self._on_zone_changed)
         form_layout.addRow("Зона:", self.zone_code_combo)
 
-        # Информационная метка
-        self.region_hint_label = QLabel()
-        self.region_hint_label.setStyleSheet("color: gray; font-style: italic;")
-        form_layout.addRow("", self.region_hint_label)
+        # 1_4_2 Система координат — размещаем в layout после Региона/Зоны
+        form_layout.addRow("Система координат:", crs_layout)
 
         # Разделитель для сведений оформления
         separator_label = QLabel("<b>Сведения для оформления:</b>")
@@ -312,8 +309,6 @@ class NewProjectDialog(BaseMetadataDialog):
             self.selected_crs = QgsCoordinateReferenceSystem()
             self.crs_label.clear()
             self.crs_label.setPlaceholderText("Не выбрана")
-            self.region_hint_label.setText("Выберите CRS вручную")
-            self.region_hint_label.setStyleSheet("color: orange; font-style: italic;")
             self.zone_code_combo.blockSignals(False)
             log_info("Fsm_0_1_1: Регион не указан — кастомная CRS")
             return
@@ -347,9 +342,6 @@ class NewProjectDialog(BaseMetadataDialog):
             for z in sorted(zones):
                 self.zone_code_combo.addItem(f"Зона {z}", z)
             self.zone_code_combo.setEnabled(True)
-
-        self.region_hint_label.setText(region_data['region_name'])
-        self.region_hint_label.setStyleSheet("color: gray; font-style: italic;")
 
         self.zone_code_combo.blockSignals(False)
 
@@ -486,16 +478,15 @@ class NewProjectDialog(BaseMetadataDialog):
             object_type_value = self.object_type_value_combo.currentData()
             object_type_value_name = self.object_type_value_combo.currentText()
 
-        # Код региона (из currentData combo, None для "Не указано")
-        region_code = self.region_code_combo.currentData() or ''
+        # Код региона (из currentData combo, '-' для "Не указано")
+        region_code = self.region_code_combo.currentData() or '-'
 
-        # Код зоны ("-" = нет зон, номер = конкретная зона, пусто для "Не указано")
-        zone = self.zone_code_combo.currentData() or '-'
-        zone_code = '' if zone == '-' else zone
+        # Код зоны ("-" = нет зон или "Не указано", номер = конкретная зона)
+        zone_code = self.zone_code_combo.currentData() or '-'
 
         return {
             'working_name': self.working_name_edit.text().strip(),
-            'full_name': self.full_name_edit.text().strip(),
+            'object_full_name': self.object_full_name_edit.text().strip(),
             'object_type': self.object_type_combo.currentData(),
             'object_type_name': self.object_type_combo.currentText(),
             'object_type_value': object_type_value,  # Обязательное поле 1_2_1 (условное)
@@ -510,8 +501,8 @@ class NewProjectDialog(BaseMetadataDialog):
             'crs': crs,
             'crs_epsg': crs.postgisSrid() if crs else 0,
             'crs_description': crs.description() if crs else "",
-            'code_region': region_code,  # Обязательное поле 1_4_1 (ручной ввод)
-            'code_zone': zone_code,  # Условное поле 1_4_2 (пустое для фиксированных регионов)
+            'region_code': region_code,  # Обязательное поле 1_4 (код региона)
+            'zone_code': zone_code,  # Обязательное поле 1_4_1 (код зоны, "-" для регионов без зон)
             'code': self.code_edit.text().strip(),  # Дополнительное поле 2_1
             'release_date': self.release_date_edit.text().strip(),  # Дополнительное поле 2_2
             'company': self.company_combo.currentText().strip(),  # Дополнительное поле 2_3

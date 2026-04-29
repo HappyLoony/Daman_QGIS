@@ -815,17 +815,17 @@ class F_0_5_RefineProjection(BaseTool):
 
             # Обновляем EPSG код если есть
             if new_crs.authid():
-                db.set_metadata('1_4_crs_epsg', new_crs.authid(), 'EPSG код системы координат')
+                db.set_metadata('1_4_2_crs_epsg', new_crs.authid(), 'EPSG код системы координат')
 
             # Обновляем WKT2 (ISO 19162:2019 - современный стандарт, lossless)
             wkt2 = new_crs.toWkt(Qgis.CrsWktVariant.Wkt2_2019)
-            db.set_metadata('1_4_crs_wkt', wkt2, 'WKT2 представление CRS (ISO 19162:2019)')
+            db.set_metadata('1_4_2_crs_wkt', wkt2, 'WKT2 представление CRS (ISO 19162:2019)')
 
             # Обновляем описание
-            db.set_metadata('1_4_crs_description', new_crs.description(), 'Описание системы координат')
+            db.set_metadata('1_4_2_crs_description', new_crs.description(), 'Описание системы координат')
 
             # Короткое название СК (crs_short_name) теперь генерируется динамически
-            # в BaseExporter._build_crs_display_name() из code_region и code_zone
+            # в BaseExporter._build_crs_display_name() из region_code и zone_code
 
             log_info(f"F_0_5: Метаданные CRS обновлены в GeoPackage (WKT2): {new_crs.description()}")
 

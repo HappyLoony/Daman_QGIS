@@ -80,6 +80,11 @@ class OverviewPreviewDialog(BaseResponsiveDialog):
         self.current_scale = current_scale
         self.selected_variant = 0  # Индекс выбранного варианта (по умолчанию первый)
         self._previews_rendered = False  # Флаг для отложенного рендеринга
+        # Cancel-flag: при accept()/reject() цикл рендеринга прерывается на
+        # следующей итерации. Без этого флага цикл по 16 SCALE_FACTORS
+        # продолжается ~80с после клика OK (бесполезный рендер невидимых
+        # превью), блокируя возврат dialog.exec() в F_6_6 / F_1_4.
+        self._cancelled: bool = False
 
         # Кэш для переиспользования отрендеренных слоёв между вариантами масштаба
         # Особенно важно для WMS/WMTS слоёв - позволяет избежать повторной загрузки тайлов
@@ -294,6 +299,15 @@ class OverviewPreviewDialog(BaseResponsiveDialog):
 
         # Рендерим каждый вариант с задержкой
         for idx, scale_factor in enumerate(self.SCALE_FACTORS):
+            # Cancel-flag: пользователь нажал OK или Cancel — прекращаем рендер
+            # оставшихся вариантов. Решает проблему UI-зависания на ~80с.
+            if self._cancelled:
+                log_info(
+                    f"Fsm_1_4_10: Рендер прерван пользователем на варианте "
+                    f"{idx}/{len(self.SCALE_FACTORS)}"
+                )
+                break
+
             # Проверяем что C++ объект overview_map ещё существует
             # QEventLoop может обработать события, удаляющие макет
             if sip.isdeleted(overview_map):
@@ -539,7 +553,21 @@ class OverviewPreviewDialog(BaseResponsiveDialog):
         return self.DPI, 1.0
 
     def accept(self):
-        """Обработка нажатия OK"""
+        """Обработка нажатия OK
+
+        Устанавливает _cancelled=True чтобы прервать цикл _render_previews()
+        на следующей итерации (если он ещё активен). Без этого dialog.exec()
+        не возвращается до конца цикла рендера (~80 сек).
+        """
         dpi, scale_factor = self.get_selected_variant()
         log_info(f"Fsm_1_4_10: Выбран вариант DPI={dpi}, scale_factor={scale_factor}")
+        self._cancelled = True
         super().accept()
+
+    def reject(self):
+        """Обработка отмены диалога
+
+        Симметрично accept(): прерывает цикл рендера превью.
+        """
+        self._cancelled = True
+        super().reject()
