@@ -102,6 +102,64 @@ class Fsm_6_6_2_LayoutManager:
 
         return True
 
+    def set_organization(self, layout: QgsPrintLayout) -> bool:
+        """
+        Установить подпись организации на макете (только для МП).
+
+        Читает значение `2_3_company` из ProjectDB (GeoPackage проекта)
+        и устанавливает текст на label с id='organization_label'.
+
+        Если в макете нет organization_label (например DPT — поля "-" в
+        Excel), метод тихо выходит. Если нет gpkg/metadata — устанавливает
+        пустую строку и логирует warning, не падает (графика продолжает
+        генерироваться).
+
+        Args:
+            layout: Макет QGIS
+
+        Returns:
+            True если label найден и обработан, False если label отсутствует
+            в макете (для DPT — нормальный случай).
+        """
+        # Найти label
+        org_label = None
+        for item in layout.items():
+            if isinstance(item, QgsLayoutItemLabel) and item.id() == 'organization_label':
+                org_label = item
+                break
+
+        if org_label is None:
+            return False  # элемент не предусмотрен в этом макете (DPT)
+
+        # Прочитать metadata
+        company_text = ''
+        try:
+            project_home = os.path.normpath(QgsProject.instance().homePath())
+            structure_manager = registry.get('M_19')
+            structure_manager.project_root = project_home
+            gpkg_path = structure_manager.get_gpkg_path(create=False)
+
+            if gpkg_path and os.path.exists(gpkg_path):
+                from Daman_QGIS.database.project_db import ProjectDB
+                project_db = ProjectDB(gpkg_path)
+                company_data = project_db.get_metadata('2_3_company')
+                if company_data and company_data.get('value'):
+                    company_text = str(company_data['value'])
+        except Exception as e:
+            log_warning(
+                f"Fsm_6_6_2: Не удалось прочитать '2_3_company' из ProjectDB: {e}"
+            )
+
+        org_label.setText(company_text)
+        if company_text:
+            log_info(f"Fsm_6_6_2: Подпись организации: {company_text}")
+        else:
+            log_warning(
+                f"Fsm_6_6_2: '2_3_company' пусто в metadata — "
+                f"organization_label оставлен без текста"
+            )
+        return True
+
     def update_legend(
         self, layout: QgsPrintLayout, visible_layer_names: List[str]
     ) -> bool:

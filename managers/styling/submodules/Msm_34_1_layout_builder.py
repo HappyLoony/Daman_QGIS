@@ -40,6 +40,9 @@ class LayoutBuilder:
     - Легенда (legend)
     - Заголовок (title_label)
     - Номер приложения (appendix_label)
+    - Подпись организации (organization_label) — опционально, только при
+      наличии organization_label_* полей в Base_layout (для МП). Для DPT
+      эти поля = "-" в Excel → парсер не пишет в JSON → элемент пропускается.
     - Стрелка севера (north_arrow)
     - Штамп (stamp) - для чертежей
     """
@@ -193,6 +196,7 @@ class LayoutBuilder:
             self._add_legend(params)
             self._add_title_label(params)
             self._add_appendix_label(params)
+            self._add_organization_label(params)
             self._add_north_arrow(params)
 
             log_info(f"Msm_34_1: Макет '{layout_name}' создан программно ({config_key})")
@@ -607,6 +611,64 @@ class LayoutBuilder:
 
         self._layout.addLayoutItem(label)
         log_info(f"Msm_34_1: Добавлен appendix_label ({x}, {y})")
+
+        return label
+
+    def _add_organization_label(self, params: Dict[str, Any]) -> Optional[QgsLayoutItemLabel]:
+        """
+        Добавление подписи организации (опциональный элемент).
+
+        Создаётся только если в Base_layout заданы organization_label_x/y/...
+        (для DPT эти поля = "-" в Excel → парсер не пишет в JSON →
+        params.get вернёт None → return без создания). Текст заполняется
+        в Fsm_6_6_2 (или другом потребителе) из ProjectDB metadata
+        '2_3_company'.
+
+        Args:
+            params: Параметры из конфигурации макета
+
+        Returns:
+            QgsLayoutItemLabel или None если элемент не нужен в этом макете
+        """
+        if params.get('organization_label_x') is None:
+            return None
+
+        x = params['organization_label_x']
+        y = params['organization_label_y']
+        width = params.get('organization_label_width', 100)
+        height = params.get('organization_label_height', 5)
+        font_family = self._font_family
+        font_style = str(params.get('organization_label_font', 'regular')).lower()
+
+        ref_point = self._REF_POINTS[params['organization_label_ref_point']]
+
+        label = QgsLayoutItemLabel(self._layout)
+        label.setId('organization_label')
+        label.setReferencePoint(ref_point)
+
+        # Позиция и размер
+        label.attemptMove(QgsLayoutPoint(x, y, Qgis.LayoutUnit.Millimeters))
+        label.attemptResize(QgsLayoutSize(width, height, Qgis.LayoutUnit.Millimeters))
+
+        # Шрифт (size=14 константа, стиль из базы; font_family per-макет)
+        text_format = QgsTextFormat()
+        font = QFont(font_family, 14)
+        font.setBold('bold' in font_style)
+        font.setItalic('italic' in font_style)
+        text_format.setFont(font)
+        text_format.setSize(14)
+        label.setTextFormat(text_format)
+
+        # Текст пустой по умолчанию — заполняется потребителем (Fsm_6_6_2)
+        # из ProjectDB.get_metadata('2_3_company')
+        label.setText('')
+
+        # Выравнивание по центру (типичное для footer-подписи)
+        label.setHAlign(Qt.AlignmentFlag.AlignHCenter)
+        label.setVAlign(Qt.AlignmentFlag.AlignVCenter)
+
+        self._layout.addLayoutItem(label)
+        log_info(f"Msm_34_1: Добавлен organization_label ({x}, {y})")
 
         return label
 

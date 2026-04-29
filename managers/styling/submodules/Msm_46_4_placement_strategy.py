@@ -156,6 +156,46 @@ class PlacementStrategy(ABC):
             legend.refresh()
 
     @staticmethod
+    def _apply_line_spacing(
+        legend: QgsLayoutItemLegend,
+        extra_spacing_mm: float,
+    ) -> None:
+        """Установить межстрочный интервал для text-стилей легенды.
+
+        Замена deprecated `QgsLayoutItemLegend.setLineSpacing(extra_mm)`.
+        Под капотом старая функция делала
+        `style.textFormat().setLineHeight(font_height_mm + extra_mm, Mm)`
+        для каждого text-стиля. Эта реализация делает то же самое явно через
+        non-deprecated API.
+
+        extra_spacing_mm — дополнительный inter-line gap в мм (поверх
+        font height). 0 = без extra, типичные значения для compaction
+        0.15-0.5 мм.
+
+        Применяется к Title/Group/Subgroup/SymbolLabel — Symbol style
+        не трогаем (служебный, не текстовый).
+        """
+        from qgis.core import QgsUnitTypes, QgsLegendStyle  # lazy
+        # Читаем актуальный font size легенды (SymbolLabel — показатель основного текста)
+        symlabel_style = legend.style(QgsLegendStyle.SymbolLabel)
+        font_size_pt = symlabel_style.textFormat().font().pointSizeF()
+        if font_size_pt <= 0:
+            font_size_pt = 14.0  # fallback: текущий стандарт config
+        # 1pt = 1/72 inch = 0.3528 mm (Qt-стандарт)
+        font_height_mm = font_size_pt * 0.3528
+        line_height_mm = font_height_mm + extra_spacing_mm
+
+        for style_name in ('Title', 'Group', 'Subgroup', 'SymbolLabel'):
+            style_enum = getattr(QgsLegendStyle, style_name, None)
+            if style_enum is None:
+                continue
+            style_ref = legend.rstyle(style_enum)
+            text_format = style_ref.textFormat()
+            text_format.setLineHeight(line_height_mm)
+            text_format.setLineHeightUnit(QgsUnitTypes.RenderMillimeters)
+            style_ref.setTextFormat(text_format)
+
+    @staticmethod
     def _apply_letter_spacing(
         legend: QgsLayoutItemLegend,
         letter_spacing_pt: float,
@@ -333,10 +373,10 @@ class FixedPanelPlacement(PlacementStrategy):
                 legend.rstyle(QgsLegendStyle.SymbolLabel).setMargin(
                     QgsLegendStyle.Top, label_top
                 )
-                # TODO QGIS 3.44+: setLineSpacing() deprecated; mover на
-                # QgsLegendStyle.textFormat().setLineHeight(...) per style.
-                # На 3.40 deprecated но рабочий — оставлен.
-                legend.setLineSpacing(line_sp)
+                # Замена deprecated legend.setLineSpacing(line_sp) →
+                # textFormat().setLineHeight(...) per text style. См.
+                # _apply_line_spacing для деталей.
+                self._apply_line_spacing(legend, line_sp)
                 if hasattr(legend, 'adjustBoxSize'):
                     legend.adjustBoxSize()
                 final_w = legend.sizeWithUnits().width()

@@ -41,23 +41,6 @@ class AvailableSpace:
 
 
 @dataclass(frozen=True)
-class SpaceBoundaries:
-    """
-    Геометрические границы соседних overlay-элементов относительно legend_anchor.
-
-    Промежуточный результат расчёта позиций overview_map / north_arrow /
-    title_label внутри Msm_46_2. Используется для передачи геометрии между
-    этапами calculate() до формирования финального AvailableSpace.
-
-    None в поле означает "нет соответствующего соседа" (fallback на page margin).
-    """
-    left_edge_right_neighbour_mm: Optional[float] = None
-    top_edge_above_neighbour_mm: Optional[float] = None
-    page_right_margin_mm: Optional[float] = None
-    page_top_margin_mm: Optional[float] = None
-
-
-@dataclass(frozen=True)
 class LegendPlan:
     """
     План размещения легенды (результат Msm_46_3.plan).

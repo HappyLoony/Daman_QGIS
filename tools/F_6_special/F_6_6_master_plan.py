@@ -882,6 +882,10 @@ class F_6_6_MasterPlan(BaseTool):
             # h. Заголовок (адрес территории) + название схемы
             layout_mgr.set_title(layout, location_text, drawing_name)
 
+            # h2. Подпись организации (опционально, только если в макете
+            # есть organization_label — для МП да, для DPT нет).
+            layout_mgr.set_organization(layout)
+
             # i. Легенда (filter_by_map)
             layout_mgr.update_legend(layout, main_layers)
 

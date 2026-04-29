@@ -88,6 +88,8 @@ class TestMsm464:
         column_count: int = 2,
         symbol_width: float = 12.0,
         symbol_height: float = 4.0,
+        text_width_mm: float = 50.0,  # для pixel-based wrap_text в стратегиях
+        letter_spacing_pt: float = 0.0,
         reason=None,
     ):
         from Daman_QGIS.managers.styling.submodules.Msm_46_types import LegendPlan
@@ -101,6 +103,8 @@ class TestMsm464:
             predicted_height_mm=50.0,
             width_mm=130.0,
             height_max_mm=80.0,
+            text_width_mm=text_width_mm,
+            letter_spacing_pt=letter_spacing_pt,
             reason=reason,
         )
 
@@ -251,7 +255,9 @@ class TestMsm464:
             )
             layout, legend, layer = self._layout_with_legend_and_layer(long_title)
             try:
-                plan = self._make_plan(wrap_length=20)
+                # text_width_mm=30 — узкая text-area, длинный title должен
+                # обернуться через QFontMetricsF.horizontalAdvance в \n.
+                plan = self._make_plan(wrap_length=20, text_width_mm=30.0)
                 DynamicPlacement().apply(layout, plan)
 
                 # Проверяем что title был обёрнут
