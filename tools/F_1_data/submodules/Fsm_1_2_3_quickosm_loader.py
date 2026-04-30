@@ -114,7 +114,7 @@ class Fsm_1_2_3_QuickOSMLoader:
         bbox_wgs84: QgsRectangle,
         key: str,
         values: Optional[List[str]] = None,
-        timeout: int = 60
+        timeout: int = 25
     ) -> str:
         """
         Генерация OQL запроса для Overpass API.
@@ -123,12 +123,13 @@ class Fsm_1_2_3_QuickOSMLoader:
             bbox_wgs84: Bounding box в WGS84
             key: OSM ключ (highway, railway, waterway)
             values: Список значений для фильтрации. None/[] = все объекты с ключом
-            timeout: Таймаут Overpass запроса (секунды). Default 60.
-                     Применяется через `[timeout:N]` в OQL. Снижено с 180 (2026-04-30):
-                     на ЯНАО зависшие сервера DE/DE-lz4 тратили по 200 сек каждый
-                     до switch на FR. С 60 сек worst-case 60×3 сервера = 3 мин
-                     вместо 10. Реальные запросы укладываются в 1-5 сек на live
-                     серверах. Также задаётся `[maxsize:1073741824]` (1 GB).
+            timeout: Таймаут Overpass запроса (секунды). Default 25.
+                     Применяется через `[timeout:N]` в OQL. Снижено 180 → 60 → 25
+                     итеративно: на ЯНАО pre-flight (5s) проходил, но main request
+                     к перегруженному DE/DE-lz4 виснул на 80 сек × 2 сервера = 2:40
+                     до switch на FR. С 25 сек worst-case 25×3 = ~80 сек total.
+                     Реальные запросы укладываются в 1-5 сек, запас x5+.
+                     Также задаётся `[maxsize:1073741824]` (1 GB).
         """
         # Валидация ключа: alphanumeric, underscores, colons (стандарт OSM)
         if not re.match(r'^[a-zA-Z_:][a-zA-Z0-9_:]*$', key):
@@ -158,16 +159,17 @@ class Fsm_1_2_3_QuickOSMLoader:
             f"out body;"
         )
 
-    def _download_osm_data(self, query: str, server_url: str, timeout: int = 80) -> str:
+    def _download_osm_data(self, query: str, server_url: str, timeout: int = 30) -> str:
         """
         Загрузка OSM данных через Overpass API (POST).
 
         Args:
             query: OQL запрос (результат _build_overpass_query)
             server_url: URL сервера, например "https://overpass-api.de/api/"
-            timeout: HTTP таймаут (секунды). Default 80 = 60 (Overpass [timeout:60])
-                     + 20 (запас на сериализацию). Снижено с 200 (2026-04-30) для
-                     ускорения auto-switch на перегруженных серверах.
+            timeout: HTTP таймаут (секунды). Default 30 = 25 (Overpass [timeout:25])
+                     + 5 (запас на сериализацию). Снижен 200 → 80 → 30 итеративно
+                     (см. Variant A.2 в плане): worst-case 30×3 сервера = ~80 сек
+                     vs 6+ минут до фикса. Live FR отвечает за 2 сек, запас x15.
 
         Returns:
             str: Путь к временному .osm файлу
