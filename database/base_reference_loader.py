@@ -15,7 +15,7 @@ API URL: constants.API_BASE_URL
 
 import json
 from typing import Dict, List, Any, Optional
-from Daman_QGIS.utils import log_warning, log_error, log_info
+from Daman_QGIS.utils import log_warning, log_error
 
 
 class BaseReferenceLoader:
@@ -69,8 +69,8 @@ class BaseReferenceLoader:
         """
         Загрузить JSON через Daman API с JWT авторизацией.
 
-        Добавляет JWT Authorization header если токены доступны.
-        При 401 ответе пытается обновить токен и повторить запрос.
+        Все retry/refresh/backoff логика вынесена в Msm_29_6_AuthedRequestManager
+        (single source of truth). Здесь только парсинг ответа.
 
         Args:
             filename: Имя JSON файла (с или без .json расширения)
@@ -78,7 +78,13 @@ class BaseReferenceLoader:
         Returns:
             Данные из файла или None при ошибке
         """
-        from Daman_QGIS.constants import DEFAULT_REQUEST_TIMEOUT, get_api_url
+        from Daman_QGIS.constants import get_api_url
+        from Daman_QGIS.managers.infrastructure.submodules.Msm_29_6_authed_request import (
+            AuthedRequestManager,
+            AuthFailureError,
+            CircuitBreakerError,
+            VersionMismatchError,
+        )
 
         try:
             import requests
@@ -88,84 +94,88 @@ class BaseReferenceLoader:
 
         # Убираем .json для API запроса (API добавит сам)
         file_param = filename.replace('.json', '')
-
         url = get_api_url("data", file=file_param)
 
-        # Получаем JWT заголовки если доступны
-        auth_headers = self._get_jwt_auth_headers()
-
-        if not auth_headers:
-            log_warning(
-                f"BaseReferenceLoader: JWT headers пусты для {filename} "
-                f"(возможен module identity mismatch после hot-reload)"
+        try:
+            response = AuthedRequestManager.get_instance().request(
+                "GET",
+                url,
+                # Один endpoint_key на все Base_*.json — общая квота 3 попытки/60с.
+                endpoint_key="/api/plugin/data",
             )
+        except CircuitBreakerError as e:
+            # Тихо — не спамить запросами и не пугать юзера повторно.
+            # AuthFailureError уже показал UI ранее, circuit breaker = cooldown.
+            log_warning(f"BaseReferenceLoader: {filename} skipped: {e}")
+            return None
+        except AuthFailureError as e:
+            # UI-сообщение «Требуется повторная активация» уже показано
+            # из AuthedRequestManager (через registered callback).
+            log_error(f"BaseReferenceLoader: Auth failure для {filename}: {e}")
+            return None
+        except VersionMismatchError as e:
+            # M_42 hot update detected — токены инвалидированы, форсим re-validate.
+            log_warning(f"BaseReferenceLoader: {filename} version mismatch: {e}")
+            self._handle_jwt_version_mismatch()
+            return None
+        except requests.exceptions.Timeout:
+            log_warning(f"BaseReferenceLoader: Таймаут при загрузке {filename}")
+            return None
+        except requests.exceptions.RequestException as e:
+            log_warning(f"BaseReferenceLoader: Ошибка сети при загрузке {filename}: {e}")
+            return None
+
+        if response is None:
+            return None
 
         try:
-            response = requests.get(url, headers=auth_headers, timeout=DEFAULT_REQUEST_TIMEOUT)
-
-            # JWT: при 401 пытаемся обновить токен и повторить запрос
-            if response.status_code == 401 and auth_headers:
-                if self._handle_jwt_401():
-                    auth_headers = self._get_jwt_auth_headers()
-                    response = requests.get(url, headers=auth_headers, timeout=DEFAULT_REQUEST_TIMEOUT)
-
             if response.status_code == 200:
                 response_json = response.json()
                 # Сервер оборачивает данные в {'data': ..., 'copyright': ...}
                 data = response_json.get('data', response_json) if isinstance(response_json, dict) else response_json
                 return data
-            elif response.status_code == 401:
-                log_warning(f"BaseReferenceLoader: Авторизация отклонена для {filename}")
-            elif response.status_code == 403:
-                # Логируем тело ответа для диагностики (JWT AUTH_FAILED vs файл в PROTECTED_FILES)
+            if response.status_code == 403:
+                # 403 не-AUTH_FAILED (например, ACCOUNT_PENDING_DELETION,
+                # INTEGRITY_MISMATCH, HARDWARE_MISMATCH) — refresh не помог бы,
+                # AuthedRequestManager пропускает их без retry. Логируем код.
                 try:
                     error_body = response.json()
                     error_code = error_body.get('error_code', error_body.get('error', 'unknown'))
                 except Exception:
                     error_code = response.text[:100] if response.text else 'empty'
-                log_warning(f"BaseReferenceLoader: Доступ запрещён к {filename} (reason: {error_code})")
+                log_warning(
+                    f"BaseReferenceLoader: Доступ запрещён к {filename} "
+                    f"(reason: {error_code})"
+                )
             elif response.status_code == 404:
                 log_warning(f"BaseReferenceLoader: Файл {filename} не найден на сервере")
             else:
-                log_warning(f"BaseReferenceLoader: HTTP {response.status_code} для {filename}")
-        except requests.exceptions.Timeout:
-            log_warning(f"BaseReferenceLoader: Таймаут при загрузке {filename}")
-        except requests.exceptions.RequestException as e:
-            log_warning(f"BaseReferenceLoader: Ошибка сети при загрузке {filename}: {e}")
+                log_warning(
+                    f"BaseReferenceLoader: HTTP {response.status_code} для {filename}"
+                )
         except json.JSONDecodeError as e:
             log_error(f"BaseReferenceLoader: Ошибка парсинга JSON {filename}: {e}")
 
         return None
 
     @staticmethod
-    def _get_jwt_auth_headers() -> Dict[str, str]:
-        """
-        Получить JWT заголовки авторизации из TokenManager.
+    def _handle_jwt_version_mismatch() -> None:
+        """JWT integrity claims устарели после M_42 hot-update.
 
-        Returns:
-            Dict с Authorization и X-Hardware-Id headers, или пустой dict
+        Форсим M_29.force_revalidate() — verify() с обнулённым кэшем сессии,
+        чтобы /validate выдал свежий JWT с актуальными integrity claims
+        для текущей PLUGIN_VERSION. Best-effort — если M_29 недоступен,
+        возвращаемся (next request попадёт в _check_jwt_version с уже
+        очищенными токенами и пойдёт по обычному auth-failure пути).
         """
         try:
-            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_4_token_manager import TokenManager
-            token_mgr = TokenManager.get_instance()
-            return token_mgr.get_auth_headers()
-        except Exception:
-            return {}
-
-    @staticmethod
-    def _handle_jwt_401() -> bool:
-        """
-        Обработка 401 ответа: попытка обновить JWT токен.
-
-        Returns:
-            True если токен обновлён (повторить запрос), False если нет
-        """
-        try:
-            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_4_token_manager import TokenManager
-            token_mgr = TokenManager.get_instance()
-            return token_mgr.handle_401_response()
-        except Exception:
-            return False
+            from Daman_QGIS.managers._registry import registry
+            license_mgr = registry.get('M_29')
+            if license_mgr is None:
+                return
+            license_mgr.force_revalidate()
+        except Exception as e:
+            log_warning(f"BaseReferenceLoader: Force re-validate failed: {e}")
 
     def _build_index(self, data: List[Dict], key_field: str) -> Dict:
         """

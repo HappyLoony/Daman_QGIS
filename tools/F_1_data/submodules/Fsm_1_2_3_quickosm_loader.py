@@ -114,7 +114,7 @@ class Fsm_1_2_3_QuickOSMLoader:
         bbox_wgs84: QgsRectangle,
         key: str,
         values: Optional[List[str]] = None,
-        timeout: int = 60
+        timeout: int = 180
     ) -> str:
         """
         Генерация OQL запроса для Overpass API.
@@ -123,7 +123,11 @@ class Fsm_1_2_3_QuickOSMLoader:
             bbox_wgs84: Bounding box в WGS84
             key: OSM ключ (highway, railway, waterway)
             values: Список значений для фильтрации. None/[] = все объекты с ключом
-            timeout: Таймаут Overpass запроса (секунды, по умолчанию 60)
+            timeout: Таймаут Overpass запроса (секунды). Default 180 (Overpass default).
+                     Применяется через `[timeout:N]` в OQL. Также задаётся
+                     `[maxsize:1073741824]` (1 GB) для обработки крупных bbox
+                     (ЯНАО, Якутия, Камчатка). Сервер сам откажет если запрос
+                     превышает его глобальные лимиты.
         """
         # Валидация ключа: alphanumeric, underscores, colons (стандарт OSM)
         if not re.match(r'^[a-zA-Z_:][a-zA-Z0-9_:]*$', key):
@@ -144,7 +148,7 @@ class Fsm_1_2_3_QuickOSMLoader:
             tag_filter = f'["{key}"]'
 
         return (
-            f"[out:xml][timeout:{timeout}];\n"
+            f"[out:xml][timeout:{timeout}][maxsize:1073741824];\n"
             f"(\n"
             f"  way{tag_filter}{bbox_str};\n"
             f"  relation{tag_filter}{bbox_str};\n"
@@ -153,23 +157,26 @@ class Fsm_1_2_3_QuickOSMLoader:
             f"out body;"
         )
 
-    def _download_osm_data(self, query: str, server_url: str, timeout: int = 120) -> str:
+    def _download_osm_data(self, query: str, server_url: str, timeout: int = 200) -> str:
         """
         Загрузка OSM данных через Overpass API (POST).
 
         Args:
             query: OQL запрос (результат _build_overpass_query)
             server_url: URL сервера, например "https://overpass-api.de/api/"
-            timeout: HTTP таймаут (секунды). Должен быть >= Overpass timeout в запросе
+            timeout: HTTP таймаут (секунды). Должен быть >= Overpass timeout в запросе.
+                     Default 200 = 180 (Overpass) + 20 (запас на сериализацию).
 
         Returns:
             str: Путь к временному .osm файлу
 
         Raises:
-            Exception: При ошибках Overpass (timeout, memory, rate limit)
+            Exception: При ошибках Overpass (timeout, memory, rate limit) или
+                       принудительном таймауте через requests_post_with_timeout
+                       (защита от Windows SSL hang, psf/requests#5433)
         """
-        import requests as req
         from Daman_QGIS.constants import PLUGIN_VERSION
+        from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_1_egrn_loader import requests_post_with_timeout
 
         # POST к /interpreter с data= в теле запроса
         interpreter_url = server_url.rstrip('/') + '/interpreter'
@@ -178,12 +185,19 @@ class Fsm_1_2_3_QuickOSMLoader:
             'User-Agent': f'Daman_QGIS/{PLUGIN_VERSION} (QGIS Plugin; overpass-loader)'
         }
 
-        response = req.post(
+        # Threading wrapper защищает от Windows SSL hang в requests.post()
+        # (psf/requests#5433): на Windows DNS/SSL handshake может зависнуть навсегда,
+        # игнорируя HTTP timeout. Wrapper убивает зависший поток принудительно.
+        response = requests_post_with_timeout(
             interpreter_url,
             data={'data': query},
             timeout=timeout,
             headers=headers
         )
+        if response is None:
+            # Wrapper вернул None = поток убит после max_timeout (timeout + 5 сек).
+            # Сообщение содержит "timeout" — auto-switch на следующий сервер сработает.
+            raise Exception(f"Overpass принудительный timeout (Windows SSL hang) на {server_url}")
         response.raise_for_status()
 
         # ВАЖНО: используем response.content (bytes), а не response.text

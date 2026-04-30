@@ -24,6 +24,7 @@ from .submodules.Msm_29_1_hardware_id import HardwareIDGenerator
 from .submodules.Msm_29_2_license_storage import LicenseStorage
 from .submodules.Msm_29_3_license_validator import LicenseValidator
 from .submodules.Msm_29_4_token_manager import TokenManager
+from .submodules.Msm_29_6_authed_request import AuthedRequestManager
 
 from Daman_QGIS.utils import log_info, log_error, log_warning
 
@@ -31,6 +32,7 @@ __all__ = [
     'LicenseStatus', 'LicenseManager',
     # Субменеджеры (реэкспорт для from Daman_QGIS.managers import X)
     'HardwareIDGenerator', 'LicenseStorage', 'LicenseValidator', 'TokenManager',
+    'AuthedRequestManager',
 ]
 
 
@@ -412,8 +414,76 @@ class LicenseManager(QObject):
             # Устанавливаем callback для полного отказа аутентификации
             token_mgr.set_on_auth_failure(self._on_jwt_auth_failure)
 
+            # Регистрируем UI-callback для AuthedRequestManager:
+            # при исчерпании retry-лимита покажет «Требуется повторная активация».
+            self._register_authed_request_ui_callback()
+
         except Exception as e:
             log_warning(f"M_29: Failed to store JWT tokens: {e}")
+
+    def _register_authed_request_ui_callback(self) -> None:
+        """Зарегистрировать UI-callback в AuthedRequestManager (idempotent).
+
+        При полном auth failure (refresh упал ИЛИ retry после refresh = 403)
+        helper вызовет этот callback, чтобы показать пользователю
+        QMessageBox «Требуется повторная активация лицензии» и предложить
+        запустить forced-activation dialog (как при cold start без tokens).
+
+        Throttling: показываем диалог не чаще 1 раза в 5 минут — без этого
+        каждый из десятков ref-loader запросов открывал бы новый диалог.
+        """
+        try:
+            from .submodules.Msm_29_6_authed_request import AuthedRequestManager
+            AuthedRequestManager.get_instance().set_on_auth_failure_ui(
+                self._show_auth_failure_dialog
+            )
+        except Exception as e:
+            log_warning(f"M_29: Failed to register authed-request UI callback: {e}")
+
+    def _show_auth_failure_dialog(self) -> None:
+        """Показать пользователю диалог «Требуется повторная активация».
+
+        Throttle: не чаще одного диалога в 5 минут (несколько concurrent
+        managers могут одновременно споткнуться на одном auth failure).
+        """
+        from time import monotonic
+        last_shown = getattr(self, '_auth_failure_dialog_last_ts', 0.0)
+        now = monotonic()
+        if now - last_shown < 300:  # 5 минут throttle
+            return
+        self._auth_failure_dialog_last_ts = now
+
+        try:
+            from qgis.PyQt.QtWidgets import QMessageBox
+            from qgis.utils import iface  # type: ignore[import-untyped]
+            from Daman_QGIS.constants import PLUGIN_NAME
+
+            parent = iface.mainWindow() if iface else None
+            answer = QMessageBox.warning(
+                parent,
+                PLUGIN_NAME,
+                "Авторизация плагина истекла. "
+                "Требуется повторная активация лицензии.\n\n"
+                "Открыть окно активации?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+            # Сбрасываем session_verified — следующий verify() сходит на /validate.
+            self._session_verified = False
+
+            # Открыть стандартный диалог активации (тот же что при cold start
+            # без tokens). LicenseDialog сам вызывает activate().
+            from Daman_QGIS.tools.F_4_plagin.submodules.Fsm_4_3_1_license_dialog import (
+                LicenseDialog,
+            )
+            dialog = LicenseDialog(iface, parent)
+            dialog.setWindowTitle(f"{PLUGIN_NAME} — Активация лицензии")
+            dialog.exec()
+        except Exception as e:
+            log_warning(f"M_29: show_auth_failure_dialog failed: {e}")
 
     def _on_jwt_auth_failure(self) -> None:
         """
@@ -424,6 +494,21 @@ class LicenseManager(QObject):
         """
         log_warning("M_29: JWT auth failure - forcing re-verification")
         self._session_verified = False
+
+    def force_revalidate(self) -> bool:
+        """Принудительная re-валидация лицензии с актуальным PLUGIN_VERSION.
+
+        Используется когда обнаружено JWT version mismatch (M_42 hot update
+        без рестарта QGIS — integrity hashes в JWT устарели). Форсит
+        verify() даже если _session_verified=True, чтобы получить свежий
+        JWT с актуальными claims.
+
+        Returns:
+            True если re-валидация успешна, False иначе.
+        """
+        log_info("M_29: force_revalidate (version mismatch detected)")
+        self._session_verified = False
+        return self.verify()
 
     def deactivate(self) -> bool:
         """
@@ -444,6 +529,13 @@ class LicenseManager(QObject):
             if result["status"] == "success":
                 # Очистка JWT токенов (RAM)
                 TokenManager.reset_instance()
+
+                # Сброс circuit-breaker и UI-callback в AuthedRequestManager
+                try:
+                    from .submodules.Msm_29_6_authed_request import AuthedRequestManager
+                    AuthedRequestManager.reset_instance()
+                except Exception as e:
+                    log_warning(f"M_29: AuthedRequestManager reset failed: {e}")
 
                 # Очистка QSettings
                 self._storage.clear()

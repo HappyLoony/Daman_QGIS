@@ -769,7 +769,7 @@ DEFAULT_MAX_RETRIES = 3               # Количество повторных 
 DEFAULT_RETRY_DELAY = 1.0             # Используется в request handlers
 
 # Ограничение частоты запросов (запросов в секунду)
-DEFAULT_RATE_LIMIT = 10               # Защита от 429 ошибок и блокировки IP
+DEFAULT_RATE_LIMIT = 5                # Защита от 429 ошибок и блокировки IP. Снижено с 10 (2026-04-30): на крупных территориях (ЯНАО ~30 км², Якутия) при параллельной загрузке 5 ОКС-потоков x ThreadPoolExecutor генерировались 13+ HTTP 429 за минуту.
 
 # Пул Overpass API серверов для динамического выбора по латентности.
 # Пингуются параллельно POST запросом к /interpreter перед каждой загрузкой OSM.
@@ -840,6 +840,13 @@ ACCESS_TOKEN_LIFETIME_MINUTES = 15  # Время жизни access token
 TOKEN_REFRESH_THRESHOLD_SECONDS = 60  # Обновлять за 60 сек до истечения
 TOKEN_MAX_RETRY_COUNT = 3  # Максимум попыток обновления
 TOKEN_RETRY_DELAY_SECONDS = 2  # Задержка между попытками
+
+# Authed-request retry policy (Msm_29_6_AuthedRequestManager)
+# Защита от burst-retry на 403 AUTH_FAILED, который триггерит CrowdSec
+# scenario `daman-anomaly` (>50 plugin-API запросов / 5 мин) и блокирует IP.
+AUTHED_REQUEST_MAX_ATTEMPTS = 3       # Макс. попыток на endpoint в окне
+AUTHED_REQUEST_WINDOW_SECONDS = 60    # Окно circuit-breaker (60 секунд)
+AUTHED_REQUEST_BACKOFF_SECONDS = (2, 5, 10)  # Exponential backoff между попытками
 
 # Heartbeat: периодическая проверка статуса лицензии
 HEARTBEAT_INTERVAL_MS = 4 * 60 * 60 * 1000  # 4 часа в миллисекундах

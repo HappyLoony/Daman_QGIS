@@ -552,25 +552,39 @@ class ProfileSetupManager:
         return True
 
     def _download_profile_zip(self) -> Optional[bytes]:
-        """Скачать profile.zip с API. Передаёт JWT если доступен."""
+        """Скачать profile.zip через AuthedRequestManager (retry/refresh/backoff).
+
+        Profile ZIP — это auth'd endpoint (JWT required для download, см.
+        api-contracts.md). Используем единый retry-helper, чтобы не плодить
+        дублирующую burst-retry логику в каждом manager'е.
+        """
         try:
-            import requests
-            headers = self._get_jwt_headers()
-            response = requests.get(
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_6_authed_request import (
+                AuthedRequestManager,
+                AuthedRequestError,
+            )
+            response = AuthedRequestManager.get_instance().request(
+                "GET",
                 PROFILE_API_ENDPOINT,
-                headers=headers,
+                endpoint_key="/api/plugin/profile",
                 timeout=self._PROFILE_TIMEOUT,
             )
-            if response.status_code == 200:
-                return response.content
-            else:
-                log_warning(
-                    f"M_37: Profile download HTTP {response.status_code}"
-                )
-                return None
+        except AuthedRequestError as e:
+            # CircuitBreakerError / AuthFailureError / VersionMismatchError —
+            # уже залогированы в helper. Profile ZIP не критичен — повторим
+            # при следующем запуске QGIS.
+            log_warning(f"M_37: Profile download skipped: {e}")
+            return None
         except Exception as e:
             log_warning(f"M_37: Profile download failed: {e}")
             return None
+
+        if response is None:
+            return None
+        if response.status_code == 200:
+            return response.content
+        log_warning(f"M_37: Profile download HTTP {response.status_code}")
+        return None
 
     def _get_remote_profile_info(self) -> Optional[Dict]:
         """Получить метаданные профиля с API (?action=profile&info=1)."""

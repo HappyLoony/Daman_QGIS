@@ -166,6 +166,15 @@ class FallbackToolbarManager:
         from Daman_QGIS.managers.infrastructure.submodules.Msm_29_4_token_manager import TokenManager
         TokenManager.get_instance().clear_tokens()
 
+        # 2a. Сброс retry-history и UI-callback в AuthedRequestManager
+        try:
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_6_authed_request import (
+                AuthedRequestManager,
+            )
+            AuthedRequestManager.reset_instance()
+        except Exception as e:
+            log_warning(f"M_43: AuthedRequestManager reset failed: {e}")
+
         # 3. Очистить кэш данных
         from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
         BaseReferenceLoader.clear_cache()
