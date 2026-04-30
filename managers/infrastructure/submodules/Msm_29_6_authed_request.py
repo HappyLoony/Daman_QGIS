@@ -202,21 +202,29 @@ class AuthedRequestManager:
         ep_key = endpoint_key or self._derive_endpoint_key(url)
         timeout_value = timeout if timeout is not None else API_TIMEOUT
 
-        # Pre-check: circuit breaker и JWT version mismatch.
+        # Pre-check: если circuit breaker уже открыт от прошлых auth failures,
+        # raise сразу не делая запрос. Также проверяем JWT version mismatch.
         self._check_circuit_breaker(ep_key)
         self._check_jwt_version()
 
-        # Первая попытка.
-        self._record_attempt(ep_key)
+        # Первая попытка. NB: _record_attempt здесь НЕ вызываем — circuit breaker
+        # должен срабатывать только на AUTH-FAILURES, а не на нормальные запросы.
+        # Иначе плагин при cold start (3+ обращений к /api/plugin/data за справочники)
+        # ложно открывает CB и блокирует всю загрузку. Регрессия 0.9.894 → fixed.
         response = self._raw_request(
             requests, method, url, timeout_value, **request_kwargs
         )
 
-        # Если успех или ошибка не auth-related — возвращаем сразу.
+        # Если успех или ошибка не auth-related — возвращаем сразу,
+        # ничего не записывая в счётчик circuit breaker.
         if not self._is_auth_failure(response):
             return response
 
-        # 401/403 AUTH_FAILED — пробуем refresh + один повтор.
+        # 401/403 AUTH_FAILED — auth failure. Записываем попытку и проверяем квоту.
+        self._record_attempt(ep_key)
+        # Может оказаться что эта попытка была 3-й в окне → raise немедленно.
+        self._check_circuit_breaker(ep_key)
+
         log_warning(
             f"{self.MODULE_ID}: {method} {ep_key} -> "
             f"{response.status_code} {self._extract_error_code(response)}, "
@@ -237,10 +245,6 @@ class AuthedRequestManager:
                 f"Refresh failed after {response.status_code} on {ep_key}"
             )
 
-        # Retry с новым JWT — но только если ещё в окне квоты.
-        self._check_circuit_breaker(ep_key)
-        self._record_attempt(ep_key)
-
         # Backoff перед повтором (5s).
         self._sleep_backoff(attempt_index=1)
 
@@ -249,6 +253,8 @@ class AuthedRequestManager:
         )
 
         if self._is_auth_failure(retry_response):
+            # Retry тоже provoked auth failure — фиксируем ещё одну попытку.
+            self._record_attempt(ep_key)
             log_error(
                 f"{self.MODULE_ID}: Retry after refresh still failed: "
                 f"{retry_response.status_code} {self._extract_error_code(retry_response)} "
