@@ -114,7 +114,7 @@ class Fsm_1_2_3_QuickOSMLoader:
         bbox_wgs84: QgsRectangle,
         key: str,
         values: Optional[List[str]] = None,
-        timeout: int = 180
+        timeout: int = 60
     ) -> str:
         """
         Генерация OQL запроса для Overpass API.
@@ -123,11 +123,12 @@ class Fsm_1_2_3_QuickOSMLoader:
             bbox_wgs84: Bounding box в WGS84
             key: OSM ключ (highway, railway, waterway)
             values: Список значений для фильтрации. None/[] = все объекты с ключом
-            timeout: Таймаут Overpass запроса (секунды). Default 180 (Overpass default).
-                     Применяется через `[timeout:N]` в OQL. Также задаётся
-                     `[maxsize:1073741824]` (1 GB) для обработки крупных bbox
-                     (ЯНАО, Якутия, Камчатка). Сервер сам откажет если запрос
-                     превышает его глобальные лимиты.
+            timeout: Таймаут Overpass запроса (секунды). Default 60.
+                     Применяется через `[timeout:N]` в OQL. Снижено с 180 (2026-04-30):
+                     на ЯНАО зависшие сервера DE/DE-lz4 тратили по 200 сек каждый
+                     до switch на FR. С 60 сек worst-case 60×3 сервера = 3 мин
+                     вместо 10. Реальные запросы укладываются в 1-5 сек на live
+                     серверах. Также задаётся `[maxsize:1073741824]` (1 GB).
         """
         # Валидация ключа: alphanumeric, underscores, colons (стандарт OSM)
         if not re.match(r'^[a-zA-Z_:][a-zA-Z0-9_:]*$', key):
@@ -157,23 +158,25 @@ class Fsm_1_2_3_QuickOSMLoader:
             f"out body;"
         )
 
-    def _download_osm_data(self, query: str, server_url: str, timeout: int = 200) -> str:
+    def _download_osm_data(self, query: str, server_url: str, timeout: int = 80) -> str:
         """
         Загрузка OSM данных через Overpass API (POST).
 
         Args:
             query: OQL запрос (результат _build_overpass_query)
             server_url: URL сервера, например "https://overpass-api.de/api/"
-            timeout: HTTP таймаут (секунды). Должен быть >= Overpass timeout в запросе.
-                     Default 200 = 180 (Overpass) + 20 (запас на сериализацию).
+            timeout: HTTP таймаут (секунды). Default 80 = 60 (Overpass [timeout:60])
+                     + 20 (запас на сериализацию). Снижено с 200 (2026-04-30) для
+                     ускорения auto-switch на перегруженных серверах.
 
         Returns:
             str: Путь к временному .osm файлу
 
         Raises:
-            Exception: При ошибках Overpass (timeout, memory, rate limit) или
-                       принудительном таймауте через requests_post_with_timeout
-                       (защита от Windows SSL hang, psf/requests#5433)
+            Exception: При ошибках Overpass (timeout, memory, rate limit), отказе
+                       pre-flight health check (сервер перегружен), или принудительном
+                       таймауте через requests_post_with_timeout (Windows SSL hang,
+                       psf/requests#5433)
         """
         from Daman_QGIS.constants import PLUGIN_VERSION
         from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_1_egrn_loader import requests_post_with_timeout
@@ -184,6 +187,27 @@ class Fsm_1_2_3_QuickOSMLoader:
         headers = {
             'User-Agent': f'Daman_QGIS/{PLUGIN_VERSION} (QGIS Plugin; overpass-loader)'
         }
+
+        # Pre-flight health check: лёгкий запрос с timeout=5 сек.
+        # Сервер из ping-пула мог перегрузиться между ping и реальным запросом.
+        # Если health check не проходит за 5 сек — сразу switch, не ждём 60 сек
+        # на heavy-запрос. Минимальный OQL возвращает один CSV row "0".
+        # При успехе ping-сервера на real запросе обычно < 5 сек на response.
+        health_query = (
+            "[out:csv(::count)];\n"
+            "node[nonexistent_key_12345];\n"
+            "out count;"
+        )
+        health_response = requests_post_with_timeout(
+            interpreter_url,
+            data={'data': health_query},
+            timeout=5,
+            headers=headers
+        )
+        if health_response is None or health_response.status_code >= 400:
+            # Сервер не ответил за 5 сек или вернул ошибку — считаем перегруженным.
+            # Сообщение содержит "timeout" — auto-switch caller сработает.
+            raise Exception(f"Overpass health check timeout (5s) на {server_url}")
 
         # Threading wrapper защищает от Windows SSL hang в requests.post()
         # (psf/requests#5433): на Windows DNS/SSL handshake может зависнуть навсегда,
