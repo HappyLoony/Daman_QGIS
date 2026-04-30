@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_6_6_2: Менеджер макетов мастер-плана.
+Fsm_5_4_2: Менеджер макетов мастер-плана.
 
 Создание макета А3 через M_34, настройка заголовка, легенды,
 экстентов карт и экспорт в PDF.
@@ -22,13 +22,16 @@ from Daman_QGIS.managers import registry
 from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
     find_legend, filter_print_visible,
 )
+from Daman_QGIS.managers.styling.submodules.Msm_34_1_layout_builder import (
+    LayoutBuilder,
+)
 
 
 # Имя слоя границ работ (хардкод)
 _BOUNDARIES_LAYER = 'L_1_1_1_Границы_работ'
 
 
-class Fsm_6_6_2_LayoutManager:
+class Fsm_5_4_2_LayoutManager:
     """Менеджер макетов для схем мастер-плана."""
 
     def __init__(self, iface):
@@ -60,14 +63,14 @@ class Fsm_6_6_2_LayoutManager:
             )
 
             if not layout:
-                log_error(f"Fsm_6_6_2: M_34 вернул None для '{layout_name}'")
+                log_error(f"Fsm_5_4_2: M_34 вернул None для '{layout_name}'")
                 return None
 
-            log_info(f"Fsm_6_6_2: Макет '{layout_name}' создан")
+            log_info(f"Fsm_5_4_2: Макет '{layout_name}' создан")
             return layout
 
         except Exception as e:
-            log_error(f"Fsm_6_6_2: Ошибка создания макета '{layout_name}': {e}")
+            log_error(f"Fsm_5_4_2: Ошибка создания макета '{layout_name}': {e}")
             return None
 
     def set_title(self, layout: QgsPrintLayout,
@@ -89,7 +92,9 @@ class Fsm_6_6_2_LayoutManager:
             if isinstance(item, QgsLayoutItemLabel):
                 if item.id() == 'title_label':
                     item.setText(location_text)
-                    log_info(f"Fsm_6_6_2: Адрес территории установлен")
+                    # Auto-compaction line height если текст не влезает в bbox
+                    LayoutBuilder.fit_label_to_height(item)
+                    log_info(f"Fsm_5_4_2: Адрес территории установлен")
                 elif item.id() == 'appendix_label':
                     item.setText(drawing_name)
                     # Убираем underline (appendix по умолчанию с подчёркиванием)
@@ -98,7 +103,10 @@ class Fsm_6_6_2_LayoutManager:
                     font.setUnderline(False)
                     text_format.setFont(font)
                     item.setTextFormat(text_format)
-                    log_info(f"Fsm_6_6_2: Название схемы: {drawing_name}")
+                    # Auto-compaction для длинных drawing_name (на МП появилось
+                    # многострочное название, например "Схема расположения...")
+                    LayoutBuilder.fit_label_to_height(item)
+                    log_info(f"Fsm_5_4_2: Название схемы: {drawing_name}")
 
         return True
 
@@ -147,15 +155,15 @@ class Fsm_6_6_2_LayoutManager:
                     company_text = str(company_data['value'])
         except Exception as e:
             log_warning(
-                f"Fsm_6_6_2: Не удалось прочитать '2_3_company' из ProjectDB: {e}"
+                f"Fsm_5_4_2: Не удалось прочитать '2_3_company' из ProjectDB: {e}"
             )
 
         org_label.setText(company_text)
         if company_text:
-            log_info(f"Fsm_6_6_2: Подпись организации: {company_text}")
+            log_info(f"Fsm_5_4_2: Подпись организации: {company_text}")
         else:
             log_warning(
-                f"Fsm_6_6_2: '2_3_company' пусто в metadata — "
+                f"Fsm_5_4_2: '2_3_company' пусто в metadata — "
                 f"organization_label оставлен без текста"
             )
         return True
@@ -183,11 +191,11 @@ class Fsm_6_6_2_LayoutManager:
                 break
 
         if not legend:
-            log_warning("Fsm_6_6_2: Легенда не найдена в макете")
+            log_warning("Fsm_5_4_2: Легенда не найдена в макете")
             return False
 
         if not main_map:
-            log_warning("Fsm_6_6_2: main_map не найден в макете")
+            log_warning("Fsm_5_4_2: main_map не найден в макете")
             return False
 
         # Привязка к main_map
@@ -210,7 +218,7 @@ class Fsm_6_6_2_LayoutManager:
         ]
 
         # Фильтр not_print (Base_layers): защитный слой на случай, если
-        # visible_layer_names содержит слои, скрытые от печати. F_6_6
+        # visible_layer_names содержит слои, скрытые от печати. F_5_4
         # уже фильтрует через _expand_layer_patterns, но update_legend
         # принимает произвольный список — защита от прямых вызовов.
         legend_layer_names, hidden_from_print = filter_print_visible(
@@ -218,7 +226,7 @@ class Fsm_6_6_2_LayoutManager:
         )
         if hidden_from_print:
             log_info(
-                f"Fsm_6_6_2: Исключены not_print слои из легенды: "
+                f"Fsm_5_4_2: Исключены not_print слои из легенды: "
                 f"{', '.join(hidden_from_print)}"
             )
 
@@ -241,7 +249,7 @@ class Fsm_6_6_2_LayoutManager:
                         )
 
         log_info(
-            f"Fsm_6_6_2: Легенда обновлена, "
+            f"Fsm_5_4_2: Легенда обновлена, "
             f"{len(legend_layer_names)} слоёв"
         )
         return True
@@ -290,11 +298,11 @@ class Fsm_6_6_2_LayoutManager:
                 break
 
         if not boundaries_layer:
-            log_warning("Fsm_6_6_2: Слой границ работ не найден")
+            log_warning("Fsm_5_4_2: Слой границ работ не найден")
             return False
 
         if isinstance(boundaries_layer, QgsVectorLayer) and boundaries_layer.featureCount() == 0:
-            log_warning("Fsm_6_6_2: Слой границ пуст")
+            log_warning("Fsm_5_4_2: Слой границ пуст")
             return False
 
         extent_manager = registry.get('M_18')
@@ -302,7 +310,7 @@ class Fsm_6_6_2_LayoutManager:
         # Получаем main_map (размеры из Base_layout.json, без перезаписи)
         main_map = extent_manager.applier.get_map_item_by_id(layout, 'main_map')
         if not main_map:
-            log_warning("Fsm_6_6_2: main_map не найден")
+            log_warning("Fsm_5_4_2: main_map не найден")
             return False
 
         map_width = main_map.rect().width()
@@ -328,9 +336,9 @@ class Fsm_6_6_2_LayoutManager:
         result = extent_manager.applier.apply_extent(main_map, extent)
 
         if result:
-            log_info(f"Fsm_6_6_2: Экстент main_map установлен ({map_width:.0f}x{map_height:.0f} мм)")
+            log_info(f"Fsm_5_4_2: Экстент main_map установлен ({map_width:.0f}x{map_height:.0f} мм)")
         else:
-            log_warning("Fsm_6_6_2: Не удалось установить экстент main_map")
+            log_warning("Fsm_5_4_2: Не удалось установить экстент main_map")
 
         return result
 
@@ -353,7 +361,7 @@ class Fsm_6_6_2_LayoutManager:
             layout, 'overview_map'
         )
         if not overview_map:
-            log_warning("Fsm_6_6_2: overview_map не найден")
+            log_warning("Fsm_5_4_2: overview_map не найден")
             return False
 
         # Ставим экстент по границам работ
@@ -379,7 +387,7 @@ class Fsm_6_6_2_LayoutManager:
                 clear_data_defined=True
             )
 
-        log_info(f"Fsm_6_6_2: Масштаб overview_map: 1:{int(target_scale)}")
+        log_info(f"Fsm_5_4_2: Масштаб overview_map: 1:{int(target_scale)}")
         return True
 
     def export_to_pdf(
@@ -429,7 +437,7 @@ class Fsm_6_6_2_LayoutManager:
             )
 
         log_info(
-            f"Fsm_6_6_2: Экспорт PDF: {os.path.basename(pdf_path)} "
+            f"Fsm_5_4_2: Экспорт PDF: {os.path.basename(pdf_path)} "
             f"({dpi} DPI)"
         )
         return True

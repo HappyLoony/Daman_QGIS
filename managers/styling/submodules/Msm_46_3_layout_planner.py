@@ -41,6 +41,10 @@ from .Msm_46_types import (
     LegendLayoutMode,
     LegendPlan,
 )
+from .Msm_46_utils import (
+    apply_letter_spacing_to_font,
+    parse_letter_spacing_pt,
+)
 
 MODULE_ID = "Msm_46_3"
 
@@ -187,18 +191,17 @@ class LayoutPlanner:
         min_sym_h = float(config.get('legend_min_symbol_height', 3.5))
         font_family = str(config.get('font_family', 'GOST 2.304'))
         font_size_pt = int(config.get('font_size_pt', DEFAULT_FONT_SIZE_PT))
-        # legend_letter_spacing_pt: AbsoluteSpacing в pt. 0 = default, <0 = compress.
-        # Применяется к font для metrics И к стилям легенды в Msm_46_4.strategy.
-        # Защита: PercentageSpacing ломает QGIS legend renderer (character-wrap),
-        # поэтому используем только AbsoluteSpacing.
-        letter_spacing_pt = float(config.get('legend_letter_spacing_pt') or 0.0)
+        # letter_spacing_pt: AbsoluteSpacing в pt — глобальный параметр макета
+        # (page-level). Парсинг + apply через shared helpers Msm_46_utils
+        # (единое поведение для legend и labels — Msm_34_1 использует те же).
+        letter_spacing_pt = parse_letter_spacing_pt(config)
 
         # QFontMetricsF на актуальном шрифте С letter-spacing — для точного
         # pixel-based wrap. Если letter_spacing_pt < 0, буквы плотнее, в строку
         # помещается больше chars → wrap_text/predict_height точнее.
         font = QFont(font_family, font_size_pt)
         if letter_spacing_pt != 0.0:
-            font.setLetterSpacing(QFont.AbsoluteSpacing, letter_spacing_pt)
+            apply_letter_spacing_to_font(font, letter_spacing_pt)
         font_metrics = QFontMetricsF(font)
         line_height_mm = font_size_pt * LINE_HEIGHT_MM_PER_PT
 

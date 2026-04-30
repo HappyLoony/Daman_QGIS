@@ -29,7 +29,7 @@ from qgis.PyQt.QtGui import QFont, QFontMetricsF  # QFont для fallback в _ap
 from Daman_QGIS.utils import log_info, log_warning
 from .Msm_46_3_layout_planner import LayoutPlanner
 from .Msm_46_types import LegendLayoutMode, LegendPlan, LegendResult
-from .Msm_46_utils import find_legend
+from .Msm_46_utils import apply_letter_spacing_to_font, find_legend
 
 MODULE_ID = "Msm_46_4"
 
@@ -202,18 +202,12 @@ class PlacementStrategy(ABC):
     ) -> None:
         """Применить letter-spacing к font во всех text-стилях легенды.
 
-        ВАЖНО: используется ТОЛЬКО QFont.AbsoluteSpacing (pt). PercentageSpacing
-        ломает QGIS legend renderer — даже значение 100% (Qt-семантически no-op)
-        приводит к character-wrap всего текста через layout. AbsoluteSpacing 0
-        — Qt-default, безопасный no-op.
+        Использует shared `apply_letter_spacing_to_font` из Msm_46_utils —
+        тот же helper применяется в Msm_34_1 для font'ов label-элементов
+        (title/appendix/organization). Единое поведение для всей схемы.
 
-        letter_spacing_pt:
-        -  0.0  → AbsoluteSpacing 0 (default, no extra spacing)
-        - <0.0  → compress букв (например -1.0 pt = -1pt после каждой буквы)
-        - >0.0  → expand букв (редко нужно)
-
-        Применяется к Title/Group/Subgroup/SymbolLabel — main_map/title документа
-        не затрагиваются.
+        Применяется к Title/Group/Subgroup/SymbolLabel — main_map/title
+        документа не затрагиваются.
         """
         from qgis.core import QgsLegendStyle  # lazy
         for style_name in ('Title', 'Group', 'Subgroup', 'SymbolLabel'):
@@ -223,7 +217,7 @@ class PlacementStrategy(ABC):
             style_ref = legend.rstyle(style_enum)
             text_format = style_ref.textFormat()
             font = text_format.font()
-            font.setLetterSpacing(QFont.AbsoluteSpacing, letter_spacing_pt)
+            apply_letter_spacing_to_font(font, letter_spacing_pt)
             text_format.setFont(font)
             style_ref.setTextFormat(text_format)
 
@@ -292,7 +286,7 @@ class DynamicPlacement(PlacementStrategy):
 
 
 class FixedPanelPlacement(PlacementStrategy):
-    """Размещение легенды в фиксированной полосе вне main_map (для F_6_6 master plan).
+    """Размещение легенды в фиксированной полосе вне main_map (для F_5_4 master plan).
 
     Семантика:
     - Координаты, ширина, потолок высоты заданы явно в Base_layout (legend_panel_*).

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_6_6_1: Диалог выбора схем мастер-плана.
+Fsm_5_4_1: Диалог выбора схем мастер-плана.
 
 Показывает чекбоксы доступных схем (drawing_name из Base_drawings)
 и позволяет выбрать папку экспорта.
@@ -22,7 +22,7 @@ from Daman_QGIS.utils import log_info, log_warning
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class Fsm_6_6_1_Dialog(BaseResponsiveDialog):
+class Fsm_5_4_1_Dialog(BaseResponsiveDialog):
     """Диалог выбора схем для мастер-плана."""
 
     WIDTH_RATIO = 0.35
@@ -250,12 +250,12 @@ class Fsm_6_6_1_Dialog(BaseResponsiveDialog):
         folder = self.get_output_folder()
 
         if not selected:
-            log_warning("Fsm_6_6_1: Не выбрано ни одной схемы")
+            log_warning("Fsm_5_4_1: Не выбрано ни одной схемы")
             return
 
         if not folder:
-            log_warning("Fsm_6_6_1: Не указана папка экспорта")
+            log_warning("Fsm_5_4_1: Не указана папка экспорта")
             return
 
-        log_info(f"Fsm_6_6_1: Выбрано {len(selected)} схем, папка: {folder}")
+        log_info(f"Fsm_5_4_1: Выбрано {len(selected)} схем, папка: {folder}")
         super().accept()

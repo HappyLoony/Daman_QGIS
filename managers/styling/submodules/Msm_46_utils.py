@@ -4,7 +4,7 @@ Msm_46_utils: Shared helpers для работы с layout items.
 
 Выделены в отдельный модуль для устранения дублирования find_legend /
 find_main_map, которое воспроизводилось в ~4 местах (Msm_34_2,
-M_46-субменеджеры, Fsm_1_4_5, Fsm_6_6_2).
+M_46-субменеджеры, Fsm_1_4_5, Fsm_5_4_2).
 
 numpad_to_offset — арифметический хелпер для конвертации numpad-нотации
 ref_point (1-9) в смещение (dx, dy) от anchor до top-left. Другой домен
@@ -12,9 +12,48 @@ ref_point (1-9) в смещение (dx, dy) от anchor до top-left. Друг
 (Chesterton's Fence, OPT-3 partial).
 """
 
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from qgis.core import QgsPrintLayout, QgsLayoutItemLegend, QgsLayoutItemMap
+from qgis.PyQt.QtGui import QFont
+
+
+def parse_letter_spacing_pt(params: Dict[str, Any]) -> float:
+    """Извлечь page-level `letter_spacing_pt` из Base_layout params.
+
+    Принимает '-' / '' / None → 0.0 (default, no extra spacing).
+    Безопасно к ошибкам конвертации: при ValueError/TypeError возвращает 0.0.
+
+    Используется в Msm_46_3 (planner — для font_metrics в wrap_text)
+    и Msm_34_1 (layout_builder — для font'ов label-элементов). Обеспечивает
+    единое чтение глобального параметра letter-spacing.
+    """
+    raw = params.get('letter_spacing_pt')
+    if raw is None or raw in ('', '-'):
+        return 0.0
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def apply_letter_spacing_to_font(font: QFont, letter_spacing_pt: float) -> None:
+    """Применить letter-spacing (pt) к QFont (in-place).
+
+    ВАЖНО: используется ТОЛЬКО QFont.AbsoluteSpacing. PercentageSpacing
+    ломает QGIS legend renderer — даже значение 100% (Qt-семантически
+    no-op) приводит к character-wrap всего текста через layout.
+    AbsoluteSpacing 0 — Qt-default, безопасный no-op.
+
+    letter_spacing_pt:
+    -  0.0  → AbsoluteSpacing 0 (default, no extra spacing)
+    - <0.0  → compress букв (например -1.0 = -1pt после каждой буквы)
+    - >0.0  → expand букв (редко нужно)
+
+    Вызывают: Msm_34_1 (для font label'ов) и Msm_46_4 (для font'ов
+    QgsLegendStyle стилей легенды).
+    """
+    font.setLetterSpacing(QFont.AbsoluteSpacing, letter_spacing_pt)
 
 
 def find_legend(
@@ -96,8 +135,8 @@ def is_layer_hidden_from_print(layer_name: str) -> bool:
     Проверить, помечен ли слой как "скрыт от печати" (not_print=1 в Base_layers).
 
     Аналог логики DxfExporter (layer_info.get('not_print') == 1), применимый
-    к темам макетов и легендам. Используется в F_1_4 (Fsm_1_4_5), F_6_6
-    (F_6_6_master_plan, Fsm_6_6_2) для исключения таких слоёв из
+    к темам макетов и легендам. Используется в F_1_4 (Fsm_1_4_5), F_5_4
+    (F_5_4_master_plan, Fsm_5_4_2) для исключения таких слоёв из
     main_map / overview_map / легенды.
 
     Источник истины — Base_layers.json через M_10 (layers_db). Если слоя нет

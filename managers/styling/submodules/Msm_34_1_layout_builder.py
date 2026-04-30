@@ -13,20 +13,27 @@ import os
 from typing import Optional, Dict, Any
 
 from qgis.PyQt.QtCore import Qt, QPointF, QSizeF
-from qgis.PyQt.QtGui import QFont, QColor
+from qgis.PyQt.QtGui import QFont, QFontMetricsF, QColor
 from qgis.core import (
     QgsProject, QgsPrintLayout, QgsLayoutSize, Qgis,
     QgsLayoutItemMap, QgsLayoutItemLegend, QgsLayoutItemLabel,
     QgsLayoutItemPicture, QgsLayoutItemPage, QgsLayoutPoint,
     QgsTextFormat, QgsLayoutMeasurement, QgsLegendStyle, QgsLayoutItem,
-    QgsLayoutGuide
+    QgsLayoutGuide, QgsUnitTypes,
 )
+
+# Конверсия QFontMetricsF.horizontalAdvance(px) → mm. Qt logical DPI = 96.
+_PX_TO_MM = 25.4 / 96.0
 
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
 from Daman_QGIS.constants import EXPORT_DPI_ROSREESTR, DOC_TYPE_FONTS
 
 from .Msm_46_types import LegendLayoutMode
+from .Msm_46_utils import (
+    apply_letter_spacing_to_font,
+    parse_letter_spacing_pt,
+)
 
 
 class LayoutBuilder:
@@ -71,6 +78,91 @@ class LayoutBuilder:
         self._config: Optional[Dict[str, Any]] = None
         self._layout: Optional[QgsPrintLayout] = None
         self._font_family: str = DOC_TYPE_FONTS.get('ДПТ', 'GOST 2.304')
+
+    # === Static helpers (text-related) ===
+
+    # Letter-spacing helper удалён — используется shared
+    # `apply_letter_spacing_to_font` + `parse_letter_spacing_pt` из Msm_46_utils
+    # (тот же helper применяется в Msm_46_3 planner и Msm_46_4 strategy для
+    # font'ов легенды). Единое поведение для всей схемы.
+
+    @staticmethod
+    def fit_label_to_height(label: QgsLayoutItemLabel) -> None:
+        """Авто-уплотнение line height для label если текст overflow по высоте.
+
+        Аналог progressive compaction в Msm_46_4 для легенды, но для обычных
+        QgsLayoutItemLabel (title_label, appendix_label, organization_label).
+
+        Алгоритм:
+        1. Wrap текста по ширине bbox через QFontMetricsF (учитывает letter-spacing
+           если он уже applied к font).
+        2. Если линий × default_line_height ≤ bbox_height → не трогаем (помещается).
+        3. Иначе устанавливаем lineHeight = bbox_height / line_count в Mm
+           (с минимумом 95% font_height — иначе текст overlapped).
+
+        Безопасно: если bbox_w/h ≤ 0 (label не размещён) или текст пуст — no-op.
+        Вызывается ПОСЛЕ setText().
+        """
+        text = label.text() or ''
+        if not text:
+            return
+        bbox_w = label.sizeWithUnits().width()
+        bbox_h = label.sizeWithUnits().height()
+        if bbox_w <= 0 or bbox_h <= 0:
+            return
+
+        text_format = label.textFormat()
+        font = text_format.font()
+        font_metrics = QFontMetricsF(font)
+
+        # Wrap по ширине bbox. Учитываем явные \n как принудительные переносы.
+        all_lines = []
+        for paragraph in text.split('\n'):
+            words = paragraph.split()
+            if not words:
+                all_lines.append('')
+                continue
+            current: list = []
+            for word in words:
+                candidate = ' '.join(current + [word]) if current else word
+                if font_metrics.horizontalAdvance(candidate) * _PX_TO_MM > bbox_w:
+                    if current:
+                        all_lines.append(' '.join(current))
+                        current = [word]
+                    else:
+                        # слово шире bbox — оставляем как есть (overflow вправо)
+                        all_lines.append(word)
+                        current = []
+                else:
+                    current.append(word)
+            if current:
+                all_lines.append(' '.join(current))
+
+        line_count = max(1, len(all_lines))
+
+        # Default line height ≈ font_height × 1.2 (Qt typical leading).
+        font_size_pt = font.pointSizeF() if font.pointSizeF() > 0 else 14.0
+        font_height_mm = font_size_pt * 0.3528  # 1pt = 0.3528 mm
+        needed_h = font_height_mm * line_count * 1.2
+
+        if needed_h <= bbox_h:
+            return  # помещается с дефолтным leading — не трогаем
+
+        # Compress: target_line_h = bbox_h / line_count.
+        # Ограничение снизу: 95% font_height — ниже текст overlaps между строками.
+        target_line_h = bbox_h / line_count
+        min_line_h = font_height_mm * 0.95
+        if target_line_h < min_line_h:
+            target_line_h = min_line_h
+
+        text_format.setLineHeight(target_line_h)
+        text_format.setLineHeightUnit(QgsUnitTypes.RenderMillimeters)
+        label.setTextFormat(text_format)
+        log_info(
+            f"Msm_34_1: fit_label_to_height '{label.id()}' — "
+            f"{line_count} строк, lineHeight={target_line_h:.2f} мм "
+            f"(bbox {bbox_w:.0f}x{bbox_h:.0f} мм)"
+        )
 
     # Кэш зарегистрированных шрифтов (class-level, один раз за сессию)
     _registered_fonts: set = set()
@@ -331,7 +423,7 @@ class LayoutBuilder:
         map_item.setFrameEnabled(True)
         map_item.setBackgroundEnabled(True)
 
-        # Тема карты задаётся вызывающим кодом (Fsm_1_4_5, F_6_6 и т.д.)
+        # Тема карты задаётся вызывающим кодом (Fsm_1_4_5, F_5_4 и т.д.)
 
         self._layout.addLayoutItem(map_item)
         log_info(f"Msm_34_1: Добавлена main_map ({x}, {y}, {width}x{height})")
@@ -544,11 +636,12 @@ class LayoutBuilder:
         label.attemptMove(QgsLayoutPoint(x, y, Qgis.LayoutUnit.Millimeters))
         label.attemptResize(QgsLayoutSize(width, height, Qgis.LayoutUnit.Millimeters))
 
-        # Шрифт (size=14 константа, стиль из базы)
+        # Шрифт (size=14 константа, стиль из базы, letter_spacing из page-level)
         text_format = QgsTextFormat()
         font = QFont(font_family, 14)
         font.setBold('bold' in font_style)
         font.setItalic('italic' in font_style)
+        apply_letter_spacing_to_font(font, parse_letter_spacing_pt(params))
         text_format.setFont(font)
         text_format.setSize(14)
         label.setTextFormat(text_format)
@@ -592,12 +685,13 @@ class LayoutBuilder:
         label.attemptMove(QgsLayoutPoint(x, y, Qgis.LayoutUnit.Millimeters))
         label.attemptResize(QgsLayoutSize(width, height, Qgis.LayoutUnit.Millimeters))
 
-        # Шрифт (size=14 константа, стиль из базы)
+        # Шрифт (size=14 константа, стиль из базы, letter_spacing из page-level)
         text_format = QgsTextFormat()
         font = QFont(font_family, 14)
         font.setBold('bold' in font_style)
         font.setItalic('italic' in font_style)
         font.setUnderline(True)
+        apply_letter_spacing_to_font(font, parse_letter_spacing_pt(params))
         text_format.setFont(font)
         text_format.setSize(14)
         label.setTextFormat(text_format)
@@ -621,7 +715,7 @@ class LayoutBuilder:
         Создаётся только если в Base_layout заданы organization_label_x/y/...
         (для DPT эти поля = "-" в Excel → парсер не пишет в JSON →
         params.get вернёт None → return без создания). Текст заполняется
-        в Fsm_6_6_2 (или другом потребителе) из ProjectDB metadata
+        в Fsm_5_4_2 (или другом потребителе) из ProjectDB metadata
         '2_3_company'.
 
         Args:
@@ -650,21 +744,23 @@ class LayoutBuilder:
         label.attemptMove(QgsLayoutPoint(x, y, Qgis.LayoutUnit.Millimeters))
         label.attemptResize(QgsLayoutSize(width, height, Qgis.LayoutUnit.Millimeters))
 
-        # Шрифт (size=14 константа, стиль из базы; font_family per-макет)
+        # Шрифт (size=14 константа, стиль из базы; font_family per-макет;
+        # letter_spacing из page-level letter_spacing_pt)
         text_format = QgsTextFormat()
         font = QFont(font_family, 14)
         font.setBold('bold' in font_style)
         font.setItalic('italic' in font_style)
+        apply_letter_spacing_to_font(font, parse_letter_spacing_pt(params))
         text_format.setFont(font)
         text_format.setSize(14)
         label.setTextFormat(text_format)
 
-        # Текст пустой по умолчанию — заполняется потребителем (Fsm_6_6_2)
+        # Текст пустой по умолчанию — заполняется потребителем (Fsm_5_4_2)
         # из ProjectDB.get_metadata('2_3_company')
         label.setText('')
 
-        # Выравнивание по центру (типичное для footer-подписи)
-        label.setHAlign(Qt.AlignmentFlag.AlignHCenter)
+        # Выравнивание по левому краю (для footer-подписи в нижнем углу)
+        label.setHAlign(Qt.AlignmentFlag.AlignLeft)
         label.setVAlign(Qt.AlignmentFlag.AlignVCenter)
 
         self._layout.addLayoutItem(label)

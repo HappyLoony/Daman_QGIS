@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-F_6_6: Мастер-план - Генерация комплекта PDF-схем мастер-плана на формате А3.
+F_5_4: Мастер-план - Генерация комплекта PDF-схем мастер-плана на формате А3.
 
 Координатор: загружает Base_drawings.json, фильтрует доступные схемы,
 показывает GUI для выбора, генерирует макеты через M_34 и экспортирует PDF.
@@ -30,9 +30,9 @@ from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
     filter_print_visible,
 )
 
-from .submodules.Fsm_6_6_1_dialog import Fsm_6_6_1_Dialog
-from .submodules.Fsm_6_6_2_layout_manager import Fsm_6_6_2_LayoutManager
-from .submodules.Fsm_6_6_3_pdf_assembler import Fsm_6_6_3_PdfAssembler
+from .submodules.Fsm_5_4_1_dialog import Fsm_5_4_1_Dialog
+from .submodules.Fsm_5_4_2_layout_manager import Fsm_5_4_2_LayoutManager
+from .submodules.Fsm_5_4_3_pdf_assembler import Fsm_5_4_3_PdfAssembler
 
 
 # Хардкод подложек
@@ -80,12 +80,12 @@ def _expand_layer_patterns(
     visible, hidden = filter_print_visible(resolved_sorted)
     if hidden:
         log_info(
-            f"F_6_6: Исключены not_print слои: {', '.join(hidden)}"
+            f"F_5_4: Исключены not_print слои: {', '.join(hidden)}"
         )
     return visible, unresolved
 
 
-class F_6_6_MasterPlan(BaseTool):
+class F_5_4_MasterPlan(BaseTool):
     """Генерация комплекта PDF-схем мастер-плана."""
 
     def __init__(self, iface):
@@ -100,7 +100,7 @@ class F_6_6_MasterPlan(BaseTool):
         DaData, M_46 plan_and_apply, M_34 adapt_legend). Без прогресса
         пользователь думает что плагин завис.
         """
-        log_info("F_6_6: Запуск функции Мастер-план")
+        log_info("F_5_4: Запуск функции Мастер-план")
 
         # Проверка проекта
         if not self.check_project_opened():
@@ -112,7 +112,7 @@ class F_6_6_MasterPlan(BaseTool):
         parent = self.iface.mainWindow() if self.iface else None
         progress = QProgressDialog(
             "Запуск...",
-            None,  # cancel disabled — F_6_6 не отменяется частично
+            None,  # cancel disabled — F_5_4 не отменяется частично
             0, 100,
             parent
         )
@@ -144,7 +144,7 @@ class F_6_6_MasterPlan(BaseTool):
             ]
 
             if not master_plan_drawings:
-                log_warning("F_6_6: Нет записей с doc_type='Мастер-план' в Base_drawings.json")
+                log_warning("F_5_4: Нет записей с doc_type='Мастер-план' в Base_drawings.json")
                 progress.close()
                 QMessageBox.warning(
                     self.iface.mainWindow(),
@@ -159,7 +159,7 @@ class F_6_6_MasterPlan(BaseTool):
             available_drawings = self._filter_available_drawings(master_plan_drawings)
 
             if not available_drawings:
-                log_warning("F_6_6: Нет схем с заполненными visible_layers")
+                log_warning("F_5_4: Нет схем с заполненными visible_layers")
                 progress.close()
                 QMessageBox.warning(
                     self.iface.mainWindow(),
@@ -168,7 +168,7 @@ class F_6_6_MasterPlan(BaseTool):
                 )
                 return
 
-            log_info(f"F_6_6: Доступно {len(available_drawings)} схем из {len(master_plan_drawings)}")
+            log_info(f"F_5_4: Доступно {len(available_drawings)} схем из {len(master_plan_drawings)}")
 
             _step(15, "3/12: Получение адреса территории (DaData)...")
 
@@ -179,11 +179,11 @@ class F_6_6_MasterPlan(BaseTool):
             progress.hide()  # скрываем чтобы не перекрывать модальный диалог
 
             # 3. Диалог выбора схем и папки экспорта
-            dialog = Fsm_6_6_1_Dialog(
+            dialog = Fsm_5_4_1_Dialog(
                 available_drawings, location_text, self.iface.mainWindow()
             )
             if dialog.exec() == 0:
-                log_info("F_6_6: Отмена пользователем")
+                log_info("F_5_4: Отмена пользователем")
                 return
 
             selected_drawings = dialog.get_selected_drawings()
@@ -191,17 +191,17 @@ class F_6_6_MasterPlan(BaseTool):
             location_text = dialog.get_location_text()
 
             if not selected_drawings:
-                log_warning("F_6_6: Не выбрано ни одной схемы")
+                log_warning("F_5_4: Не выбрано ни одной схемы")
                 return
 
             if not output_folder:
-                log_warning("F_6_6: Не указана папка экспорта")
+                log_warning("F_5_4: Не указана папка экспорта")
                 return
 
             os.makedirs(output_folder, exist_ok=True)
 
             log_info(
-                f"F_6_6: Выбрано {len(selected_drawings)} схем, "
+                f"F_5_4: Выбрано {len(selected_drawings)} схем, "
                 f"папка: {output_folder}"
             )
 
@@ -209,7 +209,7 @@ class F_6_6_MasterPlan(BaseTool):
             _step(30, "5/12: Подготовка превью основной карты...")
 
             # 4. Layout manager (нужен раньше для main preview)
-            layout_mgr = Fsm_6_6_2_LayoutManager(self.iface)
+            layout_mgr = Fsm_5_4_2_LayoutManager(self.iface)
 
             _step(35, "6/12: Ожидание выбора масштаба основной карты...")
             # Превью-диалог сам показывает progress bar тайлов; общий progress
@@ -221,7 +221,7 @@ class F_6_6_MasterPlan(BaseTool):
                 selected_drawings[0], layout_mgr
             )
             if main_scale_factor is None:
-                log_info("F_6_6: Отмена выбора масштаба основной карты")
+                log_info("F_5_4: Отмена выбора масштаба основной карты")
                 return
 
             _step(50, "7/12: Подготовка превью обзорной карты...")
@@ -233,7 +233,7 @@ class F_6_6_MasterPlan(BaseTool):
                 selected_drawings[0], layout_mgr
             )
             if overview_scale_factor is None:
-                log_info("F_6_6: Отмена выбора масштаба обзорной карты")
+                log_info("F_5_4: Отмена выбора масштаба обзорной карты")
                 return
 
             _step(70, "9/12: Применение подписей через M_12...")
@@ -250,7 +250,7 @@ class F_6_6_MasterPlan(BaseTool):
 
                 # Настраиваем глобальный движок коллизий (ОДИН РАЗ)
                 label_manager.configure_global_engine(self.iface)
-                log_info("F_6_6: Глобальный движок коллизий подписей настроен")
+                log_info("F_5_4: Глобальный движок коллизий подписей настроен")
 
                 # Принудительно применяем подписи ко ВСЕМ векторным слоям
                 project = QgsProject.instance()
@@ -263,12 +263,12 @@ class F_6_6_MasterPlan(BaseTool):
                             applied_count += 1
                         else:
                             skipped_count += 1
-                log_info(f"F_6_6: Подписи обновлены: {applied_count} слоёв, пропущено: {skipped_count}")
+                log_info(f"F_5_4: Подписи обновлены: {applied_count} слоёв, пропущено: {skipped_count}")
 
             except Exception as e:
-                log_warning(f"F_6_6: Не удалось настроить движок подписей: {str(e)}")
+                log_warning(f"F_5_4: Не удалось настроить движок подписей: {str(e)}")
                 import traceback
-                log_warning(f"F_6_6: {traceback.format_exc()}")
+                log_warning(f"F_5_4: {traceback.format_exc()}")
 
             # 5. Генерация PDF для каждой выбранной схемы
             pdf_paths: List[str] = []
@@ -277,7 +277,7 @@ class F_6_6_MasterPlan(BaseTool):
             total = len(selected_drawings)
             for i, drawing in enumerate(selected_drawings):
                 drawing_name = drawing.get('drawing_name', f'Схема_{i + 1}')
-                log_info(f"F_6_6: Обработка схемы {i + 1}/{total}: {drawing_name}")
+                log_info(f"F_5_4: Обработка схемы {i + 1}/{total}: {drawing_name}")
 
                 # Этапы 10/12 — генерация: 75% + (i/total)*15% → 75-90%
                 pct = 75 + int((i / max(total, 1)) * 15)
@@ -298,13 +298,13 @@ class F_6_6_MasterPlan(BaseTool):
                     )
                     if pdf_path:
                         pdf_paths.append(pdf_path)
-                        log_info(f"F_6_6: Схема экспортирована: {pdf_path}")
+                        log_info(f"F_5_4: Схема экспортирована: {pdf_path}")
                 except Exception as e:
-                    log_error(f"F_6_6: Ошибка при генерации схемы '{drawing_name}': {e}")
+                    log_error(f"F_5_4: Ошибка при генерации схемы '{drawing_name}': {e}")
                     continue
 
             if not pdf_paths:
-                log_error("F_6_6: Не удалось создать ни одного PDF")
+                log_error("F_5_4: Не удалось создать ни одного PDF")
                 progress.close()
                 QMessageBox.critical(
                     self.iface.mainWindow(),
@@ -316,7 +316,7 @@ class F_6_6_MasterPlan(BaseTool):
             _step(95, "11/12: Склейка PDF в один файл...")
 
             # 6. Склейка PDF в один файл
-            assembler = Fsm_6_6_3_PdfAssembler()
+            assembler = Fsm_5_4_3_PdfAssembler()
             merged_filename = "Мастер-план.pdf"
             merged_path = os.path.join(output_folder, merged_filename)
 
@@ -324,17 +324,17 @@ class F_6_6_MasterPlan(BaseTool):
 
             # 7. Темы НЕ удаляются: они нужны сохранённым макетам для
             # корректного отображения при открытии в редакторе макетов.
-            # При повторном запуске F_6_6 темы перезаписываются через
+            # При повторном запуске F_5_4 темы перезаписываются через
             # theme_collection.insert() (upsert-семантика QGIS).
 
             _step(100, "12/12: Готово.")
 
             # 8. Открытие результата
             if merge_success:
-                log_success(f"F_6_6: Мастер-план создан: {merged_path}")
+                log_success(f"F_5_4: Мастер-план создан: {merged_path}")
                 self._open_result(merged_path)
             else:
-                log_warning("F_6_6: Склейка не удалась, отдельные PDF сохранены")
+                log_warning("F_5_4: Склейка не удалась, отдельные PDF сохранены")
                 self.iface.messageBar().pushMessage(
                     "Мастер-план",
                     f"Создано {len(pdf_paths)} отдельных PDF в {output_folder}",
@@ -380,13 +380,13 @@ class F_6_6_MasterPlan(BaseTool):
             )
             if unresolved:
                 log_warning(
-                    f"F_6_6: Схема '{d.get('drawing_name')}' — "
+                    f"F_5_4: Схема '{d.get('drawing_name')}' — "
                     f"не найдены слои/паттерны: {', '.join(unresolved)}"
                 )
             # Если ни один паттерн не дал совпадений — схема недоступна
             if not resolved:
                 log_warning(
-                    f"F_6_6: Схема '{d.get('drawing_name')}' — "
+                    f"F_5_4: Схема '{d.get('drawing_name')}' — "
                     f"ни один слой не найден, пропускаем"
                 )
                 continue
@@ -411,7 +411,7 @@ class F_6_6_MasterPlan(BaseTool):
                     break
 
             if not boundaries_layer or not isinstance(boundaries_layer, QgsVectorLayer):
-                log_warning("F_6_6: Слой границ работ не найден для геокодирования")
+                log_warning("F_5_4: Слой границ работ не найден для геокодирования")
                 return ''
 
             if boundaries_layer.featureCount() == 0:
@@ -454,11 +454,11 @@ class F_6_6_MasterPlan(BaseTool):
             # Запрос к DaData
             geocoder = registry.get('M_39')
             if not geocoder:
-                log_warning("F_6_6: M_39 не зарегистрирован")
+                log_warning("F_5_4: M_39 не зарегистрирован")
                 return ''
             geocoder.initialize()
             if not geocoder.is_configured():
-                log_warning("F_6_6: M_39 DaData не настроен")
+                log_warning("F_5_4: M_39 DaData не настроен")
                 return ''
 
             result = None
@@ -470,7 +470,7 @@ class F_6_6_MasterPlan(BaseTool):
                 if result:
                     if i > 0:
                         log_info(
-                            f"F_6_6: DaData нашёл адрес по точке {i + 1}/{len(points)} "
+                            f"F_5_4: DaData нашёл адрес по точке {i + 1}/{len(points)} "
                             f"(угол bbox), центроид пуст"
                         )
                     break
@@ -479,7 +479,7 @@ class F_6_6_MasterPlan(BaseTool):
                 # Нормальная ситуация для горных/приграничных территорий —
                 # не баг, а отсутствие адреса в ФИАС. Уровень INFO.
                 log_info(
-                    f"F_6_6: DaData не нашёл адрес ни по одной из {len(points)} точек "
+                    f"F_5_4: DaData не нашёл адрес ни по одной из {len(points)} точек "
                     f"(центроид + 4 угла bbox, радиус 1000м)"
                 )
                 return ''
@@ -503,18 +503,18 @@ class F_6_6_MasterPlan(BaseTool):
                     f"находится по адресу: {address}, "
                     f"площадью {area_str} га"
                 )
-                log_info(f"F_6_6: Адрес территории: {location}")
+                log_info(f"F_5_4: Адрес территории: {location}")
                 return location
 
         except Exception as e:
-            log_warning(f"F_6_6: Ошибка получения адреса: {e}")
+            log_warning(f"F_5_4: Ошибка получения адреса: {e}")
 
         return ''
 
     def _get_overview_scale_factor(
         self,
         first_drawing: Dict,
-        layout_mgr: 'Fsm_6_6_2_LayoutManager',
+        layout_mgr: 'Fsm_5_4_2_LayoutManager',
     ) -> Optional[float]:
         """
         Показать диалог выбора масштаба обзорной карты.
@@ -526,7 +526,7 @@ class F_6_6_MasterPlan(BaseTool):
         Args:
             first_drawing: Первая выбранная схема (для заполнения легенды
                 тем же visible_layers что будет в финале).
-            layout_mgr: Менеджер макетов F_6_6 (для update_legend).
+            layout_mgr: Менеджер макетов F_5_4 (для update_legend).
 
         Returns:
             float scale_factor или None при отмене
@@ -544,14 +544,14 @@ class F_6_6_MasterPlan(BaseTool):
             doc_type='Мастер-план'
         )
         if not temp_layout:
-            log_warning("F_6_6: Не удалось создать временный макет для превью")
+            log_warning("F_5_4: Не удалось создать временный макет для превью")
             return 1.0  # Fallback: базовый масштаб
 
         project = QgsProject.instance()
         layout_manager = project.layoutManager()
         layout_manager.addLayout(temp_layout)
 
-        _temp_theme = '_F_6_6_temp_overview'
+        _temp_theme = '_F_5_4_temp_overview'
 
         # Развернуть visible_layers первой схемы для легенды (как в финале)
         visible_layers_first = first_drawing.get('visible_layers', []) or []
@@ -572,7 +572,7 @@ class F_6_6_MasterPlan(BaseTool):
                     break
 
             if not overview_map:
-                log_warning("F_6_6: overview_map не найден во временном макете")
+                log_warning("F_5_4: overview_map не найден во временном макете")
                 return 1.0
 
             # Создаём временную тему с ЦОС + границы работ (как в F_1_4)
@@ -605,7 +605,7 @@ class F_6_6_MasterPlan(BaseTool):
 
             if preview_dialog.exec() == 1:  # Accepted
                 _dpi, scale_factor = preview_dialog.get_selected_variant()
-                log_info(f"F_6_6: Выбран масштаб обзорной карты: x{scale_factor}")
+                log_info(f"F_5_4: Выбран масштаб обзорной карты: x{scale_factor}")
                 return scale_factor
             else:
                 return None
@@ -620,7 +620,7 @@ class F_6_6_MasterPlan(BaseTool):
     def _get_main_scale_factor(
         self,
         first_drawing: Dict,
-        layout_mgr: 'Fsm_6_6_2_LayoutManager',
+        layout_mgr: 'Fsm_5_4_2_LayoutManager',
     ) -> Optional[float]:
         """
         Показать диалог выбора масштаба основной карты (одноразовый).
@@ -633,7 +633,7 @@ class F_6_6_MasterPlan(BaseTool):
 
         Args:
             first_drawing: Запись первой выбранной схемы из Base_drawings
-            layout_mgr: Менеджер макетов F_6_6 (для apply_main_map_extent)
+            layout_mgr: Менеджер макетов F_5_4 (для apply_main_map_extent)
 
         Returns:
             float scale_factor (1.0 если отмена или ошибка), None запрещает
@@ -663,15 +663,15 @@ class F_6_6_MasterPlan(BaseTool):
             doc_type='Мастер-план'
         )
         if not temp_layout:
-            log_warning("F_6_6: Не удалось создать временный макет для main preview")
+            log_warning("F_5_4: Не удалось создать временный макет для main preview")
             return 1.0
 
         layout_manager = project.layoutManager()
         if not layout_mgr_m34.add_layout_to_project(temp_layout):
-            log_warning("F_6_6: Не удалось добавить временный макет main preview в проект")
+            log_warning("F_5_4: Не удалось добавить временный макет main preview в проект")
             return 1.0
 
-        _temp_theme = '_F_6_6_temp_main'
+        _temp_theme = '_F_5_4_temp_main'
 
         try:
             # Найти main_map во временном макете
@@ -682,7 +682,7 @@ class F_6_6_MasterPlan(BaseTool):
                     break
 
             if not main_map:
-                log_warning("F_6_6: main_map не найден во временном макете")
+                log_warning("F_5_4: main_map не найден во временном макете")
                 return 1.0
 
             # Тема первой схемы (как референс)
@@ -707,11 +707,11 @@ class F_6_6_MasterPlan(BaseTool):
 
             current_scale = main_map.scale()
             if not current_scale:
-                log_warning("F_6_6: main_map.scale() == 0 в preview")
+                log_warning("F_5_4: main_map.scale() == 0 в preview")
                 return 1.0
 
             log_info(
-                f"F_6_6: Main preview по схеме '{drawing_name}', "
+                f"F_5_4: Main preview по схеме '{drawing_name}', "
                 f"базовый масштаб 1:{int(current_scale)}"
             )
 
@@ -721,10 +721,10 @@ class F_6_6_MasterPlan(BaseTool):
 
             if preview_dialog.exec() == 1:
                 _dpi, scale_factor = preview_dialog.get_selected_variant()
-                log_info(f"F_6_6: Выбран масштаб основной карты: x{scale_factor}")
+                log_info(f"F_5_4: Выбран масштаб основной карты: x{scale_factor}")
                 return scale_factor
 
-            log_info("F_6_6: Диалог main preview отменён, используется x1.0")
+            log_info("F_5_4: Диалог main preview отменён, используется x1.0")
             return 1.0
 
         finally:
@@ -761,10 +761,10 @@ class F_6_6_MasterPlan(BaseTool):
                         scale_number = int(scale_value)
 
                     overview_scale = scale_number * 100
-                    log_info(f"F_6_6: Масштаб обзорной карты: 1:{overview_scale}")
+                    log_info(f"F_5_4: Масштаб обзорной карты: 1:{overview_scale}")
                     return float(overview_scale)
         except Exception as e:
-            log_warning(f"F_6_6: Не удалось получить масштаб проекта: {e}")
+            log_warning(f"F_5_4: Не удалось получить масштаб проекта: {e}")
 
         return None
 
@@ -783,7 +783,7 @@ class F_6_6_MasterPlan(BaseTool):
                     break
 
             if not boundaries_layer:
-                log_warning("F_6_6: Слой границ работ не найден для обзорной карты")
+                log_warning("F_5_4: Слой границ работ не найден для обзорной карты")
                 return
 
             extent_manager = registry.get('M_18')
@@ -794,14 +794,14 @@ class F_6_6_MasterPlan(BaseTool):
             extent = extent_manager.fit_to_ratio(extent, width, height)
             extent_manager.applier.apply_extent(overview_map, extent)
         except Exception as e:
-            log_warning(f"F_6_6: Не удалось установить экстент обзорной карты: {e}")
+            log_warning(f"F_5_4: Не удалось установить экстент обзорной карты: {e}")
 
     def _generate_single_scheme(
         self,
         drawing: Dict,
         index: int,
         output_folder: str,
-        layout_mgr: 'Fsm_6_6_2_LayoutManager',
+        layout_mgr: 'Fsm_5_4_2_LayoutManager',
         overview_scale_factor: float,
         main_scale_factor: float = 1.0,
         location_text: str = ''
@@ -843,8 +843,8 @@ class F_6_6_MasterPlan(BaseTool):
         overview_layer_list = overview_resolved + [_OVERVIEW_MAP_BASEMAP]
 
         # c/d. Создать map themes
-        main_theme_name = f'F_6_6_main_{index}'
-        overview_theme_name = f'F_6_6_overview_{index}'
+        main_theme_name = f'F_5_4_main_{index}'
+        overview_theme_name = f'F_5_4_overview_{index}'
 
         self._create_map_theme(main_theme_name, main_layers)
         self._created_themes.append(main_theme_name)
@@ -856,7 +856,7 @@ class F_6_6_MasterPlan(BaseTool):
         layout_name = f'Мастер-план — {drawing_name}'
         layout = layout_mgr.create_layout(layout_name)
         if not layout:
-            log_error(f"Fsm_6_6_2: Не удалось создать макет для '{drawing_name}'")
+            log_error(f"Fsm_5_4_2: Не удалось создать макет для '{drawing_name}'")
             return None
 
         # Добавить в проект через M_34 — корректно обрабатывает конфликт имён
@@ -865,7 +865,7 @@ class F_6_6_MasterPlan(BaseTool):
         project = QgsProject.instance()
         layout_mgr_m34 = registry.get('M_34')
         if not layout_mgr_m34.add_layout_to_project(layout):
-            log_error(f"F_6_6: Не удалось добавить макет '{layout_name}' в проект")
+            log_error(f"F_5_4: Не удалось добавить макет '{layout_name}' в проект")
             return None
 
         try:
@@ -894,7 +894,7 @@ class F_6_6_MasterPlan(BaseTool):
 
             # j1. M_46: централизованный план/применение условников
             # (wrap/col/symbol) ПЕРЕД финальным measurement и сдвигом экстента.
-            # F_6_6 всегда A3 landscape Мастер-план.
+            # F_5_4 всегда A3 landscape Мастер-план.
             legend_mgr = registry.get('M_46')
             legend_mgr.plan_and_apply(layout, config_key='A3_landscape_MP')
 
@@ -913,7 +913,7 @@ class F_6_6_MasterPlan(BaseTool):
                         item.setScale(new_scale)
                         item.refresh()
                         log_info(
-                            f"F_6_6: Применён main_scale_factor=x{main_scale_factor} "
+                            f"F_5_4: Применён main_scale_factor=x{main_scale_factor} "
                             f"→ 1:{int(new_scale)}"
                         )
                         break
@@ -969,7 +969,7 @@ class F_6_6_MasterPlan(BaseTool):
         theme_record.setLayerRecords(layer_records)
         theme_collection.insert(theme_name, theme_record)
 
-        log_info(f"F_6_6: Создана тема '{theme_name}' с {len(layer_records)} слоями")
+        log_info(f"F_5_4: Создана тема '{theme_name}' с {len(layer_records)} слоями")
 
     def _cleanup_themes(self) -> None:
         """Удалить все временные map themes, созданные при генерации."""
@@ -979,10 +979,10 @@ class F_6_6_MasterPlan(BaseTool):
                 if theme_collection.hasMapTheme(theme_name):
                     theme_collection.removeMapTheme(theme_name)
             except Exception as e:
-                log_warning(f"F_6_6: Не удалось удалить тему '{theme_name}': {e}")
+                log_warning(f"F_5_4: Не удалось удалить тему '{theme_name}': {e}")
 
         self._created_themes.clear()
-        log_info("F_6_6: Временные темы очищены")
+        log_info("F_5_4: Временные темы очищены")
 
     def _open_result(self, pdf_path: str) -> None:
         """
@@ -1002,9 +1002,9 @@ class F_6_6_MasterPlan(BaseTool):
             else:
                 subprocess.run(['xdg-open', pdf_path])
 
-            log_info(f"F_6_6: Открыт файл: {pdf_path}")
+            log_info(f"F_5_4: Открыт файл: {pdf_path}")
         except Exception as e:
-            log_warning(f"F_6_6: Не удалось открыть файл: {e}")
+            log_warning(f"F_5_4: Не удалось открыть файл: {e}")
             self.iface.messageBar().pushMessage(
                 "Мастер-план",
                 f"PDF создан: {pdf_path}",

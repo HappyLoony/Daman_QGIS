@@ -196,7 +196,7 @@ class LayoutManager:
         legend_mgr.plan_and_apply(layout, config_key)
 
         # Адаптация легенды + сдвиг экстента main_map на юг
-        # (территория сверху, подложка под легендой снизу — паттерн F_6_6)
+        # (территория сверху, подложка под легендой снизу — паттерн F_5_4)
         layout_mgr_m34 = registry.get('M_34')
         layout_mgr_m34.adapt_legend(layout)
 
@@ -409,7 +409,7 @@ class LayoutManager:
                 layer_node = root_group.addLayer(layer)
                 if layer_node:
                     # Название слоя границ — description из Base_layers
-                    # (унифицировано с F_6_6: "Границы территории проектирования")
+                    # (унифицировано с F_5_4: "Границы территории проектирования")
                     from Daman_QGIS.managers import get_reference_managers
                     ref_managers = get_reference_managers()
                     boundary_desc = None

@@ -25,7 +25,7 @@ Crash-first дебаг: plan_and_apply НЕ глотает исключения 
 полей. LegendResult(success=False, ...) возвращается ТОЛЬКО для штатных
 ранних return (нет легенды / нет main_map / пустой content).
 
-Используется: F_1_4 (Fsm_1_4_5), F_6_6 (F_6_6_master_plan), будущие F_5_*.
+Используется: F_1_4 (Fsm_1_4_5), F_5_4 (F_5_4_master_plan), будущие F_5_*.
 """
 
 from qgis.core import QgsPrintLayout
