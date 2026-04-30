@@ -25,7 +25,7 @@ from Daman_QGIS.tools.F_1_data.ui.export_dialog import ExportDialog
 from Daman_QGIS.tools.F_1_data.core.tab_exporter import TabExporter
 from .submodules.Fsm_5_1_1_mapinfo_translator import Fsm_5_1_1_MapInfoTranslator
 from .submodules.Fsm_5_1_3_region78_tab_exporter import Fsm_5_1_3_Region78TabExporter
-from Daman_QGIS.utils import log_info, log_error, log_warning, log_success
+from Daman_QGIS.utils import log_info, log_error, log_warning, log_success, path_for_display
 
 
 class F_5_1_VectorExport(BaseTool):
@@ -259,7 +259,7 @@ class F_5_1_VectorExport(BaseTool):
                     message += f"  • {layer_name}\n"
             message += "\n"
 
-        message += f"Файлы сохранены в:\n{output_folder}"
+        message += f"Файлы сохранены в:\n{path_for_display(output_folder)}"
 
         if error_count > 0:
             QMessageBox.warning(

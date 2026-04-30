@@ -16,7 +16,7 @@ from Daman_QGIS.constants import (
     PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION,
     MESSAGE_WARNING_DURATION, EXPORT_DPI_ROSREESTR
 )
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, path_for_display
 from Daman_QGIS.managers import get_reference_managers, registry, FolderType
 from .submodules.Fsm_1_4_8_graphics_request_dialog import GraphicsRequestDialog
 from .submodules.Fsm_1_4_9_graphics_progress_dialog import GraphicsProgressDialog
@@ -471,14 +471,14 @@ class F_1_4_GraphicsRequest(BaseTool):
         if errors_count == 0:
             self.iface.messageBar().pushMessage(
                 "Успех",
-                f"Все файлы успешно созданы в {graphics_folder}",
+                f"Все файлы успешно созданы в {path_for_display(graphics_folder)}",
                 level=Qgis.Success,
                 duration=MESSAGE_INFO_DURATION
             )
         else:
             self.iface.messageBar().pushMessage(
                 "Частичный успех",
-                f"Файлы сохранены в {graphics_folder}, но были ошибки ({errors_count}). См. журнал сообщений.",
+                f"Файлы сохранены в {path_for_display(graphics_folder)}, но были ошибки ({errors_count}). См. журнал сообщений.",
                 level=Qgis.Warning,
                 duration=MESSAGE_WARNING_DURATION
             )

@@ -15,7 +15,7 @@ from qgis.PyQt.QtCore import Qt
 
 from Daman_QGIS.constants import PLUGIN_NAME
 from Daman_QGIS.managers import DataCleanupManager
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, path_for_display
 from Daman_QGIS.managers import AttributeProcessor
 from Daman_QGIS.managers import (
     registry, FolderType
@@ -296,7 +296,7 @@ class ExcelTableExportSubmodule:
         message += f"Успешно: {success_count} слоев\n"
         if error_count > 0:
             message += f"Ошибок: {error_count} слоев\n"
-        message += f"\nФайлы сохранены в:\n{output_folder}"
+        message += f"\nФайлы сохранены в:\n{path_for_display(output_folder)}"
         
         QMessageBox.information(
             self.iface.mainWindow(),

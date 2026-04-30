@@ -15,7 +15,7 @@ from qgis.PyQt.QtGui import QIcon
 
 from Daman_QGIS.core.base_tool import BaseTool
 from Daman_QGIS.constants import PLUGIN_NAME
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, path_for_display
 from .ui.export_dialog import ExportDialog
 
 # Импортируем все сабмодули с новыми именами
@@ -314,7 +314,7 @@ class F_1_5_UniversalExport(BaseTool):
                         message += f", {error_count} ошибок"
                     message += "\n"
 
-        message += f"\nФайлы сохранены в:\n{output_folder}"
+        message += f"\nФайлы сохранены в:\n{path_for_display(output_folder)}"
 
         if options.get('create_wgs84', True):
             message += "\n\nДля поддерживающих форматов созданы файлы в двух СК:"

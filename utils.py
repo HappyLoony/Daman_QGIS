@@ -306,6 +306,35 @@ def format_file_size(size_bytes: int) -> str:
 # ============================================================================
 
 
+def path_for_display(path: Optional[str]) -> str:
+    """Конвертация пути для отображения пользователю в нативные сепараторы ОС.
+
+    Qt API внутренне работает с прямыми слешами `/` (включая результаты
+    QFileDialog, QFileInfo и т.п.). Для отображения пользователю в UI
+    (QMessageBox, iface.messageBar) на Windows предпочтительнее нативные
+    обратные слеши `\\` — это best practice Qt (QDir.toNativeSeparators).
+
+    На Linux/macOS возвращается путь как есть.
+
+    Использовать ТОЛЬКО для UI-показа пользователю. Для file operations,
+    логов (log_info/log_error), Qt API и raise Exception — НЕ применять.
+
+    Args:
+        path: Путь к файлу или папке (или None)
+
+    Returns:
+        Путь с нативными сепараторами ОС (пустая строка для None).
+
+    Example:
+        >>> # Было: f"Файлы сохранены в:\\n{output_folder}"
+        >>> # Стало: f"Файлы сохранены в:\\n{path_for_display(output_folder)}"
+    """
+    if not path:
+        return ""
+    from qgis.PyQt.QtCore import QDir
+    return QDir.toNativeSeparators(str(path))
+
+
 def normalize_for_classification(s: Optional[str]) -> str:
     """Нормализация строки для устойчивого сравнения с правилами классификации.
 

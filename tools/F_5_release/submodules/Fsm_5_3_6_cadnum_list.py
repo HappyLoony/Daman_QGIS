@@ -151,7 +151,7 @@ class Fsm_5_3_6_CadnumList:
                     structure_manager.project_root = project_path
 
             if structure_manager.is_active():
-                return structure_manager.get_folder(FolderType.DOCUMENTS)
+                return structure_manager.get_folder(FolderType.EXPORT)
 
             return None
         except Exception as e:

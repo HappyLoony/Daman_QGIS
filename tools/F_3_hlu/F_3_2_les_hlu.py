@@ -26,7 +26,7 @@ from Daman_QGIS.constants import (
     PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION,
     LAYER_ATD_MO,
 )
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, path_for_display
 
 if TYPE_CHECKING:
     from Daman_QGIS.managers import LayerManager, ProjectManager
@@ -147,7 +147,7 @@ class F_3_2_LesHLU(BaseTool):
             reply = QMessageBox.question(
                 None,
                 "Документ создан",
-                f"Документ ХЛУ успешно создан:\n{output_path}\n\nОткрыть документ?",
+                f"Документ ХЛУ успешно создан:\n{path_for_display(output_path)}\n\nОткрыть документ?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.Yes
             )

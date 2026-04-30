@@ -30,7 +30,7 @@ from Daman_QGIS.tools.F_1_data.core.dxf_exporter import DxfExporter
 from Daman_QGIS.managers import get_reference_managers, registry
 from Daman_QGIS.managers.core.M_19_project_structure_manager import FolderType
 from Daman_QGIS.managers.core.M_8_layer_replacement_manager import LayerReplacementManager
-from Daman_QGIS.utils import log_info, log_error, log_warning, log_success
+from Daman_QGIS.utils import log_info, log_error, log_warning, log_success, path_for_display
 
 from .ui.background_dialog import BackgroundExportDialog
 
@@ -141,7 +141,7 @@ class F_5_2_BackgroundExport(BaseTool):
 
             # Получаем папку через менеджер
             if structure_manager.is_active():
-                output_folder = structure_manager.get_folder(FolderType.BACKGROUNDS)
+                output_folder = structure_manager.get_folder(FolderType.EXPORT)
                 if output_folder:
                     log_info(f"F_5_2: Папка подложек через M_19: {output_folder}")
                     return os.path.normpath(output_folder)
@@ -357,7 +357,7 @@ class F_5_2_BackgroundExport(BaseTool):
                     message += f"  • {template_name}\n"
             message += "\n"
 
-        message += f"Файлы сохранены в:\n{output_folder}"
+        message += f"Файлы сохранены в:\n{path_for_display(output_folder)}"
 
         if error_count > 0:
             QMessageBox.warning(

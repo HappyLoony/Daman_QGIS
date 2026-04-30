@@ -5,7 +5,7 @@ M_19: ProjectStructureManager - Координатор структуры пап
 Централизованное управление файловой структурой проекта:
 - Служебные папки (.project/) - скрыты от пользователя
 - Рабочие папки (01_Работа/) - для текущей работы
-- Экспортные папки (02_Документы/, 02_Подложки/, 02_Графика/) - результаты
+- Экспортные папки (02_МП/, 02_ДПТ/) - результаты по томам ДПТ и мастер-плану
 - Архивные папки (03_Архив/) - история версий
 
 Нумерация папок (01_, 02_, 03_) обеспечивает визуальную иерархию:
@@ -18,6 +18,7 @@ M_19: ProjectStructureManager - Координатор структуры пап
 """
 
 import os
+import sys
 import shutil
 from typing import Optional, Dict, Any
 from enum import Enum
@@ -26,6 +27,19 @@ from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.constants import PROJECT_GPKG_NAME
 
 __all__ = ['FolderType', 'ProjectStructureManager']
+
+
+def _mark_hidden_on_windows(path: str) -> None:
+    """Установить FILE_ATTRIBUTE_HIDDEN на Windows. На других ОС — no-op (точка-папки скрыты по конвенции)."""
+    if sys.platform != 'win32':
+        return
+    try:
+        import ctypes
+        FILE_ATTRIBUTE_HIDDEN = 0x02
+        if not ctypes.windll.kernel32.SetFileAttributesW(str(path), FILE_ATTRIBUTE_HIDDEN):
+            log_warning(f"M_19: SetFileAttributesW вернул 0 для {path}")
+    except Exception as e:
+        log_warning(f"M_19: Не удалось установить hidden для {path}: {e}")
 
 
 class FolderType(Enum):
@@ -50,9 +64,33 @@ class FolderType(Enum):
     REGISTERS = "registers"       # 01_Работа/Списки/
     TABLES = "tables"             # 01_Работа/Таблицы/
 
-    # Экспортные (для пользователя)
-    DOCUMENTS = "documents"       # 02_Документы/
-    BACKGROUNDS = "backgrounds"   # 02_Подложки/
+    # Мастер-план (комплект PDF A3)
+    MP = "mp"                                                   # 02_МП/
+
+    # ДПТ (документация по планировке территории)
+    DPT = "dpt"                                                 # 02_ДПТ/
+    DPT_EDIT = "dpt_edit"                                       # 02_ДПТ/Редактируемый формат/
+    DPT_EDIT_GRAPHIC = "dpt_edit_graphic"                       # .../Графическая часть/
+    DPT_EDIT_GRAPHIC_EXTERNAL = "dpt_edit_graphic_external"     # .../Графическая часть/Внешние ссылки/
+    DPT_EDIT_TEXT = "dpt_edit_text"                             # .../Текстовая часть/
+    DPT_EDIT_TEXT_T1 = "dpt_edit_text_t1"                       # .../Текстовая часть/Том 1 ППТ ОЧ/
+    DPT_EDIT_TEXT_T2 = "dpt_edit_text_t2"                       # .../Текстовая часть/Том 2 ППТ ОЧ/
+    DPT_EDIT_TEXT_T3 = "dpt_edit_text_t3"                       # .../Текстовая часть/Том 3 ППТ МО/
+    DPT_EDIT_TEXT_T4 = "dpt_edit_text_t4"                       # .../Текстовая часть/Том 4 ППТ МО/
+    DPT_EDIT_TEXT_T5 = "dpt_edit_text_t5"                       # .../Текстовая часть/Том 5 ПМТ ОЧ/
+    DPT_EDIT_TEXT_T6 = "dpt_edit_text_t6"                       # .../Текстовая часть/Том 6 ПМТ ОЧ/
+    DPT_EDIT_TEXT_T7 = "dpt_edit_text_t7"                       # .../Текстовая часть/Том 7 ПМТ МО/
+    DPT_EDIT_TEXT_T8 = "dpt_edit_text_t8"                       # .../Текстовая часть/Том 8 ПМТ МО/
+    DPT_PDF_DRAFT = "dpt_pdf_draft"                             # 02_ДПТ/PDF рабочие/
+    DPT_PDF_DRAFT_T1 = "dpt_pdf_draft_t1"                       # .../PDF рабочие/Том 1/
+    DPT_PDF_DRAFT_T2 = "dpt_pdf_draft_t2"                       # .../PDF рабочие/Том 2/
+    DPT_PDF_DRAFT_T3 = "dpt_pdf_draft_t3"                       # .../PDF рабочие/Том 3/
+    DPT_PDF_DRAFT_T4 = "dpt_pdf_draft_t4"                       # .../PDF рабочие/Том 4/
+    DPT_PDF_DRAFT_T5 = "dpt_pdf_draft_t5"                       # .../PDF рабочие/Том 5/
+    DPT_PDF_DRAFT_T6 = "dpt_pdf_draft_t6"                       # .../PDF рабочие/Том 6/
+    DPT_PDF_DRAFT_T7 = "dpt_pdf_draft_t7"                       # .../PDF рабочие/Том 7/
+    DPT_PDF_DRAFT_T8 = "dpt_pdf_draft_t8"                       # .../PDF рабочие/Том 8/
+    DPT_PDF = "dpt_pdf"                                         # 02_ДПТ/PDF/
 
     # Архивные
     RELEASES = "releases"         # 03_Архив/
@@ -166,20 +204,176 @@ PROJECT_FOLDERS = {
         "created_by": "F_1_3_BudgetSelection"
     },
 
-    # Экспортные папки (в корне проекта)
-    FolderType.DOCUMENTS: {
-        "name": "02_Документы",
+    # Мастер-план (в корне проекта)
+    FolderType.MP: {
+        "name": "02_МП",
         "parent": None,
         "user_visible": True,
-        "description": "Экспорт документов Word (чертежи, ведомости)",
-        "created_by": "F_5_3_DocumentExport"
+        "description": "Мастер-план (комплект PDF A3)",
+        "created_by": "F_5_4_MasterPlan"
     },
-    FolderType.BACKGROUNDS: {
-        "name": "02_Подложки",
+
+    # ДПТ (документация по планировке территории = ППТ + ПМТ)
+    FolderType.DPT: {
+        "name": "02_ДПТ",
         "parent": None,
         "user_visible": True,
-        "description": "Экспорт подложек DXF для AutoCAD",
-        "created_by": "F_5_2_BackgroundExport"
+        "description": "Документация по планировке территории (ДПТ = ППТ + ПМТ)",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_EDIT: {
+        "name": "Редактируемый формат",
+        "parent": FolderType.DPT,
+        "user_visible": True,
+        "description": "Все исходники, кроме PDF",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_EDIT_GRAPHIC: {
+        "name": "Графическая часть",
+        "parent": FolderType.DPT_EDIT,
+        "user_visible": True,
+        "description": "Чертежи и подложки",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_EDIT_GRAPHIC_EXTERNAL: {
+        "name": "Внешние ссылки",
+        "parent": FolderType.DPT_EDIT_GRAPHIC,
+        "user_visible": True,
+        "description": "Источники, вставленные в графику (DWG, PNG, PDF) — не продукт плагина",
+        "created_by": "Пользователь"
+    },
+    FolderType.DPT_EDIT_TEXT: {
+        "name": "Текстовая часть",
+        "parent": FolderType.DPT_EDIT,
+        "user_visible": True,
+        "description": "Word и Excel документы по томам",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_EDIT_TEXT_T1: {
+        "name": "Том 1 ППТ ОЧ",
+        "parent": FolderType.DPT_EDIT_TEXT,
+        "user_visible": True,
+        "description": "Проект планировки территории, основная часть",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_EDIT_TEXT_T2: {
+        "name": "Том 2 ППТ ОЧ",
+        "parent": FolderType.DPT_EDIT_TEXT,
+        "user_visible": True,
+        "description": "Проект планировки территории, основная часть",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_EDIT_TEXT_T3: {
+        "name": "Том 3 ППТ МО",
+        "parent": FolderType.DPT_EDIT_TEXT,
+        "user_visible": True,
+        "description": "Проект планировки территории, материалы по обоснованию",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_EDIT_TEXT_T4: {
+        "name": "Том 4 ППТ МО",
+        "parent": FolderType.DPT_EDIT_TEXT,
+        "user_visible": True,
+        "description": "Проект планировки территории, материалы по обоснованию",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_EDIT_TEXT_T5: {
+        "name": "Том 5 ПМТ ОЧ",
+        "parent": FolderType.DPT_EDIT_TEXT,
+        "user_visible": True,
+        "description": "Проект межевания территории, основная часть",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_EDIT_TEXT_T6: {
+        "name": "Том 6 ПМТ ОЧ",
+        "parent": FolderType.DPT_EDIT_TEXT,
+        "user_visible": True,
+        "description": "Проект межевания территории, основная часть",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_EDIT_TEXT_T7: {
+        "name": "Том 7 ПМТ МО",
+        "parent": FolderType.DPT_EDIT_TEXT,
+        "user_visible": True,
+        "description": "Проект межевания территории, материалы по обоснованию",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_EDIT_TEXT_T8: {
+        "name": "Том 8 ПМТ МО",
+        "parent": FolderType.DPT_EDIT_TEXT,
+        "user_visible": True,
+        "description": "Проект межевания территории, материалы по обоснованию",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_PDF_DRAFT: {
+        "name": "PDF рабочие",
+        "parent": FolderType.DPT,
+        "user_visible": True,
+        "description": "PDF по томам (рабочие, до объединения)",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_PDF_DRAFT_T1: {
+        "name": "Том 1",
+        "parent": FolderType.DPT_PDF_DRAFT,
+        "user_visible": True,
+        "description": "PDF рабочий, том 1",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_PDF_DRAFT_T2: {
+        "name": "Том 2",
+        "parent": FolderType.DPT_PDF_DRAFT,
+        "user_visible": True,
+        "description": "PDF рабочий, том 2",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_PDF_DRAFT_T3: {
+        "name": "Том 3",
+        "parent": FolderType.DPT_PDF_DRAFT,
+        "user_visible": True,
+        "description": "PDF рабочий, том 3",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_PDF_DRAFT_T4: {
+        "name": "Том 4",
+        "parent": FolderType.DPT_PDF_DRAFT,
+        "user_visible": True,
+        "description": "PDF рабочий, том 4",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_PDF_DRAFT_T5: {
+        "name": "Том 5",
+        "parent": FolderType.DPT_PDF_DRAFT,
+        "user_visible": True,
+        "description": "PDF рабочий, том 5",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_PDF_DRAFT_T6: {
+        "name": "Том 6",
+        "parent": FolderType.DPT_PDF_DRAFT,
+        "user_visible": True,
+        "description": "PDF рабочий, том 6",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_PDF_DRAFT_T7: {
+        "name": "Том 7",
+        "parent": FolderType.DPT_PDF_DRAFT,
+        "user_visible": True,
+        "description": "PDF рабочий, том 7",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_PDF_DRAFT_T8: {
+        "name": "Том 8",
+        "parent": FolderType.DPT_PDF_DRAFT,
+        "user_visible": True,
+        "description": "PDF рабочий, том 8",
+        "created_by": "M_1_ProjectManager.create_project"
+    },
+    FolderType.DPT_PDF: {
+        "name": "PDF",
+        "parent": FolderType.DPT,
+        "user_visible": True,
+        "description": "Объединённые PDF по томам (итоговые)",
+        "created_by": "M_1_ProjectManager.create_project"
     },
 
     # Архив версий
@@ -227,7 +421,7 @@ class ProjectStructureManager:
         structure_manager = ProjectStructureManager(project_root)
 
         # Получить путь к папке (создаст если не существует)
-        docs_path = structure_manager.get_folder(FolderType.DOCUMENTS)
+        export_path = structure_manager.get_folder(FolderType.EXPORT)
 
         # Получить путь к gpkg
         gpkg_path = structure_manager.get_gpkg_path()
@@ -307,6 +501,10 @@ class ProjectStructureManager:
         if create and not os.path.exists(path):
             os.makedirs(path, exist_ok=True)
             log_info(f"M_19: Создана папка {folder_config['name']}")
+
+        # Служебные папки помечаем hidden (Windows): идемпотентно, безопасно для уже существующих
+        if create and not folder_config["user_visible"] and os.path.exists(path):
+            _mark_hidden_on_windows(path)
 
         # Кэшируем
         self._folders_cache[folder_type] = path
@@ -405,8 +603,24 @@ class ProjectStructureManager:
   Списки/               - Атрибутные списки (Excel)
   Таблицы/              - Таблицы данных
 
-02_Документы/           - Готовые документы Word для печати
-02_Подложки/            - DXF файлы для передачи в AutoCAD
+02_МП/                  - Мастер-план (комплект PDF A3)
+02_ДПТ/                 - Документация по планировке территории (ППТ + ПМТ)
+  Редактируемый формат/ - Все исходники, кроме PDF
+    Графическая часть/  - Чертежи и подложки
+      Внешние ссылки/   - Источники (DWG, PNG, PDF) — пользовательский контент
+    Текстовая часть/    - Word и Excel по томам
+      Том 1 ППТ ОЧ/     - Проект планировки территории, основная часть
+      Том 2 ППТ ОЧ/
+      Том 3 ППТ МО/     - Проект планировки территории, материалы по обоснованию
+      Том 4 ППТ МО/
+      Том 5 ПМТ ОЧ/     - Проект межевания территории, основная часть
+      Том 6 ПМТ ОЧ/
+      Том 7 ПМТ МО/     - Проект межевания территории, материалы по обоснованию
+      Том 8 ПМТ МО/
+  PDF рабочие/          - PDF по томам (рабочие, до объединения)
+    Том 1/ ... Том 8/
+  PDF/                  - Объединённые PDF по томам (итоговые)
+
 03_Архив/               - Сохраненные версии проекта
 
 ВАЖНО!

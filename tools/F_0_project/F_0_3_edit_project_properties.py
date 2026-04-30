@@ -15,7 +15,7 @@ from qgis.core import (
 )
 
 from Daman_QGIS.core.base_tool import BaseTool
-from Daman_QGIS.utils import log_info, log_error, log_warning, log_success
+from Daman_QGIS.utils import log_info, log_error, log_warning, log_success, path_for_display
 from Daman_QGIS.managers import get_reference_managers, registry
 from .submodules.Fsm_0_3_1_edit_project_dialog import EditProjectDialog
 from .submodules.base_metadata_dialog import OPTIONAL_METADATA_DESCRIPTIONS
@@ -70,7 +70,7 @@ class F_0_3_EditProjectProperties(BaseTool):
                         None,
                         "Внимание",
                         f"Открытый проект QGIS не является проектом плагина.\n\n"
-                        f"Путь: {project_dir}\n\n"
+                        f"Путь: {path_for_display(project_dir)}\n\n"
                         f"Файл project.gpkg не найден.\n\n"
                         f"Создайте новый проект через F_0_1."
                     )
@@ -79,7 +79,7 @@ class F_0_3_EditProjectProperties(BaseTool):
                         None,
                         "Внимание",
                         f"Не удалось инициализировать проект плагина.\n\n"
-                        f"Путь: {project_dir}\n\n"
+                        f"Путь: {path_for_display(project_dir)}\n\n"
                         f"Попробуйте закрыть и открыть проект заново."
                     )
             else:
@@ -457,7 +457,7 @@ class F_0_3_EditProjectProperties(BaseTool):
         changes_text = self._build_changes_summary(updated_data, changed_fields, crs_changed)
 
         if project_folder_changed:
-            msg = f"Проект успешно перемещен в:\n{updated_data['project_folder']}\n\n" \
+            msg = f"Проект успешно перемещен в:\n{path_for_display(updated_data['project_folder'])}\n\n" \
                   "Проект автоматически переоткрыт из нового расположения."
             if changes_text:
                 msg += "\n\nДополнительные изменения:\n" + "\n".join(changes_text)

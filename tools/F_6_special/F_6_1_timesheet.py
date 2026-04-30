@@ -19,7 +19,7 @@ from qgis.PyQt.QtWidgets import QWidget
 from qgis.PyQt.QtCore import QDate, pyqtSignal, QObject
 from qgis.core import QgsTask, QgsApplication
 
-from Daman_QGIS.utils import log_info, log_error, log_warning
+from Daman_QGIS.utils import log_info, log_error, log_warning, path_for_display
 from Daman_QGIS.core.base_tool import BaseTool
 from Daman_QGIS.managers.reference import EmployeeReferenceManager
 from Daman_QGIS.managers.reference.submodules import ProductionCalendarManager
@@ -193,7 +193,7 @@ class TimesheetProcessingTask(QgsTask):
             )
 
             if merged_path:
-                self.signals.log_message.emit(f"Создан: {merged_path}\n")
+                self.signals.log_message.emit(f"Создан: {path_for_display(merged_path)}\n")
                 self.output_files.append(merged_path)
             else:
                 self.signals.log_message.emit("Ошибка при создании объединенного табеля\n")
@@ -213,7 +213,7 @@ class TimesheetProcessingTask(QgsTask):
             )
 
             if summary_path:
-                self.signals.log_message.emit(f"Создан: {summary_path}\n")
+                self.signals.log_message.emit(f"Создан: {path_for_display(summary_path)}\n")
                 self.output_files.append(summary_path)
             else:
                 self.signals.log_message.emit("Ошибка при создании сводного табеля\n")

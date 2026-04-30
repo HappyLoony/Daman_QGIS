@@ -649,8 +649,13 @@ class CRSReferenceManager(BaseReferenceLoader):
                 log_warning(f"Msm_4_19: Невалидный WKT2 для новой CRS '{name}'")
                 continue
 
-            # Не добавляем если уже есть EPSG authid
-            if crs.authid():
+            # Не добавляем только если CRS уже в built-in QGIS базе (EPSG/IGNF/...).
+            # USER:N authid означает что QGIS smart-matched WKT по PROJ4 с уже
+            # существующей USER CRS (часто custom через F_0_5 с тем же proj4) —
+            # это НЕ должно блокировать добавление reference из Base_CRS.json,
+            # иначе новый CRS навсегда останется незарегистрированным.
+            authid = crs.authid()
+            if authid and not authid.startswith('USER:'):
                 continue
 
             srsid = registry.addUserCrs(crs, name, Qgis.CrsDefinitionFormat.Wkt)

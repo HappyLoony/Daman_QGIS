@@ -9,7 +9,7 @@ from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog
 from qgis.PyQt.QtCore import Qt
 
 from Daman_QGIS.constants import PLUGIN_NAME
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, path_for_display
 from ..ui.export_dialog import ExportDialog
 from ..core.kmz_exporter import KMZExporter
 
@@ -130,7 +130,7 @@ class KMZExportSubmodule:
             message += f"Успешно экспортировано: {success_count} слоев\n"
             if error_count > 0:
                 message += f"Ошибок: {error_count} слоев\n"
-            message += f"\nФайлы сохранены в:\n{output_folder}"
+            message += f"\nФайлы сохранены в:\n{path_for_display(output_folder)}"
             message += f"\n\nВнимание: KMZ файлы всегда экспортируются в WGS-84"
             message += f"\nKMZ - это сжатые KML файлы для Google Earth"
 

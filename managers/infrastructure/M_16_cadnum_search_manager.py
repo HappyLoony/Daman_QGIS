@@ -28,7 +28,7 @@ from qgis.core import (
 )
 from qgis.gui import QgsHighlight
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, path_for_display
 from .submodules.Msm_16_1_nspd_fetcher import Msm_16_1_NspdFetcher, NspdSearchResult
 
 __all__ = ['CadnumSearchManager', 'CadnumSearchDialog']
@@ -988,7 +988,7 @@ class CadnumSearchDialog(BaseResponsiveDialog):
             QMessageBox.information(
                 self,
                 "Экспорт завершен",
-                f"Экспортировано {exported_count} объектов в:\n{file_path}"
+                f"Экспортировано {exported_count} объектов в:\n{path_for_display(file_path)}"
             )
 
         except Exception as e:

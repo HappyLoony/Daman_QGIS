@@ -18,7 +18,7 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.core import QgsProject
 
-from Daman_QGIS.utils import log_info, log_warning
+from Daman_QGIS.utils import log_info, log_warning, path_for_display
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
@@ -144,7 +144,7 @@ class Fsm_5_4_1_Dialog(BaseResponsiveDialog):
         # Значение по умолчанию: папка проекта / Мастер-план
         default_folder = self._get_default_folder()
         if default_folder:
-            self._folder_edit.setText(default_folder)
+            self._folder_edit.setText(path_for_display(default_folder))
             self._output_folder = default_folder
 
         folder_layout.addWidget(self._folder_edit)
@@ -170,12 +170,19 @@ class Fsm_5_4_1_Dialog(BaseResponsiveDialog):
         self._update_counter()
 
     def _get_default_folder(self) -> Optional[str]:
-        """Получить папку по умолчанию (проект / Мастер-план)."""
+        """Получить папку по умолчанию через M_19 (FolderType.MP → 02_МП/)."""
         try:
-            project_home = QgsProject.instance().homePath()
-            if project_home:
-                path = os.path.join(project_home, "Мастер-план")
-                return os.path.normpath(path)
+            from Daman_QGIS.managers import registry
+            from Daman_QGIS.managers.core.M_19_project_structure_manager import FolderType
+            structure_manager = registry.get('M_19')
+            if not structure_manager.is_active():
+                project_home = QgsProject.instance().homePath()
+                if project_home:
+                    structure_manager.project_root = os.path.normpath(project_home)
+            if structure_manager.is_active():
+                folder = structure_manager.get_folder(FolderType.MP)
+                if folder:
+                    return os.path.normpath(folder)
         except Exception:
             pass
         return None
@@ -187,7 +194,7 @@ class Fsm_5_4_1_Dialog(BaseResponsiveDialog):
             self, "Выберите папку для экспорта", start_dir
         )
         if folder:
-            self._folder_edit.setText(folder)
+            self._folder_edit.setText(path_for_display(folder))
             self._output_folder = folder
 
     def _select_all(self) -> None:
@@ -241,8 +248,13 @@ class Fsm_5_4_1_Dialog(BaseResponsiveDialog):
         Returns:
             Путь к папке или None
         """
+        # Возвращаем внутреннее значение (Qt-style /), а не отображаемое
+        # (где сепараторы переведены в нативные через path_for_display).
+        # Оба валидны для OS file API на Windows, но `/` консистентнее с Qt.
+        if self._output_folder:
+            return self._output_folder
         text = self._folder_edit.text().strip()
-        return text if text else self._output_folder
+        return text if text else None
 
     def accept(self) -> None:
         """Обработка нажатия OK."""

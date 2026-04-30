@@ -10,7 +10,7 @@ from qgis.core import QgsVectorLayer
 from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog
 from qgis.PyQt.QtCore import Qt
 
-from Daman_QGIS.utils import log_info, log_warning
+from Daman_QGIS.utils import log_info, log_warning, path_for_display
 from ..ui.export_dialog import ExportDialog
 from ..core.base_exporter import BaseExporter
 
@@ -91,7 +91,7 @@ class BaseExportSubmodule:
         message += f"Успешно экспортировано: {success_count} слоев\n"
         if error_count > 0:
             message += f"Ошибок: {error_count} слоев\n"
-        message += f"\nФайлы сохранены в:\n{output_folder}"
+        message += f"\nФайлы сохранены в:\n{path_for_display(output_folder)}"
         return message
 
     def _show_pre_export_warning(self, export_params: Dict[str, Any]) -> bool:

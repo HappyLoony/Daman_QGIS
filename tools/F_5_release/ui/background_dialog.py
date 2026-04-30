@@ -18,6 +18,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt
 
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
+from Daman_QGIS.utils import path_for_display
 
 
 class BackgroundExportDialog(BaseResponsiveDialog):
@@ -92,7 +93,7 @@ class BackgroundExportDialog(BaseResponsiveDialog):
 
         # === ИНФОРМАЦИЯ О ПАПКЕ СОХРАНЕНИЯ ===
         if self.output_folder:
-            folder_info = QLabel(f"<i>Сохранение в: {self.output_folder}</i>")
+            folder_info = QLabel(f"<i>Сохранение в: {path_for_display(self.output_folder)}</i>")
             folder_info.setStyleSheet("color: #555; padding: 5px;")
             folder_info.setWordWrap(True)
             layout.addWidget(folder_info)

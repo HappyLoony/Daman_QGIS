@@ -13,6 +13,7 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.core import QgsMessageLog, Qgis
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
+from Daman_QGIS.utils import path_for_display
 
 
 class BudgetSelectionResultsDialog(BaseResponsiveDialog):
@@ -261,7 +262,7 @@ class BudgetSelectionResultsDialog(BaseResponsiveDialog):
             QMessageBox.information(
                 self,
                 "Экспорт перечней",
-                f"Перечень кадастровых номеров успешно создан:\n{filepath}"
+                f"Перечень кадастровых номеров успешно создан:\n{path_for_display(filepath)}"
             )
         else:
             QMessageBox.critical(
@@ -282,5 +283,5 @@ class BudgetSelectionResultsDialog(BaseResponsiveDialog):
             QMessageBox.warning(
                 self,
                 "Предупреждение",
-                f"Папка не найдена: {self.temp_folder}"
+                f"Папка не найдена: {path_for_display(self.temp_folder)}"
             )

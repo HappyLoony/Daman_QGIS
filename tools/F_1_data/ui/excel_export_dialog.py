@@ -14,6 +14,7 @@ from qgis.PyQt.QtCore import Qt, QSettings
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import Qgis, QgsProject, QgsVectorLayer
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
+from Daman_QGIS.utils import path_for_display
 
 
 class ExcelExportDialog(BaseResponsiveDialog):
@@ -275,7 +276,7 @@ class ExcelExportDialog(BaseResponsiveDialog):
             QMessageBox.warning(
                 self,
                 "Предупреждение",
-                f"Папка не существует:\n{folder}"
+                f"Папка не существует:\n{path_for_display(folder)}"
             )
             return
         

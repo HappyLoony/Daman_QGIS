@@ -22,7 +22,7 @@ from qgis.PyQt.QtCore import Qt
 
 from Daman_QGIS.core.base_tool import BaseTool
 from Daman_QGIS.managers import get_reference_managers, registry, FolderType
-from Daman_QGIS.utils import log_info, log_error, log_warning
+from Daman_QGIS.utils import log_info, log_error, log_warning, path_for_display
 
 from .ui.document_export_dialog import DocumentExportDialog
 from .submodules.Fsm_5_3_3_document_factory import DocumentFactory
@@ -100,7 +100,7 @@ class F_5_3_DocumentExport(BaseTool):
                     structure_manager.project_root = project_path
 
             if structure_manager.is_active():
-                folder = structure_manager.get_folder(FolderType.DOCUMENTS)
+                folder = structure_manager.get_folder(FolderType.EXPORT)
                 if folder:
                     return os.path.normpath(folder)
 
@@ -265,7 +265,7 @@ class F_5_3_DocumentExport(BaseTool):
                     message += f"  - {doc_name}\n"
             message += "\n"
 
-        message += f"Файлы сохранены в:\n{output_folder}"
+        message += f"Файлы сохранены в:\n{path_for_display(output_folder)}"
 
         if create_wgs84:
             message += "\n\nДля перечней координат созданы версии в WGS-84"

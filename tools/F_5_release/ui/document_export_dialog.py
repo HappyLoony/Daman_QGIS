@@ -21,6 +21,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt
 
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
+from Daman_QGIS.utils import path_for_display
 
 from ..submodules.Fsm_5_3_8_template_registry import (
     DocumentTemplate, TemplateRegistry
@@ -124,7 +125,7 @@ class DocumentExportDialog(BaseResponsiveDialog):
         # === ИНФОРМАЦИЯ О ПАПКЕ СОХРАНЕНИЯ ===
         if self.output_folder:
             folder_info = QLabel(
-                f"<i>Файлы будут сохранены в: {self.output_folder}</i>"
+                f"<i>Файлы будут сохранены в: {path_for_display(self.output_folder)}</i>"
             )
             folder_info.setStyleSheet("color: #555; padding: 10px;")
             folder_info.setWordWrap(True)

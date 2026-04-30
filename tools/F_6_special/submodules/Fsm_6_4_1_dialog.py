@@ -40,7 +40,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.core import QgsApplication, QgsProject
 
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
-from Daman_QGIS.utils import log_info, log_error, format_file_size
+from Daman_QGIS.utils import log_info, log_error, format_file_size, path_for_display
 
 from .Fsm_6_4_2_matcher import FileMatcher, MatchResult
 from .Fsm_6_4_3_task import (
@@ -687,7 +687,7 @@ class Fsm_6_4_1_Dialog(BaseResponsiveDialog):
 
         mode_label = "Копирование" if mode == FileSelectionTask.MODE_COPY else "Перемещение"
         self._log_text.append(
-            f"{mode_label} {result.matched_count} файлов -> {dest_folder}\n"
+            f"{mode_label} {result.matched_count} файлов -> {path_for_display(dest_folder)}\n"
         )
         log_info(f"Fsm_6_4_1: Запущена задача ({mode_label}, {result.matched_count} файлов)")
 
@@ -711,7 +711,7 @@ class Fsm_6_4_1_Dialog(BaseResponsiveDialog):
 
         report_path = results.get('report_path', '')
         if report_path:
-            self._log_text.append(f"\nОтчёт: {report_path}")
+            self._log_text.append(f"\nОтчёт: {path_for_display(report_path)}")
 
         self._btn_open_folder.setVisible(True)
         self._btn_cancel_task.setVisible(False)

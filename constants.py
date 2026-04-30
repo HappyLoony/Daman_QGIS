@@ -281,6 +281,13 @@ ZPR_PREFIX_STANDARD = "L_1_12_"
 ZPR_PREFIX_LINEAR = "L_1_13_"
 ZPR_PREFIXES = (ZPR_PREFIX_STANDARD, ZPR_PREFIX_LINEAR)
 
+# Префиксы слоёв функциональных и территориальных зон —
+# для них при импорте/распределении гарантируется наличие
+# поля 'ID' (String 50, код зоны) через Fsm_1_zone_id_helper.
+ZONE_PREFIX_FUNZON = "Le_1_2_8_"
+ZONE_PREFIX_TERZON = "Le_1_2_9_"
+ZONE_PREFIXES = (ZONE_PREFIX_FUNZON, ZONE_PREFIX_TERZON)
+
 # Все слои ЗПР (единая схема атрибутов)
 LAYERS_ZPR_ALL = (
     LAYER_ZPR_OKS, LAYER_ZPR_PO, LAYER_ZPR_VO,
