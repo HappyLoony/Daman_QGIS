@@ -122,10 +122,6 @@ class Fsm_0_4_5_TopologyCoordinator:
         self.line_checker = Fsm_0_4_8_LineChecker()
         self.point_checker = Fsm_0_4_9_PointChecker()
 
-        log_info(
-            "Fsm_0_4_5: TopologyCoordinator инициализирован (multi-geometry версия)"
-        )
-
     def check_layer(self,
                    layer: QgsVectorLayer,
                    check_types: Optional[List[str]] = None,

@@ -286,86 +286,9 @@ class ShpImporter(BaseImporter):
 
     def _create_buffer_layers(self, source_layer: QgsVectorLayer) -> None:
         """
-        Создание буферных слоёв для L_1_1_1_Границы_работ
-
-        Автоматически создаёт три буферных слоя:
-        - L_1_1_2_Границы_работ_10_м (буфер +10 метров)
-        - L_1_1_3_Границы_работ_500_м (буфер +500 метров)
-        - L_1_1_4_Границы_работ_-2_см (буфер -2 сантиметра)
-
-        Args:
-            source_layer: Исходный слой L_1_1_1_Границы_работ
+        Создание буферных слоёв L_1_1_2/3/4 для L_1_1_1_Границы_работ.
+        Делегирует в LayerProcessor.create_buffer_layers.
         """
-        self.log_message("Создание буферных слоёв для границ работ...")
-
-        # Определяем буферные слои: (имя, расстояние в метрах, описание)
-        buffer_configs = [
-            ('L_1_1_2_Границы_работ_10_м', 10.0, 'буфер +10 метров'),
-            ('L_1_1_3_Границы_работ_500_м', 500.0, 'буфер +500 метров'),
-            ('L_1_1_4_Границы_работ_-2_см', -0.02, 'буфер -2 см (внутренний)')
-        ]
-
-        for layer_name, distance, description in buffer_configs:
-            try:
-                self.log_message(f"Создание слоя {layer_name} ({description})...")
-
-                # Создаём буферный слой через processing
-                buffer_result = processing.run("native:buffer", {
-                    'INPUT': source_layer,
-                    'DISTANCE': distance,
-                    'SEGMENTS': 25,
-                    'END_CAP_STYLE': 0,
-                    'JOIN_STYLE': 0,
-                    'MITER_LIMIT': 2,
-                    'DISSOLVE': False,
-                    'OUTPUT': 'memory:'
-                })
-
-                buffer_layer = buffer_result['OUTPUT']
-
-                if not buffer_layer or not buffer_layer.isValid():
-                    self.log_message(
-                        f"Ошибка создания буферного слоя {layer_name}",
-                        Qgis.Warning
-                    )
-                    continue
-
-                buffer_layer.setName(layer_name)
-                buffer_layer.setCrs(source_layer.crs())
-
-                # Сохраняем в GPKG (если memory layer)
-                if buffer_layer.dataProvider().name() == 'memory':
-                    from ..core import LayerProcessor
-                    processor = LayerProcessor(self.project_manager, self.layer_manager)
-                    saved_layer = processor.save_to_gpkg(buffer_layer, layer_name)
-                    if saved_layer:
-                        buffer_layer = saved_layer
-                        self.log_message(f"Буферный слой '{layer_name}' сохранён в GPKG")
-
-                if self.layer_manager:
-                    # Если слой уже в GPKG, удаляем его из проекта перед повторным добавлением
-                    if buffer_layer.id() in QgsProject.instance().mapLayers():
-                        QgsProject.instance().removeMapLayer(buffer_layer.id())
-                    self.layer_manager.add_layer(
-                        buffer_layer,
-                        make_readonly=False,
-                        auto_number=False,
-                        check_precision=False
-                    )
-                    self.log_message(f"Буферный слой '{layer_name}' добавлен через LayerManager")
-                else:
-                    QgsProject.instance().addMapLayer(buffer_layer)
-                    self.log_message(f"Буферный слой '{layer_name}' добавлен напрямую")
-
-                self.log_message(
-                    f"Слой {layer_name} успешно создан ({buffer_layer.featureCount()} объектов)"
-                )
-
-            except Exception as e:
-                self.log_message(
-                    f"Ошибка при создании буферного слоя {layer_name}: {str(e)}",
-                    Qgis.Critical
-                )
-                log_error(f"ShpImporter: Ошибка создания буферного слоя {layer_name}: {str(e)}")
-
-        self.log_message("Создание буферных слоёв завершено")
+        from ..core import LayerProcessor
+        processor = LayerProcessor(self.project_manager, self.layer_manager)
+        processor.create_buffer_layers(source_layer, self.log_message)

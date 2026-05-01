@@ -758,10 +758,14 @@ class EditProjectDialog(BaseMetadataDialog):
         if old_type_value != new_type_value:
             changed_fields.append('object_type_value')
 
-        # CRS: сравнение по описанию
+        # CRS: сравнение по EPSG/SRID и description.
+        # description ненадёжен сам по себе — два USER:NNNNN могут иметь одинаковое имя
+        # (например, при ре-регистрации того же региона/зоны через sync_crs_from_json).
+        old_crs_epsg = str(self.current_metadata.get('1_4_2_crs_epsg', {}).get('value', ''))
+        new_crs_epsg = str(crs.postgisSrid()) if crs else ''
         old_crs_desc = self.current_metadata.get('1_4_2_crs_description', {}).get('value', '')
-        new_crs_desc = crs.description() if crs else ""
-        if old_crs_desc != new_crs_desc:
+        new_crs_desc = crs.description() if crs else ''
+        if old_crs_epsg != new_crs_epsg or old_crs_desc != new_crs_desc:
             changed_fields.append('crs')
 
         # Значение линейного объекта (только если активно)

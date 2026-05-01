@@ -96,7 +96,6 @@ class FeatureSortManager:
             return layer
 
         layer_name = layer.name()
-        log_info(f"M_15: Начало сортировки слоя '{layer_name}' по полю 'КН'")
 
         # 2. Чтение объектов с сортировкой по "КН"
         try:
@@ -108,7 +107,6 @@ class FeatureSortManager:
                 sorted_features.append(QgsFeature(feature))
 
             feature_count = len(sorted_features)
-            log_info(f"M_15: Прочитано {feature_count} объектов из слоя '{layer_name}'")
 
         except Exception as e:
             log_error(f"M_15: Ошибка чтения объектов из слоя '{layer_name}': {e}")
@@ -172,7 +170,6 @@ class FeatureSortManager:
             return layer
 
         # 6. Возврат нового слоя (БЕЗ стилей и БЕЗ добавления в проект)
-        log_info(f"M_15: Сортировка завершена для слоя '{layer_name}'")
         return new_layer
 
     def _has_mixed_geometry_types(self, features: list) -> bool:

@@ -452,7 +452,6 @@ class CoordinatePrecisionManager:
                     collected = QgsGeometry.collectGeometry(matching_parts)
                     if not collected.isEmpty():
                         rounded_geometry = collected
-                log_info("M_6: GeometryCollection после makeValid() - извлечены части исходного типа")
             else:
                 log_warning("M_6: GeometryCollection без частей исходного типа после makeValid()")
                 return geometry

@@ -651,7 +651,6 @@ class DependencyChecker:
                 missing.append(module_name)
 
         if not missing:
-            log_info(f"F_4_1: Все обязательные зависимости установлены ({len(installed)} библиотек)")
             all_ok = True
         else:
             log_warning(f"F_4_1: Не установлены обязательные зависимости: {', '.join(missing)}")

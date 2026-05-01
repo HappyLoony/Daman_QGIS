@@ -228,22 +228,25 @@ class F_3_2_LesHLU(BaseTool):
     def _get_output_path(self) -> Optional[str]:
         """Получить путь для сохранения документа"""
 
-        # Определяем папку New release
+        # Определяем папку через M_19 (FolderType.EXPORT). Пользователь может позже
+        # перенаправить на конкретный том 02_ДПТ/...
         project_path = QgsProject.instance().fileName()
         if not project_path:
             log_error("F_3_2: Проект не сохранён, невозможно определить папку для документа")
             return None
         project_dir = os.path.dirname(project_path)
-        output_dir = os.path.join(project_dir, "New release")
-
-        # Создаём папку если её нет
-        if not os.path.exists(output_dir):
-            try:
-                os.makedirs(output_dir)
-                log_info(f"F_3_2: Создана папка {output_dir}")
-            except OSError as e:
-                log_error(f"F_3_2: Не удалось создать папку: {e}")
+        try:
+            from Daman_QGIS.managers import registry
+            from Daman_QGIS.managers.core.M_19_project_structure_manager import FolderType
+            structure_manager = registry.get('M_19')
+            if not structure_manager.is_active():
+                structure_manager.project_root = os.path.normpath(project_dir)
+            output_dir = structure_manager.get_folder(FolderType.EXPORT)
+            if not output_dir:
                 output_dir = project_dir
+        except Exception as e:
+            log_error(f"F_3_2: Не удалось получить папку через M_19: {e}")
+            output_dir = project_dir
 
         # Формируем имя файла
         date_str = datetime.now().strftime("%Y-%m-%d")

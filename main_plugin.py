@@ -353,9 +353,8 @@ class DamanQGIS:
             log_info(f"Daman_QGIS: Предыдущее обновление: {_update_log}")
             QSettings().remove("Daman_QGIS/update_log")
 
-        # Быстрая проверка зависимостей при запуске (краткий лог)
+        # Быстрая проверка зависимостей при запуске
         _t = perf_counter()
-        log_info("Daman_QGIS: Запуск плагина, проверка зависимостей...")
         deps_ok = True
         try:
             deps_ok = F_4_1_PluginDiagnostics.quick_check()
@@ -561,12 +560,6 @@ class DamanQGIS:
         self._nspd_preprocessor_id = QgsNetworkAccessManager.setRequestPreprocessor(
             _inject_headers
         )
-        # Логируем короткий маркер UA (браузер/версия) — полный UA избыточен
-        ua_marker = selected_ua.split(') ')[-1][:40] if ') ' in selected_ua else selected_ua[:40]
-        log_info(
-            f"Daman_QGIS: NSPD preprocessor registered "
-            f"(UA: {ua_marker}, non-RU tile filter: enabled)"
-        )
 
     def _setup_nam_cache(self) -> None:
         """Конфигурация QNetworkDiskCache для XYZ тайлов basemap (НСПД ЦОС + Справочный слой).
@@ -607,12 +600,6 @@ class DamanQGIS:
                 if current != want:
                     cache.setCacheDirectory(cache_dir)
 
-            size_mb = NAM_CACHE_MAX_BYTES / 1024 / 1024
-            log_info(
-                f"Daman_QGIS: NAM cache configured: {size_mb:.0f} MB at {cache_dir}, "
-                f"WMTS TTL={WMTS_DEFAULT_TILE_EXPIRY_HOURS}h "
-                f"(runtime main-NAM + QgsSettings; full effect — после рестарта QGIS)"
-            )
         except Exception as e:
             log_warning(f"Daman_QGIS: NAM cache setup failed: {e}")
 
@@ -772,7 +759,6 @@ class DamanQGIS:
         self._heartbeat_timer = QTimer()
         self._heartbeat_timer.timeout.connect(self._heartbeat_check)
         self._heartbeat_timer.start(HEARTBEAT_INTERVAL_MS)
-        log_info("Main: Heartbeat запущен")
 
     def _heartbeat_check(self) -> None:
         """Проверить статус лицензии на сервере (вызывается по таймеру)."""
@@ -874,7 +860,6 @@ class DamanQGIS:
             # Инициализация поиска по кадастровому номеру
             self.cadnum_search = CadnumSearchManager(self.iface)
             self.cadnum_search.init_gui()  # Важно! Инициализация GUI и контекстного меню
-            log_info("Поиск по кадастровому номеру инициализирован")
         except Exception as e:
             log_warning(f"Не удалось инициализировать поиск по кадастровому номеру: {str(e)}")
 

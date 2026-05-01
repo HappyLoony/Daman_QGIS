@@ -84,11 +84,6 @@ class Fsm_1_2_11_RedlineLoader:
                 )
                 return 0
 
-            log_info(
-                f"Fsm_1_2_11: Загрузка красных линий из {len(endpoints)} источников: "
-                + ", ".join(ep.get('category_name', '?') for ep in endpoints)
-            )
-
             # Geometry provider стандартный 10м (Layer_selector = L_1_1_2)
             geometry_provider = self.egrn_loader.get_boundary_extent
 
@@ -108,7 +103,6 @@ class Fsm_1_2_11_RedlineLoader:
                     )
 
                     if not layer or count == 0:
-                        log_info(f"Fsm_1_2_11: EP {ep_id} ({ep_name}): 0 объектов")
                         continue
 
                     log_info(f"Fsm_1_2_11: EP {ep_id} ({ep_name}): {count} объектов")
@@ -121,23 +115,12 @@ class Fsm_1_2_11_RedlineLoader:
                 log_info("Fsm_1_2_11: Красные линии не найдены в данной области")
                 return 0
 
-            total_features = sum(count for _, count, _ in loaded_layers)
-            log_info(
-                f"Fsm_1_2_11: Всего {total_features} объектов из "
-                f"{len(loaded_layers)} источников"
-            )
-
             # Определяем базовую структуру полей: от endpoint с макс. числом полей
             # (ЕГРН имеет больше полей, МИНСТРОЙ меньше)
             base_layer = max(loaded_layers, key=lambda x: x[0].fields().count())[0]
             base_fields = base_layer.fields()
             base_crs = base_layer.crs().authid()
             base_wkb_type = base_layer.wkbType()
-
-            log_info(
-                f"Fsm_1_2_11: Базовая структура полей ({base_fields.count()} полей) "
-                f"от источника с макс. полями"
-            )
 
             # Создаём объединённый слой со структурой базового endpoint
             merged_layer = self._create_merged_layer(
@@ -247,10 +230,6 @@ class Fsm_1_2_11_RedlineLoader:
             provider.addFeatures(new_features)
             merged.updateExtents()
 
-            log_info(
-                f"Fsm_1_2_11: Объединённый слой: {len(new_features)} объектов, "
-                f"{base_fields.count()} полей + {self.SOURCE_FIELD}"
-            )
             return merged
 
         except Exception as e:

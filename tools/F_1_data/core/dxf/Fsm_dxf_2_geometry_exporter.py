@@ -94,13 +94,14 @@ class DxfGeometryExporter:
             # Параметры из style:
             # - line_scale: диаметр круга (мм), по умолчанию 1.5
             # - line_global_weight: толщина линии окружности (0 = тонкая)
-            # - hatch: "SOLID" = заливка, "-" = без заливки
+            # - fill (1/0): 1 = сплошная заливка круга, 0 = без заливки
+            # - fill_color: ACI / True Color заливки (None = ByLayer)
             circle_diameter = style.get('line_scale', 1.5) if style else 1.5
             circle_radius = circle_diameter / 2.0
 
-            # Проверяем нужна ли заливка круга
-            hatch_value = style.get('hatch', '-') if style else '-'
-            need_solid_fill = hatch_value == 'SOLID'
+            # Проверяем нужна ли заливка круга (по колонке fill)
+            need_solid_fill = self._is_fill_enabled(style)
+            fill_color = style.get('fill_color') if (style and need_solid_fill) else None
 
             if geometry.isMultipart():
                 points = geometry.asMultiPoint()
@@ -110,9 +111,11 @@ class DxfGeometryExporter:
                     if point_key not in self._exported_points:
                         # Экспортируем как CIRCLE вместо POINT
                         msp.add_circle((x, y), radius=circle_radius, dxfattribs=geom_attribs)
-                        # Добавляем заливку если hatch="SOLID"
+                        # Добавляем заливку если fill=1
                         if need_solid_fill:
-                            self._add_circle_solid_fill(msp, x, y, circle_radius, layer_name)
+                            self._add_circle_solid_fill(
+                                msp, x, y, circle_radius, layer_name, fill_color
+                            )
                         self._exported_points.add(point_key)
             else:
                 point = geometry.asPoint()
@@ -121,9 +124,11 @@ class DxfGeometryExporter:
                 if point_key not in self._exported_points:
                     # Экспортируем как CIRCLE вместо POINT
                     msp.add_circle((x, y), radius=circle_radius, dxfattribs=geom_attribs)
-                    # Добавляем заливку если hatch="SOLID"
+                    # Добавляем заливку если fill=1
                     if need_solid_fill:
-                        self._add_circle_solid_fill(msp, x, y, circle_radius, layer_name)
+                        self._add_circle_solid_fill(
+                            msp, x, y, circle_radius, layer_name, fill_color
+                        )
                     self._exported_points.add(point_key)
 
         elif geom_type == Qgis.GeometryType.Line:
@@ -168,15 +173,7 @@ class DxfGeometryExporter:
         #   2. Штриховка ANSI* (если style['hatch']) — верхний слой
         # Координаты считаются один раз и переиспользуются.
         if geom_type == Qgis.GeometryType.Polygon and style and self.hatch_manager:
-            fill_raw = style.get('fill', 0)
-            if isinstance(fill_raw, bool):
-                fill_enabled = fill_raw
-            elif isinstance(fill_raw, (int, float)):
-                fill_enabled = int(fill_raw) == 1
-            elif isinstance(fill_raw, str):
-                fill_enabled = fill_raw.strip().lower() in ('1', 'true', 'yes', 'да')
-            else:
-                fill_enabled = False
+            fill_enabled = self._is_fill_enabled(style)
 
             hatch_value = style.get('hatch')
             hatch_active = bool(
@@ -258,12 +255,12 @@ class DxfGeometryExporter:
                     label_scale_factor=label_scale_factor
                 )
 
-    def _add_circle_solid_fill(self, msp, x: float, y: float, radius: float, layer_name: str):
+    def _add_circle_solid_fill(self, msp, x: float, y: float, radius: float,
+                                layer_name: str, fill_color=None):
         """
-        Добавляет заливку круга через HATCH с круговой границей
+        Добавляет сплошную заливку круга через HATCH с круговой границей.
 
-        Используется для точек с hatch="SOLID" в Base_layers.json.
-        HATCH создаётся на том же слое что и CIRCLE, цвет наследуется от слоя (ByLayer).
+        Используется для точек с fill=1 в Base_layers.json.
 
         Args:
             msp: Modelspace DXF
@@ -271,15 +268,44 @@ class DxfGeometryExporter:
             y: Y-координата центра
             radius: Радиус круга
             layer_name: Имя слоя DXF
+            fill_color: ACI color index (1-255), отрицательное -(R*65536+G*256+B)
+                для True Color, None = ByLayer (наследует цвет от слоя 256)
         """
         try:
-            # Создаём HATCH с ByLayer цветом (256)
-            hatch = msp.add_hatch(dxfattribs={'layer': layer_name, 'color': 256})
-            # Добавляем круговую границу через edge_path с полной дугой (0-360 градусов)
+            if fill_color is None:
+                hatch = msp.add_hatch(dxfattribs={'layer': layer_name, 'color': 256})
+            elif isinstance(fill_color, int) and fill_color < 0:
+                # True Color (RGB) — упаковано как -(R*65536 + G*256 + B)
+                rgb_value = -fill_color
+                r = (rgb_value >> 16) & 0xFF
+                g = (rgb_value >> 8) & 0xFF
+                b = rgb_value & 0xFF
+                hatch = msp.add_hatch(dxfattribs={'layer': layer_name})
+                hatch.rgb = (r, g, b)
+            else:
+                # ACI 1-255
+                hatch = msp.add_hatch(dxfattribs={'layer': layer_name, 'color': int(fill_color)})
+
+            # SOLID pattern_fill — внутренний механизм ezdxf для сплошной заливки
+            hatch.set_pattern_fill('SOLID')
             edge_path = hatch.paths.add_edge_path()
             edge_path.add_arc(center=(x, y), radius=radius, start_angle=0, end_angle=360)
         except Exception as e:
             log_debug(f"Fsm_dxf_2: Не удалось создать заливку круга: {e}")
+
+    @staticmethod
+    def _is_fill_enabled(style: Optional[Dict[str, Any]]) -> bool:
+        """Толерантный парсер поля 'fill' (bool / int / строка '1'/'true'/'да')."""
+        if not style:
+            return False
+        value = style.get('fill', 0)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return int(value) == 1
+        if isinstance(value, str):
+            return value.strip().lower() in ('1', 'true', 'yes', 'да')
+        return False
 
     def _remove_closing_point(self, coords: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
         """

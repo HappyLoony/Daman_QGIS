@@ -79,8 +79,6 @@ class Fsm_1_2_16_Deduplicator:
                 f"{self.caller_id}: Dedup: {initial_count} -> {remaining} "
                 f"(exact: -{exact_removed}, near: -{near_removed})"
             )
-        else:
-            log_info(f"{self.caller_id}: Dedup: дубликатов не обнаружено ({initial_count} obj)")
 
         return {
             "exact_removed": exact_removed,

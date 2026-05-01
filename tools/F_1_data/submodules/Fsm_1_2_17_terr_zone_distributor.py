@@ -14,6 +14,7 @@ import re
 from qgis.core import QgsVectorLayer, QgsFeature, QgsProject
 
 from Daman_QGIS.utils import log_info, log_warning, log_success
+from .Fsm_1_zone_id_helper import ensure_id_field
 
 SOURCE_LAYER_NAME = "Le_1_2_9_1_Терр_зоны"
 
@@ -103,6 +104,10 @@ class Fsm_1_2_17_TerrZoneDistributor:
             for field in source.fields():
                 target.addAttribute(field)
             target.commitChanges()
+
+            # Гарантировать наличие поля 'ID' (String 50) — код терр-зоны.
+            # Если уже есть в schema исходника — no-op.
+            ensure_id_field(target)
 
             # Копирование features
             target.startEditing()

@@ -12,7 +12,7 @@ from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog, QApplication
 from qgis.PyQt.QtCore import Qt
 
 from Daman_QGIS.core.base_tool import BaseTool
-from Daman_QGIS.constants import PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION, MESSAGE_WARNING_DURATION, ZPR_PREFIXES
+from Daman_QGIS.constants import PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION, MESSAGE_WARNING_DURATION, ZPR_PREFIXES, ZONE_PREFIXES
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from .ui.universal_import_dialog import UniversalImportDialog
 from .submodules.Fsm_1_1_1_xml import XmlImportSubmodule
@@ -213,6 +213,11 @@ class F_1_1_UniversalImport(BaseTool):
 
                 self._rebuild_gpmt_after_zpr_import()
 
+            # Schema-mod для слоёв Терзон/Фунзон: гарантировать наличие 'ID'
+            # (String 50). Без значения — пользователь заполняет вручную.
+            if layer_id and layer_id.startswith(ZONE_PREFIXES):
+                self._ensure_zone_id_field(result.get('layers', []))
+
         return result
     
     def _check_project(self) -> bool:
@@ -360,6 +365,11 @@ class F_1_1_UniversalImport(BaseTool):
                     for imported_layer in result.get('layers', []):
                         if imported_layer.isValid() and imported_layer.featureCount() > 0:
                             self._validate_zpr_attributes(imported_layer)
+
+                # Schema-mod для слоёв Терзон/Фунзон: добавить 'ID' (String 50)
+                # если отсутствует. Без заполнения — пользователь сам.
+                if layer_id.startswith(ZONE_PREFIXES):
+                    self._ensure_zone_id_field(result.get('layers', []))
             else:
                 results['success'] = False
                 results['errors'].extend(result.get('errors', []))
@@ -560,6 +570,27 @@ class F_1_1_UniversalImport(BaseTool):
 
         except Exception as e:
             log_warning(f"F_1_1: Ошибка финальной санитизации выборки: {e}")
+
+    def _ensure_zone_id_field(self, layers) -> None:
+        """
+        Гарантировать наличие поля 'ID' (String 50) в импортированных
+        слоях функциональных и территориальных зон.
+
+        Добавляется в КОНЕЦ схемы (GPKG не поддерживает insert at position).
+        Без значений — пользователь заполняет вручную.
+
+        Args:
+            layers: список QgsVectorLayer из result.get('layers', [])
+        """
+        try:
+            from .submodules.Fsm_1_zone_id_helper import ensure_id_field
+
+            for layer in layers:
+                if not layer or not layer.isValid():
+                    continue
+                ensure_id_field(layer)
+        except Exception as e:
+            log_warning(f"F_1_1: Ошибка добавления поля ID в зоны: {e}")
 
     def _validate_zpr_attributes(self, layer) -> None:
         """

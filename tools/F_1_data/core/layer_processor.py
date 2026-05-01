@@ -7,12 +7,13 @@
 import os
 import re
 import json
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Callable
 from qgis.core import (
     QgsVectorLayer, QgsProject, QgsMessageLog, Qgis,
     QgsVectorFileWriter, QgsCoordinateReferenceSystem
 )
 from qgis.PyQt.QtGui import QColor
+import processing
 
 from Daman_QGIS.managers import LayerReplacementManager, DataCleanupManager
 from Daman_QGIS.utils import log_info, log_warning, log_error
@@ -134,11 +135,6 @@ class LayerProcessor:
         # Дополняем обязательные поля для слоёв нарезки (Le_2_1_*, Le_2_2_*)
         self._ensure_cutting_fields(layer, layer_name)
 
-        # Логируем
-        log_info(
-            f"Сохранение слоя в GeoPackage: {layer_name}"
-        )
-
         # Настройки сохранения
         save_options = QgsVectorFileWriter.SaveVectorOptions()
         save_options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
@@ -178,11 +174,91 @@ class LayerProcessor:
         # НЕ добавляем gpkg_layer в проект здесь - это сделает вызывающий код
         # через LayerManager, который правильно организует группировку
 
-        log_info(
-            f"Слой '{layer_name}' сохранен в GeoPackage"
-        )
-
         return gpkg_layer
+
+    def create_buffer_layers(
+        self,
+        source_layer: QgsVectorLayer,
+        log_func: Callable[[str, "Qgis.MessageLevel"], None],
+    ) -> List[QgsVectorLayer]:
+        """
+        Создание буферных слоёв L_1_1_2/3/4 для L_1_1_1_Границы_работ.
+
+        Слои:
+        - L_1_1_2_Границы_работ_10_м (буфер +10 метров)
+        - L_1_1_3_Границы_работ_500_м (буфер +500 метров)
+        - L_1_1_4_Границы_работ_-2_см (буфер -2 сантиметра)
+
+        Args:
+            source_layer: Исходный слой L_1_1_1_Границы_работ.
+            log_func: Метод `self.log_message` вызывающего импортёра — сохраняет
+                per-importer префиксы при логировании.
+
+        Returns:
+            Список успешно созданных буферных слоёв.
+        """
+        buffer_configs = [
+            ('L_1_1_2_Границы_работ_10_м', 10.0),
+            ('L_1_1_3_Границы_работ_500_м', 500.0),
+            ('L_1_1_4_Границы_работ_-2_см', -0.02),
+        ]
+
+        created: List[QgsVectorLayer] = []
+
+        for layer_name, distance in buffer_configs:
+            try:
+                buffer_result = processing.run("native:buffer", {
+                    'INPUT': source_layer,
+                    'DISTANCE': distance,
+                    'SEGMENTS': 25,
+                    'END_CAP_STYLE': 0,
+                    'JOIN_STYLE': 0,
+                    'MITER_LIMIT': 2,
+                    'DISSOLVE': False,
+                    'OUTPUT': 'memory:'
+                })
+
+                buffer_layer = buffer_result['OUTPUT']
+
+                if not buffer_layer or not buffer_layer.isValid():
+                    log_func(f"Ошибка создания буферного слоя {layer_name}", Qgis.Warning)
+                    continue
+
+                buffer_layer.setName(layer_name)
+                buffer_layer.setCrs(source_layer.crs())
+
+                if buffer_layer.dataProvider().name() == 'memory':
+                    saved_layer = self.save_to_gpkg(buffer_layer, layer_name)
+                    if saved_layer:
+                        buffer_layer = saved_layer
+
+                if self.layer_manager:
+                    if buffer_layer.id() in QgsProject.instance().mapLayers():
+                        QgsProject.instance().removeMapLayer(buffer_layer.id())
+                    self.layer_manager.add_layer(
+                        buffer_layer,
+                        make_readonly=False,
+                        auto_number=False,
+                        check_precision=False,
+                    )
+                else:
+                    QgsProject.instance().addMapLayer(buffer_layer)
+
+                created.append(buffer_layer)
+
+                log_func(
+                    f"Слой {layer_name} успешно создан ({buffer_layer.featureCount()} объектов)",
+                    Qgis.Info,
+                )
+
+            except Exception as e:
+                log_func(
+                    f"Ошибка при создании буферного слоя {layer_name}: {str(e)}",
+                    Qgis.Critical,
+                )
+
+        return created
+
     def apply_style(self, layer: QgsVectorLayer, layer_id: str) -> bool:
         """
         Применение стиля к слою

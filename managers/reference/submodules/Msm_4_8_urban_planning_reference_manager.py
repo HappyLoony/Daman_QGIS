@@ -120,12 +120,16 @@ class UrbanPlanningReferenceManager(BaseReferenceLoader):
         """
         Получить правила распределения функциональных зон.
 
-        Формат записи:
+        Формат записи (после миграции на list_semicolon в __excel_to_json_config):
             {
-                "classname": "<название зоны из WFS Le_1_2_8_1>",
-                "status": "<значение поля status из WFS>",
+                "classname": ["<название зоны из WFS Le_1_2_8_1>", ...],
+                "status":    ["<значение поля status из WFS>", ...],
                 "layer_name": "<имя слоя назначения Le_1_2_8_*_Фун_зоны_*_сущ/_план>"
             }
+
+        classname/status хранятся как list[str] — несколько алиасов через ';'
+        в Excel ведут на один layer_name. Backward совместимость (старая string)
+        поддерживается в _normalize_aliases() на период миграции.
 
         Returns:
             Список правил распределения (classname + status -> layer_name)
@@ -139,6 +143,9 @@ class UrbanPlanningReferenceManager(BaseReferenceLoader):
         Сравнение через normalize_for_classification: устраняет ложные negative
         из-за невидимых символов в строках WFS NSPD (nbsp вместо пробела и т.п.).
 
+        Поддерживает алиасы: classname/status могут быть list[str] (новый формат
+        list_semicolon) или str (legacy). Совпадение хотя бы по одному алиасу.
+
         Args:
             classname: Название зоны (из поля classname в WFS)
             status: Статус (из поля status в WFS)
@@ -149,8 +156,9 @@ class UrbanPlanningReferenceManager(BaseReferenceLoader):
         n_classname = normalize_for_classification(classname)
         n_status = normalize_for_classification(status)
         for rule in self.get_fun_zones_mapping():
-            if (normalize_for_classification(rule.get('classname')) == n_classname
-                    and normalize_for_classification(rule.get('status')) == n_status):
+            rule_classnames = self._normalize_aliases(rule.get('classname'))
+            rule_statuses = self._normalize_aliases(rule.get('status'))
+            if n_classname in rule_classnames and n_status in rule_statuses:
                 return rule.get('layer_name')
         return None
 
@@ -159,13 +167,15 @@ class UrbanPlanningReferenceManager(BaseReferenceLoader):
         """
         Получить правила распределения территориальных зон.
 
-        Формат записи:
+        Формат записи (после миграции на list_semicolon в __excel_to_json_config):
             {
-                "classname": "<название зоны из WFS Le_1_2_9_1>",
+                "classname": ["<название зоны из WFS Le_1_2_9_1>", ...],
                 "layer_name": "<имя слоя назначения Le_1_2_9_*_Тер_зоны_*>"
             }
 
-        Territrial zones не разделяются по status (семантика данных WFS).
+        classname хранится как list[str] — несколько алиасов через ';' в Excel
+        ведут на один layer_name. Territrial zones не разделяются по status
+        (семантика данных WFS).
 
         Returns:
             Список правил распределения (classname -> layer_name)
@@ -183,6 +193,9 @@ class UrbanPlanningReferenceManager(BaseReferenceLoader):
         Сравнение через normalize_for_classification: устраняет ложные negative
         из-за невидимых символов в строках WFS NSPD (nbsp вместо пробела и т.п.).
 
+        Поддерживает алиасы: classname может быть list[str] (новый формат
+        list_semicolon) или str (legacy). Совпадение хотя бы по одному алиасу.
+
         Args:
             classname: Название зоны (из поля classname в WFS)
 
@@ -191,6 +204,31 @@ class UrbanPlanningReferenceManager(BaseReferenceLoader):
         """
         n_classname = normalize_for_classification(classname)
         for rule in self.get_terr_zones_mapping():
-            if normalize_for_classification(rule.get('classname')) == n_classname:
+            rule_classnames = self._normalize_aliases(rule.get('classname'))
+            if n_classname in rule_classnames:
                 return rule.get('layer_name')
         return None
+
+    @staticmethod
+    def _normalize_aliases(value) -> List[str]:
+        """Извлечь нормализованные алиасы из поля distribution-rule.
+
+        Поддерживает 2 формата для безопасной миграции на list_semicolon:
+        - list[str]: новый формат после конвертации Excel с типом list_semicolon
+        - str: legacy формат с одиночным значением (или со ';' для обратной
+               совместимости, если конвертер ещё не задеплоен через daman database)
+
+        Args:
+            value: Значение поля 'classname' или 'status' из rule
+
+        Returns:
+            Список нормализованных строк-алиасов (пустые отфильтрованы)
+        """
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [normalize_for_classification(s) for s in value if s]
+        if isinstance(value, str):
+            return [normalize_for_classification(s.strip())
+                    for s in value.split(';') if s.strip()]
+        return []

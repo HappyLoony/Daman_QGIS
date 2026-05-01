@@ -19,6 +19,7 @@ import re
 from qgis.core import QgsVectorLayer, QgsFeature, QgsProject
 
 from Daman_QGIS.utils import log_info, log_warning, log_success
+from .Fsm_1_zone_id_helper import ensure_id_field
 
 SOURCE_LAYER_NAME = "Le_1_2_8_1_Фун_зоны"
 
@@ -135,6 +136,10 @@ class Fsm_1_2_18_FuncZoneDistributor:
             for field in source.fields():
                 target.addAttribute(field)
             target.commitChanges()
+
+            # Гарантировать наличие поля 'ID' (String 50) — код фун-зоны.
+            # Если уже есть в schema исходника — no-op.
+            ensure_id_field(target)
 
             # Копирование features
             target.startEditing()

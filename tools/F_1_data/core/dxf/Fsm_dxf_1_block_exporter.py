@@ -249,13 +249,15 @@ class DxfBlockExporter:
                 # Параметры из style:
                 # - line_scale: диаметр круга (мм), по умолчанию 1.5
                 # - line_global_weight: толщина линии окружности (0 = тонкая)
-                # - hatch: "SOLID" = заливка, "-" = без заливки
+                # - fill (1/0): 1 = сплошная заливка круга, 0 = без заливки
+                # - fill_color: ACI / True Color заливки (None = ByLayer)
                 circle_diameter = style.get('line_scale', 1.5) if style else 1.5
                 circle_radius = circle_diameter / 2.0
 
-                # Проверяем нужна ли заливка круга
-                hatch_value = style.get('hatch', '-') if style else '-'
-                need_solid_fill = hatch_value == 'SOLID'
+                # Проверяем нужна ли заливка круга (по колонке fill)
+                need_solid_fill = self._is_fill_enabled(style)
+                fill_color = style.get('fill_color') if (style and need_solid_fill) else None
+                block_layer = geom_attribs.get('layer', '0')
 
                 if geometry.isMultipart():
                     points = geometry.asMultiPoint()
@@ -263,17 +265,21 @@ class DxfBlockExporter:
                         x, y = CPM.round_coordinates(point.x() - offset_x, point.y() - offset_y, coordinate_precision)
                         # Экспортируем как CIRCLE вместо POINT
                         block.add_circle((x, y), radius=circle_radius, dxfattribs=geom_attribs)
-                        # Добавляем заливку если hatch="SOLID"
+                        # Добавляем заливку если fill=1
                         if need_solid_fill:
-                            self._add_circle_solid_fill_to_block(block, x, y, circle_radius, geom_attribs.get('layer', '0'))
+                            self._add_circle_solid_fill_to_block(
+                                block, x, y, circle_radius, block_layer, fill_color
+                            )
                 else:
                     point = geometry.asPoint()
                     x, y = CPM.round_coordinates(point.x() - offset_x, point.y() - offset_y, coordinate_precision)
                     # Экспортируем как CIRCLE вместо POINT
                     block.add_circle((x, y), radius=circle_radius, dxfattribs=geom_attribs)
-                    # Добавляем заливку если hatch="SOLID"
+                    # Добавляем заливку если fill=1
                     if need_solid_fill:
-                        self._add_circle_solid_fill_to_block(block, x, y, circle_radius, geom_attribs.get('layer', '0'))
+                        self._add_circle_solid_fill_to_block(
+                            block, x, y, circle_radius, block_layer, fill_color
+                        )
 
             elif geom_type == Qgis.GeometryType.Line:
                 # Линии (смещаем относительно центроида)
@@ -302,11 +308,23 @@ class DxfBlockExporter:
                             if style and 'width' in style:
                                 polyline.dxf.const_width = style['width']
 
-                            # === ШТРИХОВКА ВНУТРИ БЛОКА ===
-                            # Добавляем штриховку прямо в блок со смещёнными координатами
-                            # Это гарантирует что штриховка будет перемещаться вместе с блоком
+                            # === ЗАЛИВКА И ШТРИХОВКА ВНУТРИ БЛОКА ===
+                            # Архитектура двух независимых слоёв (как в Fsm_dxf_2):
+                            #   1. Заливка SOLID (если style['fill']==1) — нижний слой
+                            #   2. Штриховка ANSI* (если style['hatch']=='ANSI*') — верхний слой
+                            # Оба добавляются в блок (не msp) чтобы перемещаться вместе с ним.
+                            # Legacy hatch='SOLID' игнорируется — заливка через колонку fill.
+                            fill_enabled = self._is_fill_enabled(style) if style else False
                             hatch_value = style.get('hatch') if style else None
-                            if hatch_value and hatch_value != '-' and hatch_value.strip():
+                            hatch_active = bool(
+                                hatch_value
+                                and isinstance(hatch_value, str)
+                                and hatch_value != '-'
+                                and hatch_value.strip()
+                                and hatch_value.upper() != 'SOLID'
+                            )
+
+                            if fill_enabled or hatch_active:
                                 # Подготавливаем координаты дырок (смещённые относительно центроида)
                                 block_holes = []
                                 for hole in polygon[1:]:
@@ -314,10 +332,23 @@ class DxfBlockExporter:
                                     h_coords = self._remove_closing_point(h_coords)
                                     if len(h_coords) > 2:
                                         block_holes.append(h_coords)
-                                self._add_hatch_to_block(
-                                    block, coords, style,
-                                    holes=block_holes if block_holes else None
-                                )
+                                holes_arg = block_holes if block_holes else None
+
+                                # 1) Заливка SOLID (нижний слой)
+                                if fill_enabled:
+                                    fill_style = {'hatch': 'SOLID'}
+                                    fill_color = style.get('fill_color') if style else None
+                                    if fill_color is not None:
+                                        fill_style['hatch_color'] = fill_color
+                                    self._add_hatch_to_block(
+                                        block, coords, fill_style, holes=holes_arg
+                                    )
+
+                                # 2) Штриховка ANSI* (верхний слой)
+                                if hatch_active:
+                                    self._add_hatch_to_block(
+                                        block, coords, style, holes=holes_arg
+                                    )
 
                         # Дыры (holes) - тоже смещаем
                         for hole in polygon[1:]:
@@ -559,12 +590,15 @@ class DxfBlockExporter:
         except Exception as e:
             log_warning(f"Fsm_dxf_1: Ошибка добавления штриховки в блок: {str(e)}")
 
-    def _add_circle_solid_fill_to_block(self, block, x: float, y: float, radius: float, layer_name: str):
+    def _add_circle_solid_fill_to_block(self, block, x: float, y: float, radius: float,
+                                         layer_name: str, fill_color=None):
         """
-        Добавляет заливку круга через HATCH с круговой границей внутрь блока
+        Добавляет сплошную заливку круга через HATCH внутрь блока.
 
-        Используется для точек с hatch="SOLID" в Base_layers.json.
-        HATCH создаётся в блоке, цвет наследуется от слоя (ByLayer).
+        Используется для точек с fill=1 в Base_layers.json.
+
+        ВАЖНО: для HATCH внутри BLOCK ACI color работает некорректно
+        (см. _add_hatch_to_block) — для всех ACI 1-7 используем явный RGB.
 
         Args:
             block: Объект блока DXF
@@ -572,12 +606,55 @@ class DxfBlockExporter:
             y: Y-координата центра (относительно центроида блока)
             radius: Радиус круга
             layer_name: Имя слоя DXF
+            fill_color: ACI (1-255), отрицательное -(R*65536+G*256+B) для True Color,
+                None = ByLayer (256)
         """
         try:
-            # Создаём HATCH с ByLayer цветом (256) в блоке
-            hatch = block.add_hatch(dxfattribs={'layer': layer_name, 'color': 256})
-            # Добавляем круговую границу через edge_path с полной дугой (0-360 градусов)
+            if fill_color is None:
+                hatch = block.add_hatch(dxfattribs={'layer': layer_name, 'color': 256})
+            elif isinstance(fill_color, int) and fill_color < 0:
+                # True Color (RGB)
+                rgb_value = -fill_color
+                r = (rgb_value >> 16) & 0xFF
+                g = (rgb_value >> 8) & 0xFF
+                b = rgb_value & 0xFF
+                hatch = block.add_hatch(dxfattribs={'layer': layer_name})
+                hatch.rgb = (r, g, b)
+            else:
+                # ACI 1-7: внутри блока конвертируем в RGB
+                aci_to_rgb = {
+                    1: (255, 0, 0),
+                    2: (255, 255, 0),
+                    3: (0, 255, 0),
+                    4: (0, 255, 255),
+                    5: (0, 0, 255),
+                    6: (255, 0, 255),
+                    7: (255, 255, 255),
+                }
+                aci = int(fill_color)
+                if aci in aci_to_rgb:
+                    hatch = block.add_hatch(dxfattribs={'layer': layer_name})
+                    hatch.rgb = aci_to_rgb[aci]
+                else:
+                    hatch = block.add_hatch(dxfattribs={'layer': layer_name, 'color': aci})
+
+            # SOLID pattern_fill — внутренний механизм ezdxf для сплошной заливки
+            hatch.set_pattern_fill('SOLID')
             edge_path = hatch.paths.add_edge_path()
             edge_path.add_arc(center=(x, y), radius=radius, start_angle=0, end_angle=360)
         except Exception as e:
             log_debug(f"Fsm_dxf_1: Не удалось создать заливку круга в блоке: {e}")
+
+    @staticmethod
+    def _is_fill_enabled(style: Optional[Dict[str, Any]]) -> bool:
+        """Толерантный парсер поля 'fill' (bool / int / строка '1'/'true'/'да')."""
+        if not style:
+            return False
+        value = style.get('fill', 0)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return int(value) == 1
+        if isinstance(value, str):
+            return value.strip().lower() in ('1', 'true', 'yes', 'да')
+        return False

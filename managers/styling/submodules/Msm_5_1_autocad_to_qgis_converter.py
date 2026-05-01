@@ -52,12 +52,18 @@ class AutoCADToQGISConverter:
         Создать QgsMarkerSymbol из AutoCAD параметров точки
 
         Параметры из Base_layers.json (для geometry_type=MultiPoint):
-        - line_color_RGB -> цвет окружности
+        - line_color_RGB -> цвет окружности (контур)
         - line_global_weight -> толщина линии окружности (мм)
         - line_scale -> диаметр окружности (мм), например 1.5
-        - line_transparency -> прозрачность
-        - hatch -> "-" (без заливки) или "SOLID" (с заливкой)
-        - hatch_color_RGB -> цвет заливки (если hatch="SOLID")
+        - line_transparency -> прозрачность контура
+        - fill (1/0) -> 1 = сплошная заливка круга, 0 = без заливки
+        - fill_color_RGB -> цвет заливки (если fill=1)
+        - fill_transparency -> прозрачность заливки
+
+        Колонка hatch для точек неактуальна: ANSI-штриховки применимы
+        только к полигонам (см. QgsLinePatternFillSymbolLayer). Сплошная
+        заливка точки управляется отдельной колонкой fill, симметрично
+        с полигонами.
 
         Args:
             style: Словарь AutoCAD стиля
@@ -92,17 +98,14 @@ class AutoCADToQGISConverter:
         marker_layer.setSize(diameter)
         marker_layer.setSizeUnit(Qgis.RenderUnit.Millimeters)
 
-        # Заливка: hatch="-" -> без заливки, hatch="SOLID" -> заливка hatch_color_RGB
-        hatch = style.get('hatch', '-')
-        if hatch == 'SOLID':
-            # Заливка цветом hatch_color_RGB
-            hr, hg, hb = parse_rgb_string(style.get('hatch_color_RGB', '0,0,0'))
-            fill_color = QColor(hr, hg, hb)
-            hatch_opacity = autocad_transparency_to_qgis(style.get('hatch_transparency', 0))
-            fill_color.setAlphaF(hatch_opacity)
+        # Заливка: fill=1 -> setFillColor(fill_color_RGB), fill=0 -> прозрачный
+        if _is_fill_enabled(style):
+            fr, fg, fb = parse_rgb_string(style.get('fill_color_RGB', '0,0,0'))
+            fill_color = QColor(fr, fg, fb)
+            fill_opacity = autocad_transparency_to_qgis(style.get('fill_transparency', 0))
+            fill_color.setAlphaF(fill_opacity)
             marker_layer.setFillColor(fill_color)
         else:
-            # Без заливки - прозрачный
             marker_layer.setFillColor(QColor(0, 0, 0, 0))
 
         return symbol

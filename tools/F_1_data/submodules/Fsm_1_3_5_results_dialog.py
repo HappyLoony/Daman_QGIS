@@ -228,49 +228,18 @@ class BudgetSelectionResultsDialog(BaseResponsiveDialog):
         
         # Кнопки
         buttons_layout = QHBoxLayout()
+        buttons_layout.addStretch()
 
-        # Кнопка экспорта перечней
-        export_btn = QPushButton("Экспорт перечней")
-        export_btn.clicked.connect(self.export_cadnum_lists)
-        buttons_layout.addWidget(export_btn)
-
-        # Кнопка открытия папки
+        # Кнопка открытия папки (нативное закрытие диалога — через крестик окна)
         open_folder_btn = QPushButton("Открыть папку с результатами")
         open_folder_btn.clicked.connect(self.open_results_folder)
+        open_folder_btn.setDefault(True)
         buttons_layout.addWidget(open_folder_btn)
 
-        # Кнопка закрытия
-        close_btn = QPushButton("Закрыть")
-        close_btn.clicked.connect(self.accept)
-        close_btn.setDefault(True)
-        buttons_layout.addWidget(close_btn)
-
+        buttons_layout.addStretch()
         layout.addLayout(buttons_layout)
 
         self.setLayout(layout)
-    def export_cadnum_lists(self):
-        """Экспорт перечней кадастровых номеров"""
-        from .Fsm_1_3_8_cadnum_list_export import CadnumListExporter
-
-        # Создаем экспортер
-        exporter = CadnumListExporter(None)
-
-        # Выполняем экспорт
-        success, filepath = exporter.export_cadnum_lists(self.temp_folder)
-
-        if success:
-            QMessageBox.information(
-                self,
-                "Экспорт перечней",
-                f"Перечень кадастровых номеров успешно создан:\n{path_for_display(filepath)}"
-            )
-        else:
-            QMessageBox.critical(
-                self,
-                "Ошибка экспорта",
-                "Не удалось создать перечень кадастровых номеров.\n"
-                "Проверьте логи для подробностей."
-            )
 
     def open_results_folder(self):
         """Открытие папки с результатами"""

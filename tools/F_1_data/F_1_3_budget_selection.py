@@ -28,6 +28,7 @@ from .submodules.Fsm_1_3_3_forest_loader import ForestLoader
 from .submodules.Fsm_1_3_4_spatial_analyzer import SpatialAnalyzer
 from .submodules.Fsm_1_3_5_results_dialog import BudgetSelectionResultsDialog
 from .submodules.Fsm_1_3_7_intersections_calculator import IntersectionsCalculator
+from .submodules.Fsm_1_3_8_cadnum_list_export import CadnumListExporter
 
 
 class F_1_3_BudgetSelection(BaseTool):
@@ -256,6 +257,14 @@ class F_1_3_BudgetSelection(BaseTool):
 
         # Сохраняем результаты в txt
         self._save_results_to_txt(results, temp_folder, is_linear)
+
+        # Экспорт перечней кадастровых номеров (постоянный, без участия пользователя)
+        exporter = CadnumListExporter(self.iface)
+        success, filepath = exporter.export_cadnum_lists(temp_folder)
+        if success:
+            log_info(f"F_1_3_Бюджет: Перечень сохранён - {filepath}")
+        else:
+            log_warning("F_1_3_Бюджет: Не удалось создать перечень кадастровых номеров")
 
         # Организуем слои в группы
         self._organize_layers_in_groups()

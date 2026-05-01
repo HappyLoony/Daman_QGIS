@@ -115,7 +115,6 @@ class PipelineCache:
 
         _elapsed = perf_counter() - _t_total
         _avg = _elapsed / count if count else 0
-        log_info(f"Msm_29_5: Cached {count} pipelines (encrypted delivery)")
         from Daman_QGIS.utils import log_timing
         log_timing(
             f"Msm_29_5: [TIMING] pipelines total: {_elapsed:.3f}s, "

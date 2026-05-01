@@ -10,7 +10,8 @@ F_6_2: Сформировать тома PDF.
 2. Конвертация через COM (Word, Excel, AutoCAD) -> _pdf рабочие/
 3. Объединение PDF по томам -> pdf/
 
-Временно: выходные папки на рабочем столе (для тестирования).
+Выходные папки получаются через M_19 (FolderType.DPT_PDF_DRAFT,
+FolderType.DPT_PDF) внутри текущего открытого QGIS-проекта.
 """
 
 import os
@@ -18,10 +19,12 @@ import glob
 from typing import Optional, List, Dict, Tuple
 
 from qgis.PyQt.QtCore import pyqtSignal, QObject
-from qgis.core import QgsTask, QgsApplication
+from qgis.core import QgsTask, QgsApplication, QgsProject
 
 from Daman_QGIS.utils import log_info, log_error, log_warning
 from Daman_QGIS.core.base_tool import BaseTool
+from Daman_QGIS.managers import registry
+from Daman_QGIS.managers.core.M_19_project_structure_manager import FolderType
 
 from .submodules.Fsm_6_2_1_dialog import Fsm_6_2_1_Dialog
 from .submodules.Fsm_6_2_2_converter import (
@@ -59,10 +62,19 @@ class PdfVolumeTask(QgsTask):
         self.dwg_files: List[str] = []
         self.volume_files: Dict[str, List[Tuple[str, FileType]]] = {}
 
-        # Выходные директории (ВРЕМЕННО на рабочем столе)
-        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-        self.working_dir = os.path.join(desktop, "_pdf рабочие")
-        self.output_dir = os.path.join(desktop, "pdf")
+        # Выходные директории через M_19 (внутри текущего проекта QGIS)
+        structure_manager = registry.get('M_19')
+        if not structure_manager.is_active():
+            project_path = QgsProject.instance().homePath()
+            if project_path:
+                structure_manager.project_root = os.path.normpath(project_path)
+
+        self.working_dir: Optional[str] = structure_manager.get_folder(
+            FolderType.DPT_PDF_DRAFT
+        )
+        self.output_dir: Optional[str] = structure_manager.get_folder(
+            FolderType.DPT_PDF
+        )
 
         # Результаты
         self.output_files: List[str] = []
@@ -96,6 +108,15 @@ class PdfVolumeTask(QgsTask):
 
     def _do_work(self) -> bool:
         """Основная логика обработки."""
+        # Проверка что M_19 вернул валидные пути (проект QGIS открыт)
+        if not self.working_dir or not self.output_dir:
+            self.error_message = (
+                "F_6_2: Проект QGIS не открыт. "
+                "Сохраните проект перед формированием томов."
+            )
+            log_error(self.error_message)
+            return False
+
         # === Фаза 1: Обнаружение файлов (0-5%) ===
         self.signals.log_message.emit(
             "=== Фаза 1: Обнаружение файлов ===\n"
@@ -376,13 +397,6 @@ class F_6_2_GeneratePdfVolumes(BaseTool):
                 "Папка 'Редактируемый формат' не найдена!"
             )
             return
-
-        # Создать/проверить необходимые папки
-        for folder_name in ["pdf", "_pdf рабочие", "Редактируемый формат"]:
-            folder_path = os.path.join(source_folder, folder_name)
-            if not os.path.isdir(folder_path):
-                os.makedirs(folder_path, exist_ok=True)
-                log_info(f"F_6_2: Создана папка {folder_name}")
 
         self.dialog.set_controls_enabled(False)
         self.dialog.show_progress(True)

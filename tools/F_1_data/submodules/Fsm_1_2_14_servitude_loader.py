@@ -149,12 +149,6 @@ class Fsm_1_2_14_ServitudeLoader:
                 log_info("Fsm_1_2_14: Публичные сервитуты не найдены в данной области")
                 return 0
 
-            total_features = sum(count for _, count, _ in loaded_layers)
-            log_info(
-                f"Fsm_1_2_14: Всего {total_features} объектов из "
-                f"{len(loaded_layers)} источников"
-            )
-
             # Создаём объединённый слой с СИНХРОНИЗИРОВАННЫМИ полями (UNION)
             merged_layer = self._create_merged_layer(loaded_layers)
             if not merged_layer:
@@ -349,20 +343,6 @@ class Fsm_1_2_14_ServitudeLoader:
             # Собираем UNION всех полей
             union_fields = self._collect_union_fields(loaded_layers)
 
-            # Логируем структуру полей каждого источника
-            for layer, _, name in loaded_layers:
-                field_names = [f.name() for f in layer.fields()]
-                log_info(
-                    f"Fsm_1_2_14: Источник '{name}': "
-                    f"{len(field_names)} полей: {', '.join(field_names)}"
-                )
-
-            union_field_names = [f.name() for f in union_fields]
-            log_info(
-                f"Fsm_1_2_14: UNION структура: {len(union_fields)} полей "
-                f"({', '.join(union_field_names)}) + {self.SOURCE_FIELD}"
-            )
-
             # Создаём memory layer
             geom_type_str = QgsWkbTypes.displayString(wkb_type)
             merged = QgsVectorLayer(
@@ -407,10 +387,6 @@ class Fsm_1_2_14_ServitudeLoader:
             provider.addFeatures(new_features)
             merged.updateExtents()
 
-            log_info(
-                f"Fsm_1_2_14: Объединённый слой: {len(new_features)} объектов, "
-                f"{len(union_fields)} полей + {self.SOURCE_FIELD}"
-            )
             return merged
 
         except Exception as e:

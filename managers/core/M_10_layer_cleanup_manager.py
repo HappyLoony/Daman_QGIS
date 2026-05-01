@@ -54,7 +54,6 @@ class LayerCleanupManager:
             layer_manager = LayerReferenceManager()
             layers = layer_manager.get_base_layers()
             if layers:
-                log_info("M_10: Base_layers.json загружен")
                 return layers
             else:
                 log_warning("M_10: Base_layers.json пуст или не найден")

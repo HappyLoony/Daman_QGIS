@@ -220,11 +220,66 @@ class TabExporter(BaseExporter):
         if error[0] != QgsVectorFileWriter.NoError:
             raise RuntimeError(f"Ошибка экспорта в TAB: {error[1]}")
 
+        # QgsVectorFileWriter не записывает MapInfo style_MapInfo при создании TAB.
+        # Если стиль задан — открываем файл через OGR и проставляем SetStyleString
+        # каждой фиче (тот же механизм, что в GDAL/Nonearth ветке).
+        if mapinfo_style:
+            self._apply_mapinfo_style_post(output_path, mapinfo_style)
+
         log_info(
             f"TAB файл создан: {output_path}"
         )
 
         return True
+
+    def _apply_mapinfo_style_post(self, tab_path: str, mapinfo_style: str) -> None:
+        """
+        Применить MapInfo стиль ко всем фичам уже созданного TAB файла.
+
+        QgsVectorFileWriter создаёт TAB без style_MapInfo. Чтобы стиль
+        попал в файл, открываем его через OGR в режиме update и проставляем
+        SetStyleString каждой фиче. Используется тот же подход, что в
+        _export_to_tab_gdal (там стиль применяется при первичной записи).
+
+        Args:
+            tab_path: Путь к TAB файлу
+            mapinfo_style: Строка MapInfo стиля, например
+                "Brush(2,16777215,0) Pen(1,2,0)"
+        """
+        driver = ogr.GetDriverByName('MapInfo File')
+        if driver is None:
+            log_warning(
+                f"TabExporter: драйвер 'MapInfo File' недоступен — "
+                f"стиль не применён к {tab_path}"
+            )
+            return
+
+        ds = driver.Open(tab_path, 1)  # 1 = update mode
+        if ds is None:
+            log_warning(
+                f"TabExporter: не удалось открыть {tab_path} для применения стиля"
+            )
+            return
+
+        try:
+            lyr = ds.GetLayer(0)
+            if lyr is None:
+                log_warning(f"TabExporter: слой не найден в {tab_path}")
+                return
+
+            applied = 0
+            feat = lyr.GetNextFeature()
+            while feat is not None:
+                feat.SetStyleString(mapinfo_style)
+                lyr.SetFeature(feat)
+                feat = lyr.GetNextFeature()
+                applied += 1
+
+            log_info(
+                f"TabExporter: MapInfo стиль применён к {applied} фичам в {tab_path}"
+            )
+        finally:
+            ds = None  # release OGR DataSource (flush + close)
     
     def _is_local_crs(self, crs: QgsCoordinateReferenceSystem) -> bool:
         """
