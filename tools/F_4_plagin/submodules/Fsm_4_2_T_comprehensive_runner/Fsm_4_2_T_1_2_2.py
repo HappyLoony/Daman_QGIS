@@ -221,9 +221,14 @@ class TestQuickOSMLoader:
             "OQL: отсутствует [out:xml]!"
         )
         self.logger.check(
-            '[timeout:60]' in query_no_values,
-            "OQL: timeout=60 по умолчанию",
+            '[timeout:25]' in query_no_values,
+            "OQL: timeout=25 по умолчанию (Variant A.2, 2026-04-30)",
             "OQL: неверный timeout!"
+        )
+        self.logger.check(
+            '[maxsize:1073741824]' in query_no_values,
+            "OQL: maxsize=1073741824 (1 GB) для крупных bbox (Variant A, 2026-04-30)",
+            "OQL: maxsize не задан в OQL!"
         )
         self.logger.check(
             '["highway"]' in query_no_values,

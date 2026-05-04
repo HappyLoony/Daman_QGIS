@@ -500,7 +500,6 @@ class ProjectStructureManager:
         # Создаём если нужно
         if create and not os.path.exists(path):
             os.makedirs(path, exist_ok=True)
-            log_info(f"M_19: Создана папка {folder_config['name']}")
 
         # Служебные папки помечаем hidden (Windows): идемпотентно, безопасно для уже существующих
         if create and not folder_config["user_visible"] and os.path.exists(path):
@@ -638,7 +637,6 @@ class ProjectStructureManager:
         try:
             with open(readme_path, "w", encoding="utf-8") as f:
                 f.write(readme_content)
-            log_info("M_19: Создан README.txt")
         except Exception as e:
             log_warning(f"M_19: Не удалось создать README.txt: {e}")
 

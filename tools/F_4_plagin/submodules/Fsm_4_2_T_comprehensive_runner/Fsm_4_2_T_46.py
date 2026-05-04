@@ -141,8 +141,45 @@ class TestFsm4246:
             'legend_min_wrap_length': 40,
             'font_family': 'GOST 2.304',
             'font_size_pt': 14,
+            # legend_layout_modes refactoring (v0.4): M_46.facade._build_space
+            # читает явные legend_dynamic_* по legend_layout_mode из Excel.
+            # overview_map_x=250, ref=3 → overview_left=210; legend_dynamic_x=20,
+            # width=180, gap=5 → legend_right+gap=205 < 210 (sanity OK).
+            'legend_layout_mode': 'dynamic',
+            'legend_dynamic_x': 20,
+            'legend_dynamic_y': 205,
+            'legend_dynamic_width_mm': 180,
+            'legend_dynamic_height_max_mm': 81,
+            'legend_dynamic_ref_point': 1,
+            'legend_dynamic_overlay_gap_mm': 5,
         }
         return lambda key: synthetic
+
+    def _apply_synthetic_pipeline(
+        self,
+        layout,
+        config_key: str = 'synthetic_A4_DPT',
+        provider=None,
+    ):
+        """
+        Запустить mgr.plan_and_apply с monkey-patched _default_config_provider.
+
+        M_46.facade.plan_and_apply вызывает Msm_46_2._default_config_provider
+        напрямую (минуя _calculator/_planner), поэтому DI через
+        SpaceCalculator/LayoutPlanner недостаточно — Base_layout.json требует
+        реального M_34 в registry. Тест должен подменить и facade-уровень.
+        """
+        from unittest.mock import patch
+        from Daman_QGIS.managers.styling.submodules import (
+            Msm_46_2_space_calculator as scm,
+        )
+        if provider is None:
+            provider = self._synthetic_config_provider()
+        mgr = self._build_manager_with_synthetic_config(provider=provider)
+        with patch.object(
+            scm, '_default_config_provider', side_effect=provider,
+        ):
+            return mgr.plan_and_apply(layout, config_key=config_key)
 
     def _build_manager_with_synthetic_config(self, provider=None):
         """
@@ -223,8 +260,7 @@ class TestFsm4246:
             self._add_main_map(layout)
             self._add_legend_with_layers(layout, 5, "Слой границ")
 
-            mgr = self._build_manager_with_synthetic_config()
-            result = mgr.plan_and_apply(layout, config_key='synthetic_A4_DPT')
+            result = self._apply_synthetic_pipeline(layout)
 
             self.logger.check(
                 isinstance(result, LegendResult)
@@ -245,8 +281,7 @@ class TestFsm4246:
             self._add_main_map(layout)
             self._add_legend_with_layers(layout, 3, "Слой")
 
-            mgr = self._build_manager_with_synthetic_config()
-            mgr.plan_and_apply(layout, config_key='synthetic_A4_DPT')
+            self._apply_synthetic_pipeline(layout)
 
             predicted = layout.customProperty(
                 'legend/predicted_height_mm', 0.0
@@ -334,8 +369,7 @@ class TestFsm4246:
             legend.model().rootGroup().removeAllChildren()
             layout.addLayoutItem(legend)
 
-            mgr = self._build_manager_with_synthetic_config()
-            result = mgr.plan_and_apply(layout, config_key='synthetic_A4_DPT')
+            result = self._apply_synthetic_pipeline(layout)
 
             self.logger.check(
                 isinstance(result, LegendResult)
@@ -409,8 +443,7 @@ class TestFsm4246:
                 "Очень длинное название слоя границ работ и планировки",
             )
 
-            mgr = self._build_manager_with_synthetic_config()
-            result = mgr.plan_and_apply(layout, config_key='synthetic_A4_DPT')
+            result = self._apply_synthetic_pipeline(layout)
 
             # LayoutPlanner вернул dynamic tight с reason warning либо
             # OutsidePlacement stub (success=False, mode_applied='outside_stub').

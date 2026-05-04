@@ -213,26 +213,46 @@ class TestAPI:
                 self.logger.fail(f"{filename}.json ошибка: {str(e)}")
 
     def test_12_loader_invalid_file(self):
-        """ТЕСТ 12: Запрос несуществующего файла"""
-        self.logger.section("12. Обработка несуществующего файла")
+        """ТЕСТ 12: Обработка 404 от сервера (mock)
+
+        Проверяет что _load_from_remote корректно возвращает None при 404.
+        Использует mock вместо реального запроса -- не стучимся в API
+        с заведомо несуществующими именами файлов (стратегия test suite
+        2026-05-01: тесты воспроизводят легитимную работу плагина).
+        """
+        self.logger.section("12. Обработка 404 (mock)")
 
         if not self.loader:
             self.logger.fail("Loader не инициализирован")
             return
 
         try:
-            # Запрос несуществующего файла
-            data = self.loader._load_from_remote("NonExistent_File_12345.json")
+            from unittest.mock import patch, MagicMock
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_6_authed_request import (
+                AuthedRequestManager,
+            )
+
+            # Mock 404 response от сервера
+            mock_response = MagicMock()
+            mock_response.status_code = 404
+            mock_response.text = '{"error": "File not found"}'
+            mock_response.json.return_value = {"error": "File not found"}
+
+            with patch.object(
+                AuthedRequestManager.get_instance(),
+                'request',
+                return_value=mock_response,
+            ):
+                data = self.loader._load_from_remote("Base_layers.json")
 
             self.logger.check(
                 data is None,
-                "Несуществующий файл корректно возвращает None",
-                f"Неожиданный ответ для несуществующего файла: {data}"
+                "404 от сервера -> _load_from_remote возвращает None",
+                f"Неожиданный ответ при 404: {data}"
             )
 
         except Exception as e:
-            # Исключение тоже допустимо
-            self.logger.success(f"Исключение для несуществующего файла: {type(e).__name__}")
+            self.logger.error(f"Ошибка mock-теста 404: {type(e).__name__}: {e}")
 
     def test_13_loader_schema_validation(self):
         """ТЕСТ 13: Валидация схемы ответов"""
@@ -445,26 +465,57 @@ class TestAPI:
             self.logger.error(f"Ошибка проверки таймаутов: {str(e)}")
 
     def test_32_empty_responses(self):
-        """ТЕСТ 32: Пустые ответы"""
-        self.logger.section("32. Обработка пустых ответов")
+        """ТЕСТ 32: Пустые/невалидные ответы (mock)
+
+        Проверяет обработку пустого тела ответа и невалидного JSON.
+        Использует mock -- реальная сеть не задействована (см. test_12).
+        """
+        self.logger.section("32. Обработка пустых ответов (mock)")
 
         if not self.loader:
             self.logger.fail("Loader не инициализирован")
             return
 
         try:
-            # Запрос заведомо несуществующего файла
-            data = self.loader._load_from_remote("NonExistentFile_test_32.json")
+            from unittest.mock import patch, MagicMock
+            import json as _json
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_6_authed_request import (
+                AuthedRequestManager,
+            )
 
+            # Сценарий 1: response is None (CircuitBreaker / network failure)
+            with patch.object(
+                AuthedRequestManager.get_instance(),
+                'request',
+                return_value=None,
+            ):
+                data = self.loader._load_from_remote("Base_layers.json")
             self.logger.check(
                 data is None,
-                "Несуществующий файл возвращает None",
-                f"Несуществующий файл вернул данные: {type(data)}"
+                "response=None -> _load_from_remote возвращает None",
+                f"None response вернул данные: {type(data)}"
+            )
+
+            # Сценарий 2: 200 OK но невалидный JSON
+            mock_bad_json = MagicMock()
+            mock_bad_json.status_code = 200
+            mock_bad_json.text = "not a json"
+            mock_bad_json.json.side_effect = _json.JSONDecodeError("Expecting value", "doc", 0)
+
+            with patch.object(
+                AuthedRequestManager.get_instance(),
+                'request',
+                return_value=mock_bad_json,
+            ):
+                data = self.loader._load_from_remote("Base_layers.json")
+            self.logger.check(
+                data is None,
+                "Невалидный JSON -> _load_from_remote возвращает None",
+                f"Невалидный JSON вернул данные: {type(data)}"
             )
 
         except Exception as e:
-            # Исключение тоже допустимо для несуществующего файла
-            self.logger.success(f"Несуществующий файл обработан: {type(e).__name__}")
+            self.logger.error(f"Ошибка mock-теста пустых ответов: {type(e).__name__}: {e}")
 
     def test_33_large_payloads(self):
         """ТЕСТ 33: Большие данные"""

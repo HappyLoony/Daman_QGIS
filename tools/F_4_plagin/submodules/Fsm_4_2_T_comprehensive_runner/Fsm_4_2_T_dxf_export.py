@@ -325,9 +325,13 @@ class TestDxfExport:
             feature.setAttributes([1, "poly_with_hole"])
             layer.dataProvider().addFeature(feature)
 
-            # Экспортируем с штриховкой SOLID
+            # Экспортируем со сплошной заливкой через колонку fill
+            # (с 2026-04-30 заливка управляется fill=1 + fill_color, а не hatch=SOLID).
+            # Regression-guard FIX-2b: проверяется что HATCH с holes создаётся
+            # независимо от триггера заливки.
             style = {
-                'hatch': 'SOLID',
+                'fill': 1,
+                'fill_color': 1,
                 'linetype': 'CONTINUOUS',
                 'color': 1,
                 'lineweight': 100
@@ -530,11 +534,15 @@ class TestDxfExport:
             feature.setAttributes([1, "block_with_hole"])
             layer.dataProvider().addFeature(feature)
 
+            # Сплошная заливка через колонку fill (с 2026-04-30).
+            # Regression-guard FIX-2c: HATCH с holes должен попасть внутрь BLOCK
+            # независимо от триггера заливки.
             style = {
                 'color': 1,
                 'linetype': 'CONTINUOUS',
                 'lineweight': 100,
-                'hatch': 'SOLID'
+                'fill': 1,
+                'fill_color': 1
             }
 
             for feat in layer.getFeatures():

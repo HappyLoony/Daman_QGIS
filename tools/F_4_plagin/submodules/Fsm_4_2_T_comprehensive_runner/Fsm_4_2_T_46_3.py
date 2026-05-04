@@ -39,7 +39,7 @@ class TestMsm463:
             self.test_05_wrap_text_preserves_sentence()
             self.test_06_plan_single_short_item_col1()
             self.test_07_plan_many_items_col_ge_2()
-            self.test_08_plan_overflow_mode()
+            self.test_08_plan_extreme_overflow_smoke()
             self.test_09_plan_inline_tight_when_doesnt_fit()
             self.test_10_plan_empty_content()
             self.test_11_plan_raises_on_unknown_config()
@@ -80,10 +80,11 @@ class TestMsm463:
             'font_size_pt': 14,
         }
 
-    def _config_overflow(self):
-        cfg = self._config_inline()
-        cfg['legend_placement_mode'] = 'outside'
-        return cfg
+    # _config_overflow удалён: поле `legend_placement_mode` планнер
+    # больше не использует. OUTSIDE-routing выполняется в M_46.facade
+    # (early return ДО planner.plan), поэтому planner всегда возвращает
+    # mode=LegendLayoutMode.DYNAMIC. Для тестов overflow-сценариев
+    # используется тот же _config_inline + extreme content/space.
 
     def _planner_with(self, config):
         from Daman_QGIS.managers.styling.submodules.Msm_46_3_layout_planner import (
@@ -240,23 +241,38 @@ class TestMsm463:
         except Exception as e:
             self.logger.fail(f"Ошибка: {e}")
 
-    def test_08_plan_overflow_mode(self) -> None:
-        """ТЕСТ 8: Очень много items + placement_mode=outside → mode=outside."""
-        self.logger.section("8. plan: outside mode")
+    def test_08_plan_extreme_overflow_smoke(self) -> None:
+        """ТЕСТ 8: Extreme overflow (50 длинных titles) — planner не падает,
+        возвращает dynamic + reason + predicted_h > space.max_h.
+
+        Контракт планнера (Msm_46_3): mode всегда LegendLayoutMode.DYNAMIC
+        ("planner-internal" значение для логов). OUTSIDE-routing выполняется
+        в M_46.facade (early return ДО вызова planner.plan), поэтому planner
+        НЕ может вернуть mode='outside'. Этот тест проверяет worst-case
+        smoke: planner возвращает валидный план с reason при extreme overflow.
+        Отличается от test_09 объёмом (50 vs 30 items) и проверкой
+        predicted_h vs space.max_height_mm.
+        """
+        self.logger.section("8. plan: extreme overflow smoke")
         try:
             titles = [
                 "Очень длинное название слоя границ земельных участков " * 3
             ] * 50
-            planner = self._planner_with(self._config_overflow())
+            planner = self._planner_with(self._config_inline())
+            space = self._make_space(w=192, h=50)
             plan = planner.plan(
                 content=self._make_content(titles),
-                space=self._make_space(w=192, h=50),  # маленький h принудит outside
+                space=space,
                 config_key='synthetic_A4',
             )
             self.logger.check(
-                plan.mode == 'outside' and plan.reason is not None,
-                f"mode={plan.mode}, reason={plan.reason}",
-                f"Ожидался outside с reason, получено {plan.mode}/{plan.reason}",
+                plan.mode == 'dynamic'
+                and plan.reason is not None
+                and plan.predicted_height_mm > space.max_height_mm,
+                f"mode={plan.mode}, reason={plan.reason}, "
+                f"h_pred={plan.predicted_height_mm:.1f} > h_max={space.max_height_mm:.0f}",
+                f"Ожидался dynamic+reason+overflow, получено "
+                f"{plan.mode}/{plan.reason}/h_pred={plan.predicted_height_mm:.1f}",
             )
         except Exception as e:
             self.logger.fail(f"Ошибка: {e}")

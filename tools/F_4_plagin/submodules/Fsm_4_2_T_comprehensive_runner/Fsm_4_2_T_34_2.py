@@ -106,16 +106,25 @@ class TestFsm4234_2:
         """ТЕСТ 2: Нет QgsLayoutItemLegend -> return False (не crash)."""
         self.logger.section("2. Missing legend -> False")
         try:
+            from unittest.mock import MagicMock, patch
+            from Daman_QGIS.managers import registry
             from Daman_QGIS.managers.styling.submodules.Msm_34_2_extent_shifter import (
                 ExtentShifter,
             )
 
             layout = self._new_layout()
+            layout.setCustomProperty('layout/config_key', 'test_dynamic')
             self._add_main_map(layout)
             # Легенда НЕ добавлена
 
+            mock_m34 = MagicMock()
+            mock_m34.get_layout_config_by_key.return_value = {
+                'legend_layout_mode': 'dynamic',
+            }
+
             shifter = ExtentShifter()
-            result = shifter.shift_extent_for_legend(layout)
+            with patch.object(registry, 'get', return_value=mock_m34):
+                result = shifter.shift_extent_for_legend(layout)
 
             self.logger.check(
                 result is False,
@@ -129,16 +138,25 @@ class TestFsm4234_2:
         """ТЕСТ 3: Нет QgsLayoutItemMap id='main_map' -> return False."""
         self.logger.section("3. Missing main_map -> False")
         try:
+            from unittest.mock import MagicMock, patch
+            from Daman_QGIS.managers import registry
             from Daman_QGIS.managers.styling.submodules.Msm_34_2_extent_shifter import (
                 ExtentShifter,
             )
 
             layout = self._new_layout()
+            layout.setCustomProperty('layout/config_key', 'test_dynamic')
             # main_map НЕ добавлен
             self._add_legend(layout)
 
+            mock_m34 = MagicMock()
+            mock_m34.get_layout_config_by_key.return_value = {
+                'legend_layout_mode': 'dynamic',
+            }
+
             shifter = ExtentShifter()
-            result = shifter.shift_extent_for_legend(layout)
+            with patch.object(registry, 'get', return_value=mock_m34):
+                result = shifter.shift_extent_for_legend(layout)
 
             self.logger.check(
                 result is False,

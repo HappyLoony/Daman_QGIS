@@ -20,7 +20,7 @@ Fsm_1_zone_id_helper: Гарантировать наличие поля 'ID' в
 from typing import Tuple
 
 from qgis.core import QgsField, QgsVectorLayer
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QMetaType
 
 from Daman_QGIS.utils import log_info, log_warning
 from Daman_QGIS.constants import ZONE_PREFIXES
@@ -29,7 +29,7 @@ __all__ = ['ensure_id_field', 'is_zone_layer', 'ZONE_PREFIXES']
 
 # Параметры поля
 _ID_FIELD_NAME = 'ID'
-_ID_FIELD_TYPE = QVariant.String
+_ID_FIELD_TYPE = QMetaType.Type.QString
 _ID_FIELD_TYPE_NAME = 'String'
 _ID_FIELD_LENGTH = 50
 
