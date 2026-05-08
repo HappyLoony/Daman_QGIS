@@ -79,23 +79,8 @@ class GraphicsRequestDialog(BaseResponsiveDialog):
 
         layout.addWidget(nspd_group)
 
-        # Группа с настройками подложки
-        basemap_group = QGroupBox("Настройки картоосновы")
-        basemap_layout = QVBoxLayout()
-
-        self.cb_use_satellite = QCheckBox("Использовать ортофото (ЕЭКО НСПД)")
-        self.cb_use_satellite.setChecked(False)  # По умолчанию выключен (используется ЦОС)
-        self.cb_use_satellite.setToolTip("Переключить основную карту на ортофотоснимок ЕЭКО НСПД вместо схематичной картоосновы")
-        basemap_layout.addWidget(self.cb_use_satellite)
-
-        basemap_info = QLabel("По умолчанию: Справочный слой НСПД\n"
-                              "При включении: ЕЭКО ортофото НСПД")
-        basemap_info.setStyleSheet("QLabel { color: #666; font-size: 9pt; }")
-        basemap_info.setWordWrap(True)
-        basemap_layout.addWidget(basemap_info)
-
-        basemap_group.setLayout(basemap_layout)
-        layout.addWidget(basemap_group)
+        # Картооснова — задаётся через Base_layout (main_map_basemap /
+        # overview_map_basemap per layout type), GUI-выбор удалён.
 
         # Примечание
         note_label = QLabel("Примечание: Слой границ работ (L_1_1_1) добавляется автоматически")
@@ -237,8 +222,8 @@ class GraphicsRequestDialog(BaseResponsiveDialog):
                 # Используем полное имя слоя как ключ
                 self.nspd_layers[layer_name] = True
 
-        # Сохраняем настройку спутниковой подложки
-        self.use_satellite = self.cb_use_satellite.isChecked()
+        # Картооснова теперь полностью управляется через Base_layout
+        # (main_map_basemap / overview_map_basemap), GUI-выбор удалён.
 
         # Проверяем, что хотя бы один слой выбран
         if not self.nspd_layers:

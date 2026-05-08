@@ -36,9 +36,14 @@ from .submodules.Fsm_5_4_1_dialog import Fsm_5_4_1_Dialog
 from .submodules.Fsm_5_4_2_layout_manager import Fsm_5_4_2_LayoutManager
 
 
-# Хардкод подложек
-_MAIN_MAP_BASEMAP = 'L_1_3_2_NSPD_Ref'     # ЦОС справочный (cat=235) — главная карта
-_OVERVIEW_MAP_BASEMAP = 'L_1_3_3_NSPD_Base'  # ЕЭКО основной (cat=849241) — обзорная карта
+# Имена подложек берутся из Base_layout per layout type:
+#   A3_landscape_MP.main_map_basemap     — для main_map (например L_1_3_2_NSPD_Ref)
+#   A3_landscape_MP.overview_map_basemap — для overview_map (например L_1_3_3_NSPD_Base)
+# Если поле в Excel = "-" → парсер пишет null в JSON → код F_5_4 не добавляет
+# подложку в тему (макет рендерится только с visible_layers).
+_LAYOUT_CONFIG_KEY = 'A3_landscape_MP'
+
+# Имя слоя границ работ — единственный обязательный слой проекта.
 _BOUNDARIES_LAYER = 'L_1_1_1_Границы_работ'
 
 
@@ -92,6 +97,35 @@ class F_5_4_MasterPlan(BaseTool):
     def __init__(self, iface):
         super().__init__(iface)
         self._created_themes: List[str] = []
+
+    def _get_basemap_names(self) -> Tuple[Optional[str], Optional[str]]:
+        """Прочитать имена подложек из Base_layout per layout type.
+
+        Возвращает (main_map_basemap, overview_map_basemap). Любой может быть
+        None если поле = `-`/null/пусто в Base_layout (для конкретного формата
+        макета подложка не нужна). Также защищаемся от случая когда M_34
+        недоступен — возвращаем (None, None).
+        """
+        layout_mgr = registry.get('M_34')
+        if layout_mgr is None:
+            return None, None
+        try:
+            config = layout_mgr.get_layout_config_by_key(_LAYOUT_CONFIG_KEY)
+        except Exception as e:
+            log_warning(f"F_5_4: Не удалось прочитать Base_layout: {e}")
+            return None, None
+        if not config:
+            return None, None
+
+        def _normalize(value: Any) -> Optional[str]:
+            if value is None or value == '' or value == '-':
+                return None
+            return str(value).strip() or None
+
+        return (
+            _normalize(config.get('main_map_basemap')),
+            _normalize(config.get('overview_map_basemap')),
+        )
 
     def run(self) -> None:
         """Запуск функции.
@@ -554,7 +588,10 @@ class F_5_4_MasterPlan(BaseTool):
         visible_resolved, _ = _expand_layer_patterns(
             visible_layers_first, project_layer_names
         )
-        main_layers_first = visible_resolved + [_MAIN_MAP_BASEMAP]
+        main_basemap, overview_basemap = self._get_basemap_names()
+        main_layers_first = visible_resolved + (
+            [main_basemap] if main_basemap else []
+        )
 
         try:
             # Находим overview_map
@@ -568,10 +605,12 @@ class F_5_4_MasterPlan(BaseTool):
                 log_warning("F_5_4: overview_map не найден во временном макете")
                 return 1.0
 
-            # Создаём временную тему с ЦОС + границы работ (как в F_1_4)
-            self._create_map_theme(_temp_theme, [
-                _BOUNDARIES_LAYER, _OVERVIEW_MAP_BASEMAP
-            ])
+            # Создаём временную тему: границы работ + overview-подложка
+            # (если задана в Base_layout). Без подложки — только границы.
+            overview_theme_layers = [_BOUNDARIES_LAYER]
+            if overview_basemap:
+                overview_theme_layers.append(overview_basemap)
+            self._create_map_theme(_temp_theme, overview_theme_layers)
 
             # Привязываем тему к overview_map
             overview_map.setFollowVisibilityPreset(True)
@@ -646,7 +685,10 @@ class F_5_4_MasterPlan(BaseTool):
         visible_resolved, _ = _expand_layer_patterns(
             visible_layers, project_layer_names
         )
-        main_layers = visible_resolved + [_MAIN_MAP_BASEMAP]
+        main_basemap, _ = self._get_basemap_names()
+        main_layers = visible_resolved + (
+            [main_basemap] if main_basemap else []
+        )
 
         # Временный макет A3 MP
         layout_mgr_m34 = registry.get('M_34')
@@ -831,9 +873,15 @@ class F_5_4_MasterPlan(BaseTool):
             overview_layers, project_layer_names
         )
 
-        # a/b. Списки слоёв
-        main_layers = visible_resolved + [_MAIN_MAP_BASEMAP]
-        overview_layer_list = overview_resolved + [_OVERVIEW_MAP_BASEMAP]
+        # a/b. Списки слоёв (basemap'ы из Base_layout, могут быть None для
+        # форматов без подложки — тогда тема создаётся только из visible_layers)
+        main_basemap, overview_basemap = self._get_basemap_names()
+        main_layers = visible_resolved + (
+            [main_basemap] if main_basemap else []
+        )
+        overview_layer_list = overview_resolved + (
+            [overview_basemap] if overview_basemap else []
+        )
 
         # c/d. Создать map themes
         main_theme_name = f'F_5_4_main_{index}'
@@ -957,13 +1005,28 @@ class F_5_4_MasterPlan(BaseTool):
 
         layer_names_set = set(layer_names)
 
-        for layer_id, layer in project.mapLayers().items():
-            if layer.name() in layer_names_set:
-                record = QgsMapThemeCollection.MapThemeLayerRecord(layer)
-                record.isVisible = True
-                record.usingCurrentStyle = True
-                record.currentStyle = layer.styleManager().currentStyle()
-                layer_records.append(record)
+        # Render order map theme: строго по order_layers из Base_layers.json
+        # через LayerManager (единственный источник истины). Порядок records
+        # в setLayerRecords определяет render order на main_map при
+        # setFollowVisibilityPreset(True). Итерация по project.mapLayers()
+        # без сортировки даёт неконсистентный порядок (зависит от порядка
+        # добавления слоёв в проект).
+        layer_mgr = registry.get('M_2')
+        candidates = [
+            layer for layer in project.mapLayers().values()
+            if layer.name() in layer_names_set
+        ]
+        if layer_mgr is not None:
+            ordered_candidates = layer_mgr.get_layers_in_render_order(candidates)
+        else:
+            ordered_candidates = candidates
+
+        for layer in ordered_candidates:
+            record = QgsMapThemeCollection.MapThemeLayerRecord(layer)
+            record.isVisible = True
+            record.usingCurrentStyle = True
+            record.currentStyle = layer.styleManager().currentStyle()
+            layer_records.append(record)
 
         theme_record.setLayerRecords(layer_records)
         theme_collection.insert(theme_name, theme_record)

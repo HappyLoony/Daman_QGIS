@@ -488,7 +488,13 @@ class Fsm_1_2_1_EgrnLoader:
                 except requests.exceptions.Timeout as e:
                     request_elapsed = time.time() - request_start
                     self._http_error_counts['timeout'] += 1
-                    if attempt < min(max_retries - 1, 1):  # Максимум 1 дополнительная попытка для Timeout
+                    # Используем все max_retries попыток с прогрессивным timeout из endpoint
+                    # ([1, 5, 10, 30, 60] сек). Раньше стоял `min(max_retries - 1, 1)` —
+                    # ограничивал TIMEOUT до 2 попыток (1 + 5 сек), таймауты 10/30/60 не пробовались.
+                    # Категории с временем ответа > 5 сек (например cat=36945 Лесничества на крупных
+                    # территориях, X-Request-Time ~6 сек) обрезались на 5 сек → каскад дробления →
+                    # сотни запросов и итоговые 0 объектов вместо корректного ответа сервера.
+                    if attempt < max_retries - 1:
                         next_timeout = timeouts[min(attempt + 1, len(timeouts) - 1)] if isinstance(timeouts, list) else timeouts
                         log_warning(
                             f"Fsm_1_2_1: TIMEOUT после {request_elapsed:.1f} сек, "

@@ -10,7 +10,8 @@ from datetime import datetime
 from typing import Optional, Dict, Any, Tuple, Set
 
 from qgis.core import (
-    QgsProject, QgsCoordinateReferenceSystem, Qgis, QgsSnappingConfig
+    QgsProject, QgsCoordinateReferenceSystem, QgsCoordinateTransform,
+    Qgis, QgsSnappingConfig
 )
 from qgis.gui import QgsMessageBar
 
@@ -693,9 +694,17 @@ class ProjectManager:
         """Register coordinate pipeline for the project CRS.
 
         Priority chain:
-        1. REMARK in CRS WKT2 (author's F_0_5 calibration)
-        2. PipelineCache from /validate response (licensed users)
+        1. REMARK in CRS WKT2 (author's F_0_5 calibration — custom USER CRS only,
+           QGIS canonicalize теряет REMARK при fromWkt для reference CRS).
+        2. PipelineCache from /validate response (licensed users) — основной путь
+           для reference CRS из Base_CRS.json (API не отдаёт `pipeline` поле).
         3. Absent -- silent return, CRS works with towgs84 accuracy
+
+        Side effects:
+        - Cleanup stale DAMAN pipeline ops (filter: +proj=horner +ellps=krass)
+          in transformContext for OTHER CRS pairs with EPSG:3857.
+        - QgsCoordinateTransform.invalidateCache() after registration to force
+          reuse of new pipeline (otherwise OTF reprojection holds stale transforms).
 
         Both directions registered (horner with +fwd and +inv coefficients).
         """
@@ -707,7 +716,9 @@ class ProjectManager:
             pipeline_str = None
             source = None
 
-            # Priority 1: REMARK in CRS (author's calibration)
+            # Priority 1: REMARK in CRS (author's F_0_5 calibration).
+            # Работает только для custom USER CRS зарегистрированных через addUserCrs
+            # с уникальным name '_*' — QGIS не canonicalize такие CRS при чтении.
             wkt = project_crs.toWkt(Qgis.CrsWktVariant.Wkt2_2019)
             marker = 'DAMAN_PIPELINE:'
             idx = wkt.find(marker)
@@ -720,7 +731,8 @@ class ProjectManager:
                         pipeline_str = candidate
                         source = "REMARK"
 
-            # Priority 2: PipelineCache (server-delivered)
+            # Priority 2: PipelineCache (server-delivered via /validate).
+            # Основной путь для reference CRS из Base_CRS.json (API режет pipeline).
             if not pipeline_str:
                 pipeline_key = self._get_pipeline_key_from_metadata()
                 if pipeline_key:
@@ -732,15 +744,38 @@ class ProjectManager:
             if not pipeline_str:
                 return
 
-            # Clean stale operations then register only forward (3857 -> project).
-            # Stale ops from previous sessions/CRS cause QGIS to use wrong pipeline.
-            # QGIS auto-inverts using +inv coefficients for reverse direction.
             epsg_3857 = QgsCoordinateReferenceSystem("EPSG:3857")
+            epsg_3857_authid = "EPSG:3857"
+            project_authid = project_crs.authid()
             ctx = QgsProject.instance().transformContext()
+
+            # Cleanup stale DAMAN ops for OTHER CRS pairs with EPSG:3857.
+            # Filter by '+proj=horner +ellps=krass' marker — touch only our ops,
+            # leave foreign user-registered operations untouched.
+            try:
+                operations = dict(ctx.coordinateOperations())  # copy for safe iteration
+                for (src_authid, dst_authid), op_str in operations.items():
+                    if epsg_3857_authid not in (src_authid, dst_authid):
+                        continue
+                    if project_authid in (src_authid, dst_authid):
+                        continue  # current pair handled by removeCoordinateOperation below
+                    if '+proj=horner' in op_str and '+ellps=krass' in op_str:
+                        src_crs = QgsCoordinateReferenceSystem(src_authid)
+                        dst_crs = QgsCoordinateReferenceSystem(dst_authid)
+                        ctx.removeCoordinateOperation(src_crs, dst_crs)
+                        log_info(f"M_1: Stale pipeline удалён: {src_authid} -> {dst_authid}")
+            except Exception as cleanup_err:
+                log_warning(f"M_1: Cleanup stale ops пропущен: {cleanup_err}")
+
+            # Register only forward (3857 -> project). QGIS auto-inverts via +inv coefficients.
             ctx.removeCoordinateOperation(epsg_3857, project_crs)
             ctx.removeCoordinateOperation(project_crs, epsg_3857)
             ctx.addCoordinateOperation(epsg_3857, project_crs, pipeline_str, allowFallback=True)
             QgsProject.instance().setTransformContext(ctx)
+
+            # Invalidate transform cache so OTF reprojection picks up new pipeline.
+            # Without this WFS/tiles use stale QgsCoordinateTransform objects until QGIS restart.
+            QgsCoordinateTransform.invalidateCache()
 
             log_info(f"M_1: Pipeline зарегистрирован для {project_crs.authid()} (source: {source})")
             del pipeline_str

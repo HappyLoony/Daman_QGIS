@@ -317,6 +317,25 @@ VEDOMOST_UNIVERSAL = DocumentTemplate(
 )
 
 
+# === Региональные шаблоны (не показываются в DocumentExportDialog) ===
+
+# Пояснительная записка региона 78 (СПб, ПМТ).
+# Активируется ТОЛЬКО через Region78FormatModifier (Msm_37_1) — добавляется
+# синтетический item, не выбирается пользователем. source_layers=[] и
+# matches_layer() возвращает False (нет '*' в паттернах) — шаблон не появится
+# в выдаче TemplateRegistry.get_templates_for_layer.
+EXPLANATORY_NOTE_78 = DocumentTemplate(
+    template_id='explanatory_note_78',
+    doc_type='explanatory_note',
+    name='Пояснительная записка (регион 78)',
+    source_layers=[],  # пустой паттерн — шаблон не выбирается из диалога
+    title_template='Пояснительная записка',
+    supports_wgs84=False,
+    filename_template='_Пояснительная_записка',
+    priority=-100,  # ниже universal fallback, но всё равно в реестре
+)
+
+
 # === Реестр всех шаблонов ===
 
 DOCUMENT_TEMPLATES: List[DocumentTemplate] = [
@@ -351,6 +370,8 @@ DOCUMENT_TEMPLATES: List[DocumentTemplate] = [
     # Универсальные (fallback)
     COORD_UNIVERSAL,
     VEDOMOST_UNIVERSAL,
+    # Региональные (не выбираются из диалога — добавляются модификаторами)
+    EXPLANATORY_NOTE_78,
 ]
 
 # Поля для поиска номера точки (используется в Fsm_5_3_1)

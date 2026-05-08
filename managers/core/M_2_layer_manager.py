@@ -4,7 +4,7 @@
 Управление слоями с автоматической нумерацией и категоризацией.
 """
 
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Iterable, List, Optional, Dict, Any, Tuple
 from datetime import datetime
 import os
 import re
@@ -203,6 +203,51 @@ class LayerManager:
         # Слой уже добавлен в проект через QgsProject.instance().addMapLayer()
         # Ничего не делаем - слой остаётся в корне
         pass
+
+    def get_layers_in_render_order(
+        self, layers: Iterable[QgsVectorLayer]
+    ) -> List[QgsVectorLayer]:
+        """Отсортировать список слоёв по `order_layers` из Base_layers.json.
+
+        Единственный источник истины для render order — Base_layers.json
+        через LayerReferenceManager. Используется при формировании
+        QgsMapTheme records (Fsm_1_4_5.configure_map_filters,
+        F_5_4_master_plan._create_map_theme), где порядок records в
+        `setLayerRecords([...])` определяет render order на main_map при
+        `setFollowVisibilityPreset(True)`.
+
+        Семантика (согласована с sort_all_layers / setCustomLayerOrder):
+        - Меньший order_layers → раньше в списке → topmost (рисуется сверху)
+        - Больший order_layers → позже в списке → внизу (рисуется первым)
+        - Слои отсутствующие в Base_layers.json или с пустым `order_layers`
+          получают DEFAULT_LAYER_ORDER (в конец списка)
+
+        Args:
+            layers: Итерируемое слоёв (например, project.mapLayers().values()
+                или подмножество).
+
+        Returns:
+            Новый список с тем же составом, отсортированный по order_layers.
+        """
+        from Daman_QGIS.managers import get_reference_managers
+        ref_managers = get_reference_managers()
+        layer_ref = ref_managers.layer if ref_managers else None
+
+        def _order_key(layer: QgsVectorLayer) -> int:
+            if layer_ref is None:
+                return DEFAULT_LAYER_ORDER
+            info = layer_ref.get_layer_by_full_name(layer.name())
+            if not info:
+                return DEFAULT_LAYER_ORDER
+            raw = info.get('order_layers')
+            if raw is None or str(raw) == '-':
+                return DEFAULT_LAYER_ORDER
+            try:
+                return int(raw)
+            except (ValueError, TypeError):
+                return DEFAULT_LAYER_ORDER
+
+        return sorted(layers, key=_order_key)
 
     def sort_all_layers(self) -> None:
         """

@@ -388,6 +388,8 @@ class F_0_3_EditProjectProperties(BaseTool):
             changes.append(f"• Разработчик: {updated_data['developer']}")
         if 'examiner' in changed_fields:
             changes.append(f"• Проверяющий: {updated_data['examiner']}")
+        if 'chief_of_department' in changed_fields:
+            changes.append(f"• Руководитель отдела: {updated_data['chief_of_department']}")
         if 'quality_control' in changed_fields:
             changes.append(f"• Н.Контроль: {updated_data['quality_control']}")
         if 'sheet_format' in changed_fields:
@@ -448,6 +450,13 @@ class F_0_3_EditProjectProperties(BaseTool):
         # 9. Установка СК для проекта QGIS
         if 'crs' in changed_fields and updated_data.get('crs'):
             QgsProject.instance().setCrs(updated_data['crs'])
+
+            # Перерегистрация pipeline для нового CRS (REMARK или server cache).
+            # Без этого вызова при смене CRS старая pipeline-операция остаётся
+            # в transformContext, новая не регистрируется → F_1_2 трансформирует
+            # через fallback +towgs84 (точность ~30-60 см вместо 1-5 см с pipeline).
+            if self.project_manager:
+                self.project_manager._register_pipeline_for_project()
 
         # 10. Сохранение проекта
         if self.project_manager:

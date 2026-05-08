@@ -293,6 +293,12 @@ class EditProjectDialog(BaseMetadataDialog):
         self.load_examiners()
         optional_layout.addRow("Проверяющий:", self.examiner_combo)
 
+        # 2_15 Руководитель отдела
+        self.chief_of_department_combo = QComboBox()
+        self.chief_of_department_combo.setEditable(True)
+        self.load_chiefs_of_department()
+        optional_layout.addRow("Руководитель отдела:", self.chief_of_department_combo)
+
         # 2_13 Формат листа
         self.sheet_format_combo = QComboBox()
         self.populate_enum_combo(self.sheet_format_combo, '2_13_sheet_format')
@@ -527,6 +533,11 @@ class EditProjectDialog(BaseMetadataDialog):
             examiner = self.current_metadata['2_12_examiner'].get('value', '')
             self.examiner_combo.setCurrentText(examiner)
 
+        # 2_15 Руководитель отдела
+        if '2_15_chief_of_department' in self.current_metadata:
+            chief = self.current_metadata['2_15_chief_of_department'].get('value', '')
+            self.chief_of_department_combo.setCurrentText(chief)
+
         # 2_13 Н.Контроль (автоматически устанавливается на основе типа объекта)
         if '2_13_quality_control' in self.current_metadata:
             quality_control = self.current_metadata['2_13_quality_control'].get('value', '')
@@ -606,7 +617,12 @@ class EditProjectDialog(BaseMetadataDialog):
             self._on_zone_changed(0)
 
     def _on_zone_changed(self, index: int):
-        """Обработчик изменения зоны — подтяжка CRS из Base_CRS.json."""
+        """Обработчик изменения зоны — подтяжка CRS из Base_CRS.json.
+
+        Pipeline применяется отдельно через M_1._register_pipeline_for_project()
+        из PipelineCache (server-delivered) — REMARK injection в WKT2 не работает,
+        QGIS canonicalize отбрасывает custom REMARK при fromWkt для reference CRS.
+        """
         region_code = self.region_code_combo.currentData()
         zone = self.zone_code_combo.currentData()
 
@@ -713,6 +729,7 @@ class EditProjectDialog(BaseMetadataDialog):
             ('quality_control', '2_13_quality_control', self.quality_control_edit, 'text'),
             ('sheet_format', '2_13_sheet_format', self.sheet_format_combo, 'combo_text'),
             ('sheet_orientation', '2_14_sheet_orientation', self.sheet_orientation_combo, 'combo_text'),
+            ('chief_of_department', '2_15_chief_of_department', self.chief_of_department_combo, 'combo_text'),
         ]
 
         # Извлечение значений и детекция изменений

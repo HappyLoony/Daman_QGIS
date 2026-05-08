@@ -73,22 +73,21 @@ class F_1_4_GraphicsRequest(BaseTool):
 
         selected_layers = dialog.selected_layers  # Будет пустой список, но это нормально
         nspd_layers = dialog.nspd_layers  # Получаем выбранные слои НСПД
-        use_satellite = dialog.use_satellite  # Получаем настройку спутниковой подложки
 
         # Информируем если дополнительные слои не выбраны
         if not nspd_layers or not any(nspd_layers.values()):
             log_info("F_1_4: Дополнительные векторные слои не выбраны, схема формируется с границами работ и подложкой")
 
-        # Создаем схему с передачей слоев НСПД и настройки спутника
-        self.create_graphics(selected_layers, nspd_layers, use_satellite)
-            
-    def create_graphics(self, selected_layer_ids: List[str], nspd_layers: Optional[Dict[str, bool]] = None, use_satellite: bool = False) -> None:
+        # Создаем схему с передачей слоев НСПД
+        # (картооснова берётся из Base_layout, GUI-выбор удалён)
+        self.create_graphics(selected_layers, nspd_layers)
+
+    def create_graphics(self, selected_layer_ids: List[str], nspd_layers: Optional[Dict[str, bool]] = None) -> None:
         """Создание графики с выбранными слоями - координация всех модулей
 
         Args:
             selected_layer_ids: Список ID выбранных слоев проекта
             nspd_layers: Словарь с выбранными слоями НСПД
-            use_satellite: Использовать спутниковый снимок вместо ЦОС
         """
         
         # Создаем и показываем диалог прогресса
@@ -106,7 +105,7 @@ class F_1_4_GraphicsRequest(BaseTool):
                 if boundaries_layer_id not in selected_layer_ids:
                     selected_layer_ids.append(boundaries_layer_id)
             
-            self._execute_graphics_creation(progress_dialog, selected_layer_ids, nspd_layers, use_satellite)
+            self._execute_graphics_creation(progress_dialog, selected_layer_ids, nspd_layers)
         except Exception as e:
             progress_dialog.update_progress(0, f"Ошибка: {str(e)}")
             progress_dialog.enable_close()
@@ -200,7 +199,7 @@ class F_1_4_GraphicsRequest(BaseTool):
             log_error(f"F_1_4: Ошибка определения папки для сохранения: {str(e)}")
             return None
 
-    def _execute_graphics_creation(self, progress_dialog, selected_layer_ids: List[str], nspd_layers: Optional[Dict[str, bool]], use_satellite: bool = False) -> None:
+    def _execute_graphics_creation(self, progress_dialog, selected_layer_ids: List[str], nspd_layers: Optional[Dict[str, bool]]) -> None:
         """Выполнение создания графики"""
         
         # Флаг создания макета
@@ -276,7 +275,7 @@ class F_1_4_GraphicsRequest(BaseTool):
         log_info("F_1_4: Запуск модуля Fsm_1_4_5_layout_manager")
         
         try:
-            result = self.layout_manager.create_layout(selected_layer_ids, nspd_layers, use_satellite)
+            result = self.layout_manager.create_layout(selected_layer_ids, nspd_layers)
             success, error = self._normalize_result(result, "Ошибка создания макета")
         except Exception as e:
             success, error = False, str(e)
@@ -315,7 +314,7 @@ class F_1_4_GraphicsRequest(BaseTool):
             progress_dialog.update_progress(int(current_step * 100 / total_steps), "Настройка фильтров карт...")
             QApplication.processEvents()
             log_info("F_1_4: Настройка фильтров карт")
-            if self.layout_manager.configure_map_filters(nspd_layers, use_satellite):
+            if self.layout_manager.configure_map_filters(nspd_layers):
                 log_info("F_1_4: Fsm_1_4_5_layout_manager.configure_filters: успех")
             else:
                 log_warning("F_1_4: Fsm_1_4_5_layout_manager.configure_filters: предупреждение")

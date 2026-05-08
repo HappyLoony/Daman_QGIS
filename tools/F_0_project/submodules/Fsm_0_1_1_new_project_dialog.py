@@ -248,6 +248,12 @@ class NewProjectDialog(BaseMetadataDialog):
         self.load_examiners()
         form_layout.addRow("Проверяющий:", self.examiner_combo)
 
+        # 2_15 Руководитель отдела (дополнительно)
+        self.chief_of_department_combo = QComboBox()
+        self.chief_of_department_combo.setEditable(True)
+        self.load_chiefs_of_department()
+        form_layout.addRow("Руководитель отдела:", self.chief_of_department_combo)
+
         # 2_13 Формат листа (дополнительно)
         self.sheet_format_combo = QComboBox()
         self.populate_enum_combo(self.sheet_format_combo, '2_13_sheet_format')
@@ -517,5 +523,6 @@ class NewProjectDialog(BaseMetadataDialog):
             'examiner': self.examiner_combo.currentText().strip(),  # Дополнительное поле 2_12
             'quality_control': self.quality_control_edit.text().strip(),  # Дополнительное поле 2_13 (авто)
             'sheet_format': self.sheet_format_combo.currentText().strip(),  # Дополнительное поле 2_13_sheet_format
-            'sheet_orientation': self.sheet_orientation_combo.currentText().strip()  # Дополнительное поле 2_14
+            'sheet_orientation': self.sheet_orientation_combo.currentText().strip(),  # Дополнительное поле 2_14
+            'chief_of_department': self.chief_of_department_combo.currentText().strip()  # Дополнительное поле 2_15
         }

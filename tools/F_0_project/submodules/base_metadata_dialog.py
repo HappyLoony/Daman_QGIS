@@ -32,6 +32,7 @@ OPTIONAL_METADATA_DESCRIPTIONS = {
     'quality_control': ('2_13_quality_control', 'Н.Контроль'),
     'sheet_format': ('2_13_sheet_format', 'Формат листа для макетов'),
     'sheet_orientation': ('2_14_sheet_orientation', 'Ориентация листа'),
+    'chief_of_department': ('2_15_chief_of_department', 'Руководитель отдела'),
 }
 
 
@@ -158,7 +159,8 @@ class BaseMetadataDialog(BaseResponsiveDialog):
             '2_9_title_start': metadata.get('title_start'),
             '2_10_main_scale': metadata.get('main_scale'),
             '2_11_developer': metadata.get('developer'),
-            '2_12_examiner': metadata.get('examiner')
+            '2_12_examiner': metadata.get('examiner'),
+            '2_15_chief_of_department': metadata.get('chief_of_department')
         }
 
         # Добавляем остальные ключи как есть (для служебных полей)
@@ -171,7 +173,7 @@ class BaseMetadataDialog(BaseResponsiveDialog):
                           'is_single_object', 'code',
                           'release_date', 'company', 'city', 'customer', 'general_director',
                           'technical_director', 'cover', 'title_start', 'main_scale',
-                          'developer', 'examiner', 'changed_fields']:
+                          'developer', 'examiner', 'chief_of_department', 'changed_fields']:
                 mapped[key] = value
 
         return mapped
@@ -280,6 +282,25 @@ class BaseMetadataDialog(BaseResponsiveDialog):
                 log_warning(f"{self.MODULE_ID}: Не удалось загрузить проверяющих: {e}")
         else:
             log_warning(f"{self.MODULE_ID}: Справочная БД недоступна для загрузки проверяющих")
+
+    def load_chiefs_of_department(self):
+        """Загрузка руководителей отдела из справочной БД (без пустого плейсхолдера — по умолчанию первый в списке)"""
+        if self.reference_db:
+            try:
+                chiefs = self.reference_db.employee.get_employees_by_role('head_of_department')
+                last_names = sorted([emp.get('last_name', '') for emp in chiefs if emp.get('last_name')])
+
+                for last_name in last_names:
+                    self.chief_of_department_combo.addItem(last_name)
+
+                if len(last_names) > 10:
+                    from qgis.PyQt.QtWidgets import QListView
+                    self.chief_of_department_combo.setView(QListView())
+                    self.chief_of_department_combo.view().setMaximumHeight(300)
+            except Exception as e:
+                log_warning(f"{self.MODULE_ID}: Не удалось загрузить руководителей отдела: {e}")
+        else:
+            log_warning(f"{self.MODULE_ID}: Справочная БД недоступна для загрузки руководителей отдела")
 
     def update_quality_control(self):
         """

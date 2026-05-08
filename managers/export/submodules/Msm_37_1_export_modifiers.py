@@ -447,6 +447,30 @@ class Region78FormatModifier(ExportModifier):
                 f"из {len(ps_layers)} слоёв"
             )
 
+        # === Пояснительная записка (раздел 6 ПМТ для региона 78) ===
+        # Добавляется ОДИН синтетический item — экспортёр Fsm_5_3_9 сам
+        # соберёт данные из всех слоёв проекта (не привязан к layer).
+        # Файл сохраняется в корне output_folder, не в подпапке ЗУ/ПС.
+        try:
+            from Daman_QGIS.tools.F_5_release.submodules.Fsm_5_3_8_template_registry import (
+                EXPLANATORY_NOTE_78,
+            )
+            result.append({
+                'layer': None,
+                'template': EXPLANATORY_NOTE_78,
+                'extra_context': {
+                    'explanatory_note': True,
+                    'subfolder': '',  # корень output_folder
+                    'filename_override': '_Пояснительная_записка',
+                },
+            })
+            log_info("Msm_37_1: добавлен item explanatory_note для региона 78")
+        except ImportError as e:
+            log_warning(
+                f"Msm_37_1: EXPLANATORY_NOTE_78 не найден, "
+                f"пояснительная записка не будет сгенерирована: {e}"
+            )
+
         return result
 
     def _get_descriptor(self, template_id: str, layer_name: str) -> str:

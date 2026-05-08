@@ -47,13 +47,12 @@ class LayoutManager:
         self.layout_name = None  # Храним только имя макета, не ссылку
         self._layout_ref = None  # Ссылка на layout для предотвращения удаления сборщиком мусора
 
-    def create_layout(self, selected_layer_ids, nspd_layers, use_satellite=False):
+    def create_layout(self, selected_layer_ids, nspd_layers):
         """Создание компоновки программно из JSON конфигурации
 
         Args:
             selected_layer_ids: Список ID выбранных слоев
             nspd_layers: Словарь выбранных слоев НСПД
-            use_satellite: Использовать спутниковый снимок вместо ЦОС для главной карты
 
         Returns:
             tuple: (success, error_msg)
@@ -108,7 +107,7 @@ class LayoutManager:
         # Настройка макета
         self.update_object_name()
         self.update_legend_layers(selected_layer_ids, nspd_layers)
-        self.configure_map_filters(nspd_layers, use_satellite)
+        self.configure_map_filters(nspd_layers)
         self._apply_map_extents(layout)
 
         return True, None
@@ -479,16 +478,19 @@ class LayoutManager:
 
         return True
 
-    def configure_map_filters(self, nspd_layers, use_satellite=False):
+    def configure_map_filters(self, nspd_layers):
         """Настройка фильтров слоев для карт через темы (Map Themes)
 
         Создает две темы карт:
-        - F_1_4_1_main_map: выбранные слои + подложка L_1_3_2_NSPD_Ref (если use_satellite=False) или L_1_3_1_NSPD_Ortho (ЕЭКО ортофото, если use_satellite=True)
-        - F_1_4_2_overview_map: только слои с 1_1_1 и L_1_3_3_NSPD_Base (ЦОС всегда включена в обзорной)
+        - F_1_4_1_main_map: выбранные слои + границы + main_map_basemap (из Base_layout)
+        - F_1_4_2_overview_map: только L_1_1_1 + overview_map_basemap (из Base_layout)
+
+        Подложки берутся из Base_layout per layout type (A4_landscape_DPT —
+        текущий формат F_1_4). Если поле в Excel = `-` → подложка не
+        используется. GUI-выбор подложки удалён в пользу data-driven подхода.
 
         Args:
             nspd_layers: Словарь выбранных слоев НСПД
-            use_satellite: Если True - использовать ЕЭКО ортофото на главной карте, иначе L_1_3_2_NSPD_Ref
 
         Returns:
             bool: Успешность настройки
@@ -508,6 +510,23 @@ class LayoutManager:
         if map_theme_collection.hasMapTheme('F_1_4_2_overview_map'):
             map_theme_collection.removeMapTheme('F_1_4_2_overview_map')
 
+        # Подложки из Base_layout (один config_key — F_1_4 макет всегда A4
+        # landscape DPT). Если поле = '-'/null/пусто — подложка не используется.
+        layout_mgr_m34 = registry.get('M_34')
+        try:
+            layout_config = layout_mgr_m34.get_layout_config_by_key('A4_landscape_DPT') if layout_mgr_m34 else None
+        except Exception as e:
+            log_warning(f"Fsm_1_4_5: Не удалось прочитать Base_layout: {e}")
+            layout_config = None
+
+        def _normalize_basemap(value):
+            if value is None or value == '' or value == '-':
+                return None
+            return str(value).strip() or None
+
+        main_basemap = _normalize_basemap((layout_config or {}).get('main_map_basemap'))
+        overview_basemap = _normalize_basemap((layout_config or {}).get('overview_map_basemap'))
+
         # Создаем записи для тем
         from qgis.core import QgsMapThemeCollection
 
@@ -521,8 +540,21 @@ class LayoutManager:
         # Создаём множество выбранных слоёв для быстрого поиска
         selected_layer_names = set(nspd_layers.keys()) if nspd_layers else set()
 
+        # Render order map theme: строго по order_layers из Base_layers.json
+        # через LayerManager (единственный источник истины). Без сортировки
+        # порядок records зависит от порядка project.mapLayers().items()
+        # (порядок добавления в проект) — что неконсистентно.
+        from Daman_QGIS.managers import registry
+        _layer_mgr = registry.get('M_2')
+        if _layer_mgr is not None:
+            ordered_layers = _layer_mgr.get_layers_in_render_order(
+                project.mapLayers().values()
+            )
+        else:
+            ordered_layers = list(project.mapLayers().values())
+
         # Проходим по всем слоям и создаем записи для тем
-        for layer_id, layer in project.mapLayers().items():
+        for layer in ordered_layers:
             layer_name = layer.name()
 
             # Создаем запись слоя для темы
@@ -556,38 +588,28 @@ class LayoutManager:
             # Fsm_1_4_8 GUI), либо как обязательная инфраструктура
             # (L_1_1_1 границы работ, L_1_3_* подложки).
 
-            # ГЛАВНАЯ КАРТА: Используем L_1_3_2_NSPD_Ref (НСПД) по умолчанию
-            # Если use_satellite=True - показываем ЕЭКО ортофото (L_1_3_1), скрываем схематичные подложки НСПД
-            # Если use_satellite=False - показываем L_1_3_2_NSPD_Ref, скрываем ортофото
-            if use_satellite:
-                # Режим ортофото: показываем ЕЭКО ортофото, скрываем схематичные подложки НСПД
-                if 'L_1_3_2' in layer_name or 'L_1_3_3' in layer_name:
-                    # Скрываем Справочный слой и ЦОС
-                    layer_record.isVisible = False
-                elif 'L_1_3_1' in layer_name:
-                    # Показываем ЕЭКО ортофото
-                    layer_record.isVisible = True
-                else:
-                    # Все остальное видимо
-                    layer_record.isVisible = True
+            # ГЛАВНАЯ КАРТА: подложка определяется через Base_layout
+            # (main_map_basemap). Из всех L_1_3_* слоёв проекта visible
+            # только тот что совпадает с main_basemap (точное имя). Остальные
+            # подложки добавляются в тему как hidden — для согласованности
+            # переключения в Layers panel.
+            if layer_name.startswith('L_1_3_') or layer_name.startswith('Le_1_3_'):
+                layer_record.isVisible = (
+                    main_basemap is not None and layer_name == main_basemap
+                )
             else:
-                # Режим по умолчанию: показываем L_1_3_2_NSPD_Ref
-                if 'L_1_3_1' in layer_name or 'L_1_3_3' in layer_name:
-                    # Скрываем ортофото и ЦОС
-                    layer_record.isVisible = False
-                elif 'L_1_3_2' in layer_name:
-                    # Показываем Справочный слой НСПД (подложка по умолчанию для главной карты)
-                    layer_record.isVisible = True
-                else:
-                    # Все остальное видимо
-                    layer_record.isVisible = True
+                # Не-подложечные слои (выбранные NSPD + границы) видимы
+                layer_record.isVisible = True
 
             # Добавляем в тему главной карты
             main_theme_layers.append(layer_record)
 
-            # Для обзорной карты - только границы работ (L_1_1_1) и ЦОС (L_1_3_3)
-            # ЦОС всегда включена независимо от use_satellite
-            if layer_name.startswith('L_1_1_1') or layer_name.startswith('L_1_3_3'):
+            # Для обзорной карты — L_1_1_1 + overview_basemap (из Base_layout)
+            is_boundaries = layer_name.startswith('L_1_1_1')
+            is_overview_basemap = (
+                overview_basemap is not None and layer_name == overview_basemap
+            )
+            if is_boundaries or is_overview_basemap:
                 overview_record = QgsMapThemeCollection.MapThemeLayerRecord(layer)
                 overview_record.isVisible = True
                 overview_record.usingCurrentStyle = True

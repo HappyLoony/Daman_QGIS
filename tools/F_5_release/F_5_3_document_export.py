@@ -167,7 +167,13 @@ class F_5_3_DocumentExport(BaseTool):
             self.iface.mainWindow()
         )
         progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setAutoClose(True)
+        # setAutoClose/setAutoReset = False: диалог не закрывается автоматически
+        # при value==max. Это нужно чтобы sub-progress callback (например, для
+        # пояснительной записки на последнем item) мог обновлять setLabelText
+        # после progress.setValue(current). Закрываем явно через progress.close()
+        # после цикла.
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
         progress.show()
 
         # Создаём фабрику
@@ -199,12 +205,32 @@ class F_5_3_DocumentExport(BaseTool):
             # Фаза экспорта для информативного label
             total = len(selected_items)
             if extra_context.get('summary_table'):
-                label = f"[{current}/{total}] Сводная таблица: {display_name}"
+                base_label = f"[{current}/{total}] Сводная таблица: {display_name}"
             elif extra_context.get('merged_export'):
-                label = f"[{current}/{total}] Сводный перечень: {display_name}"
+                base_label = f"[{current}/{total}] Сводный перечень: {display_name}"
+            elif template.doc_type == 'explanatory_note':
+                base_label = f"[{current}/{total}] Пояснительная записка"
             else:
-                label = f"[{current}/{total}] {display_name} ({doc_type_name})"
-            progress.setLabelText(label)
+                base_label = f"[{current}/{total}] {display_name} ({doc_type_name})"
+            progress.setLabelText(base_label)
+
+            # Sub-progress callback для долгих экспортёров (например Fsm_5_3_9).
+            # Передаётся через extra_context — экспортёр сам решает использовать или нет.
+            if template.doc_type == 'explanatory_note':
+                from qgis.PyQt.QtWidgets import QApplication
+
+                def _stage_progress(msg, percent, _label=base_label, _prog=progress):
+                    if _prog.wasCanceled():
+                        return
+                    _prog.setLabelText(f"{_label}: {msg}")
+                    _prog.repaint()
+                    QApplication.processEvents()
+
+                extra_context = {**extra_context, 'progress_callback': _stage_progress}
+                log_info(
+                    f"F_5_3: progress_callback подключён для item {current}/{total} "
+                    f"(пояснительная записка)"
+                )
 
             # Автонумерация приложений для перечней координат
             appendix_num = str(appendix_counter)

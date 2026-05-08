@@ -39,6 +39,7 @@ class DocumentFactory:
         self._attribute_exporter = None
         self._cadnum_exporter = None
         self._gpmt_exporter = None
+        self._explanatory_note_78 = None
 
     def export(
         self,
@@ -94,6 +95,12 @@ class DocumentFactory:
                 create_wgs84=create_wgs84
             )
 
+        elif doc_type == 'explanatory_note':
+            # Пояснительная записка региона 78 — не привязана к слою.
+            # Активируется через Region78FormatModifier с extra_context.
+            exporter = self._get_explanatory_note_78()
+            return exporter.export(output_folder, extra_context or {})
+
         else:
             log_warning(f"Fsm_5_3_3: Неизвестный тип документа: {doc_type}")
             return False
@@ -134,6 +141,15 @@ class DocumentFactory:
             )
         return self._gpmt_exporter
 
+    def _get_explanatory_note_78(self):
+        """Получить экспортёр пояснительной записки региона 78 (lazy)"""
+        if self._explanatory_note_78 is None:
+            from .Fsm_5_3_9_explanatory_note_78 import Fsm_5_3_9_ExplanatoryNote78
+            self._explanatory_note_78 = Fsm_5_3_9_ExplanatoryNote78(
+                self.iface, self.ref_managers
+            )
+        return self._explanatory_note_78
+
     @staticmethod
     def get_doc_type_name(doc_type: str) -> str:
         """
@@ -151,5 +167,6 @@ class DocumentFactory:
             'cadnum_list': 'Перечень КН',
             'gpmt_coordinates': 'Координаты ГПМТ',
             'gpmt_characteristics': 'Характеристики ГПМТ',
+            'explanatory_note': 'Пояснительная записка',
         }
         return names.get(doc_type, doc_type)
