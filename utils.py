@@ -703,3 +703,9 @@ def create_crs_from_string(crs_value):
     except Exception as e:
         log_error(f"Ошибка при создании CRS из '{crs_value}': {e}")
         return None
+
+
+# compute_plugin_hash перенесён в Daman_QGIS/integrity_hash.py — отдельный
+# модуль без qgis-зависимостей, чтобы scripts/main.py мог импортировать его
+# из CLI (вне QGIS). Импортировать через `from Daman_QGIS.integrity_hash
+# import compute_plugin_hash`, а не из utils.

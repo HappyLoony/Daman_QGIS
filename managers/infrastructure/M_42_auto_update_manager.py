@@ -96,6 +96,48 @@ class AutoUpdateManager:
         )
         return True
 
+    def force_update_to(self, download_url: str, target_version: str) -> bool:
+        """Принудительное обновление до конкретной версии по URL от сервера.
+
+        Используется когда сервер вернул `update_required` (integrity mismatch
+        на validate). Пропускает разрешение plugins.xml — скачивает напрямую
+        по URL, выданному сервером.
+
+        Args:
+            download_url: полный URL ZIP-архива (например,
+                https://daman.tools/releases/beta/Daman_QGIS-0.9.961-beta.1.zip)
+            target_version: человекочитаемая версия для логов
+
+        Returns:
+            True если установлено (caller должен запланировать рестарт QGIS),
+            False иначе.
+        """
+        log_info(
+            f"M_42: Force update triggered -> {target_version} ({download_url})"
+        )
+
+        if not download_url:
+            log_error("M_42: Force update: пустой download_url")
+            return False
+
+        zip_data = self._download_zip(download_url)
+        if zip_data is None:
+            log_error(f"M_42: Force update download failed for {target_version}")
+            return False
+        if not self._validate_zip(zip_data):
+            log_error(
+                f"M_42: Force update ZIP validation failed for {target_version}"
+            )
+            return False
+        if not self._install(zip_data):
+            log_error(f"M_42: Force update install failed for {target_version}")
+            return False
+
+        log_info(
+            f"M_42: Force update to {target_version} installed; restart required"
+        )
+        return True
+
     def force_reinstall(self) -> bool:
         """Принудительная переустановка текущей версии с сервера.
 

@@ -18,11 +18,13 @@ API: constants.API_BASE_URL (daman.tools)
 
 import hashlib
 import hmac
+import os
 import time
 from typing import Dict, Any, List
 
 from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT, PLUGIN_VERSION, get_api_url
 from Daman_QGIS.utils import log_info, log_error, log_warning
+from Daman_QGIS.integrity_hash import compute_plugin_hash
 
 class LicenseValidator:
     """
@@ -117,10 +119,19 @@ class LicenseValidator:
             **extra: Дополнительные поля (mode, etc.)
 
         Returns:
-            Dict с подписью и timestamp
+            Dict с подписью, timestamp и plugin_hash (детерминированный SHA-256
+            дерева файлов плагина).
         """
         timestamp = int(time.time())
         signature = self._generate_hmac_signature(api_key, hardware_id, timestamp)
+
+        # Детерминированный хеш дерева файлов из install location.
+        # Сервер сравнивает с эталоном из integrity registry; mismatch =>
+        # update_required (production) или DEV_HASH_MISMATCH (dev).
+        plugin_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        )
+        plugin_hash = compute_plugin_hash(plugin_dir)
 
         payload = {
             "api_key": api_key,
@@ -128,6 +139,7 @@ class LicenseValidator:
             "timestamp": timestamp,
             "signature": signature,
             "plugin_version": PLUGIN_VERSION,
+            "plugin_hash": plugin_hash,
             **extra
         }
         return payload
@@ -160,6 +172,11 @@ class LicenseValidator:
             )
 
             data = response.json()
+
+            # Integrity-related responses (Phase A.1 wire-contract)
+            integrity_result = self._check_integrity_response(response.status_code, data)
+            if integrity_result:
+                return integrity_result
 
             if response.status_code == 200 and data.get("status") == "success":
                 log_info("Msm_29_3: Активация успешна")
@@ -217,6 +234,14 @@ class LicenseValidator:
                             timeout=API_TIMEOUT
                         )
                         data = response.json()
+
+                        # Integrity-related responses (Phase A.1 wire-contract)
+                        integrity_result = self._check_integrity_response(
+                            response.status_code, data
+                        )
+                        if integrity_result:
+                            return integrity_result
+
                         if response.status_code == 200 and data.get("status") == "success":
                             log_info("Msm_29_3: Активация успешна (после retry)")
                             result = {
@@ -243,6 +268,70 @@ class LicenseValidator:
         """Проверка что ошибка связана с SSL (протухшее соединение)."""
         error_str = str(error).lower()
         return 'ssl' in error_str or 'crypto' in error_str
+
+    def _check_integrity_response(
+        self,
+        status_code: int,
+        data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Распознавание integrity-related ответов сервера.
+
+        Возвращает:
+        - dict с обработанным результатом (status=update_required /
+          status=error DEV_HASH_MISMATCH / status=registry_unavailable)
+          если это integrity-ответ;
+        - None если не integrity-ответ (caller продолжает обычную обработку).
+
+        Phase A.1 контракт:
+        - 200 + status=update_required: integrity mismatch на production-канале,
+          сервер вернул download_url для force update.
+        - 200 + error_code=DEV_HASH_MISMATCH: dev integrity registry рассинхронизирован,
+          разработчик должен выполнить `daman deploy`.
+        - 503 + error_code=INTEGRITY_REGISTRY_UNAVAILABLE: server config issue,
+          transient — caller должен продолжить bootstrap normally.
+        """
+        # 503 transient: integrity registry недоступен на сервере
+        if status_code == 503 and data.get("error_code") == "INTEGRITY_REGISTRY_UNAVAILABLE":
+            log_warning(
+                "Msm_29_3: Server integrity registry unavailable (503). "
+                "Transient — continuing bootstrap without integrity check."
+            )
+            return {
+                "status": "registry_unavailable",
+                "transient": True,
+                "message": data.get("message", "Integrity registry unavailable"),
+            }
+
+        # 200 + update_required: integrity mismatch, force update path
+        if data.get("status") == "update_required":
+            log_warning(
+                f"Msm_29_3: Plugin update required "
+                f"(channel={data.get('channel')}, "
+                f"current={PLUGIN_VERSION}, "
+                f"latest={data.get('current_version')})"
+            )
+            return {
+                "status": "update_required",
+                "channel": data.get("channel"),
+                "download_url": data.get("download_url"),
+                "current_version": data.get("current_version"),
+                "latest_version": data.get("latest_version"),
+                "message": data.get("message"),
+            }
+
+        # 200 + DEV_HASH_MISMATCH: разработчик должен передеплоить
+        if data.get("error_code") == "DEV_HASH_MISMATCH":
+            log_error(
+                "Msm_29_3: DEV plugin hash mismatch with registry. "
+                "Run `daman deploy` from D:\\Claude_file\\GitHub\\Daman_QGIS_dev to re-sync."
+            )
+            return {
+                "status": "error",
+                "error_code": "DEV_HASH_MISMATCH",
+                "message": data.get("message", "DEV plugin hash mismatch"),
+            }
+
+        return {}
 
     def verify(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
         """
@@ -286,6 +375,11 @@ class LicenseValidator:
             )
 
             data = response.json()
+
+            # Integrity-related responses (Phase A.1 wire-contract)
+            integrity_result = self._check_integrity_response(response.status_code, data)
+            if integrity_result:
+                return integrity_result
 
             if response.status_code == 200 and data.get("status") == "success":
                 license_info = data.get("license_info", {})

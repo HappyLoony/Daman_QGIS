@@ -77,6 +77,10 @@ class LicenseManager(QObject):
         self._status: LicenseStatus = LicenseStatus.NOT_ACTIVATED
         self._initialized: bool = False
         self._session_verified: bool = False  # Кэш проверки на время сессии
+        # Последний результат validate из Msm_29_3 — нужен main_plugin для
+        # обработки update_required / DEV_HASH_MISMATCH / registry_unavailable
+        # после успешного _acquire_jwt_tokens (Phase B integrity refactor).
+        self._last_validate_result: Optional[Dict[str, Any]] = None
 
     def initialize(self) -> bool:
         """Инициализация менеджера."""
@@ -230,6 +234,10 @@ class LicenseManager(QObject):
                 hardware_id=self._hardware_id
             )
 
+            # Сохраняем последний результат для main_plugin
+            # (нужен для обработки update_required / DEV_HASH_MISMATCH).
+            self._last_validate_result = result
+
             if result["status"] == "active":
                 self._license_info = result.get("license_info")
                 self._status = LicenseStatus.VALID
@@ -252,7 +260,33 @@ class LicenseManager(QObject):
                 self.license_validated.emit(True)
                 return True
 
-            elif result["status"] == "expired":
+            # Phase B integrity wire-contract:
+            # update_required / DEV_HASH_MISMATCH / registry_unavailable —
+            # обрабатываются в main_plugin._handle_validate_result. Здесь
+            # лицензия не считается валидной (verify=False), но main_plugin
+            # решит: force update / DEV ошибка / продолжить bootstrap.
+            if result["status"] == "update_required":
+                # Не SERVER_ERROR (чтобы не путать с реальной server недоступностью):
+                # session_verified=False, status неизменен; main_plugin поймёт
+                # из _last_validate_result что нужен force update.
+                log_warning("M_29: Update required (integrity mismatch on production channel)")
+                return False
+
+            if result["status"] == "registry_unavailable":
+                # 503 — server config issue, transient. Лицензия фактически
+                # не верифицирована, но и не отозвана. main_plugin продолжит
+                # bootstrap normally (degraded mode без integrity check).
+                log_warning("M_29: Integrity registry unavailable (503, transient)")
+                self._status = LicenseStatus.SERVER_ERROR
+                return False
+
+            if result.get("error_code") == "DEV_HASH_MISMATCH":
+                # DEV режим: developer должен передеплоить.
+                # main_plugin покажет блокирующий диалог.
+                log_error("M_29: DEV_HASH_MISMATCH — re-deploy required")
+                return False
+
+            if result["status"] == "expired":
                 self._status = LicenseStatus.EXPIRED
                 self.license_expired.emit(result.get("expires_at", ""))
                 return False

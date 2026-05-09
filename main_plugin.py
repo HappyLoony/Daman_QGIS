@@ -761,7 +761,14 @@ class DamanQGIS:
         self._heartbeat_timer.start(HEARTBEAT_INTERVAL_MS)
 
     def _heartbeat_check(self) -> None:
-        """Проверить статус лицензии на сервере (вызывается по таймеру)."""
+        """Проверить статус лицензии на сервере (вызывается по таймеру).
+
+        Phase A.1 wire-contract:
+        - REQUIRED: plugin_version + plugin_hash в payload (иначе server 400)
+        - INTEGRITY_MISMATCH: mark_update_pending, не отзываем лицензию
+          (hash drift в runtime — исправляется на следующем рестарте)
+        - INTEGRITY_REGISTRY_UNAVAILABLE (503): transient, продолжаем сессию
+        """
         try:
             license_mgr = registry.get('M_29')
             api_key = license_mgr.get_api_key()
@@ -775,6 +782,7 @@ class DamanQGIS:
             import hashlib
             import requests
             from Daman_QGIS.constants import API_TIMEOUT, get_api_url
+            from Daman_QGIS.integrity_hash import compute_plugin_hash
 
             timestamp = int(_time.time())
             signature = hmac.new(
@@ -783,13 +791,9 @@ class DamanQGIS:
                 hashlib.sha256
             ).hexdigest()
 
-            # Хеши критических файлов для server-side integrity check
-            file_hashes = {}
-            for key, rel_path in self.INTEGRITY_FILES.items():
-                filepath = os.path.join(self.plugin_dir, rel_path)
-                if os.path.exists(filepath):
-                    with open(filepath, 'rb') as f:
-                        file_hashes[key] = hashlib.sha256(f.read()).hexdigest()
+            # Phase A.1: server STRICT requires plugin_version + plugin_hash.
+            # Отсутствие полей -> 400 MISSING_VERSION / MISSING_HASH.
+            plugin_hash = compute_plugin_hash(self.plugin_dir)
 
             response = requests.post(
                 get_api_url("heartbeat"),
@@ -798,21 +802,64 @@ class DamanQGIS:
                     "hardware_id": hardware_id,
                     "timestamp": timestamp,
                     "signature": signature,
-                    "file_hashes": file_hashes,
                     "plugin_version": PLUGIN_VERSION,
+                    "plugin_hash": plugin_hash,
                 },
                 timeout=API_TIMEOUT
             )
+
+            # Phase A.1: 503 INTEGRITY_REGISTRY_UNAVAILABLE — transient,
+            # не блокируем сессию.
+            if response.status_code == 503:
+                try:
+                    err_data = response.json()
+                    if err_data.get('error_code') == 'INTEGRITY_REGISTRY_UNAVAILABLE':
+                        log_warning(
+                            "Main: Heartbeat: integrity registry unavailable "
+                            "(503, transient) — session continues"
+                        )
+                        return
+                except Exception:
+                    pass
 
             if response.status_code == 200:
                 data = response.json()
                 if data.get('status') == 'revoked':
                     reason = data.get('reason', 'unknown')
-                    if reason in ('INTEGRITY_MISSING', 'INTEGRITY_MISMATCH'):
-                        log_error(f"Main: Heartbeat integrity check failed ({reason})")
+                    if reason == 'INTEGRITY_MISMATCH':
+                        # Runtime hash drift -- лицензия валидна, обновление
+                        # будет применено на следующем старте QGIS.
+                        # Не вызываем _on_license_revoked() — не разрушаем сессию.
+                        log_warning(
+                            "Main: Heartbeat detected hash mismatch — "
+                            "marking update pending"
+                        )
+                        try:
+                            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_4_token_manager import (
+                                TokenManager
+                            )
+                            TokenManager.get_instance().mark_update_pending({
+                                "channel": data.get('channel'),
+                                "current_version": data.get('current_version'),
+                                "latest_version": data.get('latest_version'),
+                                "download_url": data.get('download_url'),
+                            })
+                        except Exception as e:
+                            log_error(f"Main: Failed to mark update pending: {e}")
+                        return  # silent continuation
+
+                    if reason == 'INTEGRITY_MISSING':
+                        # Сервер потерял запись registry — обращаемся как с
+                        # отзывом для безопасности.
+                        log_error(
+                            f"Main: Heartbeat integrity check failed ({reason})"
+                        )
+                        self._on_license_revoked()
                     else:
-                        log_warning(f"Main: Лицензия отозвана сервером ({reason})")
-                    self._on_license_revoked()
+                        log_warning(
+                            f"Main: Лицензия отозвана сервером ({reason})"
+                        )
+                        self._on_license_revoked()
 
         except Exception as e:
             # Graceful degradation: сетевые ошибки не блокируют работу
@@ -926,104 +973,106 @@ class DamanQGIS:
 
         return activated
 
-    # === Integrity Verification ===
+    # === Integrity: handle server-driven update_required / DEV_HASH_MISMATCH ===
 
-    # Критические файлы для проверки целостности (ключ -> относительный путь от plugin_dir)
-    INTEGRITY_FILES = {
-        'main_plugin': 'main_plugin.py',
-        'msm_29_3': os.path.join('managers', 'infrastructure', 'submodules', 'Msm_29_3_license_validator.py'),
-        'msm_29_4': os.path.join('managers', 'infrastructure', 'submodules', 'Msm_29_4_token_manager.py'),
-        'base_ref': os.path.join('database', 'base_reference_loader.py'),
-    }
+    def _handle_validate_result(self, validate_result: Dict[str, Any]) -> bool:
+        """Обработка интеграционного ответа Msm_29_3.verify().
 
-    def _verify_integrity(self) -> bool:
-        """Проверка целостности критических файлов плагина.
-
-        Сравнивает SHA-256 хеши локальных файлов с эталонными из JWT claims.
-        При несовпадении: блокирует работу плагина.
+        После Msm_29_3.verify() сервер уже проверил plugin_hash против
+        эталона из integrity registry. Здесь мы реагируем на специальные
+        статусы:
+        - update_required: production hash mismatch -> M_42.force_update_to()
+        - DEV_HASH_MISMATCH: dev developer должен передеплоить
+        - registry_unavailable: 503 transient (server config) -> продолжить
+          bootstrap normally (degraded mode)
 
         Returns:
-            True если проверка пройдена, False если файлы модифицированы.
+            True  -- bootstrap продолжается нормально
+            False -- плагин входит в состояние блокировки / pending restart
         """
-        import hashlib
-        import base64
-        import json
-
-        try:
-            # Получаем access token из TokenManager
-            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_4_token_manager import TokenManager
-            token_mgr = TokenManager.get_instance()
-            access_token = token_mgr._access_token if token_mgr else None
-
-            if not access_token:
-                return True  # Нет токена -- пропускаем проверку
-
-            # Декодируем JWT payload (без верификации подписи)
-            parts = access_token.split('.')
-            if len(parts) != 3:
-                log_error("Daman_QGIS: Integrity check: invalid token format")
-                return False
-
-            payload_b64 = parts[1]
-            # Добавляем padding для base64
-            payload_b64 += '=' * (4 - len(payload_b64) % 4)
-            payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-
-            expected_hashes = payload.get('integrity')
-            if not isinstance(expected_hashes, dict) or not expected_hashes:
-                # Токен есть, но integrity claim отсутствует/невалиден — fail-closed
-                log_error("Daman_QGIS: Integrity claim missing or invalid — blocking")
-                return False
-
-            # Вычисляем локальные хеши и сравниваем
-            mismatches = []
-            for key, rel_path in self.INTEGRITY_FILES.items():
-                expected = expected_hashes.get(key)
-
-                # Пустой, отсутствующий или невалидный хеш = mismatch
-                if not isinstance(expected, str) or len(expected) != 64:
-                    mismatches.append(f"{key}: invalid or missing hash")
-                    continue
-
-                filepath = os.path.join(self.plugin_dir, rel_path)
-                if not os.path.exists(filepath):
-                    mismatches.append(f"{key}: file missing")
-                    continue
-
-                with open(filepath, 'rb') as f:
-                    actual = hashlib.sha256(f.read()).hexdigest()
-
-                if actual != expected:
-                    mismatches.append(key)
-                    log_error(
-                        f"Daman_QGIS: Integrity mismatch {key}: "
-                        f"expected={expected[:16]}..., actual={actual[:16]}..."
-                    )
-
-            if mismatches:
-                log_error(f"Daman_QGIS: Integrity check failed: {', '.join(mismatches)}")
-                try:
-                    track_exception(
-                        "main_plugin",
-                        RuntimeError(f"Integrity mismatch: {', '.join(mismatches)}"),
-                        {"phase": "integrity_check", "files": mismatches}
-                    )
-                except Exception:
-                    pass
-                return False
-
+        if not validate_result:
             return True
 
-        except json.JSONDecodeError as e:
-            log_error(f"Daman_QGIS: Invalid JWT payload in integrity check: {e}")
+        status = validate_result.get("status")
+
+        # Phase A.1 transient: 503 INTEGRITY_REGISTRY_UNAVAILABLE.
+        # Не блокируем плагин — server config issue, не tampering.
+        if status == "registry_unavailable":
+            log_warning(
+                "Daman_QGIS: Integrity registry unavailable on server (503). "
+                "Continuing bootstrap in degraded mode."
+            )
+            return True
+
+        if status == "update_required":
+            download_url = validate_result.get("download_url")
+            target_version = (
+                validate_result.get("current_version")
+                or validate_result.get("latest_version")
+            )
+            channel = validate_result.get("channel")
+
+            log_info(
+                f"Daman_QGIS: Update required "
+                f"({channel}: {PLUGIN_VERSION} -> {target_version})"
+            )
+
+            if not download_url or not target_version:
+                log_error(
+                    "Daman_QGIS: update_required без download_url или version — "
+                    "force update невозможен"
+                )
+                QMessageBox.critical(
+                    self.iface.mainWindow(),
+                    "Daman QGIS",
+                    "Требуется обновление плагина, но сервер не предоставил "
+                    "ссылку для скачивания.\n\nПереустановите плагин из "
+                    "официального источника."
+                )
+                return False
+
             try:
-                track_exception("main_plugin", e, {"phase": "integrity_jwt_decode"})
-            except Exception:
-                pass
+                auto_update = registry.get("M_42")
+                if auto_update and auto_update.force_update_to(
+                    download_url, target_version
+                ):
+                    QMessageBox.information(
+                        self.iface.mainWindow(),
+                        "Daman QGIS",
+                        f"Установлено обновление до {target_version}.\n"
+                        f"QGIS будет перезапущен."
+                    )
+                    QTimer.singleShot(0, self._restart_qgis_after_update)
+                    return False
+            except Exception as e:
+                log_error(f"Daman_QGIS: Force update failed: {e}")
+
+            # Force update не удался -- блокируем плагин
+            QMessageBox.critical(
+                self.iface.mainWindow(),
+                "Daman QGIS",
+                "Требуется обновление плагина, но автоматическое обновление "
+                "не удалось.\nПроверьте подключение и повторите запуск QGIS.\n\n"
+                "Если проблема повторится — переустановите плагин из "
+                "официального источника."
+            )
+            log_error(
+                "Daman_QGIS: Plugin blocked - update_required, "
+                "auto-update failed"
+            )
             return False
-        except Exception as e:
-            log_error(f"Daman_QGIS: Integrity check error: {e}")
+
+        if validate_result.get("error_code") == "DEV_HASH_MISMATCH":
+            QMessageBox.critical(
+                self.iface.mainWindow(),
+                "Daman QGIS — DEV",
+                "Локальный hash плагина не совпадает с DEV registry.\n"
+                "Выполните `daman deploy` чтобы синхронизировать."
+            )
+            log_error("Daman_QGIS: DEV_HASH_MISMATCH — re-deploy required")
             return False
+
+        return True
 
     def _show_activation_only_toolbar(self) -> None:
         """Показать минимальную панель с кнопкой активации (делегирует M_43)."""
@@ -1061,54 +1110,23 @@ class DamanQGIS:
             self._show_emergency_toolbar()
             return
 
-        # Проверка целостности критических файлов (anti-tampering)
+        # Phase B integrity wire-contract: server-driven update_required /
+        # DEV_HASH_MISMATCH / registry_unavailable.
+        # Msm_29_3.verify() уже отправил plugin_hash и сравнил его с эталоном
+        # на сервере. Результат лежит в M_29._last_validate_result.
         _t = perf_counter()
-        if not self._verify_integrity():
-            # Защита от бесконечного цикла reinstall -> restart -> integrity fail
-            settings = QSettings()
-            reinstall_key = "Daman_QGIS/last_reinstall_version"
-            last_reinstall = settings.value(reinstall_key, "", type=str)
-
-            if last_reinstall == PLUGIN_VERSION:
-                log_error(
-                    f"Daman_QGIS: Integrity check failed after reinstall "
-                    f"{PLUGIN_VERSION}, skipping re-reinstall"
-                )
-            else:
-                log_warning("Daman_QGIS: Integrity check failed, attempting auto-reinstall...")
-                try:
-                    auto_update = registry.get('M_42')
-                    if auto_update.force_reinstall():
-                        settings.setValue(reinstall_key, PLUGIN_VERSION)
-                        self._update_pending = True
-                        log_info("Daman_QGIS: Reinstall successful, scheduling QGIS restart...")
-                        from qgis.PyQt.QtWidgets import QMessageBox
-                        QMessageBox.information(
-                            self.iface.mainWindow(),
-                            "Daman QGIS",
-                            "Версия плагина неактуальна.\n"
-                            "Обновление установлено, QGIS будет перезапущен."
-                        )
-                        QTimer.singleShot(0, self._restart_qgis_after_update)
-                        return
-                except Exception as e:
-                    log_error(f"Daman_QGIS: Auto-reinstall failed: {e}")
-
-            # Переустановка не удалась -- показать сообщение
-            from qgis.PyQt.QtWidgets import QMessageBox
-            QMessageBox.warning(
-                self.iface.mainWindow(),
-                "Daman QGIS",
-                "Версия плагина неактуальна.\n"
-                "Автоматическое обновление не удалось.\n\n"
-                "Переустановите плагин из официального источника."
-            )
-            log_error("Daman_QGIS: Plugin blocked - integrity check failed, auto-reinstall failed")
-            return
-        else:
-            # Integrity OK -- очистить флаг предыдущего reinstall
-            QSettings().remove("Daman_QGIS/last_reinstall_version")
-        log_timing(f"Daman_QGIS: [TIMING] toolbar/verify_integrity: {perf_counter() - _t:.3f}s")
+        try:
+            license_mgr = registry.get('M_29')
+            last_validate = getattr(license_mgr, "_last_validate_result", None)
+            if last_validate:
+                if not self._handle_validate_result(last_validate):
+                    return  # Плагин блокирует себя; пользователь видит диалог
+        except Exception as e:
+            log_error(f"Daman_QGIS: validate_result handler error: {e}")
+        log_timing(
+            f"Daman_QGIS: [TIMING] toolbar/handle_validate_result: "
+            f"{perf_counter() - _t:.3f}s"
+        )
 
         # Инициализация общих инструментов (контекстное меню)
         _t = perf_counter()

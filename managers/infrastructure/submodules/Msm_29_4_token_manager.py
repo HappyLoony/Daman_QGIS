@@ -18,7 +18,7 @@ Singleton: один экземпляр на сессию QGIS.
 """
 
 import time
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, Tuple
 
 from Daman_QGIS.constants import (
     API_TIMEOUT,
@@ -56,6 +56,12 @@ class TokenManager:
         self._on_auth_failure: Optional[Callable] = None
         self._is_refreshing: bool = False
         self._session = None
+        # Phase B integrity refactor: observability flag для INTEGRITY_MISMATCH
+        # из heartbeat. НЕ персистится между сессиями (in-memory only); update
+        # будет применён через startup-path при следующем validate (свежий
+        # validate вернёт update_required и main_plugin вызовет M_42).
+        self._update_pending: bool = False
+        self._update_pending_info: Optional[Dict[str, Any]] = None
 
     @classmethod
     def get_instance(cls) -> 'TokenManager':
@@ -126,7 +132,43 @@ class TokenManager:
         self._refresh_token = None
         self._access_expires_at = 0
         self._refresh_expires_at = 0
+        # Чистим pending-флаг тоже — после деактивации он не имеет смысла.
+        self._update_pending = False
+        self._update_pending_info = None
         log_info("Msm_29_4: Tokens cleared")
+
+    # === Phase B integrity refactor: pending update tracking ===
+
+    def mark_update_pending(self, info: Dict[str, Any]) -> None:
+        """Отметить что обновление ожидает применения (heartbeat-detected hash drift).
+
+        Observability-only signal: для логов и telemetry. Сам по себе flag
+        НЕ триггерит update; update применяется через startup-path
+        (свежий validate на следующем запуске QGIS вернёт update_required
+        и main_plugin._handle_validate_result вызовет M_42.force_update_to).
+
+        Не персистится между сессиями (in-memory only).
+
+        Args:
+            info: словарь с метаданными ожидаемого обновления (channel,
+                current_version, latest_version, download_url).
+        """
+        self._update_pending = True
+        self._update_pending_info = info
+        log_info(
+            f"Msm_29_4: Update pending marked "
+            f"(channel={info.get('channel')}, "
+            f"current={info.get('current_version')}, "
+            f"latest={info.get('latest_version')})"
+        )
+
+    def is_update_pending(self) -> Tuple[bool, Optional[Dict[str, Any]]]:
+        """Получить статус pending update.
+
+        Returns:
+            (is_pending, info) — info=None если pending=False.
+        """
+        return self._update_pending, self._update_pending_info
 
     def has_valid_tokens(self) -> bool:
         """Есть ли действующие токены (access или refresh)."""
