@@ -323,6 +323,42 @@ class DamanQGIS:
 
         self._profile_only_mode = False
 
+        # --- FIX-4 (review 2026-05-09): integrity_hash _on_skip hook wiring ---
+        # Перенаправить skip events (locked/AV-blocked файлы при compute hash)
+        # в log + M_32 telemetry. integrity_hash модуль stdlib-only, поэтому
+        # hook monkey-patch'ится отсюда (плагин imports utils + managers).
+        try:
+            from Daman_QGIS import integrity_hash as _ih
+
+            def _integrity_skip_hook(rel_path: str, error: Exception) -> None:
+                log_warning(
+                    f"integrity_hash: skipped unreadable {rel_path} "
+                    f"({type(error).__name__}: {error})"
+                )
+                try:
+                    telemetry_mgr = registry.get('M_32')
+                    if telemetry_mgr is not None:
+                        telemetry_mgr.track_event('integrity_hash_skip', {
+                            'rel_path': rel_path,
+                            'error_type': type(error).__name__,
+                        })
+                except Exception:
+                    pass
+
+            _ih._on_skip = _integrity_skip_hook
+        except Exception as e:
+            log_warning(f"Daman_QGIS: integrity_hash hook setup failed: {e}")
+
+        # FIX-5: prewarm cache plugin_hash. Compute один раз при initGui
+        # → переиспользуем для всех validate/heartbeat в течение сессии.
+        # Также seed log хеша для диагностики.
+        try:
+            from Daman_QGIS.integrity_hash import get_cached_or_compute
+            _cached = get_cached_or_compute(self.plugin_dir)
+            log_info(f"Daman_QGIS: cached plugin_hash {_cached[:16]}...")
+        except Exception as e:
+            log_warning(f"Daman_QGIS: plugin_hash prewarm failed: {e}")
+
         # Настройка M_43 (до первого использования fallback тулбаров)
         self._fallback_mgr.configure(
             show_forced_activation=self._show_forced_activation,
@@ -782,7 +818,7 @@ class DamanQGIS:
             import hashlib
             import requests
             from Daman_QGIS.constants import API_TIMEOUT, get_api_url
-            from Daman_QGIS.integrity_hash import compute_plugin_hash
+            from Daman_QGIS.integrity_hash import get_cached_or_compute
 
             timestamp = int(_time.time())
             signature = hmac.new(
@@ -793,7 +829,8 @@ class DamanQGIS:
 
             # Phase A.1: server STRICT requires plugin_version + plugin_hash.
             # Отсутствие полей -> 400 MISSING_VERSION / MISSING_HASH.
-            plugin_hash = compute_plugin_hash(self.plugin_dir)
+            # FIX-5: используем module-level cache (compute один раз на сессию)
+            plugin_hash = get_cached_or_compute(self.plugin_dir)
 
             response = requests.post(
                 get_api_url("heartbeat"),
@@ -1002,6 +1039,16 @@ class DamanQGIS:
                 "Daman_QGIS: Integrity registry unavailable on server (503). "
                 "Continuing bootstrap in degraded mode."
             )
+            # FIX-7 (review 2026-05-09): emit telemetry для admin dashboard alert
+            # на silent server-side integrity bypass.
+            try:
+                telemetry_mgr = registry.get('M_32')
+                if telemetry_mgr is not None:
+                    telemetry_mgr.track_event('integrity_registry_unavailable', {
+                        'context': 'handle_validate_result',
+                    })
+            except Exception:
+                pass
             return True
 
         if status == "update_required":

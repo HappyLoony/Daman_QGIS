@@ -28,6 +28,10 @@ class BaseReferenceLoader:
     # Общий кэш для всех экземпляров (загрузка один раз за сессию)
     _shared_cache: Dict[str, Any] = {}
     _shared_index_cache: Dict[str, Dict] = {}
+    # Был ли хотя бы один успешный 200 от /api/plugin/data в текущей сессии.
+    # Используется для классификации 404 как transient (truncation в VPN-канале)
+    # vs permanent (файла действительно нет) в _load_from_remote.
+    _seen_remote_success: bool = False
 
     def __init__(self):
         """Инициализация базового загрузчика.
@@ -65,18 +69,44 @@ class BaseReferenceLoader:
 
         return data
 
+    # Retry-стратегия для transient transport-уровневых ошибок.
+    # Root cause: VPN-канал (AmneziaVPN multi-exit, mobile, плохой Wi-Fi) теряет
+    # пакеты на больших ответах /api/plugin/data — VPS отвечает 200 OK с полным
+    # gzip body, но клиент видит timeout / 404 / пустое тело при 200.
+    # Сервер не отдаёт Content-Length для gzip-streamed ответов Next.js,
+    # поэтому клиент не может валидировать целостность и молча принимает
+    # обрезанные данные. Retry с backoff закрывает разрыв.
+    _MAX_REMOTE_ATTEMPTS = 3
+    _REMOTE_BACKOFF_SECONDS = (1.0, 3.0)  # перед попытками 2 и 3
+
     def _load_from_remote(self, filename: str) -> Optional[Any]:
         """
-        Загрузить JSON через Daman API с JWT авторизацией.
+        Загрузить JSON через Daman API с JWT авторизацией и retry на transient.
 
-        Все retry/refresh/backoff логика вынесена в Msm_29_6_AuthedRequestManager
-        (single source of truth). Здесь только парсинг ответа.
+        Auth/refresh/circuit-breaker логика — в Msm_29_6_AuthedRequestManager
+        (single source of truth), здесь только transport-retry для GET справочников
+        и парсинг ответа.
+
+        Retry (до 3 попыток, backoff 1s/3s) на transient-ошибках:
+          - requests.exceptions.Timeout
+          - requests.exceptions.ConnectionError
+          - status 200 с пустым/обрезанным body (json.JSONDecodeError)
+          - status 404 — только если в текущей сессии уже был успешный 200
+            (явно transient — TCP truncation от VPN-прокси, не реальное отсутствие)
+          - status 5xx (transient серверная ошибка)
+
+        НЕ ретрается (немедленный return None):
+          - AuthFailureError, CircuitBreakerError, VersionMismatchError
+            (Msm_29_6 уже сам обработал)
+          - status 403 (permanent: ACCOUNT_PENDING_DELETION, INTEGRITY_MISMATCH, ...)
+          - status 404 при отсутствии prior success (реально нет файла)
+          - прочие requests.exceptions.RequestException (DNS, SSL, ...)
 
         Args:
             filename: Имя JSON файла (с или без .json расширения)
 
         Returns:
-            Данные из файла или None при ошибке
+            Данные из файла или None при permanent ошибке / исчерпанных попытках
         """
         from Daman_QGIS.constants import get_api_url
         from Daman_QGIS.managers.infrastructure.submodules.Msm_29_6_authed_request import (
@@ -92,52 +122,81 @@ class BaseReferenceLoader:
             log_warning("BaseReferenceLoader: requests не установлен, remote загрузка недоступна")
             return None
 
+        import time
+
         # Убираем .json для API запроса (API добавит сам)
         file_param = filename.replace('.json', '')
         url = get_api_url("data", file=file_param)
 
-        try:
-            response = AuthedRequestManager.get_instance().request(
-                "GET",
-                url,
-                # Один endpoint_key на все Base_*.json — общая квота 3 попытки/60с.
-                endpoint_key="/api/plugin/data",
-            )
-        except CircuitBreakerError as e:
-            # Тихо — не спамить запросами и не пугать юзера повторно.
-            # AuthFailureError уже показал UI ранее, circuit breaker = cooldown.
-            log_warning(f"BaseReferenceLoader: {filename} skipped: {e}")
-            return None
-        except AuthFailureError as e:
-            # UI-сообщение «Требуется повторная активация» уже показано
-            # из AuthedRequestManager (через registered callback).
-            log_error(f"BaseReferenceLoader: Auth failure для {filename}: {e}")
-            return None
-        except VersionMismatchError as e:
-            # M_42 hot update detected — токены инвалидированы, форсим re-validate.
-            log_warning(f"BaseReferenceLoader: {filename} version mismatch: {e}")
-            self._handle_jwt_version_mismatch()
-            return None
-        except requests.exceptions.Timeout:
-            log_warning(f"BaseReferenceLoader: Таймаут при загрузке {filename}")
-            return None
-        except requests.exceptions.RequestException as e:
-            log_warning(f"BaseReferenceLoader: Ошибка сети при загрузке {filename}: {e}")
-            return None
+        last_transient_reason: Optional[str] = None
 
-        if response is None:
-            return None
+        for attempt in range(1, self._MAX_REMOTE_ATTEMPTS + 1):
+            if attempt > 1:
+                delay = self._REMOTE_BACKOFF_SECONDS[attempt - 2]
+                log_warning(
+                    f"BaseReferenceLoader: Retry {attempt}/{self._MAX_REMOTE_ATTEMPTS} "
+                    f"для {filename} после {last_transient_reason} (через {delay}s)"
+                )
+                time.sleep(delay)
 
-        try:
-            if response.status_code == 200:
-                response_json = response.json()
+            try:
+                response = AuthedRequestManager.get_instance().request(
+                    "GET",
+                    url,
+                    # Один endpoint_key на все Base_*.json — общая квота на auth-уровне.
+                    endpoint_key="/api/plugin/data",
+                )
+            except CircuitBreakerError as e:
+                # Тихо — не спамить запросами и не пугать юзера повторно.
+                log_warning(f"BaseReferenceLoader: {filename} skipped: {e}")
+                return None
+            except AuthFailureError as e:
+                # UI-сообщение «Требуется повторная активация» уже показано
+                # из AuthedRequestManager (через registered callback).
+                log_error(f"BaseReferenceLoader: Auth failure для {filename}: {e}")
+                return None
+            except VersionMismatchError as e:
+                # M_42 hot update detected — токены инвалидированы, форсим re-validate.
+                log_warning(f"BaseReferenceLoader: {filename} version mismatch: {e}")
+                self._handle_jwt_version_mismatch()
+                return None
+            except requests.exceptions.Timeout:
+                last_transient_reason = "timeout"
+                continue
+            except requests.exceptions.ConnectionError as e:
+                last_transient_reason = f"connection error ({e})"
+                continue
+            except requests.exceptions.RequestException as e:
+                # DNS/SSL/прочие — permanent, retry не поможет.
+                log_warning(f"BaseReferenceLoader: Ошибка сети при загрузке {filename}: {e}")
+                return None
+
+            if response is None:
+                # AuthedRequestManager уже залогировал причину.
+                return None
+
+            status = response.status_code
+
+            if status == 200:
+                try:
+                    response_json = response.json()
+                except json.JSONDecodeError as e:
+                    # Пустое/обрезанное тело при 200 — классический симптом
+                    # truncation gzip-stream без Content-Length. Transient.
+                    last_transient_reason = f"empty body / parse error ({e})"
+                    continue
                 # Сервер оборачивает данные в {'data': ..., 'copyright': ...}
-                data = response_json.get('data', response_json) if isinstance(response_json, dict) else response_json
+                data = (
+                    response_json.get('data', response_json)
+                    if isinstance(response_json, dict)
+                    else response_json
+                )
+                BaseReferenceLoader._seen_remote_success = True
                 return data
-            if response.status_code == 403:
-                # 403 не-AUTH_FAILED (например, ACCOUNT_PENDING_DELETION,
-                # INTEGRITY_MISMATCH, HARDWARE_MISMATCH) — refresh не помог бы,
-                # AuthedRequestManager пропускает их без retry. Логируем код.
+
+            if status == 403:
+                # 403 не-AUTH_FAILED (ACCOUNT_PENDING_DELETION, INTEGRITY_MISMATCH,
+                # HARDWARE_MISMATCH) — permanent, refresh не помог бы.
                 try:
                     error_body = response.json()
                     error_code = error_body.get('error_code', error_body.get('error', 'unknown'))
@@ -147,15 +206,28 @@ class BaseReferenceLoader:
                     f"BaseReferenceLoader: Доступ запрещён к {filename} "
                     f"(reason: {error_code})"
                 )
-            elif response.status_code == 404:
-                log_warning(f"BaseReferenceLoader: Файл {filename} не найден на сервере")
-            else:
-                log_warning(
-                    f"BaseReferenceLoader: HTTP {response.status_code} для {filename}"
-                )
-        except json.JSONDecodeError as e:
-            log_error(f"BaseReferenceLoader: Ошибка парсинга JSON {filename}: {e}")
+                return None
 
+            if status == 404:
+                if BaseReferenceLoader._seen_remote_success:
+                    # Файл уже отдавался успешно ранее в этой сессии — текущий 404
+                    # суспект transient (VPN-truncation / nginx misroute).
+                    last_transient_reason = "404 (suspect transient, prior success in session)"
+                    continue
+                log_warning(f"BaseReferenceLoader: Файл {filename} не найден на сервере")
+                return None
+
+            if 500 <= status < 600:
+                last_transient_reason = f"HTTP {status}"
+                continue
+
+            log_warning(f"BaseReferenceLoader: HTTP {status} для {filename}")
+            return None
+
+        log_warning(
+            f"BaseReferenceLoader: {filename} не загружен после "
+            f"{self._MAX_REMOTE_ATTEMPTS} попыток (последняя причина: {last_transient_reason})"
+        )
         return None
 
     @staticmethod

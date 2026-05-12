@@ -124,7 +124,7 @@ CHANGELOG_URL = "https://rosleshoz.gov.ru/information-systems/fgis-lk-informatio
 # При смене серии требуется регресс: endpoint gwc-01/02, LAYER_MAPPING (Fsm_1_2_4), схема PBF.
 # Обновлять expected_series после верификации плагина на новой серии.
 FGISLK_CHANGELOG_CONTRACT = {
-    "expected_series": "4.16",
+    "expected_series": "4.17",
     "required_phrases": ("обновление", "фгис"),
 }
 
@@ -1629,8 +1629,13 @@ class TestFgislkMonitoring:
                 )
 
             expected_series = FGISLK_CHANGELOG_CONTRACT["expected_series"]
-            # Контекстный парсинг: версия только после "ФГИС ЛК" (избегаем 7.4.1 в swiper и т.п.)
-            series_match = re.search(r"фгис\s+лк[:\s]+(\d+\.\d+)", text_lower)
+            # Контекстный парсинг: серия только из заголовков "Обновление ФГИС ЛК X.Y[.Z]".
+            # Старый regex r"фгис\s+лк[:\s]+(\d+\.\d+)" ловил даты техработ
+            # ("трудности с доступом в ФГИС ЛК 07.05.2026...") вместо релизной серии.
+            # Берём X.Y (4.17), .Z игнорируем -- patch'и не должны триггерить контракт.
+            series_match = re.search(
+                r"обновление\s+фгис\s+лк\s+(\d+\.\d+)", text_lower
+            )
             actual_series = series_match.group(1) if series_match else None
 
             if actual_series is None:

@@ -444,6 +444,11 @@ class TestHeartbeat:
 
         Phase B wire-contract: подменяем plugin_hash на заведомо неправильный,
         сервер возвращает revoked с reason=INTEGRITY_MISMATCH.
+
+        ВАЖНО: используем BETA channel (фиксированная версия), не PLUGIN_VERSION.
+        DEV channel mismatch by Phase A.1 design возвращает active (silent —
+        developer self-syncs через `daman deploy`, не ломаем рабочую сессию).
+        Enforcement path тестируется на beta/stable.
         """
         self.logger.section("51. Phase B: подменённый plugin_hash")
 
@@ -452,10 +457,9 @@ class TestHeartbeat:
             return
 
         try:
-            from Daman_QGIS.constants import PLUGIN_VERSION
-
             payload = self._build_heartbeat_payload(include_integrity=False)
-            payload['plugin_version'] = PLUGIN_VERSION
+            # Beta channel: server возвращает revoked + INTEGRITY_MISMATCH
+            payload['plugin_version'] = '0.9.960-beta.1'
             payload['plugin_hash'] = 'a' * 64  # заведомо не совпадает
 
             response = self._send_heartbeat(payload)
@@ -506,10 +510,18 @@ class TestHeartbeat:
                 "plugin_version отсутствует в _heartbeat_check!"
             )
 
+            # FIX-5 (review 2026-05-09): _heartbeat_check теперь использует
+            # module-level cache get_cached_or_compute (saves ~200ms × N
+            # heartbeats/day). Принимаем любую из двух функций.
+            uses_hash_fn = (
+                'get_cached_or_compute' in source
+                or 'compute_plugin_hash' in source
+            )
             self.logger.check(
-                'compute_plugin_hash' in source,
-                "Клиент использует compute_plugin_hash() для хеширования",
-                "compute_plugin_hash отсутствует в _heartbeat_check!"
+                uses_hash_fn,
+                "Клиент использует integrity_hash функцию для хеширования",
+                "Ни get_cached_or_compute, ни compute_plugin_hash "
+                "не найдены в _heartbeat_check!"
             )
 
             self.logger.check(

@@ -11,6 +11,7 @@ M_42: AutoUpdateManager
 
 import io
 import os
+import re
 import shutil
 import zipfile
 from typing import Optional, Tuple
@@ -294,20 +295,64 @@ class AutoUpdateManager:
             log_warning(f"M_42: Невалидный plugins.xml: {e}")
             return None
 
-    def _is_newer(self, remote: str, local: str) -> bool:
-        """Сравнить версии (tuple comparison).
+    # SemVer X.Y.Z[-{dev|beta}[.N]] — наша конвенция channel-detection
+    # (см. Daman_QGIS_dev/scripts/deploy.py:increment_dev_version).
+    # Channel precedence: dev (0) < beta (1) < bare stable (2). Это
+    # отклонение от строгой SemVer 2.0.0 §11.4.2 alphabetical ordering
+    # (`beta` < `dev` ASCII), но соответствует промежуточной природе dev.
+    _SEMVER_RE = re.compile(
+        r"^(\d+)\.(\d+)\.(\d+)(?:-(dev|beta)(?:\.(\d+))?)?$"
+    )
+    _CHANNEL_PRECEDENCE = {None: 2, "beta": 1, "dev": 0}
 
-        '0.9.500' > '0.9.499' -> True
-        '0.9.499' == '0.9.499' -> False
+    def _parse_semver(self, version: str) -> Tuple[int, int, int, int, int]:
+        """Распарсить SemVer X.Y.Z[-{dev|beta}[.N]] в comparable tuple.
+
+        Returns:
+            (major, minor, patch, channel_precedence, counter)
+            Где channel_precedence: dev=0, beta=1, bare=2 (выше = новее).
+            counter = 0 если pre-release tag без цифры (`-dev` без `.N`).
+
+        Raises:
+            ValueError: если входное значение не строка ИЛИ строка не
+            соответствует поддерживаемому SemVer-формату
+            (rc/alpha/build-metadata отвергаются).
+        """
+        if not isinstance(version, str):
+            raise ValueError(f"Version must be str, got {type(version).__name__}")
+        match = self._SEMVER_RE.match(version.strip())
+        if not match:
+            raise ValueError(f"Unsupported SemVer format: {version!r}")
+        major, minor, patch = (
+            int(match.group(1)),
+            int(match.group(2)),
+            int(match.group(3)),
+        )
+        tag = match.group(4)
+        counter = int(match.group(5)) if match.group(5) else 0
+        return (major, minor, patch, self._CHANNEL_PRECEDENCE[tag], counter)
+
+    def _is_newer(self, remote: str, local: str) -> bool:
+        """Remote версия строго новее local (channel-aware SemVer).
+
+        Канальная иерархия: dev < beta < bare stable (нашего deploy
+        pipeline). Внутри канала: counter сравнивается численно.
+
+        Примеры:
+            0.9.961-dev      < 0.9.961-dev.1 < 0.9.961-beta.1 < 0.9.961
+            0.9.961          > 0.9.960
+            0.9.961-beta.1   > 0.9.961-dev.99
+
+        Returns:
+            True если remote строго новее local. False если равны/older
+            или хотя бы одна версия не парсится (skip update — safe default).
         """
         try:
-            remote_tuple = tuple(int(x) for x in remote.split('.'))
-            local_tuple = tuple(int(x) for x in local.split('.'))
-            return remote_tuple > local_tuple
-        except (ValueError, AttributeError):
-            log_warning(
-                f"M_42: Невозможно сравнить версии: "
-                f"remote={remote}, local={local}"
+            return self._parse_semver(remote) > self._parse_semver(local)
+        except ValueError as e:
+            log_error(
+                f"M_42: Невозможно сравнить версии: remote={remote}, "
+                f"local={local} ({e}). Update будет пропущен."
             )
             return False
 
@@ -376,43 +421,127 @@ class AutoUpdateManager:
             return False
 
     def _install(self, zip_data: bytes) -> bool:
-        """Извлечь ZIP в директорию плагинов.
+        """Атомарная установка: extract в staging -> validate -> swap.
 
-        Последовательность:
-        1. Установить флаг update_in_progress
-        2. Сохранить предыдущую версию
-        3. Извлечь ZIP (перезаписывая файлы)
-        4. Очистить __pycache__
-        5. Снять флаг update_in_progress
+        FIX-1 (review 2026-05-09): старая последовательность
+        rmtree-then-extractall на одной try ветке могла оставить
+        PLUGIN_DIR в half-extracted state при disk-full / AV-block /
+        OS reboot mid-extract. После такого crash'а плагин не загружался,
+        не мог даже выполнить _is_crash_recovery — пользователь оставался
+        без плагина с UX-hostile silent disappearance.
+
+        Гарантия атомарности:
+        - extract в staging dir (никогда не пишем напрямую в PLUGIN_DIR)
+        - validate metadata.txt в staging перед swap
+        - os.replace(PLUGIN_DIR -> backup), os.replace(staging -> PLUGIN_DIR)
+        - на любой OSError swap — откат backup -> PLUGIN_DIR
+        - на любой Exception — best-effort cleanup + restore backup if PLUGIN_DIR пуст
+
+        Результат: либо PLUGIN_DIR содержит корректное полное обновление,
+        либо PLUGIN_DIR не тронут (старая версия рабочая). Half-extracted
+        состояние невозможно.
         """
         settings = QgsSettings()
         parent_dir = os.path.dirname(PLUGIN_DIR)
+        plugin_name = os.path.basename(PLUGIN_DIR)
+        # Staging + backup рядом с parent_dir (тот же volume — обязательно
+        # для атомарного os.replace на Windows и POSIX)
+        staging_parent = os.path.join(parent_dir, f".{plugin_name}.staging")
+        staging_plugin = os.path.join(staging_parent, plugin_name)
+        backup_dir = os.path.join(parent_dir, f".{plugin_name}.backup")
 
         try:
-            # Флаг crash recovery
             settings.setValue(self._SETTINGS_IN_PROGRESS, True)
-            settings.setValue(
-                self._SETTINGS_PREV_VERSION, PLUGIN_VERSION
-            )
+            settings.setValue(self._SETTINGS_PREV_VERSION, PLUGIN_VERSION)
 
-            # Удаление старой версии перед извлечением
-            # (extractall без rmtree оставляет удалённые/переименованные файлы)
-            if os.path.isdir(PLUGIN_DIR):
-                shutil.rmtree(PLUGIN_DIR)
+            # 1. Подготовить чистый staging dir (на случай orphan от prior crash)
+            if os.path.isdir(staging_parent):
+                shutil.rmtree(staging_parent, ignore_errors=True)
+            os.makedirs(staging_parent, exist_ok=True)
 
-            # Извлечение (ZIP содержит Daman_QGIS/ как корневую папку)
+            # 2. Извлечь ZIP в staging — никогда напрямую в PLUGIN_DIR
             with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
-                zf.extractall(parent_dir)
+                zf.extractall(staging_parent)
 
-            # Очистка __pycache__
+            # 3. Validate: staging должен содержать metadata.txt (sanity-check
+            # что ZIP правильной структуры — _validate_zip уже проверял, это
+            # double-check после реального extract)
+            if not os.path.isfile(os.path.join(staging_plugin, "metadata.txt")):
+                log_error(
+                    "M_42 (_install): staging не содержит metadata.txt — "
+                    "abort, PLUGIN_DIR не тронут"
+                )
+                shutil.rmtree(staging_parent, ignore_errors=True)
+                settings.setValue(self._SETTINGS_IN_PROGRESS, False)
+                return False
+
+            # 4. Atomic swap: backup -> replace -> remove backup
+            # Если PLUGIN_DIR существует, переименовываем в backup_dir.
+            # Если не существует (первая установка) — пропускаем backup.
+            if os.path.isdir(PLUGIN_DIR):
+                if os.path.isdir(backup_dir):
+                    shutil.rmtree(backup_dir, ignore_errors=True)
+                os.replace(PLUGIN_DIR, backup_dir)
+            try:
+                os.replace(staging_plugin, PLUGIN_DIR)
+            except OSError as swap_err:
+                # Откат: вернуть backup -> PLUGIN_DIR
+                log_error(
+                    f"M_42 (_install): atomic swap failed ({swap_err}), "
+                    f"откат backup -> PLUGIN_DIR"
+                )
+                if os.path.isdir(backup_dir):
+                    try:
+                        os.replace(backup_dir, PLUGIN_DIR)
+                    except OSError as restore_err:
+                        log_error(
+                            f"M_42 (_install): RESTORE FAILED ({restore_err}). "
+                            f"Backup в {backup_dir} — восстановите вручную."
+                        )
+                shutil.rmtree(staging_parent, ignore_errors=True)
+                settings.setValue(self._SETTINGS_IN_PROGRESS, False)
+                return False
+
+            # 5. Cleanup: backup и staging больше не нужны
+            if os.path.isdir(backup_dir):
+                shutil.rmtree(backup_dir, ignore_errors=True)
+            if os.path.isdir(staging_parent):
+                shutil.rmtree(staging_parent, ignore_errors=True)
+
+            # 6. __pycache__ cleanup на новом дереве
             self._clean_pycache(PLUGIN_DIR)
 
-            # Снять флаг
+            # 7. FIX-5: invalidate cached plugin_hash. Обычно за этим следует
+            # QGIS restart (новый process = свежий import → cache пуст), но
+            # safety-net на случай in-session reload через Plugin Manager.
+            try:
+                from Daman_QGIS.integrity_hash import invalidate_cache
+                invalidate_cache()
+            except ImportError:
+                pass
+
             settings.setValue(self._SETTINGS_IN_PROGRESS, False)
             return True
 
         except Exception as e:
             log_error(f"M_42 (_install): {e}")
+            # Best-effort cleanup. Backup восстановлен в OSError-ветке выше
+            # или ещё не создавался (если crash в Шагах 1-3).
+            if os.path.isdir(staging_parent):
+                shutil.rmtree(staging_parent, ignore_errors=True)
+            # Если PLUGIN_DIR пропал и backup есть — попытаться восстановить
+            if os.path.isdir(backup_dir) and not os.path.isdir(PLUGIN_DIR):
+                try:
+                    os.replace(backup_dir, PLUGIN_DIR)
+                    log_warning(
+                        "M_42 (_install): восстановлен backup -> PLUGIN_DIR "
+                        "после exception"
+                    )
+                except OSError:
+                    log_error(
+                        f"M_42 (_install): не удалось восстановить backup. "
+                        f"Backup в {backup_dir} — восстановите вручную."
+                    )
             settings.setValue(self._SETTINGS_IN_PROGRESS, False)
             return False
 

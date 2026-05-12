@@ -20,11 +20,11 @@ import hashlib
 import hmac
 import os
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from Daman_QGIS.constants import API_BASE_URL, API_TIMEOUT, PLUGIN_VERSION, get_api_url
 from Daman_QGIS.utils import log_info, log_error, log_warning
-from Daman_QGIS.integrity_hash import compute_plugin_hash
+from Daman_QGIS.integrity_hash import get_cached_or_compute
 
 class LicenseValidator:
     """
@@ -128,10 +128,12 @@ class LicenseValidator:
         # Детерминированный хеш дерева файлов из install location.
         # Сервер сравнивает с эталоном из integrity registry; mismatch =>
         # update_required (production) или DEV_HASH_MISMATCH (dev).
+        # FIX-5 (review 2026-05-09): module-level cache; compute один раз
+        # на QGIS-сессию, переиспользуем для всех validate/heartbeat/refresh.
         plugin_dir = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "..", "..")
         )
-        plugin_hash = compute_plugin_hash(plugin_dir)
+        plugin_hash = get_cached_or_compute(plugin_dir)
 
         payload = {
             "api_key": api_key,
@@ -273,7 +275,7 @@ class LicenseValidator:
         self,
         status_code: int,
         data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    ) -> Optional[Dict[str, Any]]:
         """Распознавание integrity-related ответов сервера.
 
         Возвращает:
@@ -296,6 +298,19 @@ class LicenseValidator:
                 "Msm_29_3: Server integrity registry unavailable (503). "
                 "Transient — continuing bootstrap without integrity check."
             )
+            # FIX-7 (review 2026-05-09): emit telemetry для admin dashboard alerting
+            # на silent server-side integrity bypass (Phase A.1 anti-tampering depends
+            # on integrity check active). Wrapped в try/except — не ломаем bootstrap.
+            try:
+                from Daman_QGIS.managers import registry as _r
+                _t = _r.get('M_32')
+                if _t is not None:
+                    _t.track_event('integrity_registry_unavailable', {
+                        'context': 'bootstrap_validate',
+                        'status_code': status_code,
+                    })
+            except Exception:
+                pass
             return {
                 "status": "registry_unavailable",
                 "transient": True,
@@ -331,7 +346,10 @@ class LicenseValidator:
                 "message": data.get("message", "DEV plugin hash mismatch"),
             }
 
-        return {}
+        # FIX-6 (review 2026-05-09): contract — None для не-integrity ответа
+        # (docstring обещает None, не пустой dict). All callers используют
+        # truthy-check (if integrity_result:) — backward-compatible.
+        return None
 
     def verify(self, api_key: str, hardware_id: str) -> Dict[str, Any]:
         """
