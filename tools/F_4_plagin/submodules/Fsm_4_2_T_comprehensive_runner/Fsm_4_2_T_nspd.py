@@ -470,8 +470,28 @@ class TestNSPD:
     # API communication
     # -------------------------------------------------------------------------
 
-    def _send_request(self, category_id, point: Tuple[float, float]) -> Optional[Dict[str, Any]]:
-        """POST запрос к NSPD intersects API"""
+    def _send_request(
+        self,
+        category_id,
+        point: Tuple[float, float]
+    ) -> Optional[Dict[str, Any]]:
+        """POST запрос к NSPD intersects API с adaptive auth.
+
+        Стратегия anonymous-first c 401/403-fallback на session:
+        - Сначала пробуем БЕЗ session (анонимно). Публичные ЕГРН-категории
+          проходят без зависимости от состояния auth cookies (которые могут
+          протухнуть за время простоя QGIS).
+        - При HTTP 401 / 403 retry с session (если M_40 аутентифицирован).
+          Покрывает закрытые endpoints (МИНСТРОЙ, ФГИС ТП, СКДФ, ООПТ
+          Минэка и др.), которые НЕ доступны анонимно и требуют ESIA cookies.
+          НСПД API возвращает разные коды:
+            * 401 -- "есть cookies, но истёкшие/невалидные"
+            * 403 + body code 400104 -- "ресурс закрытый, нужен ESIA-токен"
+          Оба кейса -> fallback на session.
+        - Симметрия с reactive 401 в production loader (там наоборот:
+          session -> 401 -> без session). Тест-разведка не знает наперёд
+          требует ли endpoint auth, поэтому делает обе попытки.
+        """
         try:
             import requests
             import urllib3
@@ -484,9 +504,10 @@ class TestNSPD:
 
             payload = self._build_payload(category_id, point)
 
+            # Attempt 1: anonymous (без session)
             response = requests_post_with_timeout(
                 self.API_URL,
-                session=self.session,
+                session=None,
                 json=payload,
                 headers=self.HEADERS,
                 timeout=self.REQUEST_TIMEOUT,
@@ -494,8 +515,27 @@ class TestNSPD:
             )
 
             if response is None:
-                log_info("Fsm_4_2_T_nspd: _send_request timeout (response is None)")
+                log_info("Fsm_4_2_T_nspd: _send_request timeout (anonymous, response is None)")
                 return None
+
+            # 401/403 -> fallback на session (если есть)
+            # 401 = expired cookies, 403 = закрытый ресурс без cookies (НСПД API)
+            if response.status_code in (401, 403) and self.session is not None:
+                log_info(
+                    f"Fsm_4_2_T_nspd: HTTP {response.status_code} anonymous for cat_id={category_id}, "
+                    f"retry с session (M_40 cookies)"
+                )
+                response = requests_post_with_timeout(
+                    self.API_URL,
+                    session=self.session,
+                    json=payload,
+                    headers=self.HEADERS,
+                    timeout=self.REQUEST_TIMEOUT,
+                    verify=False
+                )
+                if response is None:
+                    log_info("Fsm_4_2_T_nspd: _send_request timeout (session retry, response is None)")
+                    return None
 
             if response.status_code != 200:
                 log_info(f"Fsm_4_2_T_nspd: HTTP {response.status_code} for cat_id={category_id}: {response.text[:200]}")

@@ -323,7 +323,7 @@ class LicenseValidator:
                 f"Msm_29_3: Plugin update required "
                 f"(channel={data.get('channel')}, "
                 f"current={PLUGIN_VERSION}, "
-                f"latest={data.get('current_version')})"
+                f"latest={data.get('latest_version')})"
             )
             return {
                 "status": "update_required",

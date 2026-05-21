@@ -544,9 +544,20 @@ class DamanQGIS:
         ua_bytes = selected_ua.encode('utf-8')
         referer_bytes = NSPD_WMTS_REFERER.encode('utf-8')
 
-        # Pre-compile: regex для path тайла `/wmts/{z}/{x}/{y}.png`, data URL, bbox
-        tile_pattern = re.compile(r'/wmts/(\d+)/(\d+)/(\d+)\.png')
+        # Pre-compile: regex для path тайла. /wmts/ (ЕЭКО api) или /tms/ (cgk backend
+        # после 302 redirect для ortho).
+        tile_pattern = re.compile(r'/(?:wmts|tms)/(\d+)/(\d+)/(\d+)\.png')
         empty_tile_url = QUrl(NSPD_EMPTY_TILE_DATA_URL)
+
+        # Redirect bypass для ortho (cat=36346): сервер NSPD на /api/aeggis/v2/36346/wmts/
+        # отдаёт HTTP 302 с Location: /cgk/map/39/tms/. QGIS WMS-XYZ provider теряет тайл
+        # после редиректа (canvas рендерит чёрный, хотя Qt PNG decoder тайл декодирует ОК).
+        # Workaround: подменяем URL до отправки запроса, минуя 302.
+        # Прецедент 2026-05-21: ortho был полностью чёрный, прямой URL → работает.
+        # Cat=235/849241 не редиректят, в маппинге не нужны.
+        NSPD_REDIRECT_MAP = (
+            (b'/api/aeggis/v2/36346/wmts/', b'/cgk/map/39/tms/'),
+        )
         lon_w_main, lon_e_main = NSPD_RU_BBOX_MAIN_LON
         lat_s_main, lat_n_main = NSPD_RU_BBOX_MAIN_LAT
         lon_w_chuk, lon_e_chuk = NSPD_RU_BBOX_CHUKOTKA_LON
@@ -567,22 +578,19 @@ class DamanQGIS:
             return not (main_in or chuk_in)
 
         def _inject_headers(request):
-            url_bytes = request.url().toEncoded()
+            url_bytes = bytes(request.url().toEncoded())
             if b'nspd.gov.ru' not in url_bytes:
                 return
-            # Блокировка ghost-запросов к /cgk/map/ endpoint.
-            # Daman использует только /api/aeggis/v2/ для всех WMTS слоёв НСПД
-            # (L_1_3_1_NSPD_Ortho, L_1_3_2_NSPD_Ref, L_1_3_3_NSPD_Base).
-            # Endpoint /cgk/map/{layerId}/tms/ — старый формат НСПД,
-            # возникает как ghost-запрос от внутренних буферов QGIS
-            # (удалённые макеты, темы, отложенный рендер). Сервер отвечает 0-байт PNG
-            # или 500 → спам warnings «Возвращенное изображение сформировано некорректно».
-            # Defensive: всегда подменяем на пустой PNG без сетевого вызова.
-            if b'/cgk/map/' in url_bytes:
-                request.setUrl(empty_tile_url)
-                return
+            # Redirect bypass: подменяем URL ortho на финальный backend до отправки.
+            # Иначе QGIS WMS-XYZ provider теряет тайл после 302 (см. NSPD_REDIRECT_MAP).
+            for old_path, new_path in NSPD_REDIRECT_MAP:
+                if old_path in url_bytes:
+                    new_url_bytes = url_bytes.replace(old_path, new_path)
+                    request.setUrl(QUrl(new_url_bytes.decode('ascii')))
+                    url_bytes = new_url_bytes
+                    break
             # Фильтр non-RU тайлов: подменяем URL на пустой PNG
-            url_str = bytes(url_bytes).decode('ascii', errors='ignore')
+            url_str = url_bytes.decode('ascii', errors='ignore')
             m = tile_pattern.search(url_str)
             if m is not None:
                 z, x, y = int(m.group(1)), int(m.group(2)), int(m.group(3))

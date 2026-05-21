@@ -11,10 +11,10 @@
 ezdxf>=1.4.2
 
 # Excel экспорт (Приложения 2 и 3)
-xlsxwriter>=3.0.1
+xlsxwriter>=3.2.9
 
 # Excel чтение (конвертация справочников)
-openpyxl>=3.0.0
+openpyxl>=3.1.5
 
 # HTTP запросы (ЕГРН API, НСПД)
 requests
@@ -23,16 +23,16 @@ requests
 certifi
 
 # XML парсинг (выписки ЕГРН)
-lxml>=5.0.0
+lxml>=6.1.0
 
 # Word экспорт (шаблоны с Jinja2)
 docxtpl>=0.19.0
 
 # COM автоматизация (Word, Excel, AutoCAD -> PDF)
-comtypes>=1.4.0
+comtypes>=1.4.16
 
 # Слияние PDF файлов
-pypdf>=4.0.0
+pypdf>=6.10.2
 
 # Шифрование pipelines (AES-256-GCM) и подписи payload (Ed25519)
 cryptography>=42.0.0

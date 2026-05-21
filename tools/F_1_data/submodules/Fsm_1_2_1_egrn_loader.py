@@ -148,6 +148,7 @@ class Fsm_1_2_1_EgrnLoader:
         self._boundary_cache = {}
         # Счетчики HTTP ошибок для мониторинга
         self._http_error_counts = {
+            '401': 0,  # Unauthorized - истекли auth cookies НСПД
             '403': 0,  # Forbidden - блокировка IP
             '429': 0,  # Too Many Requests - превышение лимита
             'connection': 0,  # Connection errors - проблемы с соединением
@@ -207,6 +208,8 @@ class Fsm_1_2_1_EgrnLoader:
 
         if total_errors > 0:
             log_warning(f"Fsm_1_2_1: МОНИТОРИНГ API: Статистика ошибок")
+            if self._http_error_counts['401'] > 0:
+                log_warning(f"Fsm_1_2_1: UNAUTHORIZED: Ошибок 401 (Unauthorized -- expired auth cookies): {self._http_error_counts['401']}")
             if self._http_error_counts['403'] > 0:
                 log_error(f"Fsm_1_2_1: FORBIDDEN: Ошибок 403 (Forbidden): {self._http_error_counts['403']}")
             if self._http_error_counts['429'] > 0:
@@ -220,7 +223,7 @@ class Fsm_1_2_1_EgrnLoader:
             log_warning(f"Fsm_1_2_1: Всего ошибок API: {total_errors}")
 
             # Сбрасываем счетчики после вывода статистики
-            self._http_error_counts = {'403': 0, '429': 0, 'connection': 0, 'timeout': 0, 'other': 0}
+            self._http_error_counts = {'401': 0, '403': 0, '429': 0, 'connection': 0, 'timeout': 0, 'other': 0}
 
     def set_boundary_cache(self, extents: Dict[str, Any]) -> None:
         """
@@ -538,8 +541,11 @@ class Fsm_1_2_1_EgrnLoader:
                 if http_status == 429 and retry_on_429 and attempt < max_retries - 1:
                     self._http_error_counts['429'] += 1
                     next_delay = base_retry_delay * (2 ** attempt) + random.uniform(0, 1)
-                    log_warning(f"Fsm_1_2_1: МОНИТОРИНГ API: Ошибка 429 (Too Many Requests) - превышен лимит запросов")
-                    log_warning(f"Fsm_1_2_1: Повторная попытка через {next_delay:.1f} сек (попытка {attempt + 2}/{max_retries})")
+                    # Первый retry — штатное явление под нагрузкой NSPD, INFO.
+                    # Со 2-го retry — уже серия, WARNING. Итоговая статистика по слою остаётся WARNING.
+                    log_fn = log_info if attempt == 0 else log_warning
+                    log_fn(f"Fsm_1_2_1: МОНИТОРИНГ API: Ошибка 429 (Too Many Requests) - превышен лимит запросов")
+                    log_fn(f"Fsm_1_2_1: Повторная попытка через {next_delay:.1f} сек (попытка {attempt + 2}/{max_retries})")
                     continue
 
                 elif http_status == 429:
@@ -553,6 +559,36 @@ class Fsm_1_2_1_EgrnLoader:
                     log_error(f"Fsm_1_2_1: FORBIDDEN: МОНИТОРИНГ API: Ошибка 403 (Forbidden) - возможна блокировка IP")
                     log_error(f"Fsm_1_2_1: Рекомендация: проверьте доступ к nspd.gov.ru или уменьшите количество потоков")
                     return None
+
+                elif http_status == 401:
+                    # Reactive 401 handler (OAuth 2.0 / RFC 7235 best practice).
+                    # ЕГРН-категории НСПД публичны, но при наличии невалидных auth cookies
+                    # сервер отдаёт 401 ВМЕСТО игнорирования токена. Инвалидируем cookies
+                    # в M_40 и retry без сессии (== анонимный запрос).
+                    self._http_error_counts['401'] += 1
+                    had_cookies = bool(self.session and len(self.session.cookies) > 0)
+                    if had_cookies and attempt < max_retries - 1:
+                        log_warning(
+                            f"Fsm_1_2_1: UNAUTHORIZED: HTTP 401 -- session НСПД истекла, "
+                            f"инвалидирую cookies и retry без них (попытка {attempt + 2}/{max_retries})"
+                        )
+                        try:
+                            from Daman_QGIS.managers import registry
+                            m40 = registry.get('M_40')
+                            if m40:
+                                m40.invalidate(reason="server_401")
+                        except Exception as e:
+                            log_warning(f"Fsm_1_2_1: не удалось вызвать M_40.invalidate(): {e}")
+                        self.session.cookies.clear()
+                        continue
+                    else:
+                        # Без cookies или последняя попытка -- endpoint реально требует auth,
+                        # либо retry исчерпан. Auto-relogin Edge НЕ запускаем (intrusive).
+                        log_error(
+                            f"Fsm_1_2_1: UNAUTHORIZED: HTTP 401 после {attempt + 1} попыток. "
+                            f"Endpoint требует свежей авторизации НСПД (запустите M_40.login())"
+                        )
+                        return None
 
                 elif http_status != 200:
                     self._http_error_counts['other'] += 1

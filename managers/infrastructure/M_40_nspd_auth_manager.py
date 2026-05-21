@@ -153,6 +153,23 @@ class NspdAuthManager(QObject):
         self.auth_changed.emit(False)
         log_info("M_40: Сессия НСПД очищена")
 
+    def invalidate(self, reason: str = "") -> None:
+        """Сброс cookies при detection истечения сессии на стороне сервера.
+
+        В отличие от logout(), не позиционируется как явное действие
+        пользователя -- вызывается reactive-handler'ами loader'ов при
+        получении HTTP 401 от endpoint'а НСПД. Семантически
+        фиксирует "server says token expired", а не "user logged out".
+
+        Args:
+            reason: Текстовая причина инвалидации (для логов/трейсинга)
+        """
+        if not self._cookie_store.is_valid():
+            return
+        self._cookie_store.clear()
+        self.auth_changed.emit(False)
+        log_warning(f"M_40: Cookies инвалидированы (reason={reason or 'server_401'})")
+
     def inject_cookies(self, session: Any) -> None:
         """Инъекция cookies в requests.Session.
 

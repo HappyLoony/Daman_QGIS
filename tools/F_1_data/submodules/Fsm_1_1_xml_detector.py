@@ -1,12 +1,36 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_1_1_xml_detector - Определение типа XML файла (КПТ vs Выписка)
+Fsm_1_1_xml_detector - Определение типа XML файла (КПТ vs Выписка vs Уведомление о границах)
 """
 
 import os
+import re
 from typing import Optional
 from Daman_QGIS.utils import log_info, log_warning
 from Daman_QGIS.constants import ROOT_TAG_TO_RECORD_MAP
+
+
+# Regex для извлечения localname из Clark-notation lxml tag ("{ns}localname" -> "localname")
+_CLARK_NS_RE = re.compile(r'^\{[^}]*\}')
+
+
+def _strip_namespace(tag: str) -> str:
+    """
+    Удалить namespace prefix из lxml Clark-notation tag.
+
+    Поддерживает оба варианта:
+    - '{urn://...}interact_entry_boundaries' -> 'interact_entry_boundaries' (с default xmlns)
+    - 'extract_cadastral_plan_territory' -> 'extract_cadastral_plan_territory' (без xmlns)
+
+    Args:
+        tag: lxml tag (Clark notation или чистое имя)
+
+    Returns:
+        Локальное имя элемента
+    """
+    if not tag:
+        return tag
+    return _CLARK_NS_RE.sub('', tag)
 
 
 class XmlTypeDetector:
@@ -14,6 +38,10 @@ class XmlTypeDetector:
 
     # Root tag для КПТ
     KPT_ROOT_TAG = 'extract_cadastral_plan_territory'
+
+    # Root tag для уведомлений о внесении сведений в реестр границ
+    # interact_entry_boundaries v2.0.1 (Приказ Росреестра П/0104/25 от 27.02.2026)
+    IBOUNDARY_ROOT_TAG = 'interact_entry_boundaries'
 
     # Root tags для выписок ЕГРН - автоматически синхронизируется с ROOT_TAG_TO_RECORD_MAP
     # Исключаем 'extract_about_zone' (зоны, не выписки)
@@ -33,6 +61,7 @@ class XmlTypeDetector:
         Returns:
             'KPT' - кадастровый план территории
             'VYPISKA' - выписка ЕГРН
+            'IBOUNDARY' - уведомление о внесении сведений в реестр границ
             None - неизвестный тип
         """
         if not os.path.exists(file_path):
@@ -65,9 +94,17 @@ class XmlTypeDetector:
             if not root_tag:
                 return None
 
-            if root_tag == XmlTypeDetector.KPT_ROOT_TAG:
+            # КРИТИЧНО: lxml возвращает Clark-notation для элементов с xmlns
+            # ('{urn://...}interact_entry_boundaries' вместо 'interact_entry_boundaries').
+            # КПТ-XML не имеют default xmlns, выписки не имеют, interact_entry_boundaries имеет.
+            # Универсальное решение - стрипать namespace prefix всегда.
+            local_name = _strip_namespace(root_tag)
+
+            if local_name == XmlTypeDetector.KPT_ROOT_TAG:
                 return 'KPT'
-            elif root_tag in XmlTypeDetector.VYPISKA_ROOT_TAGS:
+            elif local_name == XmlTypeDetector.IBOUNDARY_ROOT_TAG:
+                return 'IBOUNDARY'
+            elif local_name in XmlTypeDetector.VYPISKA_ROOT_TAGS:
                 return 'VYPISKA'
             else:
                 log_warning(f"Fsm_1_1_detector: Неизвестный root tag в XML: {root_tag}")
@@ -89,12 +126,14 @@ class XmlTypeDetector:
             {
                 'KPT': [file1, file2, ...],
                 'VYPISKA': [file3, file4, ...],
+                'IBOUNDARY': [file6, ...],
                 'UNKNOWN': [file5, ...]
             }
         """
         classified = {
             'KPT': [],
             'VYPISKA': [],
+            'IBOUNDARY': [],
             'UNKNOWN': []
         }
 
@@ -104,6 +143,8 @@ class XmlTypeDetector:
                 classified['KPT'].append(file_path)
             elif xml_type == 'VYPISKA':
                 classified['VYPISKA'].append(file_path)
+            elif xml_type == 'IBOUNDARY':
+                classified['IBOUNDARY'].append(file_path)
             else:
                 classified['UNKNOWN'].append(file_path)
 

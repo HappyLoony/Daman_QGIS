@@ -759,6 +759,12 @@ ROOT_TAG_TO_RECORD_MAP = {
     'extract_about_zone': 'zones_and_territories_record'
 }
 
+# Корневой тег для уведомлений о внесении сведений в реестр границ
+# (interact_entry_boundaries v2.0.1, Приказ Росреестра П/0104/25 от 27.02.2026,
+# вступает в силу с 01.07.2026). Используется: Fsm_1_1_xml_detector,
+# Fsm_1_1_8_iboundary_importer.
+IBOUNDARY_ROOT_TAG = 'interact_entry_boundaries'
+
 # ============================================================================
 # КОНСТАНТЫ СЕТЕВЫХ ЗАПРОСОВ И CONCURRENCY
 # ============================================================================

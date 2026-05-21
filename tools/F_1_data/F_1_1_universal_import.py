@@ -20,6 +20,7 @@ from .submodules.Fsm_1_1_1_dxf_importer import DxfImporter
 from .submodules.Fsm_1_1_2_tab_importer import TabImporter
 from .submodules.Fsm_1_1_4_vypiska_importer import Fsm_1_1_4_VypiskaImporter
 from .submodules.Fsm_1_1_5_shp_importer import ShpImporter
+from .submodules.Fsm_1_1_8_iboundary_importer import Fsm_1_1_8_IBoundaryImporter
 from .submodules.Fsm_1_1_xml_detector import XmlTypeDetector
 
 
@@ -240,6 +241,7 @@ class F_1_1_UniversalImport(BaseTool):
 
         kpt_files = classified.get('KPT', [])
         vypiska_files = classified.get('VYPISKA', [])
+        iboundary_files = classified.get('IBOUNDARY', [])
         unknown_files = classified.get('UNKNOWN', [])
 
         # Логируем сводку
@@ -247,6 +249,8 @@ class F_1_1_UniversalImport(BaseTool):
             log_info(f"F_1_1: Найдено КПТ файлов: {len(kpt_files)}")
         if vypiska_files:
             log_info(f"F_1_1: Найдено выписок: {len(vypiska_files)}")
+        if iboundary_files:
+            log_info(f"F_1_1: Найдено уведомлений о границах: {len(iboundary_files)}")
         if unknown_files:
             log_warning(f"F_1_1: Неизвестных XML файлов: {len(unknown_files)}")
 
@@ -318,6 +322,15 @@ class F_1_1_UniversalImport(BaseTool):
             # После успешного импорта выписок - автоматическая синхронизация и анализ
             if vypiska_result.get('success'):
                 self._run_auto_sync_and_analysis()
+
+        # Импортируем уведомления о границах (interact_entry_boundaries v2.0.1)
+        if iboundary_files:
+            iboundary_submodule = Fsm_1_1_8_IBoundaryImporter(self.iface)
+            iboundary_submodule.set_project_manager(self.project_manager)
+            iboundary_submodule.set_layer_manager(self.layer_manager)
+
+            iboundary_result = iboundary_submodule.import_file(iboundary_files, **options)  # type: ignore[arg-type]
+            combined_results = self._merge_results(combined_results, iboundary_result)
 
         # Предупреждаем о неизвестных файлах
         if unknown_files:

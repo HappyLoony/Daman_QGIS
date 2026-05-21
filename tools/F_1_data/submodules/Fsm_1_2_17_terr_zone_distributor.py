@@ -109,12 +109,18 @@ class Fsm_1_2_17_TerrZoneDistributor:
             # Если уже есть в schema исходника — no-op.
             ensure_id_field(target)
 
-            # Копирование features
+            # Копирование features. ВАЖНО: ensure_id_field выше добавил поле 'ID',
+            # поэтому target.fields() имеет на 1 поле больше чем source. setAttributes
+            # требует ровного match по количеству — иначе addFeature тихо возвращает False
+            # (PyQGIS gotcha, без exception). Дополняем атрибуты None до длины target.
             target.startEditing()
+            target_field_count = target.fields().count()
             for feat in features:
                 new_feat = QgsFeature(target.fields())
                 new_feat.setGeometry(feat.geometry())
-                new_feat.setAttributes(feat.attributes())
+                src_attrs = list(feat.attributes())
+                padded = src_attrs + [None] * (target_field_count - len(src_attrs))
+                new_feat.setAttributes(padded)
                 target.addFeature(new_feat)
             target.commitChanges()
 
