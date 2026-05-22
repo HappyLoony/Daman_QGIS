@@ -9,7 +9,7 @@ F_2_4_Этапность - Формирование этапов кадастр�
 
 Логика работы:
 1. Копирует слои нарезки из F_2_3 в слои 1 этапа
-2. Анализирует соответствие участков контурам ЗПР (intersection area >= 80%)
+2. Анализирует соответствие участков контурам ЗПР (intersection area >= 95%)
 3. Присваивает ID:
    - Соответствующие ЗПР: ID = ID контура ЗПР
    - Не соответствующие: ID = 100+ (следующий разряд от max контуров ЗПР)
@@ -77,8 +77,12 @@ if TYPE_CHECKING:
 class F_2_4_Staging(BaseTool):
     """Инструмент формирования этапности кадастровых работ"""
 
-    # Порог совпадения площади пересечения с ЗПР (80%)
-    ZPR_MATCH_THRESHOLD = 0.80
+    # Порог совпадения площади пересечения с ЗПР (95%)
+    # Поднят с 80% до 95% после рефактора Msm_26_1 (GEOS OverlayNG gridSize=0.001):
+    # геометрия Раздела теперь deterministic без sub-mm slivers, и пересечение ЗУ
+    # со "своим" ЗПР близко к 100%. Threshold 95% отлавливает ЗУ, у которых
+    # геометрия "уехала" из ЗПР более чем на 5% площади.
+    ZPR_MATCH_THRESHOLD = 0.95
 
     # Маппинг исходных слоёв → слои этапов
     # Формат: (source_poly, source_points, stage1_poly, stage1_points,
@@ -199,8 +203,8 @@ class F_2_4_Staging(BaseTool):
 
         # 5. Получение максимального ID контуров ЗПР
         max_zpr_id = self._get_max_zpr_id(zpr_layer)
-        # Вычисляем начало следующего разряда (например, 83 → 100, 150 → 200)
-        next_id_base = ((max_zpr_id // 100) + 1) * 100
+        # Промежуточные продолжают нумерацию ЗПР (например, 83 ЗПР → промежуточные с 84)
+        next_id_base = max_zpr_id + 1
         log_info(f"F_2_4: Макс. ID ЗПР = {max_zpr_id}, "
                 f"ID для несоответствующих участков начинается с {next_id_base}")
 
@@ -367,7 +371,23 @@ class F_2_4_Staging(BaseTool):
         return list(missing)
 
     def _get_max_zpr_id(self, zpr_layer: QgsVectorLayer) -> int:
-        """Получение максимального ID контуров ЗПР"""
+        """Получение максимального ID контуров ЗПР
+
+        ОЖИДАНИЕ К СХЕМЕ (soft requirement, не enforced):
+        Поле 'ID' в L_1_12_*_ЗПР_* должно быть Integer и заполнено уникальными
+        значениями 1..N. Сейчас в проектах оно создаётся как String и часто NULL.
+
+        Per-feature fallback на feature.id() (fid GeoPackage) применяется когда
+        значение поля ID отсутствует/non-numeric. Это синхронно с fallback в
+        _analyze_zpr_matching — оба места должны давать одинаковый zpr_id для
+        одного и того же feature, иначе next_id_base рассинхронизируется с
+        реальными ID и промежуточные перекроют диапазон ЗПР.
+
+        Когда схема будет ужесточена до Integer NOT NULL:
+        - Удалить ветку фоллбэка на feature.id() ниже
+        - В _analyze_zpr_matching удалить аналогичный fallback
+        - Обновить doc_functions/F_2_4_staging.md (раздел "Ожидания к данным")
+        """
         max_id = 0
         id_idx = zpr_layer.fields().indexFromName('ID')
         if id_idx < 0:
@@ -379,6 +399,9 @@ class F_2_4_Staging(BaseTool):
                 fid = feature['ID']
                 if fid and isinstance(fid, (int, float)):
                     max_id = max(max_id, int(fid))
+                else:
+                    # Fallback на feature.id() — синхронно с _analyze_zpr_matching
+                    max_id = max(max_id, feature.id())
         return max_id
 
     def _process_layer_staging(
@@ -564,7 +587,11 @@ class F_2_4_Staging(BaseTool):
         """Анализ соответствия участков контурам ЗПР
 
         Определяет к какому контуру ЗПР относится каждый участок
-        по максимальной площади пересечения (>= 80%).
+        по максимальной площади пересечения (>= 95%).
+
+        Fallback на feature.id() ниже срабатывает когда поле 'ID' в ЗПР
+        NULL/non-numeric (типичная сейчас ситуация — String, NULL).
+        См. soft requirement в _get_max_zpr_id docstring.
 
         Returns:
             Tuple:
@@ -589,6 +616,7 @@ class F_2_4_Staging(BaseTool):
             else:
                 zpr_id = zpr_feature.id()
 
+            # Fallback: поле ID есть, но NULL/non-numeric
             if not zpr_id:
                 zpr_id = zpr_feature.id()
 

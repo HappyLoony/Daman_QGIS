@@ -43,8 +43,7 @@ class Fsm_0_4_10_TopologyCheckTask(BaseAsyncTask):
                  layer_id: str,
                  layer_name: str,
                  check_types: Optional[List[str]] = None,
-                 processing_context: Optional[QgsProcessingContext] = None,
-                 enable_gap_check: bool = False):
+                 processing_context: Optional[QgsProcessingContext] = None):
         """
         Args:
             layer_id: ID слоя для проверки (НЕ layer object!)
@@ -52,7 +51,6 @@ class Fsm_0_4_10_TopologyCheckTask(BaseAsyncTask):
             check_types: Список типов проверок (None = все)
             processing_context: QgsProcessingContext созданный в main thread
                                (ОБЯЗАТЕЛЬНО для thread-safe работы processing.run())
-            enable_gap_check: Включить анализ покрытия (зазоры). По умолчанию False.
         """
         super().__init__(f"Проверка топологии: {layer_name}", can_cancel=True)
 
@@ -60,7 +58,6 @@ class Fsm_0_4_10_TopologyCheckTask(BaseAsyncTask):
         self.layer_name = layer_name
         self.check_types = check_types
         self.processing_context = processing_context
-        self.enable_gap_check = enable_gap_check
 
     def execute(self):
         """
@@ -90,8 +87,7 @@ class Fsm_0_4_10_TopologyCheckTask(BaseAsyncTask):
 
         # Создаем координатор с processing_context для thread-safe операций
         coordinator = Fsm_0_4_5_TopologyCoordinator(
-            processing_context=self.processing_context,
-            enable_gap_check=self.enable_gap_check
+            processing_context=self.processing_context
         )
 
         # Callback для прогресса

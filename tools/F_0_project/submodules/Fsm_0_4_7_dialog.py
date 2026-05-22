@@ -8,7 +8,7 @@ Stage 2: Исправление ошибок (активируется посл�
 from typing import Dict, List, Optional
 from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QTextEdit, QCheckBox
+    QLabel, QTextEdit
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.core import QgsVectorLayer
@@ -64,16 +64,6 @@ class Fsm_0_4_7_TopologyCheckDialog(BaseResponsiveDialog):
         )
         description.setWordWrap(True)
         layout.addWidget(description)
-
-        # Опция анализа покрытия (OFF по умолчанию - ресурсоемкая операция)
-        self.gap_check_checkbox = QCheckBox("Анализ покрытия (зазоры)")
-        self.gap_check_checkbox.setChecked(False)
-        self.gap_check_checkbox.setToolTip(
-            "Поиск зазоров между полигонами одного слоя.\n"
-            "Ресурсоемкая операция (union всех геометрий).\n"
-            "По умолчанию выключено."
-        )
-        layout.addWidget(self.gap_check_checkbox)
 
         # Текстовое поле для результатов
         self.results_text = QTextEdit()
@@ -270,7 +260,3 @@ class Fsm_0_4_7_TopologyCheckDialog(BaseResponsiveDialog):
             f"<p style='color: red; margin-top: 6px;'><b>✗ Ошибка: {error_message}</b></p>"
         )
 
-    @property
-    def gap_check_enabled(self) -> bool:
-        """Возвращает состояние checkbox анализа покрытия"""
-        return self.gap_check_checkbox.isChecked()

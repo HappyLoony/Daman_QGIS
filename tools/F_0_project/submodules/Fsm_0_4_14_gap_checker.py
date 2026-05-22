@@ -13,8 +13,7 @@ Fsm_0_4_14: Анализ покрытия (зазоры) - обнаружени�
 - 'gap': зазор покрытия (пустота между полигонами)
 - 'gap_spike': пиковый узел на границе union (острый угол = разрыв покрытия)
 
-Опциональная проверка, по умолчанию ВЫКЛЮЧЕНА (ресурсоемкая операция).
-Включается через checkbox в диалоге F_0_4.
+Встроен в pipeline F_0_4 — выполняется всегда вместе с остальными checker'ами.
 """
 
 import math
@@ -22,7 +21,7 @@ from typing import List, Dict, Any, Tuple, Optional
 
 from qgis.core import (
     Qgis, QgsVectorLayer, QgsGeometry, QgsPointXY,
-    QgsWkbTypes, QgsRectangle
+    QgsWkbTypes, QgsRectangle, QgsSpatialIndex, QgsFeature
 )
 
 from Daman_QGIS.utils import log_info, log_warning, log_error
@@ -108,38 +107,53 @@ class Fsm_0_4_14_GapChecker:
             f"spike_threshold={self.spike_angle_threshold}"
         )
 
-        try:
-            # 2. Построение негативного пространства
-            union_geom, envelope_geom = self._build_union_and_envelope(layer)
-            if union_geom is None or envelope_geom is None:
-                return errors
+        # Catch-all снят: top-level catch-all в Fsm_0_4_5_coordinator:360
+        # уже изолирует checker от остального flow. Двойной catch гасил
+        # реальные ошибки (например 'QgsGeometry.boundary' AttributeError)
+        # с false negative «зазоры не обнаружены».
 
-            negative_space = envelope_geom.difference(union_geom)
-            if negative_space is None or negative_space.isEmpty():
-                log_info(
-                    "Fsm_0_4_14: Негативное пространство пустое "
-                    "(полное покрытие без зазоров)"
-                )
-                # Все равно проверяем spikes на union boundary
-                spike_errors = self._check_union_spikes(union_geom)
-                errors.extend(spike_errors)
-                self.spikes_found = len(spike_errors)
-                return errors
+        # 2. Построение негативного пространства
+        union_geom, envelope_geom = self._build_union_and_envelope(layer)
+        if union_geom is None or envelope_geom is None:
+            return errors
 
+        # makeValid() в _build_union_and_envelope мог вернуть GeometryCollection
+        # (invalid union с degenerate частями). В этом случае ни gap-difference,
+        # ни spike-обход вершин не имеют смысла.
+        if union_geom.type() != Qgis.GeometryType.Polygon:
+            log_warning(
+                f"Fsm_0_4_14: Union вернул не-полигональную геометрию "
+                f"({union_geom.wkbType()}), анализ покрытия невозможен"
+            )
+            return errors
+
+        # Spatial index features для маппинга union-vertex/gap к feature_id.
+        # Поскольку union строится из features этого слоя, каждая vertex union'а
+        # и каждая gap-граница принадлежит минимум одному feature.
+        feature_index, feature_map = self._build_feature_index(layer)
+
+        negative_space = envelope_geom.difference(union_geom)
+        if negative_space is None or negative_space.isEmpty():
+            log_info(
+                "Fsm_0_4_14: Негативное пространство пустое "
+                "(полное покрытие без зазоров)"
+            )
+        else:
             # 3. Классификация зазоров
-            gap_errors = self._classify_gaps(negative_space, envelope_geom)
+            gap_errors = self._classify_gaps(
+                negative_space, envelope_geom, feature_index, feature_map
+            )
             errors.extend(gap_errors)
             self.gaps_found = len(gap_errors)
 
-            # 4. Анализ spike-углов на union boundary
-            spike_errors = self._check_union_spikes(union_geom)
-            errors.extend(spike_errors)
-            self.spikes_found = len(spike_errors)
+        # 4. Анализ spike-углов на union boundary
+        spike_errors = self._check_union_spikes(
+            union_geom, feature_index, feature_map
+        )
+        errors.extend(spike_errors)
+        self.spikes_found = len(spike_errors)
 
-        except Exception as e:
-            log_error(f"Fsm_0_4_14: Ошибка анализа покрытия: {e}")
-
-        # 5. Итоговое логирование
+        # 5. Итоговое логирование — только после успешного завершения.
         if self.gaps_found > 0:
             log_warning(
                 f"Fsm_0_4_14: Найдено {self.gaps_found} зазоров"
@@ -238,10 +252,81 @@ class Fsm_0_4_14_GapChecker:
 
         return union_geom, envelope_geom
 
+    @staticmethod
+    def _build_feature_index(
+        layer: QgsVectorLayer
+    ) -> Tuple[QgsSpatialIndex, Dict[int, QgsFeature]]:
+        """Spatial index features слоя для маппинга union→feature_id.
+
+        Используется в _classify_gaps и _check_union_spikes чтобы привязать
+        ошибку (gap/spike) к конкретному feature, а не оставлять feature_id=-1.
+        """
+        index = QgsSpatialIndex()
+        feature_map: Dict[int, QgsFeature] = {}
+        for feat in layer.getFeatures():
+            if feat.hasGeometry() and not feat.geometry().isEmpty():
+                index.addFeature(feat)
+                feature_map[feat.id()] = feat
+        return index, feature_map
+
+    @staticmethod
+    def _find_feature_at_point(
+        point: QgsPointXY,
+        index: QgsSpatialIndex,
+        feature_map: Dict[int, QgsFeature],
+        tolerance: float = COORDINATE_PRECISION
+    ) -> int:
+        """Найти fid feature к границе/нутру которого относится точка.
+
+        Поиск через bbox tolerance + точное вычисление distance к геометрии.
+        Возвращает -1 только если ни один feature не найден (теоретически
+        не должно происходить для vertex'ов union'а).
+        """
+        search_rect = QgsRectangle(
+            point.x() - tolerance, point.y() - tolerance,
+            point.x() + tolerance, point.y() + tolerance
+        )
+        candidate_ids = index.intersects(search_rect)
+        point_geom = QgsGeometry.fromPointXY(point)
+        best_fid = -1
+        best_distance = float('inf')
+        for fid in candidate_ids:
+            feat = feature_map.get(fid)
+            if not feat:
+                continue
+            d = feat.geometry().distance(point_geom)
+            if d < best_distance:
+                best_distance = d
+                best_fid = fid
+        return best_fid if best_distance <= tolerance else -1
+
+    @staticmethod
+    def _find_features_touching_gap(
+        gap_geom: QgsGeometry,
+        index: QgsSpatialIndex,
+        feature_map: Dict[int, QgsFeature]
+    ) -> List[int]:
+        """Найти fid всех features чьи границы касаются зазора.
+
+        Зазор — это негативное пространство между features, его boundary
+        состоит из участков boundary соседних features.
+        """
+        candidate_ids = index.intersects(gap_geom.boundingBox())
+        touching: List[int] = []
+        for fid in candidate_ids:
+            feat = feature_map.get(fid)
+            if not feat:
+                continue
+            if feat.geometry().intersects(gap_geom) or feat.geometry().touches(gap_geom):
+                touching.append(fid)
+        return touching
+
     def _classify_gaps(
         self,
         negative_space: QgsGeometry,
-        envelope_geom: QgsGeometry
+        envelope_geom: QgsGeometry,
+        feature_index: QgsSpatialIndex,
+        feature_map: Dict[int, QgsFeature]
     ) -> List[Dict[str, Any]]:
         """
         Разбиение негативного пространства на отдельные зазоры
@@ -256,8 +341,18 @@ class Fsm_0_4_14_GapChecker:
         """
         errors: List[Dict[str, Any]] = []
 
-        # Граница envelope для определения external зазоров
-        envelope_boundary = envelope_geom.boundary()
+        # Граница envelope для определения external зазоров.
+        # QgsGeometry не имеет метода boundary() — он на QgsAbstractGeometry.
+        # Паттерн совпадает с Fsm_2_1_7:123 и Fsm_1_4_4:113.
+        boundary_abstract = envelope_geom.constGet().boundary()
+        if boundary_abstract is None:
+            log_warning(
+                "Fsm_0_4_14: envelope boundary не извлечена, "
+                "все зазоры будут классифицированы как internal"
+            )
+            envelope_boundary = QgsGeometry()
+        else:
+            envelope_boundary = QgsGeometry(boundary_abstract.clone())
 
         # Разбиваем multipart на отдельные полигоны
         if negative_space.isMultipart():
@@ -312,13 +407,25 @@ class Fsm_0_4_14_GapChecker:
 
             error_geom = centroid if centroid and not centroid.isEmpty() else gap_geom
 
+            # Соседние features (касаются boundary зазора)
+            touching_fids = self._find_features_touching_gap(
+                gap_geom, feature_index, feature_map
+            )
+            primary_fid = touching_fids[0] if touching_fids else -1
+            neighbors_str = (
+                ', '.join(str(fid) for fid in touching_fids[:5])
+                if touching_fids else '?'
+            )
+
             errors.append({
                 'type': 'gap',
                 'geometry': error_geom,
-                'feature_id': -1,  # Зазор не принадлежит конкретному объекту
+                'feature_id': primary_fid,
+                'neighbor_fids': touching_fids,
                 'description': (
                     f'Зазор покрытия: площадь {area:.4f} м2 '
-                    f'(внутренний, {severity})'
+                    f'(внутренний, {severity}, '
+                    f'соседние объекты: {neighbors_str})'
                 ),
                 'area': round(area, 4),
                 'gap_type': 'internal',
@@ -363,7 +470,10 @@ class Fsm_0_4_14_GapChecker:
             return 'информация'
 
     def _check_union_spikes(
-        self, union_geom: QgsGeometry
+        self,
+        union_geom: QgsGeometry,
+        feature_index: QgsSpatialIndex,
+        feature_map: Dict[int, QgsFeature]
     ) -> List[Dict[str, Any]]:
         """
         Анализ spike-углов на границе union (exterior + interior rings).
@@ -420,14 +530,20 @@ class Fsm_0_4_14_GapChecker:
                     angle = self._calculate_angle(p1, p2, p3)
 
                     if angle <= self.spike_angle_threshold:
+                        # Привязка к конкретному feature: spike-vertex p2
+                        # должна быть на границе одного из features слоя
+                        spike_fid = self._find_feature_at_point(
+                            p2, feature_index, feature_map
+                        )
                         errors.append({
                             'type': 'gap_spike',
                             'geometry': QgsGeometry.fromPointXY(p2),
-                            'feature_id': -1,
+                            'feature_id': spike_fid,
                             'description': (
                                 f'Пиковый узел покрытия: '
                                 f'угол {angle:.4f} град. '
-                                f'({ring_type} кольцо, '
+                                f'(объект {spike_fid}, '
+                                f'{ring_type} кольцо, '
                                 f'полигон {poly_idx})'
                             ),
                             'angle': round(angle, 4),

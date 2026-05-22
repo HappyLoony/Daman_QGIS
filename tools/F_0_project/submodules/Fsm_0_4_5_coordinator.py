@@ -85,8 +85,7 @@ class Fsm_0_4_5_TopologyCoordinator:
         'duplicate_point'
     }
 
-    def __init__(self, processing_context: Optional[QgsProcessingContext] = None,
-                 enable_gap_check: bool = False):
+    def __init__(self, processing_context: Optional[QgsProcessingContext] = None):
         """
         Инициализация координатора
 
@@ -114,9 +113,8 @@ class Fsm_0_4_5_TopologyCoordinator:
             processing_context=processing_context
         )
 
-        # Инициализируем gap checker (по запросу, ресурсоемкая операция)
-        self.enable_gap_check = enable_gap_check
-        self.gap_checker = Fsm_0_4_14_GapChecker() if enable_gap_check else None
+        # Gap checker — встроен в pipeline, выполняется всегда
+        self.gap_checker = Fsm_0_4_14_GapChecker()
 
         # Инициализируем checker'ы для линий и точек
         self.line_checker = Fsm_0_4_8_LineChecker()
@@ -339,8 +337,8 @@ class Fsm_0_4_5_TopologyCoordinator:
             if progress_callback:
                 progress_callback(90)
 
-        # 8. Анализ покрытия (зазоры) - по запросу
-        if self.enable_gap_check and self.gap_checker:
+        # 8. Анализ покрытия (зазоры) - всегда в pipeline
+        if self.gap_checker:
             log_info("Fsm_0_4_5: Анализ покрытия (зазоры)...")
 
             try:

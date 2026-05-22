@@ -136,6 +136,21 @@ class Fsm_1_1_8_IBoundaryImporter(BaseImporter):
                         f"({os.path.basename(f)})"
                     )
 
+                # changing_public_easement несёт ТОЛЬКО изменяемые контуры (полные,
+                # после уточнения). Неизменные контуры сервитута в XML отсутствуют.
+                # Например, у многоконтурного сервитута с 2+ контурами и изменением
+                # в одном контуре - XML содержит только этот контур, а не все.
+                # Полную геометрию даёт establishment_* (первичная регистрация) или
+                # отдельная выписка extract_about_boundary из ЕГРН.
+                if attrs.get('is_changing'):
+                    log_warning(
+                        f"Fsm_1_1_8: {os.path.basename(f)} - changing_public_easement "
+                        f"(reg_numb_border={attrs.get('reg_numb_border')}): импортированы "
+                        f"только изменяемые контуры сервитута, не вся геометрия. "
+                        f"Если сервитут многоконтурный - неизменные контуры в XML отсутствуют. "
+                        f"Полная геометрия доступна через выписку из ЕГРН (extract_about_boundary)."
+                    )
+
                 attrs['geometry'] = geometry
                 all_features.append(attrs)
 

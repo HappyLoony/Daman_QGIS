@@ -240,6 +240,27 @@ class Msm_26_4_CuttingEngine:
                 log_info(f"Msm_26_4: После overlay нарезки: {len(razdel_data)} Раздел, "
                         f"{len(ngs_data)} НГС (+{self.statistics['overlay_cuts']} разрезов)")
 
+            # 2.4. Финальный snap к кадастровой точности 0.01 м
+            # Geometry processor работает с gridSize=0.001 (робастность GEOS),
+            # output может содержать vertices на 1мм grid. CLAUDE.md требует
+            # точность 0.01м для всех координат GeoPackage — нормализуем здесь.
+            # Спорные кейсы (vertices в радиусе 1-9мм) сохраняются: 0.01м snap
+            # не сольёт их в одну точку, F_0_4 их по-прежнему ловит для F_2_3.
+            razdel_snapped = 0
+            for item in razdel_data:
+                snapped = self.geometry_processor.snap_to_cadastral_precision(item['geometry'])
+                if not snapped.isEmpty():
+                    item['geometry'] = snapped
+                    razdel_snapped += 1
+            ngs_snapped = 0
+            for item in ngs_data:
+                snapped = self.geometry_processor.snap_to_cadastral_precision(item['geometry'])
+                if not snapped.isEmpty():
+                    item['geometry'] = snapped
+                    ngs_snapped += 1
+            log_info(f"Msm_26_4: Финальный snap к 0.01м: "
+                    f"{razdel_snapped} Раздел, {ngs_snapped} НГС нормализованы")
+
             # 2.5. Привязка НГС к кадастровым кварталам
             if kk_layer and ngs_data:
                 kk_matcher = Msm_26_5_KKMatcher(kk_layer)

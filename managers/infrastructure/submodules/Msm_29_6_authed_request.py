@@ -110,8 +110,9 @@ class AuthedRequestManager:
         self._attempts_lock = threading.Lock()
         # Защита от рекурсивного refresh при параллельных запросах
         self._refresh_lock = threading.Lock()
-        # Callback для UI (показ диалога активации)
-        self._on_auth_failure_ui: Optional[Callable[[], None]] = None
+        # Callback при auth failure. Возвращает True если сессия восстановлена
+        # (silent re-verify через HMAC validate). См. M_29._show_auth_failure_dialog.
+        self._on_auth_failure_ui: Optional[Callable[[], bool]] = None
 
     @classmethod
     def get_instance(cls) -> 'AuthedRequestManager':
@@ -130,12 +131,20 @@ class AuthedRequestManager:
                 cls._instance._attempts.clear()
             cls._instance = None
 
-    def set_on_auth_failure_ui(self, callback: Callable[[], None]) -> None:
-        """Зарегистрировать callback показа UI «Требуется повторная активация».
+    def set_on_auth_failure_ui(self, callback: Callable[[], bool]) -> None:
+        """Зарегистрировать callback восстановления после auth failure.
 
-        Вызывается из main_plugin при инициализации M_29. Callback должен
-        быть idempotent — может быть вызван несколько раз за сессию,
-        не должен спамить диалогами при каждом 403.
+        Callback вызывается из main_plugin при инициализации M_29.
+        Должен быть idempotent — может быть вызван несколько раз за
+        сессию, не должен спамить диалогами при каждом 403.
+
+        Контракт возврата:
+            True — сессия восстановлена прозрачно (silent HMAC re-validate
+                или принятая активация). AuthedRequestManager сделает
+                финальный retry исходного запроса с свежим JWT.
+            False — recovery не удалась (диалог отклонён, throttled,
+                лицензия деактивирована, и т.п.). AuthedRequestManager
+                поднимет AuthFailureError, caller вернёт None.
         """
         self._on_auth_failure_ui = callback
 
@@ -240,7 +249,15 @@ class AuthedRequestManager:
                 f"{self.MODULE_ID}: Refresh failed after {response.status_code} "
                 f"on {ep_key} — invalidating session"
             )
-            self._notify_auth_failure_ui()
+            if self._notify_auth_failure_ui():
+                # Callback восстановил сессию через HMAC re-validate
+                # (типичный кейс — JWT_SECRET ротирован сервером, refresh
+                # подписан старым ключом). Делаем финальный retry со свежим JWT.
+                final_response = self._retry_after_recovery(
+                    requests, method, url, timeout_value, ep_key, **request_kwargs
+                )
+                if final_response is not None:
+                    return final_response
             raise AuthFailureError(
                 f"Refresh failed after {response.status_code} on {ep_key}"
             )
@@ -260,12 +277,54 @@ class AuthedRequestManager:
                 f"{retry_response.status_code} {self._extract_error_code(retry_response)} "
                 f"on {ep_key}"
             )
-            self._notify_auth_failure_ui()
+            if self._notify_auth_failure_ui():
+                final_response = self._retry_after_recovery(
+                    requests, method, url, timeout_value, ep_key, **request_kwargs
+                )
+                if final_response is not None:
+                    return final_response
             raise AuthFailureError(
                 f"Retry after refresh failed: {retry_response.status_code} on {ep_key}"
             )
 
         return retry_response
+
+    def _retry_after_recovery(
+        self,
+        requests_module: Any,
+        method: str,
+        url: str,
+        timeout: float,
+        ep_key: str,
+        **request_kwargs: Any,
+    ) -> Optional[Any]:
+        """Финальный retry после успешного recovery callback'а.
+
+        Вызывается только если _notify_auth_failure_ui вернул True
+        (сессия восстановлена через HMAC re-validate). Делает один
+        запрос с новым JWT. При success возвращает response, при
+        auth failure возвращает None (caller raise AuthFailureError).
+        """
+        log_warning(
+            f"{self.MODULE_ID}: Session recovered via callback, "
+            f"final retry on {ep_key}"
+        )
+        try:
+            final_response = self._raw_request(
+                requests_module, method, url, timeout, **request_kwargs
+            )
+        except Exception as e:
+            log_warning(f"{self.MODULE_ID}: Final retry raised: {e}")
+            return None
+        if self._is_auth_failure(final_response):
+            self._record_attempt(ep_key)
+            log_error(
+                f"{self.MODULE_ID}: Final retry still failed after recovery: "
+                f"{final_response.status_code} {self._extract_error_code(final_response)} "
+                f"on {ep_key}"
+            )
+            return None
+        return final_response
 
     # ------------------------------------------------------------------
     # Внутренняя реализация
@@ -490,16 +549,23 @@ class AuthedRequestManager:
     # UI notification (delegated to main_plugin)
     # ------------------------------------------------------------------
 
-    def _notify_auth_failure_ui(self) -> None:
-        """Вызвать зарегистрированный callback UI (если есть).
+    def _notify_auth_failure_ui(self) -> bool:
+        """Вызвать зарегистрированный callback и вернуть статус recovery.
 
         Не raises — UI ошибки не должны мешать exception propagation
-        в caller. Если callback сам выбросил исключение — глотаем.
+        в caller. Если callback сам выбросил исключение — глотаем,
+        возвращаем False.
+
+        Returns:
+            True если callback восстановил сессию (silent re-verify
+                или принятая активация). False иначе.
         """
         callback = self._on_auth_failure_ui
         if callback is None:
-            return
+            return False
         try:
-            callback()
+            result = callback()
+            return bool(result)
         except Exception as e:
             log_warning(f"{self.MODULE_ID}: auth_failure_ui callback raised: {e}")
+            return False

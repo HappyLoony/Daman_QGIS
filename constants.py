@@ -685,12 +685,15 @@ NAM_CACHE_SUBDIR = 'network_tiles'   # относительно <profile>/cache/
 WMTS_DEFAULT_TILE_EXPIRY_HOURS = 720
 
 # zmin для НСПД XYZ слоёв — обрезка холостых запросов на малых зумах.
-# На z<zmin QGIS вообще не выпускает запросы → исчезает burst 404 при случайном отзуме.
-# Используется: Fsm_1_2_6_raster_loader.py (add_nspd_ortho / add_nspd_ref / add_nspd_base)
-#   L_1_3_1 NSPD_Ortho (ЕЭКО ортофото):   покрытие вся РФ, осмысленно от z=6 (район/город)
+# На z<zmin QGIS вообще не выпускает запросы → исчезает burst 403/404 при случайном отзуме.
+# Используется: Fsm_1_2_6_raster_loader.py (add_nspd_ortho/ref/base), Fsm_1_4_1_base_layers.py (add_nspd_ortho).
+#   L_1_3_1 NSPD_Ortho (ЕЭКО ортофото):   z<12 сервер отдаёт HTTP 403 (verified 2026-05-21).
+#                                         NSPD не генерит ortho-мозаику на overview-зумах (на z<12
+#                                         1 пиксель = >300м, аэрофото 1-2м бессмысленно).
+#                                         Раньше было zmin=6, изменено 2026-05-21 после burst 403.
 #   L_1_3_2 NSPD_Ref (ЦОС, справочный):   кадастровые слои осмысленны от z=10 (масштаб улицы и крупнее)
 #   L_1_3_3 NSPD_Base (ЕЭКО основной):    общегеографический фон осмыслен от z=6 (район/город)
-NSPD_L_1_3_1_ZMIN = 6
+NSPD_L_1_3_1_ZMIN = 12
 NSPD_L_1_3_2_ZMIN = 10
 NSPD_L_1_3_3_ZMIN = 6
 

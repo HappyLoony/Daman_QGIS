@@ -60,10 +60,19 @@ def _build_qgs_fields() -> QgsFields:
 
 
 def _apply_field_aliases(layer: QgsVectorLayer) -> None:
-    """Установить QGIS-алиасы для всех полей слоя."""
+    """Установить QGIS-алиасы для всех полей слоя.
+
+    Маппинг по имени поля - корректно работает и для memory-слоя
+    (поля LAYER_FIELDS в позициях 0..N-1) и для GPKG-слоя
+    (GDAL добавляет служебное `fid` в позицию 0, сдвигая остальные).
+    """
     if not layer or not layer.isValid():
         return
-    for idx, (name, _qmeta_type, alias) in enumerate(LAYER_FIELDS):
+    alias_map = {name: alias for name, _qt, alias in LAYER_FIELDS}
+    layer_fields = layer.fields()
+    for idx in range(layer_fields.count()):
+        field_name = layer_fields.field(idx).name()
+        alias = alias_map.get(field_name)
         if alias and alias.strip():
             layer.setFieldAlias(idx, alias)
 

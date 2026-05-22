@@ -55,7 +55,7 @@ class Fsm_1_2_6_RasterLoader:
         base_url = endpoint['base_url']
         # XYZ URI без кастомных headers — Referer и User-Agent
         # инжектируются через QgsNetworkAccessManager preprocessor (main_plugin.py)
-        # zmin=6: ортофото осмысленно от уровня района. См. constants.NSPD_L_1_3_1_ZMIN.
+        # zmin см. constants.NSPD_L_1_3_1_ZMIN — NSPD отдаёт 403 на overview-зумах ortho.
         tile_url = f'{base_url}/{{z}}/{{x}}/{{y}}.png'
         uri = f'type=xyz&url={tile_url}&zmax=18&zmin={NSPD_L_1_3_1_ZMIN}'
 

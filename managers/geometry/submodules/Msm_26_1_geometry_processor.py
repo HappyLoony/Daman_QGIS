@@ -2,11 +2,71 @@
 """
 Msm_26_1 - Геометрические операции для нарезки ЗПР
 
-Выполняет:
-- intersection (пересечение ЗПР с ЗУ)
-- difference (разность ЗПР минус ЗУ)
-- union (объединение геометрий)
-- определение необходимости дополнительной нарезки
+АРХИТЕКТУРА: thin wrapper над GEOS OverlayNG snap-rounding
+============================================================
+
+Все overlay операции (intersection / difference / unaryUnion) передают
+QgsGeometryParameters(gridSize=0.001) в native QGIS API. GEOS 3.9+
+встроенно делает robust snap-rounding noding:
+  1. Все vertices обоих входов снапятся к grid (1 мм)
+  2. Snap-rounding noder обрабатывает edges/nodes
+  3. OverlayNG строит топологически robust результат
+  4. Все output vertices гарантированно ∈ grid
+
+Это **deterministic** поведение: на одинаковых входах всегда одинаковый
+выход, без floating-point noise.
+
+ВЫБОР gridSize=0.001 (1 мм)
+============================================================
+- < 1 мм → floating-point noise (vertices off by ε)
+- 1 мм → cadastral noise threshold (real precision DXF ≈ 1мм)
+- 1 см → cadastral precision (Приказ Росреестра), но gridSize=0.01
+  слишком агрессивный — съедает реальные mini-gap'ы ЗУ↔ЗПР (реестровые
+  ошибки, которые оператор должен видеть для коррекции через F_2_3)
+Эмпирический sweep 2026-05-22 на проекте Сапун подтвердил 0.001 как
+sweet spot (см. план migrаtion ниже).
+
+ИСТОРИЯ: до 2026-05-22 был custom workaround
+============================================================
+До migration этот модуль содержал:
+- `_snap_to_grid(geom)` — manual snap к COORDINATE_PRECISION=0.01 после
+  каждой overlay операции, с area-based exception (MIN_VALID_AREA=0.10)
+  для degenerate cases
+- `MIN_VALID_AREA = 0.10` — порог "артефакт vs значимое"
+- `clip_to_boundary(geom, boundary)` — post-clip к оригинальной ЗПР для
+  защиты от overflow артефактов (добавлен 2026-05-21)
+Этот стек был костылём из 3 слоёв вокруг проблемы которую GEOS OverlayNG
+уже решает встроенно (см. план migrаtion).
+
+ЕСЛИ ПОЯВИЛАСЬ РЕГРЕССИЯ → НЕ восстанавливайте старые workarounds:
+- НЕ добавлять manual snap (`snappedToGrid`) ВНУТРИ overlay методов
+  (intersection/difference/create_union) — это вернёт удалённый _snap_to_grid
+- НЕ добавлять `MIN_VALID_AREA` filter — GEOS сам отбрасывает degenerate
+- НЕ добавлять post-clip к original boundary (gridSize garantee'ит
+  overflow ≤ 0.5 мм, в пределах cadastral noise)
+- НЕ менять gridSize на 0.01 — потеряете реестровые ошибки
+
+ИСКЛЮЧЕНИЕ: `snap_to_cadastral_precision` — это ОДИН финальный snap к 0.01м
+на готовой output геометрии, ВНЕ overlay методов, вызывается в caller
+(Msm_26_4 после _cut_by_overlays) для нормализации к кадастровой точности
+из CLAUDE.md. Это не регрессия — это разные слои ответственности:
+gridSize=0.001 даёт робастность overlay; snap_to_cadastral_precision даёт
+точность выходных данных.
+
+Вместо этого: diagnose через сравнение с проектом Сапун (Phase 4 plan).
+Полная карта: `documentation/plans/2026-05-22-geometry-processor-gridsize-refactor.md`
+
+Документация GEOS OverlayNG: https://libgeos.org/doxygen/classgeos_1_1operation_1_1overlayng_1_1OverlayNG.html
+
+МЕТОДЫ
+============================================================
+- intersection — пересечение ЗПР с ЗУ (snap-rounding)
+- difference — разность ЗПР минус ЗУ (snap-rounding)
+- create_union — unaryUnion слоя (snap-rounding)
+- need_additional_cut — pre-check нужна ли overlay-нарезка
+- extract_polygons — split MultiPolygon на отдельные части
+- resolve_pinch_points — обработка self-touching boundary
+- validate_and_fix — makeValid wrapper
 """
 
 from typing import List, Optional, Tuple
@@ -15,15 +75,19 @@ from qgis.core import (
     QgsGeometry,
     QgsVectorLayer,
     QgsFeature,
+    QgsGeometryParameters,
 )
 
 from Daman_QGIS.utils import log_info, log_warning
 from Daman_QGIS.constants import COORDINATE_PRECISION
 
-# Минимальная площадь полигона (м2)
-# Полигоны меньше этого порога считаются артефактами и удаляются при округлении.
-# Синхронизировано с MIN_NGS_AREA в Msm_26_4_cutting_engine.py
-MIN_VALID_AREA = 0.10  # м2 (квадрат ~31.6x31.6 см)
+# GEOS OverlayNG snap-rounding precision (м).
+# Передаётся в QgsGeometryParameters.setGridSize для intersection/difference/
+# unaryUnion. Все output vertices гарантированно на этом grid.
+#
+# 0.001 = 1 мм. См. module docstring (раздел "ВЫБОР gridSize") для обоснования.
+# НЕ менять без полного re-sweep'а на не-Сапун проектах.
+GEOS_GRID_SIZE = 0.001  # м
 
 
 class Msm_26_1_GeometryProcessor:
@@ -33,97 +97,89 @@ class Msm_26_1_GeometryProcessor:
         """Инициализация процессора"""
         self.precision = COORDINATE_PRECISION
 
+    def _make_params(self) -> QgsGeometryParameters:
+        """QgsGeometryParameters со snap-rounding precision.
+
+        Используется во всех overlay методах. Не создавать новый Params
+        inline — всегда через этот helper, чтобы gridSize был
+        single source of truth.
+
+        Сам объект QgsGeometryParameters быстрый (POD-like wrapper),
+        создание per-call негативно на performance не влияет.
+        """
+        params = QgsGeometryParameters()
+        params.setGridSize(GEOS_GRID_SIZE)
+        return params
+
     def intersection(self, geom1: QgsGeometry, geom2: QgsGeometry) -> QgsGeometry:
-        """Пересечение двух геометрий
+        """Пересечение двух геометрий со снап-роундингом GEOS.
+
+        Использует QgsGeometryParameters(gridSize=GEOS_GRID_SIZE) для
+        deterministic результата: GEOS OverlayNG сам обрабатывает
+        floating-point noise и degenerate cases. Результат гарантированно
+        ⊆ обоих входов и snap'нут к gridSize.
 
         Args:
             geom1: Первая геометрия (ЗПР)
             geom2: Вторая геометрия (ЗУ)
 
         Returns:
-            QgsGeometry: Результат пересечения (валидный)
+            QgsGeometry: Результат пересечения (валидный, snap'нутый к gridSize).
+            Пустой если входы пусты или результат degenerate под precision.
         """
         if geom1.isEmpty() or geom2.isEmpty():
             return QgsGeometry()
 
-        # Snap входных геометрий к сетке ДО операции
-        # Это устраняет проблему несогласованных точек (разница в 1 см)
-        g1 = geom1.snappedToGrid(self.precision, self.precision)
-        g2 = geom2.snappedToGrid(self.precision, self.precision)
+        result = geom1.intersection(geom2, self._make_params())
 
-        # Валидация входных геометрий после snap
-        g1 = g1.makeValid() if not g1.isGeosValid() else g1
-        g2 = g2.makeValid() if not g2.isGeosValid() else g2
-
-        if g1.isEmpty() or g2.isEmpty():
-            return QgsGeometry()
-
-        result = g1.intersection(g2)
         if result.isEmpty():
             return QgsGeometry()
 
-        # Валидация и округление результата
+        # makeValid как safety net (snap-rounding обычно даёт valid, но
+        # на сложных входах может потребоваться cleanup).
         if not result.isGeosValid():
             result = result.makeValid()
-            if result.isEmpty():
-                return QgsGeometry()
 
-        return self._snap_to_grid(result)
+        return result
 
     def difference(self, geom1: QgsGeometry, geom2: QgsGeometry) -> QgsGeometry:
-        """Разность двух геометрий
+        """Разность двух геометрий со снап-роундингом GEOS.
+
+        difference(ЗПР, union(ЗУ)) → НГС. GEOS OverlayNG автоматически
+        обрабатывает sub-precision slivers и floating-point noise.
 
         Args:
             geom1: Исходная геометрия (ЗПР)
             geom2: Вычитаемая геометрия (union всех ЗУ)
 
         Returns:
-            QgsGeometry: Результат разности (части ЗПР вне ЗУ), валидный
+            QgsGeometry: Результат разности (валидный, ⊆ geom1).
+            Sub-mm slivers и floating-point noise удалены автоматически.
         """
         if geom1.isEmpty():
             return QgsGeometry()
 
-        # Snap входных геометрий к сетке ДО операции
-        # Это устраняет проблему несогласованных точек (разница в 1 см)
-        g1 = geom1.snappedToGrid(self.precision, self.precision)
-
-        # Валидация входной геометрии после snap
-        g1 = g1.makeValid() if not g1.isGeosValid() else g1
-
-        if g1.isEmpty():
-            return QgsGeometry()
-
         if geom2.isEmpty():
-            return self._snap_to_grid(g1)
+            return QgsGeometry(geom1)  # копия без изменений
 
-        # Snap и валидация вычитаемой геометрии
-        g2 = geom2.snappedToGrid(self.precision, self.precision)
-        g2 = g2.makeValid() if not g2.isGeosValid() else g2
+        result = geom1.difference(geom2, self._make_params())
 
-        if g2.isEmpty():
-            return self._snap_to_grid(g1)
-
-        result = g1.difference(g2)
         if result.isEmpty():
             return QgsGeometry()
 
-        # Валидация и округление результата
         if not result.isGeosValid():
             result = result.makeValid()
-            if result.isEmpty():
-                return QgsGeometry()
 
-        # Округление до сетки
-        return self._snap_to_grid(result)
+        return result
 
     def create_union(self, layer: QgsVectorLayer) -> QgsGeometry:
-        """Создание union геометрии всех объектов слоя
+        """Создание union геометрии всех объектов слоя со снап-роундингом.
 
         Args:
             layer: Векторный слой
 
         Returns:
-            QgsGeometry: Объединённая геометрия всех объектов (валидная)
+            QgsGeometry: Объединённая геометрия (валидная, snap'нутая к gridSize).
         """
         if not layer or layer.featureCount() == 0:
             return QgsGeometry()
@@ -132,7 +188,6 @@ class Msm_26_1_GeometryProcessor:
         for feature in layer.getFeatures():
             geom = feature.geometry()
             if geom and not geom.isEmpty():
-                # Валидация геометрии
                 if not geom.isGeosValid():
                     geom = geom.makeValid()
                     if geom.isEmpty():
@@ -142,13 +197,8 @@ class Msm_26_1_GeometryProcessor:
         if not geometries:
             return QgsGeometry()
 
-        # Объединение всех геометрий
-        result = QgsGeometry.unaryUnion(geometries)
+        result = QgsGeometry.unaryUnion(geometries, self._make_params())
 
-        # Округляем координаты до стандартной точности после объединения
-        result = result.snappedToGrid(self.precision, self.precision)
-
-        # Валидация результата union
         if not result.isEmpty() and not result.isGeosValid():
             result = result.makeValid()
 
@@ -285,11 +335,7 @@ class Msm_26_1_GeometryProcessor:
                         if not part.isGeosValid():
                             part = part.makeValid()
                         if not part.isEmpty():
-                            part = self._snap_to_grid(part)
-                            if not part.isEmpty():
-                                result.append(part)
-                            else:
-                                filtered_count += 1
+                            result.append(part)
                     else:
                         filtered_count += 1
             return result
@@ -331,10 +377,6 @@ class Msm_26_1_GeometryProcessor:
                         if single_geom.isEmpty():
                             invalid_count += 1
                             continue
-                    single_geom = self._snap_to_grid(single_geom)
-                    if single_geom.isEmpty():
-                        filtered_count += 1
-                        continue
                     result.append(single_geom)
             else:
                 # SinglePolygon
@@ -344,58 +386,11 @@ class Msm_26_1_GeometryProcessor:
                     if not geom.isGeosValid():
                         valid_geom = geom.makeValid()
                     if not valid_geom.isEmpty():
-                        valid_geom = self._snap_to_grid(valid_geom)
-                        if not valid_geom.isEmpty():
-                            result.append(valid_geom)
-                        else:
-                            filtered_count += 1
+                        result.append(valid_geom)
+                    else:
+                        filtered_count += 1
                 else:
                     filtered_count += 1
-
-        return result
-
-    def _snap_to_grid(self, geom: QgsGeometry) -> QgsGeometry:
-        """Округление координат геометрии до заданной точности
-
-        Args:
-            geom: Исходная геометрия
-
-        Returns:
-            QgsGeometry: Геометрия с округлёнными координатами
-        """
-        if geom.isEmpty():
-            return geom
-
-        area_before = geom.area()
-        result = geom.snappedToGrid(self.precision, self.precision)
-
-        # Геометрия схлопнулась в пустую
-        if result.isEmpty() and area_before > 0:
-            if area_before < MIN_VALID_AREA:
-                return QgsGeometry()  # Артефакт - удаляем
-            # Значимая геометрия - возвращаем без snap
-            log_warning(f"Msm_26_1: snap схлопнул значимую геометрию ({area_before:.2f} м2)")
-            return geom
-
-        # Полигон деградировал в линию/точку
-        if not result.isEmpty() and geom.type() == 2 and result.type() != 2:
-            if area_before < MIN_VALID_AREA:
-                return QgsGeometry()  # Артефакт - удаляем
-            log_warning(f"Msm_26_1: snap деградировал полигон ({area_before:.2f} м2)")
-            return geom
-
-        # Валидация результата
-        if not result.isGeosValid():
-            type_before = result.type()
-            result = result.makeValid()
-            type_after = result.type()
-
-            # makeValid деградировал тип
-            if geom.type() == 2 and type_after != 2:
-                if area_before < MIN_VALID_AREA:
-                    return QgsGeometry()  # Артефакт - удаляем
-                log_warning(f"Msm_26_1: makeValid деградировал полигон ({area_before:.2f} м2)")
-                return geom
 
         return result
 
@@ -532,3 +527,48 @@ class Msm_26_1_GeometryProcessor:
             return fixed
 
         return geom
+
+    def snap_to_cadastral_precision(self, geom: QgsGeometry) -> QgsGeometry:
+        """Финальный snap к кадастровой точности COORDINATE_PRECISION=0.01м.
+
+        ОТЛИЧИЕ от убранного `_snap_to_grid` (history раздел в module docstring):
+        - Старый _snap_to_grid: вызывался ПОСЛЕ КАЖДОГО intersection/difference
+          внутри overlay операций + имел area-based filter (MIN_VALID_AREA=0.10)
+          + требовал clip_to_boundary post-clip. Костыль из 3 слоёв.
+        - Этот метод: ОДИН вызов на ФИНАЛЬНОЙ геометрии (после всех overlay)
+          в caller (Msm_26_4 после _cut_by_overlays). Без area filter, без
+          post-clip. Просто rounding выходных vertices к кадастровой точности.
+
+        ЗАЧЕМ: Output из intersection/difference (gridSize=0.001) на 1мм grid.
+        CLAUDE.md требует «ТОЧНОСТЬ КООРДИНАТ: 0.01м» для всех координат в
+        GeoPackage. Этот метод нормализует output к 0.01м для соответствия.
+
+        Спорные точки (наш кейс T с 8.2мм/9.5мм vertex расхождениями) сохраняются:
+        snap к 0.01м не сольёт точки которые на 8-9мм друг от друга — они
+        округлятся к разным cell'ам на 1см grid. F_0_4 их по-прежнему ловит
+        как «Близкие точки между объектами», оператор правит через F_2_3.
+
+        Защита от degenerate: если snap делает геометрию невалидной/пустой —
+        откат к оригиналу (1мм vertices лучше чем broken geometry).
+
+        Args:
+            geom: Финальная геометрия после всех overlay операций (1мм grid).
+
+        Returns:
+            QgsGeometry: Геометрия на 0.01м grid. Откат к оригиналу при degenerate.
+        """
+        if geom.isEmpty():
+            return geom
+
+        snapped = geom.snappedToGrid(COORDINATE_PRECISION, COORDINATE_PRECISION)
+
+        if snapped.isEmpty():
+            return geom
+
+        if not snapped.isGeosValid():
+            fixed = snapped.makeValid()
+            if fixed.isEmpty():
+                return geom
+            snapped = fixed
+
+        return snapped

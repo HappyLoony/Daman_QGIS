@@ -474,17 +474,54 @@ class LicenseManager(QObject):
         except Exception as e:
             log_warning(f"M_29: Failed to register authed-request UI callback: {e}")
 
-    def _show_auth_failure_dialog(self) -> None:
-        """Показать пользователю диалог «Требуется повторная активация».
+    def _show_auth_failure_dialog(self) -> bool:
+        """Восстановить аутентификацию после JWT auth failure.
 
-        Throttle: не чаще одного диалога в 5 минут (несколько concurrent
-        managers могут одновременно споткнуться на одном auth failure).
+        Двухфазная стратегия:
+
+        1. Silent re-validate через HMAC (`/api/plugin/validate`).
+           HMAC-подпись использует api_key как секрет и НЕ зависит от
+           JWT_SECRET_KEY на сервере. Поэтому она переживает ротацию
+           JWT_SECRET (типичный кейс — `daman database` ротирует ключ
+           и перезапускает PM2, что инвалидирует все ранее выданные
+           access/refresh токены). verify() при успехе сохраняет новые
+           токены через _store_jwt_tokens, и сессия продолжается прозрачно.
+
+        2. Fallback на GUI «Требуется повторная активация».
+           Срабатывает только если silent re-validate упал: лицензия
+           деактивирована, hardware mismatch, сервер недоступен,
+           api_key стёрт из QSettings. Throttle 5 минут — несколько
+           concurrent managers могут одновременно споткнуться.
+
+        Returns:
+            True — сессия восстановлена (silent re-verify). Caller
+                (AuthedRequestManager) может ретраить исходный запрос
+                с свежим JWT.
+            False — recovery не удалась (либо silent verify упал и GUI
+                tthrottled, либо пользователь закрыл диалог, либо ещё
+                в процессе — диалог exec() блокирующий, после возврата
+                токены установлены только если активация прошла).
         """
+        try:
+            if self.verify():
+                self._session_verified = True
+                log_info(
+                    "M_29: Silent re-verification succeeded after JWT auth "
+                    "failure (HMAC validate bypassed JWT_SECRET rotation)"
+                )
+                return True
+        except Exception as e:
+            log_warning(f"M_29: Silent re-verify raised: {e}")
+
+        log_warning(
+            "M_29: Silent re-verify failed, falling back to activation dialog"
+        )
+
         from time import monotonic
         last_shown = getattr(self, '_auth_failure_dialog_last_ts', 0.0)
         now = monotonic()
         if now - last_shown < 300:  # 5 минут throttle
-            return
+            return False
         self._auth_failure_dialog_last_ts = now
 
         try:
@@ -503,7 +540,7 @@ class LicenseManager(QObject):
                 QMessageBox.StandardButton.Yes,
             )
             if answer != QMessageBox.StandardButton.Yes:
-                return
+                return False
 
             # Сбрасываем session_verified — следующий verify() сходит на /validate.
             self._session_verified = False
@@ -516,8 +553,13 @@ class LicenseManager(QObject):
             dialog = LicenseDialog(iface, parent)
             dialog.setWindowTitle(f"{PLUGIN_NAME} — Активация лицензии")
             dialog.exec()
+
+            # Возможно activate() в диалоге прошёл — токены установлены.
+            from .submodules.Msm_29_4_token_manager import TokenManager
+            return TokenManager.get_instance().has_valid_tokens()
         except Exception as e:
             log_warning(f"M_29: show_auth_failure_dialog failed: {e}")
+            return False
 
     def _on_jwt_auth_failure(self) -> None:
         """

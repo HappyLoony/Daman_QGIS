@@ -132,9 +132,6 @@ class F_0_4_TopologyCheck(BaseTool):
         self.check_cancelled = False
         self.check_context = []
 
-        # Читаем состояние checkbox анализа покрытия
-        self._gap_check_enabled = getattr(self.dialog, 'gap_check_enabled', False)
-
         log_info("F_0_4: Stage 1 - Обнаружение ошибок (async via M_17)")
 
         try:
@@ -204,8 +201,7 @@ class F_0_4_TopologyCheck(BaseTool):
             task = Fsm_0_4_10_TopologyCheckTask(
                 layer_id=layer.id(),
                 layer_name=layer.name(),
-                processing_context=processing_context,
-                enable_gap_check=self._gap_check_enabled
+                processing_context=processing_context
             )
             tasks.append(task)
             # Сохраняем маппинг для callbacks

@@ -78,6 +78,8 @@ class OksZuAnalysisManager:
         self._relation_mapper = RelationMapper()
         self._cutting_sync = CuttingSync()
         self._zu_extract_analyzer = ZuExtractAnalyzer()
+        # Флаг "лог об отсутствии ОКС уже выведен" — защита от спама в per-feature вызовах
+        self._oks_missing_logged = False
 
     # ==================== ГЛАВНЫЙ МЕТОД ====================
 
@@ -470,7 +472,9 @@ class OksZuAnalysisManager:
             oks_layer = self._get_oks_selection_layer()
 
         if oks_layer is None or oks_layer.featureCount() == 0:
-            log_info("M_23: Слой ОКС не найден или пуст, анализ пропущен")
+            if not self._oks_missing_logged:
+                log_info("M_23: Слой ОКС не найден или пуст, анализ пропущен")
+                self._oks_missing_logged = True
             return result
 
         # 1. ОКС_на_ЗУ_выписка - только если НЕ НГС и есть выписка
@@ -485,7 +489,6 @@ class OksZuAnalysisManager:
         )
         if intersecting_oks:
             result['ОКС_на_ЗУ_факт'] = '; '.join(sorted(intersecting_oks))
-            log_info(f"M_23 [debug]: КН={source_kn}, факт={result['ОКС_на_ЗУ_факт']}")
 
         return result
 
@@ -628,14 +631,7 @@ class OksZuAnalysisManager:
             if not isinstance(layer, QgsVectorLayer):
                 continue
             if self.OKS_LAYER_NAME in layer.name():
-                log_info(f"M_23 [debug]: Слой ОКС найден: '{layer.name()}', "
-                        f"features={layer.featureCount()}")
                 return layer
-        # Диагностика: перечислить векторные слои для отладки
-        vector_names = [l.name() for l in QgsProject.instance().mapLayers().values()
-                       if isinstance(l, QgsVectorLayer)]
-        log_info(f"M_23 [debug]: Слой '{self.OKS_LAYER_NAME}' не найден. "
-                f"Векторных слоёв в проекте: {len(vector_names)}")
         return None
 
     # ==================== ПАКЕТНЫЙ АНАЛИЗ ДЛЯ НАРЕЗКИ ====================
@@ -678,9 +674,6 @@ class OksZuAnalysisManager:
             log_info(f"{module_id}: Слой ОКС {reason}, анализ ОКС_на_ЗУ_факт пропущен "
                     f"({len(features_data)} объектов)")
             return features_data
-
-        log_info(f"{module_id} [debug]: Начало анализа ОКС_на_ЗУ: {len(features_data)} объектов, "
-                f"НГС={is_ngs}, слой ОКС={oks_layer.name()} ({oks_layer.featureCount()} ОКС)")
 
         analyzed_count = 0
         fact_filled = 0

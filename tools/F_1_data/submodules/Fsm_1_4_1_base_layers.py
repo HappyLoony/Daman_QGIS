@@ -14,7 +14,7 @@ from qgis.core import (
     QgsRectangle, QgsPointXY,
     QgsVectorFileWriter, QgsLayerTreeNode
 )
-from Daman_QGIS.constants import DEFAULT_LAYER_ORDER
+from Daman_QGIS.constants import DEFAULT_LAYER_ORDER, NSPD_L_1_3_1_ZMIN
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.managers import (
     registry, FolderType
@@ -136,10 +136,10 @@ class BaseLayersManager:
                 project.removeMapLayer(layer.id())
 
         # НСПД WMTS endpoint (category_id=36346, ЕЭКО ортофото)
-        # zmin=6: ортофото осмысленно от уровня района (см. constants.NSPD_L_1_3_1_ZMIN).
+        # zmin см. constants.NSPD_L_1_3_1_ZMIN — NSPD отдаёт 403 на overview-зумах.
         uri = (
             'type=xyz&url=https://nspd.gov.ru/api/aeggis/v2/36346/wmts/'
-            '%7Bz%7D/%7Bx%7D/%7By%7D.png&zmax=18&zmin=6'
+            f'%7Bz%7D/%7Bx%7D/%7By%7D.png&zmax=18&zmin={NSPD_L_1_3_1_ZMIN}'
         )
 
         layer = QgsRasterLayer(uri, layer_name, 'wms')

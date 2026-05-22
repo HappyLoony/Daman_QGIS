@@ -51,6 +51,18 @@ class VRIAssignmentManager:
     PUBLIC_TERRITORY_YES = "Отнесен"
     PUBLIC_TERRITORY_NO = "Не отнесен"
 
+    # Sentinel-значение для пустых VRI в режиме быстрой преднарезки.
+    # Активная разработка: пользователь часто перезаливает геометрии без
+    # атрибутов, заполнение VRI вручную каждый раз — лишняя работа.
+    # При обнаружении пустого VRI в слое ЗПР проставляем этот sentinel
+    # в саму геометрию, регистрируем его в индексах как валидное значение
+    # с is_public_territory=True. Downstream:
+    #   - validate_zpr_vri проходит без ошибок (без диалога F_2_1)
+    #   - План_ВРИ = "НЕ ЗАПОЛНЕНО", Общая_земля = "Отнесен"
+    #   - Fsm_2_1_7: ЗУ VRI ≠ "НЕ ЗАПОЛНЕНО" → классификация Изм
+    # Перед production-нарезкой пользователь должен заполнить реальный VRI.
+    FALLBACK_VRI = "НЕ ЗАПОЛНЕНО"
+
     @classmethod
     def get_instance(cls, force_reload: bool = False) -> 'VRIAssignmentManager':
         """Получить единственный экземпляр менеджера (Singleton)
@@ -160,6 +172,19 @@ class VRIAssignmentManager:
 
                 if code:
                     self._vri_by_code[code.strip()] = vri
+
+            # Virtual entry для FALLBACK_VRI — позволяет downstream
+            # (assign_vri_to_features, reassign_vri_by_geometry) обработать
+            # авто-заполненные пустые VRI как валидные с дефолтной семантикой
+            # "земли общего пользования".
+            fallback_entry = {
+                'full_name': self.FALLBACK_VRI,
+                'name': self.FALLBACK_VRI,
+                'code': '',
+                'is_public_territory': True,
+            }
+            self._vri_by_full_name[self.FALLBACK_VRI.lower()] = fallback_entry
+            self._vri_by_name[self.FALLBACK_VRI.lower()] = fallback_entry
 
             self._loaded = True
             log_info(f"M_21: Загружена база ВРИ ({len(self._vri_data)} записей)")
@@ -330,16 +355,19 @@ class VRIAssignmentManager:
             ]
 
         errors: List[str] = []
-        empty_vri_ids: List[int] = []
+        empty_fids: List[int] = []  # fid features с пустым VRI (для авто-заполнения)
         invalid_vri: Dict[str, List[int]] = {}  # {vri_value: [feature_ids]}
+
+        vri_field_idx = zpr_layer.fields().indexOf(vri_field)
 
         for feature in zpr_layer.getFeatures():
             feature_id = feature['ID'] if 'ID' in feature.fields().names() else feature.id()
             vri_value = feature[vri_field]
 
-            # Проверка на пустое значение
+            # Пустое значение — кандидат на авто-заполнение FALLBACK_VRI.
+            # Реальная мутация слоя после цикла (внутри одной edit-транзакции).
             if not vri_value or str(vri_value).strip() in ('', '-', 'NULL', 'None'):
-                empty_vri_ids.append(feature_id)
+                empty_fids.append(feature.id())
                 continue
 
             vri_str = str(vri_value).strip()
@@ -348,7 +376,7 @@ class VRIAssignmentManager:
             vri_list = self._parse_multiple_vri(vri_str)
 
             if not vri_list:
-                empty_vri_ids.append(feature_id)
+                empty_fids.append(feature.id())
                 continue
 
             # Валидация каждого ВРИ из списка
@@ -359,12 +387,28 @@ class VRIAssignmentManager:
                     if feature_id not in invalid_vri[single_vri]:
                         invalid_vri[single_vri].append(feature_id)
 
-        # Формируем ошибки
-        if empty_vri_ids:
-            errors.append(
-                f"Пустое значение ВРИ у контуров ЗПР с ID: {', '.join(map(str, empty_vri_ids))}. "
-                "Заполните поле VRI в атрибутах слоя ЗПР."
+        # Авто-заполнение пустых VRI значением FALLBACK_VRI (режим
+        # быстрой преднарезки). Если слой read-only / edit заблокирован
+        # внешним вызовом — логируем и продолжаем как валидный.
+        # downstream методы используют значения VRI прямо из слоя,
+        # поэтому без мутации fallback не передастся.
+        if empty_fids and vri_field_idx >= 0:
+            filled, fail_reason = self._fill_empty_vri(
+                zpr_layer, vri_field_idx, empty_fids
             )
+            if filled:
+                log_info(
+                    f"M_21: Авто-заполнено '{self.FALLBACK_VRI}' "
+                    f"у {filled} контуров ЗПР в слое {zpr_layer.name()} "
+                    f"(быстрая преднарезка)"
+                )
+            elif fail_reason:
+                log_warning(
+                    f"M_21: Не удалось авто-заполнить пустые VRI в слое "
+                    f"{zpr_layer.name()}: {fail_reason}. Пустые VRI считаются "
+                    f"валидными как '{self.FALLBACK_VRI}', downstream значения "
+                    f"могут быть некорректны"
+                )
 
         for vri_value, ids in invalid_vri.items():
             errors.append(
@@ -381,6 +425,46 @@ class VRIAssignmentManager:
                 log_warning(f"M_21: {error}")
 
         return is_valid, errors
+
+    def _fill_empty_vri(
+        self,
+        zpr_layer: QgsVectorLayer,
+        vri_field_idx: int,
+        fids: List[int]
+    ) -> Tuple[int, Optional[str]]:
+        """Записать FALLBACK_VRI в указанные features.
+
+        Args:
+            zpr_layer: Слой для мутации
+            vri_field_idx: Индекс поля VRI
+            fids: Список feature.id() для заполнения
+
+        Returns:
+            (filled_count, error_message or None)
+        """
+        if not fids:
+            return 0, None
+
+        # Уже редактируется кем-то ещё — не вмешиваемся.
+        was_editing = zpr_layer.isEditable()
+        if not was_editing:
+            if not zpr_layer.startEditing():
+                return 0, "не удалось войти в режим редактирования"
+
+        try:
+            filled = 0
+            for fid in fids:
+                if zpr_layer.changeAttributeValue(fid, vri_field_idx, self.FALLBACK_VRI):
+                    filled += 1
+            if not was_editing:
+                if not zpr_layer.commitChanges():
+                    zpr_layer.rollBack()
+                    return 0, "commitChanges вернул False"
+            return filled, None
+        except Exception as e:
+            if not was_editing:
+                zpr_layer.rollBack()
+            return 0, f"{type(e).__name__}: {e}"
 
     def get_vri_for_zpr_id(
         self,
