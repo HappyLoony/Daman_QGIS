@@ -23,7 +23,7 @@ requests
 certifi
 
 # XML парсинг (выписки ЕГРН)
-lxml>=6.1.0
+lxml>=6.1.1
 
 # Word экспорт (шаблоны с Jinja2)
 docxtpl>=0.19.0
