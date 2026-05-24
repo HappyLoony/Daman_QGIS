@@ -15,6 +15,7 @@ M_28_LayerSchemaValidator - Валидатор структуры слоёв
 from typing import Dict, List, Optional, Tuple, Any
 
 from qgis.core import QgsProject, QgsVectorLayer
+from qgis.PyQt.QtCore import QMetaType
 
 from Daman_QGIS.constants import LAYERS_ZPR_ALL, LAYER_FOREST_VYDELY, CUTTING_PREFIXES
 from Daman_QGIS.utils import log_info, log_warning, log_error
@@ -30,7 +31,18 @@ class LayerSchemaValidator:
         'ZPR': {
             'description': 'Схема для слоёв ЗПР (зоны планируемого размещения)',
             'layers': list(LAYERS_ZPR_ALL),
-            'required_fields': ['ID', 'ID_KV', 'VRI', 'MIN_AREA_VRI'],
+            'required_fields': ['ID', 'ID_KV', 'VRI', 'MIN_AREA_VRI', 'AREA'],
+            # Типы для полей, отличающихся от дефолта String(254)
+            'field_types': {
+                'ID': QMetaType.Type.Int,
+                'AREA': QMetaType.Type.Int,
+            },
+            # Вычисляемые поля: значение пересчитывается из геометрии при каждом
+            # вызове ensure_required_fields. Поддерживаемые формулы:
+            #   'area_int_m2' — int(round(geometry.area())), площадь в м² (CRS МСК)
+            'computed_fields': {
+                'AREA': 'area_int_m2',
+            },
         },
         'FOREST_VYDELY': {
             'description': 'Схема для слоя лесных выделов',
@@ -468,31 +480,68 @@ class LayerSchemaValidator:
                 log_error(f"M_28: Ошибка добавления полей в слой {layer_name}: {e}")
 
         else:
-            # Статическая схема (ZPR): все поля String(254)
+            # Статическая схема (ZPR): большинство полей String(254),
+            # переопределения типов берутся из schema['field_types']
             # Case-insensitive: GeoPackage (SQLite) не различает регистр имён полей
             required_fields = schema.get('required_fields', [])
-            existing_lower = {f.lower() for f in existing_fields}
+            field_types: Dict[str, Any] = schema.get('field_types', {})
+            computed_fields: Dict[str, str] = schema.get('computed_fields', {})
+            existing_field_map = {f.name().lower(): f for f in layer.fields()}
+            existing_lower = set(existing_field_map.keys())
             missing_fields = [f for f in required_fields if f.lower() not in existing_lower]
 
-            if not missing_fields:
+            # Mismatch-warning: поле существует, но тип не совпадает с ожидаемым
+            for field_name in required_fields:
+                expected_type = field_types.get(field_name)
+                if expected_type is None:
+                    continue
+                existing_field = existing_field_map.get(field_name.lower())
+                if existing_field is None or existing_field.type() == expected_type:
+                    continue
+                log_warning(
+                    f"M_28: Поле '{field_name}' в слое {layer_name} имеет тип "
+                    f"{existing_field.typeName()}, ожидается "
+                    f"{'Int' if expected_type == QMetaType.Type.Int else 'String'}"
+                )
+
+            # Вычисляемые поля пересчитываются всегда, даже если уже существуют
+            need_compute = bool(computed_fields)
+
+            if not missing_fields and not need_compute:
                 result['success'] = True
                 log_info(f"M_28: Слой {layer_name} имеет все обязательные поля")
                 return result
 
-            log_info(f"M_28: Слой {layer_name} - добавляем поля: {', '.join(missing_fields)}")
+            if missing_fields:
+                log_info(f"M_28: Слой {layer_name} - добавляем поля: {', '.join(missing_fields)}")
 
             try:
                 layer.startEditing()
 
                 for field_name in missing_fields:
-                    field = QgsField(field_name, QMetaType.Type.QString, len=254)
+                    qt_type = field_types.get(field_name, QMetaType.Type.QString)
+                    if qt_type == QMetaType.Type.QString:
+                        field = QgsField(field_name, qt_type, len=254)
+                    else:
+                        field = QgsField(field_name, qt_type)
                     layer.addAttribute(field)
                     result['fields_added'].append(field_name)
                     log_info(f"M_28: Добавлено поле '{field_name}' в слой {layer_name}")
 
+                # updateFields фиксирует только что добавленные поля в кэше layer.fields(),
+                # без него indexOf для нового поля вернёт -1
+                if missing_fields:
+                    layer.updateFields()
+
+                if computed_fields:
+                    self._populate_computed_fields(layer, computed_fields)
+
                 layer.commitChanges()
                 result['success'] = True
-                log_info(f"M_28: Слой {layer_name} дополнен полями: {', '.join(result['fields_added'])}")
+                if result['fields_added']:
+                    log_info(f"M_28: Слой {layer_name} дополнен полями: {', '.join(result['fields_added'])}")
+                else:
+                    log_info(f"M_28: Слой {layer_name} - пересчитаны computed-поля")
 
             except Exception as e:
                 layer.rollBack()
@@ -500,6 +549,46 @@ class LayerSchemaValidator:
                 log_error(f"M_28: Ошибка добавления полей в слой {layer_name}: {e}")
 
         return result
+
+    def _populate_computed_fields(
+        self,
+        layer: QgsVectorLayer,
+        computed_fields: Dict[str, str],
+    ) -> None:
+        """Пересчёт значений computed-полей по геометрии.
+
+        Вызывается внутри edit-сессии (startEditing/commitChanges) после
+        добавления полей. Для каждой фичи вычисляет значение по формуле
+        и записывает через changeAttributeValue.
+
+        Поддерживаемые формулы:
+        - 'area_int_m2': int(round(geometry.area())), м² (CRS должен быть метрическим)
+
+        Args:
+            layer: Слой в режиме редактирования
+            computed_fields: Маппинг {field_name: formula_key}
+        """
+        layer_name = layer.name()
+        for field_name, formula in computed_fields.items():
+            idx = layer.fields().indexOf(field_name)
+            if idx < 0:
+                log_warning(f"M_28: computed-поле '{field_name}' не найдено в слое {layer_name}")
+                continue
+
+            for feature in layer.getFeatures():
+                geom = feature.geometry()
+                if geom is None or geom.isNull() or geom.isEmpty():
+                    value: Any = 0
+                elif formula == 'area_int_m2':
+                    value = int(round(geom.area()))
+                else:
+                    log_warning(f"M_28: неизвестная формула '{formula}' для поля '{field_name}'")
+                    break
+
+                if not layer.changeAttributeValue(feature.id(), idx, value):
+                    log_warning(
+                        f"M_28: не удалось записать {field_name}={value} для fid={feature.id()} в слое {layer_name}"
+                    )
 
     def _get_typed_fields(self, schema_name: str) -> Optional[List[Dict[str, Any]]]:
         """Получить типизированные поля из динамического провайдера.

@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Any, Tuple
 
 from qgis.core import QgsFeature
 from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtGui import QIntValidator
 from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QPushButton, QComboBox, QLineEdit,
@@ -117,8 +118,9 @@ class Fsm_1_1_6_ZprAttributeDialog(BaseResponsiveDialog):
             QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
         )
 
-        # ID
+        # ID — целое число (схема ZPR в M_28)
         self._id_edit = QLineEdit()
+        self._id_edit.setValidator(QIntValidator(0, 2_147_483_647, self._id_edit))
         id_row = self._create_field_row(
             'ID', self._id_edit
         )

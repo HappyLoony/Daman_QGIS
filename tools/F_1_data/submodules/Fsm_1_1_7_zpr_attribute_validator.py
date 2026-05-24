@@ -16,7 +16,7 @@ per-feature GUI диалог для ручного ввода.
 from typing import Dict, List, Optional, Any
 
 from qgis.core import QgsVectorLayer, QgsFeature
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QVariant, QMetaType
 
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
@@ -191,6 +191,40 @@ class Fsm_1_1_7_ZprAttributeValidator:
             return True
         return False
 
+    def _cast_value(self, value: Any, field_type: Any) -> Any:
+        """Приведение значения к типу поля QGIS.
+
+        Для Int-полей делает int(str.strip()); для String — str(value).
+        Если значение пустое — возвращает None (NULL в БД).
+
+        Args:
+            value: Значение из диалога (обычно str)
+            field_type: QMetaType.Type из layer.fields().at(idx).type()
+
+        Returns:
+            Сконвертированное значение или None если не приводится
+        """
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+        else:
+            stripped = value
+
+        if field_type in (QMetaType.Type.Int, QMetaType.Type.LongLong):
+            try:
+                return int(stripped)
+            except (ValueError, TypeError):
+                return None
+        if field_type == QMetaType.Type.Double:
+            try:
+                return float(stripped)
+            except (ValueError, TypeError):
+                return None
+        return stripped
+
     def _normalize_value(self, value: Any) -> Optional[str]:
         """Нормализация значения для отображения.
 
@@ -245,7 +279,17 @@ class Fsm_1_1_7_ZprAttributeValidator:
                         )
                         continue
 
-                    if not layer.changeAttributeValue(fid, field_idx, new_value):
+                    # Привести значение к типу поля (Int-поля — явная конвертация,
+                    # иначе OGR может записать NULL вместо числовой строки)
+                    field_type = layer.fields().at(field_idx).type()
+                    cast_value = self._cast_value(new_value, field_type)
+                    if cast_value is None and new_value not in (None, ''):
+                        result['errors'].append(
+                            f"Поле {field_name}: значение '{new_value}' не приводится к типу поля"
+                        )
+                        continue
+
+                    if not layer.changeAttributeValue(fid, field_idx, cast_value):
                         result['errors'].append(
                             f"Ошибка записи {field_name} для fid={fid}"
                         )

@@ -70,6 +70,7 @@ class Fsm_0_4_5_TopologyCoordinator:
         # Cross-layer
         'cross_layer_overlap': 'Наложение между слоями',
         # Покрытие (зазоры)
+        'coverage_invalid_edge': 'Несовпадение границ покрытия',
         'gap': 'Зазор покрытия',
         'gap_spike': 'Пиковый узел покрытия'
     }
@@ -344,17 +345,15 @@ class Fsm_0_4_5_TopologyCoordinator:
             try:
                 gap_errors = self.gap_checker.check(layer)
 
-                # Разделяем на gap и gap_spike ошибки
-                gap_only = [e for e in gap_errors if e['type'] == 'gap']
-                gap_spike_only = [e for e in gap_errors if e['type'] == 'gap_spike']
-
-                if gap_only:
-                    errors_by_type['gap'] = gap_only
-                    all_errors.extend(gap_only)
-
-                if gap_spike_only:
-                    errors_by_type['gap_spike'] = gap_spike_only
-                    all_errors.extend(gap_spike_only)
+                # Три типа ошибок из гибридного gap-checker'а:
+                # coverage_invalid_edge — GEOS CoverageValidator (primary)
+                # gap — envelope-diff internal holes (после дедупа)
+                # gap_spike — spike-узлы union boundary (после дедупа)
+                for err_type in ('coverage_invalid_edge', 'gap', 'gap_spike'):
+                    filtered = [e for e in gap_errors if e['type'] == err_type]
+                    if filtered:
+                        errors_by_type[err_type] = filtered
+                        all_errors.extend(filtered)
             except Exception as e:
                 log_error(f"Fsm_0_4_5: Ошибка анализа покрытия: {e}")
 

@@ -144,12 +144,12 @@ class TestM28:
             return
 
         fields = self.validator.get_required_fields('ZPR')
-        expected = ['ID', 'ID_KV', 'VRI', 'MIN_AREA_VRI']
+        expected = ['ID', 'ID_KV', 'VRI', 'MIN_AREA_VRI', 'AREA']
 
         self.logger.check(
-            len(fields) == 4,
-            f"ZPR: 4 обязательных поля",
-            f"ZPR: ожидалось 4, получено {len(fields)}"
+            len(fields) == 5,
+            f"ZPR: 5 обязательных полей",
+            f"ZPR: ожидалось 5, получено {len(fields)}"
         )
 
         for name in expected:
@@ -408,10 +408,11 @@ class TestM28:
             layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "L_1_12_1_ЗПР_ОКС", "memory")
             dp = layer.dataProvider()
             dp.addAttributes([
-                QgsField("ID", QMetaType.Type.QString, len=254),
+                QgsField("ID", QMetaType.Type.Int),
                 QgsField("ID_KV", QMetaType.Type.QString, len=254),
                 QgsField("VRI", QMetaType.Type.QString, len=254),
                 QgsField("MIN_AREA_VRI", QMetaType.Type.QString, len=254),
+                QgsField("AREA", QMetaType.Type.Int),
             ])
             layer.updateFields()
 
@@ -438,7 +439,7 @@ class TestM28:
             dp = layer.dataProvider()
             dp.addAttributes([
                 QgsField("ID", QMetaType.Type.QString, len=254),
-                # Отсутствуют: ID_KV, VRI, MIN_AREA_VRI
+                # Отсутствуют: ID_KV, VRI, MIN_AREA_VRI, AREA
             ])
             layer.updateFields()
 
@@ -450,9 +451,9 @@ class TestM28:
                 "Неполный ZPR слой ошибочно валиден!"
             )
             self.logger.check(
-                len(result['missing_fields']) == 3,
-                f"3 отсутствующих поля: {result['missing_fields']}",
-                f"Ожидалось 3, получено {len(result['missing_fields'])}"
+                len(result['missing_fields']) == 4,
+                f"4 отсутствующих поля: {result['missing_fields']}",
+                f"Ожидалось 4, получено {len(result['missing_fields'])}"
             )
         except Exception as e:
             self.logger.error(f"Ошибка: {e}")
@@ -460,19 +461,26 @@ class TestM28:
     # --- ensure_required_fields ---
 
     def test_18_ensure_zpr_fields(self):
-        """ТЕСТ 18: Добавление недостающих полей ZPR"""
+        """ТЕСТ 18: Добавление недостающих полей ZPR + расчёт AREA"""
         self.logger.section("18. ensure_required_fields ZPR")
         if not self.validator:
             self.logger.skip("Валидатор не инициализирован")
             return
 
         try:
-            layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "L_1_12_1_ЗПР_ОКС", "memory")
-            dp = layer.dataProvider()
-            dp.addAttributes([
-                QgsField("ID", QMetaType.Type.QString, len=254),
-            ])
-            layer.updateFields()
+            from qgis.core import QgsFeature, QgsGeometry
+
+            # CRS:3857 — метрический, чтобы geom.area() было в м²
+            # Пустой слой — ensure должен создать все 5 полей ZPR с правильными типами
+            layer = QgsVectorLayer("Polygon?crs=EPSG:3857", "L_1_12_1_ЗПР_ОКС", "memory")
+
+            # Квадрат 10x10 м, площадь = 100 м²
+            feat = QgsFeature(layer.fields())
+            feat.setGeometry(QgsGeometry.fromWkt(
+                "POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))"
+            ))
+            layer.dataProvider().addFeatures([feat])
+            layer.updateExtents()
 
             result = self.validator.ensure_required_fields(layer, 'ZPR')
 
@@ -482,19 +490,45 @@ class TestM28:
                 f"ensure_required_fields ZPR: error={result.get('error')}"
             )
             self.logger.check(
-                len(result['fields_added']) == 3,
-                f"Добавлено 3 поля: {result['fields_added']}",
-                f"Ожидалось 3, добавлено {len(result['fields_added'])}"
+                len(result['fields_added']) == 5,
+                f"Добавлено 5 полей: {result['fields_added']}",
+                f"Ожидалось 5, добавлено {len(result['fields_added'])}"
             )
 
             # Проверяем, что поля реально добавлены
             field_names = [f.name() for f in layer.fields()]
-            for name in ['ID', 'ID_KV', 'VRI', 'MIN_AREA_VRI']:
+            for name in ['ID', 'ID_KV', 'VRI', 'MIN_AREA_VRI', 'AREA']:
                 self.logger.check(
                     name in field_names,
                     f"Поле {name} существует после ensure",
                     f"Поле {name} отсутствует после ensure!"
                 )
+
+            # ID и AREA — Int, остальные — QString
+            field_map = {f.name(): f for f in layer.fields()}
+            for int_name in ('ID', 'AREA'):
+                f = field_map.get(int_name)
+                self.logger.check(
+                    f is not None and f.type() == QMetaType.Type.Int,
+                    f"{int_name}: тип Int",
+                    f"{int_name}: тип {f.type() if f else 'NOT FOUND'}!"
+                )
+            for str_name in ('ID_KV', 'VRI', 'MIN_AREA_VRI'):
+                f = field_map.get(str_name)
+                self.logger.check(
+                    f is not None and f.type() == QMetaType.Type.QString,
+                    f"{str_name}: тип QString",
+                    f"{str_name}: тип {f.type() if f else 'NOT FOUND'}!"
+                )
+
+            # AREA рассчитана = 100 м² для квадрата 10x10
+            stored_feat = next(layer.getFeatures(), None)
+            area_value = stored_feat.attribute('AREA') if stored_feat else None
+            self.logger.check(
+                area_value == 100,
+                f"AREA рассчитана: 100 м²",
+                f"AREA = {area_value}, ожидалось 100!"
+            )
 
         except Exception as e:
             self.logger.error(f"Ошибка: {e}")

@@ -114,6 +114,24 @@ def test_is_newer_real_rollout_scenario() -> None:
     log_info("Fsm_4_2_T_semver: real_rollout_scenario OK")
 
 
+def test_is_newer_beta_without_counter() -> None:
+    """Новый формат 2026-05-13: `-beta` без счётчика.
+
+    promote_to_beta больше не пишет `.N` — каждый beta привязан к unique
+    patch через dev cycle. Forward-compat сравнение с legacy `-beta.N`
+    (в production server beta = 0.9.963-beta.1 на момент миграции).
+    """
+    # Новый patch без counter > старый patch с counter
+    assert _M._is_newer("0.9.964-beta", "0.9.963-beta.1") is True
+    assert _M._is_newer("0.9.963-beta.1", "0.9.964-beta") is False
+
+    # Тот же patch: -beta (counter=0) < -beta.1, > -dev (channel precedence)
+    assert _M._is_newer("0.9.964-beta.1", "0.9.964-beta") is True
+    assert _M._is_newer("0.9.964-beta", "0.9.964-dev.99") is True
+    assert _M._is_newer("0.9.964", "0.9.964-beta") is True
+    log_info("Fsm_4_2_T_semver: beta_without_counter OK")
+
+
 def test_is_newer_invalid_returns_false() -> None:
     """Парс fail → return False (skip update — safe default), не raise.
 
@@ -139,5 +157,6 @@ def run_all() -> None:
     test_is_newer_channel_precedence()
     test_is_newer_counter_within_channel()
     test_is_newer_real_rollout_scenario()
+    test_is_newer_beta_without_counter()
     test_is_newer_invalid_returns_false()
     log_info("Fsm_4_2_T_semver: ALL PASS")
