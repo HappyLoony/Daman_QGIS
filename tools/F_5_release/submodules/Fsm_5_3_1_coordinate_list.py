@@ -11,10 +11,10 @@ Fsm_5_3_1 - Экспорт перечней координат в Excel
 
 import os
 import re
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Set
 
 from qgis.core import (
-    Qgis, QgsProject, QgsFeature,
+    Qgis, QgsProject, QgsFeature, QgsGeometry, QgsPointXY,
     QgsCoordinateReferenceSystem, QgsCoordinateTransform,
     QgsVectorLayer, QgsWkbTypes
 )
@@ -43,6 +43,10 @@ class Fsm_5_3_1_CoordinateList:
             ref_managers: Reference managers (не используется, сохранён для совместимости)
         """
         self.iface = iface
+        # Кэш слоёв, уже нормализованных под CW + СЗ в рамках одной сессии экспорта.
+        # SPB-экспорт через SplitByFeatureModifier вызывается per-feature,
+        # без кэша слой бы нормализовывался N раз для одного и того же набора фич.
+        self._normalized_layer_ids: Set[str] = set()
 
     def _find_points_layer(self, layer_name: str) -> Optional[QgsVectorLayer]:
         """
@@ -434,6 +438,11 @@ class Fsm_5_3_1_CoordinateList:
         """
         import xlsxwriter
 
+        # Нормализация геометрии слоя: CW + начало с СЗ.
+        # Идемпотентно и кэшировано по layer.id() — при per-feature вызове
+        # из SplitByFeatureModifier выполняется один раз на слой.
+        self._normalize_layer_geometry_cw_from_nw(layer)
+
         metadata = ExportUtils.get_project_metadata()
 
         # Формируем имя файла
@@ -617,6 +626,12 @@ class Fsm_5_3_1_CoordinateList:
         if not merged_layers:
             log_warning("Fsm_5_3_1: merged_layers пуст, пропуск merged export")
             return False
+
+        # Нормализация геометрии всех merged-слоёв: CW + начало с СЗ.
+        # Кэшировано по layer.id() — повторные слои в других merged-вызовах
+        # этой же сессии экспорта пропускаются.
+        for _layer in merged_layers:
+            self._normalize_layer_geometry_cw_from_nw(_layer)
 
         show_area = extra_context.get('show_area_per_feature', True)
         is_ps = extra_context.get('is_ps', False)
@@ -967,15 +982,184 @@ class Fsm_5_3_1_CoordinateList:
             )
             return None
 
+    def _normalize_layer_geometry_cw_from_nw(self, layer: QgsVectorLayer) -> None:
+        """
+        Привести геометрию слоя к единому CW-обходу с СЗ-стартом для всех колец.
+
+        Применяется in-place: изменяет полигоны в .gpkg через editBuffer +
+        commitChanges. После этого vertex_idx 0 каждого кольца = СЗ-точка,
+        направление обхода = CW на карте. Это нужно чтобы нумерация в Excel
+        SPB-перечне, Vertex Editor QGIS и последующих экспортах TAB/DXF
+        совпадала (с учётом off-by-one: QGIS считает с 0, Excel/CAD с 1).
+
+        Идемпотентно: повторный запуск ничего не меняет.
+        Кэшируется по layer.id() в self._normalized_layer_ids, чтобы при
+        per-feature SPB-экспорте не нормализовать один слой N раз.
+
+        Применяется ТОЛЬКО в SPB-формате (регион 78 — требование КГА СПб).
+
+        Args:
+            layer: Полигональный слой для нормализации (изменяется in-place).
+        """
+        if not layer or not layer.isValid():
+            return
+        if layer.geometryType() != Qgis.GeometryType.Polygon:
+            return
+
+        layer_id = layer.id()
+        if layer_id in self._normalized_layer_ids:
+            return
+
+        # Edit conflict guard: если другой код уже открыл edit-сессию (например,
+        # пользователь работает в Vertex Editor с несохранёнными правками),
+        # наш commitChanges() закроет её и смешает чужие правки с нашими.
+        # Пропускаем нормализацию — пусть пользователь сначала закроет/сохранит
+        # свою сессию, потом перезапустит F_5_3.
+        if layer.isEditable():
+            log_warning(
+                f"Fsm_5_3_1: Слой {layer.name()} уже в режиме редактирования "
+                f"(возможно, открыт Vertex Editor) — нормализация CW+NW "
+                f"пропущена, чтобы не смешать с чужими правками"
+            )
+            return
+
+        if not layer.startEditing():
+            log_warning(
+                f"Fsm_5_3_1: Не удалось начать редактирование слоя "
+                f"{layer.name()} — нормализация CW+NW пропущена"
+            )
+            return
+
+        modified = 0
+        try:
+            for feature in layer.getFeatures():
+                geom = feature.geometry()
+                if not geom or geom.isEmpty():
+                    continue
+                if geom.type() != Qgis.GeometryType.Polygon:
+                    continue
+
+                new_geom = self._normalize_polygon_geometry(geom)
+                if new_geom is None or new_geom.isEmpty():
+                    continue
+
+                if not layer.changeGeometry(feature.id(), new_geom):
+                    log_warning(
+                        f"Fsm_5_3_1: changeGeometry неуспешно для fid="
+                        f"{feature.id()} в слое {layer.name()}"
+                    )
+                    continue
+                modified += 1
+
+            if not layer.commitChanges():
+                log_error(
+                    f"Fsm_5_3_1: commitChanges не удался для слоя "
+                    f"{layer.name()} — откат"
+                )
+                layer.rollBack()
+                return
+        except Exception as e:
+            log_error(
+                f"Fsm_5_3_1: Ошибка нормализации слоя "
+                f"{layer.name()}: {e}"
+            )
+            try:
+                layer.rollBack()
+            except Exception:
+                pass
+            return
+
+        self._normalized_layer_ids.add(layer_id)
+        log_info(
+            f"Fsm_5_3_1: Нормализовано CW+NW {modified} фич в слое "
+            f"{layer.name()}"
+        )
+
+    def _normalize_polygon_geometry(
+        self,
+        geom: QgsGeometry
+    ) -> Optional[QgsGeometry]:
+        """
+        Нормализовать одну полигональную геометрию: каждое кольцо приводится
+        к CW-обходу на карте и ротируется так, чтобы v0 = ближайшая к СЗ.
+
+        Использует PointNumberingManager.is_clockwise (M_20) как единый
+        источник правды для определения направления.
+
+        Args:
+            geom: Исходная полигональная геометрия (Polygon или MultiPolygon)
+
+        Returns:
+            Новая геометрия с нормализованными кольцами, либо None
+            если входная геометрия не полигональная или пустая.
+        """
+        from Daman_QGIS.managers import PointNumberingManager
+
+        if geom is None or geom.isEmpty():
+            return None
+        if geom.type() != Qgis.GeometryType.Polygon:
+            return None
+
+        is_multi = geom.isMultipart()
+        polygons = geom.asMultiPolygon() if is_multi else [geom.asPolygon()]
+
+        new_polygons = []
+        for polygon in polygons:
+            if not polygon:
+                new_polygons.append(polygon)
+                continue
+
+            new_rings = []
+            for ring in polygon:
+                # Минимум 3 уникальные вершины + замыкающая = 4 элемента
+                if not ring or len(ring) < 4:
+                    new_rings.append(ring)
+                    continue
+
+                # Снять замыкающую (если есть)
+                had_close = (ring[0] == ring[-1])
+                work = list(ring[:-1]) if had_close else list(ring)
+
+                # Шаг 1: реверс на CW если кольцо CCW на карте
+                points_xy = [(p.x(), p.y()) for p in work]
+                if not PointNumberingManager.is_clockwise(points_xy):
+                    work = list(reversed(work))
+
+                # Шаг 2: ротация к СЗ точке
+                min_x = min(p.x() for p in work)
+                max_y = max(p.y() for p in work)
+                nw_idx = 0
+                best_dist = float('inf')
+                for i, p in enumerate(work):
+                    d = (p.x() - min_x) ** 2 + (max_y - p.y()) ** 2
+                    if d < best_dist:
+                        best_dist = d
+                        nw_idx = i
+
+                if nw_idx > 0:
+                    work = work[nw_idx:] + work[:nw_idx]
+
+                # Замкнуть обратно (QGIS требует замкнутости полигональных колец)
+                work.append(QgsPointXY(work[0].x(), work[0].y()))
+                new_rings.append(work)
+
+            new_polygons.append(new_rings)
+
+        if is_multi:
+            return QgsGeometry.fromMultiPolygonXY(new_polygons)
+        else:
+            return QgsGeometry.fromPolygonXY(new_polygons[0])
+
     def _reorder_contours_cw_from_nw(
         self,
         contours_data: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
-        Ротировать начало внешних контуров на северо-запад.
+        Ротировать начало всех контуров (exterior и holes) на северо-запад.
 
         В МСК оригинальный порядок вершин уже CW на карте
-        (OGC "CCW" в осях X=север, Y=восток). Holes не трогает.
+        (OGC "CCW" в осях X=север, Y=восток). Применяется и к внешним,
+        и к внутренним кольцам — требование КГА СПб для перечней координат.
 
         TODO: Исследовать применимость ко всем регионам (не только 78).
         Сейчас — требование КГА СПб.
@@ -984,13 +1168,12 @@ class Fsm_5_3_1_CoordinateList:
             contours_data: Контуры из _collect_contours_with_coordinates()
 
         Returns:
-            Контуры с переупорядоченными exterior координатами
+            Контуры с переупорядоченными координатами (все кольца от СЗ-точки)
         """
         for contour in contours_data:
-            if contour['type'] == 'exterior':
-                contour['coordinates'] = self._reorder_coords_cw_from_nw(
-                    contour['coordinates']
-                )
+            contour['coordinates'] = self._reorder_coords_cw_from_nw(
+                contour['coordinates']
+            )
         return contours_data
 
     def _reorder_coords_cw_from_nw(
@@ -998,26 +1181,38 @@ class Fsm_5_3_1_CoordinateList:
         coordinates: List[List]
     ) -> List[List]:
         """
-        Ротировать начало контура на СЗ точку.
+        Привести контур к CW-обходу и ротировать начало на СЗ точку.
 
-        В МСК (X=север, Y=восток) OGC "CCW" визуально = CW на карте.
-        Реверс НЕ нужен — оригинальный порядок уже по часовой.
+        Порядок операций:
+        1. Если кольцо CCW на карте — реверс (для exterior и holes одинаково,
+           требование КГА СПб — все кольца CW).
+        2. Ротация к СЗ-точке (ближайшей к углу bbox: min easting, max northing).
 
         coord = [номер_точки, x_val, y_val]
         В Excel: coord[2] -> колонка "Х (м)" (север), coord[1] -> "Y (м)" (восток).
-        СЗ = ближайшая к углу bbox (min easting, max northing).
+        Направление определяется через Shoelace formula
+        (PointNumberingManager.is_clockwise): в QGIS осях
+        (x=easting, y=northing) signed_area < 0 → CW на карте.
 
         Args:
             coordinates: Список координат контура
 
         Returns:
-            Переупорядоченный список
+            Переупорядоченный список (CW + начало с СЗ точки)
         """
         if len(coordinates) < 2:
             return coordinates
 
         coords = list(coordinates)
 
+        # Шаг 1: реверс если CCW на карте (приведение к единому CW-обходу)
+        if len(coords) >= 3:
+            from Daman_QGIS.managers import PointNumberingManager
+            points_xy = [(c[1], c[2]) for c in coords]
+            if not PointNumberingManager.is_clockwise(points_xy):
+                coords = list(reversed(coords))
+
+        # Шаг 2: ротация к СЗ точке
         # Bbox: СЗ угол = (min coord[1], max coord[2])
         # coord[2] = northing (X геод.), coord[1] = easting (Y геод.)
         min_easting = min(c[1] for c in coords)
