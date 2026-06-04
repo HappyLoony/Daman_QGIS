@@ -229,7 +229,7 @@ class TestFsm4246:
             from Daman_QGIS.managers.styling.M_46_legend_manager import (
                 LegendManager,
             )
-            from Daman_QGIS.managers.styling.submodules.Msm_46_types import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_1_types import (
                 LegendResult,
             )
             mgr = LegendManager()
@@ -252,7 +252,7 @@ class TestFsm4246:
         """ТЕСТ 2: 5 слоёв средней длины → inline success."""
         self.logger.section("2. Pipeline 5 слоёв → inline")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_types import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_1_types import (
                 LegendResult, LegendLayoutMode,
             )
 
@@ -300,7 +300,7 @@ class TestFsm4246:
         """ТЕСТ 4: Нет QgsLayoutItemLegend → mode_applied='no_legend'."""
         self.logger.section("4. Missing legend → no_legend")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_types import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_1_types import (
                 LegendResult,
             )
 
@@ -327,7 +327,7 @@ class TestFsm4246:
         """ТЕСТ 5: Нет QgsLayoutItemMap id='main_map' → no_main_map."""
         self.logger.section("5. Missing main_map → no_main_map")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_types import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_1_types import (
                 LegendResult,
             )
 
@@ -356,7 +356,7 @@ class TestFsm4246:
         self.logger.section("6. Пустая легенда → empty_content")
         try:
             from qgis.core import QgsLayoutItemLegend
-            from Daman_QGIS.managers.styling.submodules.Msm_46_types import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_1_types import (
                 LegendResult,
             )
 
@@ -432,7 +432,7 @@ class TestFsm4246:
         """ТЕСТ 8: 30 слоёв с длинными именами → pipeline завершается."""
         self.logger.section("8. Overflow smoke (30 слоёв)")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_types import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_1_types import (
                 LegendResult,
             )
 

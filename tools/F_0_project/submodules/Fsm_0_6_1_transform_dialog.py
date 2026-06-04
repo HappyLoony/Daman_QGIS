@@ -5,7 +5,7 @@ Fsm_0_6_1 - Диалог трансформации координат
 GUI для F_0_6: выбор слоя, таблица контрольных точек (4+ пар),
 результаты расчёта, графика на карте, backup/restore.
 
-По аналогии с Fsm_0_5_refine_dialog.py (RefineProjectionDialog).
+По аналогии с Fsm_0_5_1_refine_dialog.py (RefineProjectionDialog).
 """
 
 import math

@@ -61,7 +61,7 @@ class TestMsm462:
             from Daman_QGIS.managers.styling.submodules.Msm_46_2_space_calculator import (
                 SpaceCalculator,
             )
-            from Daman_QGIS.managers.styling.submodules.Msm_46_types import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_1_types import (
                 AvailableSpace,
             )
             self.logger.check(

@@ -5,11 +5,12 @@ M_20_PointNumberingManager - Менеджер нумерации точек ко
 Формирует уникальную нумерацию характерных точек для полигональных слоёв.
 Нумерация всегда начинается с 1 в пределах каждого слоя.
 
-Алгоритм (по стандарту П/0592):
+Алгоритм (unified_cw, с 2026-05-31; ранее П/0592):
 1. Сортировка контуров от СЗ к ЮВ (СЗ контур получает первые номера)
 2. Для каждого кольца: нормализация ориентации + ротация к СЗ точке
-   - Внешний контур: CW в мат. СК (= CCW в геод. СК Росреестра)
-   - Внутренний контур: CCW в мат. СК (= CW в геод. СК Росреестра)
+   - ВСЕ кольца (exterior + hole): CW в мат. СК (signed_area < 0)
+   - Единый стандарт, согласован с M_47 физической нормализацией (стадия ДПТ)
+   - История: до 2026-05-31 hole шёл CCW (П/0592 — стандарт межевого плана)
 3. Первый проход: собираем уникальные точки (ключ = округлённые координаты)
 4. Присваиваем номера в порядке обхода
 5. Второй проход: формируем данные для точечного слоя
@@ -33,6 +34,7 @@ from qgis.core import (
 
 from Daman_QGIS.constants import PRECISION_DECIMALS
 from Daman_QGIS.utils import log_info, log_warning
+from . import _ring_utils
 
 __all__ = ['PointNumberingManager', 'number_layer_points']
 
@@ -520,7 +522,7 @@ class PointNumberingManager:
 
         return "; ".join(parts)
 
-    # --- Публичные методы нормализации колец (П/0592) ---
+    # --- Публичные методы нормализации колец (unified_cw, с 2026-05-31) ---
 
     @staticmethod
     def normalize_ring(
@@ -528,35 +530,37 @@ class PointNumberingManager:
         is_exterior: bool = True
     ) -> List[Tuple[float, float]]:
         """
-        Нормализация кольца полигона по стандарту П/0592.
+        Нормализация кольца полигона — единый стандарт unified_cw.
 
-        Алгоритм:
-        1. Ориентация: внешний -> CW, внутренний -> CCW (в мат. СК)
+        Алгоритм (с Phase 3 flip 2026-05-31):
+        1. Ориентация: ВСЕ кольца (exterior + hole) -> CW в мат.СК (signed_area < 0)
         2. Ротация: начало обхода с СЗ точки (ближайшей к СЗ углу MBR)
+
+        ИСТОРИЯ: до 2026-05-31 действовал П/0592 (exterior CW, hole CCW в мат.СК).
+        Изменено на unified_cw (все кольца CW) для согласованности с M_47
+        физической нормализацией. Стадия ДПТ (П/0592 — стандарт межевого плана
+        в Росреестре, не задача плагина). Atomic flip — LAST в merge-train
+        (после врезок M_47 во все upstream-точки).
+
+        Параметр is_exterior сохранён в сигнатуре для backward compat внешних
+        вызовов, но БОЛЬШЕ НЕ ВЛИЯЕТ на поведение (все кольца CW).
 
         Args:
             points: Список кортежей (x, y) БЕЗ замыкающей точки
-            is_exterior: True для внешнего контура, False для внутреннего
+            is_exterior: игнорируется (backward compat)
 
         Returns:
-            Нормализованный список точек (без замыкающей)
+            Нормализованный список точек (без замыкающей), CW + старт NW
         """
         if not points or len(points) < 3:
             return points
 
-        is_cw = PointNumberingManager.is_clockwise(points)
-
-        if is_exterior:
-            # Внешний контур: CW в мат.СК = CCW в геод.СК
-            if not is_cw:
-                points = list(reversed(points))
-        else:
-            # Внутренний контур: CCW в мат.СК = CW в геод.СК
-            if is_cw:
-                points = list(reversed(points))
+        # unified_cw: ВСЕ кольца приводятся к CW в мат.СК (_ring_utils — canonical, Phase 0.5)
+        if not _ring_utils.is_clockwise(points):
+            points = list(reversed(points))
 
         # Ротация к СЗ точке
-        nw_idx = PointNumberingManager.find_nw_point_index(points)
+        nw_idx = _ring_utils.find_nw_point_index(points)
         if nw_idx > 0:
             points = points[nw_idx:] + points[:nw_idx]
 
@@ -564,60 +568,22 @@ class PointNumberingManager:
 
     @staticmethod
     def find_nw_point_index(points: List[Tuple[float, float]]) -> int:
-        """Найти индекс точки, ближайшей к СЗ углу MBR кольца
+        """Найти индекс точки, ближайшей к СЗ углу MBR кольца.
 
-        СЗ угол MBR в QGIS координатах: (min_x, max_y)
-        где x = easting (восток), y = northing (север).
-
-        Args:
-            points: Список кортежей (x, y) координат кольца
-
-        Returns:
-            Индекс СЗ точки (0-based)
+        Thin facade → `_ring_utils.find_nw_point_index` (Phase 0.5, единый
+        источник правды). Сигнатура сохранена для backward compat внешних
+        импортов `from ...managers import PointNumberingManager`.
         """
-        if not points:
-            return 0
-
-        # СЗ угол MBR кольца
-        min_x = min(p[0] for p in points)
-        max_y = max(p[1] for p in points)
-
-        # Ближайшая точка к СЗ углу
-        best_idx = 0
-        best_dist_sq = float('inf')
-        for idx, pt in enumerate(points):
-            dist_sq = (pt[0] - min_x) ** 2 + (pt[1] - max_y) ** 2
-            if dist_sq < best_dist_sq:
-                best_dist_sq = dist_sq
-                best_idx = idx
-
-        return best_idx
+        return _ring_utils.find_nw_point_index(points)
 
     @staticmethod
     def is_clockwise(points: List[Tuple[float, float]]) -> bool:
-        """Проверка ориентации кольца по часовой стрелке (Shoelace formula)
+        """Проверка ориентации кольца по часовой стрелке (Shoelace formula).
 
-        В QGIS (x=easting, y=northing) — стандартная математическая СК.
-        CW на карте (north-up) соответствует отрицательной знаковой площади.
-
-        Args:
-            points: Список кортежей (x, y) координат кольца
-
-        Returns:
-            True если обход по часовой стрелке
+        Thin facade → `_ring_utils.is_clockwise` (Phase 0.5, единый источник
+        правды). Сигнатура сохранена для backward compat.
         """
-        if len(points) < 3:
-            return True
-
-        signed_area_2 = 0.0
-        n = len(points)
-        for i in range(n):
-            j = (i + 1) % n
-            signed_area_2 += points[i][0] * points[j][1]
-            signed_area_2 -= points[j][0] * points[i][1]
-
-        # signed_area_2 < 0 → CW в математической СК → CW на карте
-        return signed_area_2 < 0
+        return _ring_utils.is_clockwise(points)
 
     def _sort_features_by_northwest(
         self,

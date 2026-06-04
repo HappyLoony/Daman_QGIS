@@ -45,7 +45,7 @@ class TestF05:
     def test_02_check_dialog(self):
         self.logger.section("2. Проверка диалога")
         try:
-            from Daman_QGIS.tools.F_0_project.submodules.Fsm_0_5_refine_dialog import RefineProjectionDialog
+            from Daman_QGIS.tools.F_0_project.submodules.Fsm_0_5_1_refine_dialog import RefineProjectionDialog
             self.logger.success("RefineProjectionDialog доступен")
         except Exception as e:
             self.logger.warning(f"Ошибка: {str(e)}")

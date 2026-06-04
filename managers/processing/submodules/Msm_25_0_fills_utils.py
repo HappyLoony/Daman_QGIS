@@ -93,14 +93,9 @@ def save_layer_to_gpkg(layer: QgsVectorLayer) -> bool:
         bool: True если успешно
     """
     try:
-        project = QgsProject.instance()
-        project_path = os.path.normpath(project.homePath())
-
-        # Используем M_19 для получения пути к GPKG
+        # Используем M_19 для получения пути к GPKG (synced: project_root из QgsProject)
         structure_manager = _get_project_structure_manager()
-        if project_path:
-            structure_manager.project_root = project_path
-        gpkg_path = structure_manager.get_gpkg_path(create=False)
+        gpkg_path = structure_manager.get_gpkg_path_synced(create=False)
 
         if not gpkg_path or not os.path.exists(gpkg_path):
             log_warning(f"Msm_25_0: GeoPackage не найден, слой {layer.name()} останется в памяти")
@@ -206,12 +201,7 @@ def get_gpkg_path() -> Optional[str]:
     Returns:
         str: Путь к GPKG или None
     """
-    project = QgsProject.instance()
-    project_path = os.path.normpath(project.homePath()) if project.homePath() else ""
-
-    if not project_path:
+    if not QgsProject.instance().homePath():
         return None
-
-    structure_manager = _get_project_structure_manager()
-    structure_manager.project_root = project_path
-    return structure_manager.get_gpkg_path(create=False)
+    # synced: project_root из текущего QgsProject (см. M_19.get_gpkg_path_synced)
+    return _get_project_structure_manager().get_gpkg_path_synced(create=False)

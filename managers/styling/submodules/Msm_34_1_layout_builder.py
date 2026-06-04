@@ -29,8 +29,8 @@ from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
 from Daman_QGIS.constants import EXPORT_DPI_ROSREESTR, DOC_TYPE_FONTS
 
-from .Msm_46_types import LegendLayoutMode
-from .Msm_46_utils import (
+from .Msm_46_1_types import LegendLayoutMode
+from .Msm_46_5_utils import (
     apply_letter_spacing_to_font,
     parse_letter_spacing_pt,
 )
@@ -82,7 +82,7 @@ class LayoutBuilder:
     # === Static helpers (text-related) ===
 
     # Letter-spacing helper удалён — используется shared
-    # `apply_letter_spacing_to_font` + `parse_letter_spacing_pt` из Msm_46_utils
+    # `apply_letter_spacing_to_font` + `parse_letter_spacing_pt` из Msm_46_5_utils
     # (тот же helper применяется в Msm_46_3 planner и Msm_46_4 strategy для
     # font'ов легенды). Единое поведение для всей схемы.
 

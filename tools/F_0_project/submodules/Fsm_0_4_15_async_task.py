@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_0_4_10: Асинхронный Task для проверки топологии
+Fsm_0_4_15: Асинхронный Task для проверки топологии
 
 Наследует от BaseAsyncTask (M_17) для унифицированной обработки.
 Использует QgsTask для фоновой обработки без блокировки UI.
@@ -19,7 +19,7 @@ from Daman_QGIS.managers import BaseAsyncTask
 from Daman_QGIS.utils import log_info
 
 
-class Fsm_0_4_10_TopologyCheckTask(BaseAsyncTask):
+class Fsm_0_4_15_TopologyCheckTask(BaseAsyncTask):
     """
     Task для асинхронной проверки топологии слоя.
 
@@ -31,7 +31,7 @@ class Fsm_0_4_10_TopologyCheckTask(BaseAsyncTask):
     Использование:
         from Daman_QGIS.managers import registry
 
-        task = Fsm_0_4_10_TopologyCheckTask(
+        task = Fsm_0_4_15_TopologyCheckTask(
             layer_id=layer.id(),
             layer_name=layer.name()
         )
@@ -71,7 +71,7 @@ class Fsm_0_4_10_TopologyCheckTask(BaseAsyncTask):
                 - errors: список ошибок
                 - error_layer: слой с ошибками (если есть)
         """
-        log_info(f"Fsm_0_4_10: Запуск проверки для слоя '{self.layer_name}'")
+        log_info(f"Fsm_0_4_15: Запуск проверки для слоя '{self.layer_name}'")
 
         # Импортируем координатор здесь, чтобы избежать циклических импортов
         from .Fsm_0_4_5_coordinator import Fsm_0_4_5_TopologyCoordinator
@@ -107,7 +107,7 @@ class Fsm_0_4_10_TopologyCheckTask(BaseAsyncTask):
         if self.is_cancelled():
             return None
 
-        log_info(f"Fsm_0_4_10: Проверка завершена, найдено {result.get('error_count', 0)} ошибок")
+        log_info(f"Fsm_0_4_15: Проверка завершена, найдено {result.get('error_count', 0)} ошибок")
         return result
 
     def _get_progress_message(self, progress: int) -> str:

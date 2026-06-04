@@ -161,7 +161,7 @@ class TestF11:
             self.logger.warning(f"XmlImportSubmodule недоступен: {str(e)}")
 
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_1_dxf_importer import DxfImporter
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_11_dxf_importer import DxfImporter
             self.logger.success("DxfImporter доступен")
 
             self.logger.check(
@@ -244,7 +244,7 @@ class TestF11:
         self.logger.section("6. Тест DxfImporter")
 
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_1_dxf_importer import DxfImporter
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_11_dxf_importer import DxfImporter
 
             dxf_module = DxfImporter(self.iface)
             self.logger.success("DxfImporter инициализирован")

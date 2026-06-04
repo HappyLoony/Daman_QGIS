@@ -10,6 +10,19 @@
 - Fsm_dxf_3_label_exporter: экспорт подписей (MTEXT)
 - Fsm_dxf_2_geometry_exporter: экспорт простой геометрии (без блоков)
 - Fsm_dxf_1_block_exporter: экспорт блоков с атрибутами (ЗУ, ОКС, ЗОУИТ)
+
+## ИНВАРИАНТЫ ТОЧНОСТИ И ПОРЯДКА ВЕРШИН
+
+- DXF хранит координаты как double — БЕЗ квантования (в отличие от TAB,
+  см. tab_exporter.py). При записи через ezdxf координаты идут бит-в-бит
+  из QGIS-геометрии. Округление 0.01 м делается в submodules через
+  `CoordinatePrecisionManager.round_coordinates`.
+- Порядок вершин в LWPOLYLINE = порядок vertex_idx в QGIS-геометрии.
+  Если геометрия нормализована (CW + начало с СЗ, требование КГА СПб —
+  см. `Fsm_5_3_1_CoordinateList._normalize_layer_geometry_cw_from_nw`),
+  DXF унаследует этот порядок. Иначе — порядок исходного TAB-импорта.
+- Внутренние контуры (holes) пишутся ОТДЕЛЬНЫМИ LWPOLYLINE на том же
+  слое — см. geometry_exporter (`polygon[1:]`).
 """
 
 from typing import Optional, List, Dict, Any
@@ -32,7 +45,7 @@ from Daman_QGIS.database.project_db import ProjectDB
 # Импортируем субмодули
 from .dxf.Fsm_dxf_5_layer_utils import DxfLayerUtils
 from .dxf.Fsm_dxf_4_hatch_manager import DxfHatchManager
-from .dxf.Fsm_dxf_3_label_exporter import DxfLabelExporter
+from .dxf.Fsm_dxf_3_label_exporter import DxfLabelExporter, GOST_MLEADER_TEXT_STYLE
 from .dxf.Fsm_dxf_2_geometry_exporter import DxfGeometryExporter
 from .dxf.Fsm_dxf_1_block_exporter import DxfBlockExporter
 
@@ -128,8 +141,22 @@ class DxfExporter(BaseExporter):
         # Очищаем кэш экспортированных точек (для дедупликации)
         self.geometry_exporter.clear_point_cache()
 
-        # Добавляем текстовый стиль GOST 2.304 для MULTILEADER
-        self.layer_utils.add_text_style(doc, 'GOST 2.304', 'gost.shx')
+        # Добавляем текстовый стиль выносок MULTILEADER (имя - честное
+        # "GOST 2.304 Type B italic": имя "GOST 2.304" НЕ занимаем, оно
+        # остаётся свободным для прямого начертания на чертеже).
+        # Шрифт один и тот же на всех машинах (family "GOST 2.304", Bold Italic),
+        # но имя ФАЙЛА различается: на целевых ПК с полным семейством -
+        # GOST-2.304_Type-B_italic.ttf, локально (установка F_4_1) -
+        # gost_2.304_Bold_Italic.ttf. Поэтому привязка двойная:
+        # - font file: имя с целевых ПК (прямое попадание там)
+        # - extended font data (family + bold/italic): AutoCAD матчит TTF
+        #   в первую очередь по family из name-таблицы установленных шрифтов -
+        #   работает на любой машине независимо от имени файла.
+        # Ранее был gost.shx - прямой, без жирности и курсива
+        self.layer_utils.add_text_style(
+            doc, GOST_MLEADER_TEXT_STYLE, 'GOST-2.304_Type-B_italic.ttf',
+            family='GOST 2.304', italic=True, bold=True
+        )
 
         # Логируем системные слои, созданные автоматически
         initial_layers = [layer.dxf.name for layer in doc.layers]

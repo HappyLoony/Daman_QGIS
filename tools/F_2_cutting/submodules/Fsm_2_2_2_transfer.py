@@ -497,9 +497,14 @@ class Fsm_2_2_2_Transfer:
             # Создаём новый feature с полями целевого слоя
             new_feat = QgsFeature(target_layer.fields())
 
-            # Копируем геометрию из исходного ЗУ
+            # Копируем геометрию из исходного ЗУ + M_47 нормализация (CW + старт NW).
+            # Level-map: Fsm_2_2_2 features_data-уровень, M_20 НЕ вызывается (Точки="-"),
+            # нормализуем geometry до addFeature для консистентности .gpkg vertex-order.
             if zu_feature.hasGeometry():
-                new_feat.setGeometry(QgsGeometry(zu_feature.geometry()))
+                from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+                _src_geom = QgsGeometry(zu_feature.geometry())
+                _norm_geom = PolygonNormalizationManager.normalize_geometry(_src_geom)
+                new_feat.setGeometry(_norm_geom if _norm_geom is not None else _src_geom)
 
             # Копируем базовые атрибуты из исходного ЗУ
             self._copy_base_attributes(zu_feature, new_feat, target_layer.fields())

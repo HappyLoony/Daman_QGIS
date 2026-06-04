@@ -1,6 +1,45 @@
 # -*- coding: utf-8 -*-
 """
-Экспортер в формат MapInfo TAB
+Экспортер в формат MapInfo TAB.
+
+## КРИТИЧЕСКАЯ ОСОБЕННОСТЬ: precision = BOUNDS / 2*10^9
+
+MapInfo TAB хранит координаты как 32-bit integer относительно header
+BOUNDS (xmin, ymin, xmax, ymax). Шаг квантования = (xmax - xmin) / 2*10^9.
+Дефолт OGR для projected CRS = ±30M / ±15M → шаг 30 мм / 15 мм, что
+ХУЖЕ кадастровой точности 0.01 м.
+
+Решение: для МСК передаём DEFAULT_BOUNDS = "-1M, -1M, 19M, 19M"
+(extent 20M квадрат → шаг ровно 0.01 м). Координаты, уже округлённые
+до 0.01 м (PRECISION_DECIMALS=2), попадают на сетку TAB бит-в-бит,
+без сдвига.
+
+## ДВЕ ВЕТКИ ЗАПИСИ
+
+`_export_layer` диспетчит:
+- МСК / любая локальная CRS (USER:* без EPSG-кода) → `_export_to_tab_gdal`
+  через OGR с BOUNDS=-1M..19M и Nonearth coordsys (нулевой сдвиг).
+- Географическая CRS (WGS-84, isGeographic=True) → `writeAsVectorFormatV3`
+  с дефолтным OGR BOUNDS (180°/90°) — на широте 60° шаг ≈ 2-4 см.
+  Используется в `create_wgs84=True` ветке для копии в WGS-84 (для KML,
+  Google Earth и т.п., не для кадастровых документов).
+
+Критерий ветвления — см. `_is_local_crs`.
+
+## ИНВАРИАНТ ПОРЯДКА ВЕРШИН
+
+OGR драйвер `MapInfo File` пишет геометрию КАК ЕСТЬ (порядок vertex_idx
+не меняет). Если геометрия в gpkg нормализована (CW + начало с СЗ —
+см. Fsm_5_3_1_CoordinateList._normalize_layer_geometry_cw_from_nw для
+требования КГА СПб), TAB унаследует этот порядок. Иначе — порядок
+исходного TAB-импорта.
+
+## ГАРАНТИИ ДЛЯ КАДАСТРА
+
+- Координаты в МСК ветке: 0 мкм сдвига (проверено на 5348 точках).
+- Замыкание полигональных колец сохраняется.
+- Mapinfo стиль (Brush/Pen) применяется через `_apply_mapinfo_style_post`,
+  т.к. OGR не пишет style_MapInfo при создании TAB.
 """
 
 import os
@@ -20,7 +59,18 @@ from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
 class TabExporter(BaseExporter):
-    """Экспортер в формат MapInfo TAB"""
+    """
+    Экспортер в формат MapInfo TAB.
+
+    Полный обзор архитектуры (precision/BOUNDS/две ветки записи) — в
+    module-level docstring выше. Краткое:
+
+    - Для МСК (locally-defined CRS, USER:* без EPSG) → NonEarth GDAL
+      ветка с BOUNDS=-1M..19M → шаг ровно 0.01 м → нулевой сдвиг.
+    - Для WGS-84 → QGIS writeAsVectorFormatV3 с дефолтным OGR BOUNDS
+      (180°/90°) → шаг 2-4 см на широте СПб.
+    - Порядок вершин не модифицируется — наследуется из QGIS-геометрии.
+    """
     
     def __init__(self, iface=None):
         """Инициализация экспортера TAB"""
@@ -85,12 +135,19 @@ class TabExporter(BaseExporter):
                      output_folder: str,
                      params: Dict[str, Any]) -> bool:
         """
-        Экспорт одного слоя в TAB
+        Экспорт одного слоя в TAB — ДИСПЕТЧЕР между двумя ветками записи.
+
+        Логика выбора (см. module-docstring):
+        - `use_non_earth=True` (дефолт) И `_is_local_crs(target_crs)=True`
+          → `_export_to_tab_gdal` с DEFAULT_BOUNDS=-1M..19M (precision 0.01 м).
+        - Иначе → `writeAsVectorFormatV3` с дефолтным OGR BOUNDS
+          (для географических CRS, precision 2-4 см на широте СПб).
 
         Args:
             layer: Слой для экспорта
             output_folder: Папка назначения
-            params: Параметры экспорта
+            params: Параметры экспорта (use_non_earth, bounds, create_wgs84,
+                    clean_temp_files)
 
         Returns:
             True если успешно
@@ -283,13 +340,29 @@ class TabExporter(BaseExporter):
     
     def _is_local_crs(self, crs: QgsCoordinateReferenceSystem) -> bool:
         """
-        Проверка является ли СК местной (МСК)
-        
+        Проверка является ли СК местной (МСК) — определяет ветку TAB-записи.
+
+        КРИТЕРИИ (по приоритету):
+        1. Описание/authid содержит 'мск'/'местная'/'local'/'гск' → True
+           (явные МСК и ГСК-2011).
+        2. CRS isGeographic → False (LAT/LON исключаем — пойдут через
+           writeAsVectorFormatV3 в WGS-84 ветку).
+        3. authid пустой ИЛИ не начинается с 'EPSG:' → True
+           (USER:NNNNN, любые custom WKT CRS — почти всегда локальные).
+        4. EPSG:* (стандартная проекция, не из ключевых слов) → False.
+
+        Возвращая True → попадаем в `_export_to_tab_gdal` с BOUNDS=-1M..19M
+        и Nonearth coordsys (precision 0.01 м, нулевой сдвиг для МСК).
+
+        Прецедент: СК-1964 Санкт-Петербург обычно регистрируется как
+        USER:NNNNN (без EPSG-кода) → пункт 3 даёт True → правильная NonEarth
+        ветка. Не путать с EPSG:7846 (ГСК-2011), где работает пункт 1.
+
         Args:
             crs: Система координат
-            
+
         Returns:
-            True если это МСК
+            True если СК трактуется как МСК/локальная (NonEarth ветка)
         """
         # Проверяем по названию
         description = crs.description().lower() if crs.description() else ""
@@ -311,12 +384,26 @@ class TabExporter(BaseExporter):
             return True
         
         return False
-    # Bounds по умолчанию для NonEarth (покрывают все МСК России)
+    # Bounds по умолчанию для NonEarth — покрывают все МСК России И дают
+    # шаг квантования ровно 0.01 м (extent 20M по обеим осям, делёный
+    # на 2*10^9 значений integer-сетки MapInfo TAB).
+    # Формула шага: (xmax - xmin) / 2*10^9 = 20*10^6 / 2*10^9 = 0.01 м.
+    # Любая координата уже округлённая до 0.01 м (PRECISION_DECIMALS=2)
+    # ложится на узел сетки без сдвига.
     DEFAULT_BOUNDS = "-1000000,-1000000,19000000,19000000"
 
     def _export_to_tab_gdal(self, layer: QgsVectorLayer, output_path: str, target_crs: QgsCoordinateReferenceSystem, mapinfo_style: Optional[str] = None, bounds: Optional[str] = None) -> bool:
         """
-        Создает TAB файл с Nonearth проекцией через GDAL
+        Создаёт TAB файл с Nonearth проекцией через GDAL.
+
+        Используется для МСК-CRS (ветка определена в `_export_layer` через
+        `_is_local_crs`). Записывает TAB через OGR-драйвер `MapInfo File`
+        с явным `BOUNDS=...` в layer options.
+
+        КРИТИЧНО: BOUNDS определяет precision хранения координат
+        (шаг = (xmax - xmin) / 2*10^9). При DEFAULT_BOUNDS extent 20M →
+        шаг 0.01 м = кадастровая точность. Координаты, округлённые до
+        0.01 м, пишутся бит-в-бит (0 мкм сдвиг).
 
         Args:
             layer: Слой для экспорта (QgsVectorLayer)

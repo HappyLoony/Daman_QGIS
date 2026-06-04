@@ -81,7 +81,7 @@ class F_0_5_RefineProjection(BaseTool):
         
     def create_dialog(self) -> None:
         """Создание диалога уточнения проекции"""
-        from .submodules.Fsm_0_5_refine_dialog import RefineProjectionDialog
+        from .submodules.Fsm_0_5_1_refine_dialog import RefineProjectionDialog
         
         # Создаем диалог
         self.dialog = RefineProjectionDialog(self.iface, self)

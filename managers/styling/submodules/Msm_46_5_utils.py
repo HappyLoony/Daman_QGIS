@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Msm_46_utils: Shared helpers для работы с layout items.
+Msm_46_5_utils: Shared helpers для работы с layout items.
 
 Выделены в отдельный модуль для устранения дублирования find_legend /
 find_main_map, которое воспроизводилось в ~4 местах (Msm_34_2,

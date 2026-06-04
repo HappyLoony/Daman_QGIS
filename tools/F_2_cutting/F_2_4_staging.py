@@ -1209,6 +1209,16 @@ class F_2_4_Staging(BaseTool):
                 cleanup_manager = DataCleanupManager()
                 cleanup_manager.finalize_layer(qgs_layer, layer_name, capitalize=False)
 
+                # M_47 pass-2 (level-map two-pass): normalize_layer на .gpkg-слое после OGR.
+                # Идемпотентно: pass-1 нормализовал features_data → OGR WKT сохранил порядок →
+                # здесь no-op через equals(); если GDAL переставил кольца на write — чинит.
+                # commit-before-M_47 (FIX-rev2-16): finalize_layer мог оставить edit-сессию,
+                # strict isEditable guard иначе пропустил бы нормализацию.
+                from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+                if qgs_layer.isEditable():
+                    qgs_layer.commitChanges()
+                PolygonNormalizationManager.normalize_layer(qgs_layer)
+
                 log_info(f"F_2_4: Создан слой {layer_name} ({qgs_layer.featureCount()} объектов)")
                 return qgs_layer
             else:
@@ -1246,6 +1256,16 @@ class F_2_4_Staging(BaseTool):
                 if contour_id is None:
                     contour_id = 0
                 item['contour_id'] = contour_id
+
+        # M_47 pass-1 (level-map two-pass): normalize_geometry на features_data ДО M_20.
+        # F_2_4 mixed-level — M_20 строит «Точки» из features_data здесь; pass-1 держит
+        # «Точки» и .gpkg vertex-order согласованными. Pass-2 (normalize_layer на .gpkg
+        # после OGR-записи) — в caller _create_staging_layer, страхует OGR ring-reorder.
+        from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+        for item in features_data:
+            _ng = PolygonNormalizationManager.normalize_geometry(item.get('geometry'))
+            if _ng is not None:
+                item['geometry'] = _ng
 
         # Нумерация точек
         # Регион 78 (СПб): per-ring нумерация (каждое кольцо с 1)

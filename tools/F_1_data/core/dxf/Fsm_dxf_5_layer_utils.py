@@ -163,7 +163,8 @@ class DxfLayerUtils:
         except Exception as e:
             log_warning(f"Fsm_dxf_5: Не удалось добавить тип линии {linetype_name}: {str(e)}")
 
-    def add_text_style(self, doc, style_name: str, font_file: str):
+    def add_text_style(self, doc, style_name: str, font_file: str,
+                       family: str = "", italic: bool = False, bold: bool = False):
         """
         Добавление текстового стиля в документ DXF
 
@@ -171,15 +172,24 @@ class DxfLayerUtils:
             doc: Документ DXF
             style_name: Имя стиля (например, 'GOST 2.304')
             font_file: Имя файла шрифта (например, 'gost.shx' или 'GOST_A.ttf')
+            family: Имя семейства TTF для extended font data (XDATA ACAD).
+                AutoCAD матчит TTF в первую очередь по family из name-таблицы
+                установленных шрифтов - привязка работает независимо от имени
+                файла шрифта на конкретной машине
+            italic: Флаг курсива для extended font data
+            bold: Флаг жирности для extended font data
         """
         if style_name in doc.styles:
             return  # Стиль уже существует
 
         try:
-            doc.styles.add(
+            style = doc.styles.add(
                 name=style_name,
                 font=font_file
             )
-            log_debug(f"Fsm_dxf_5: Добавлен текстовый стиль: {style_name} (шрифт: {font_file})")
+            if family:
+                style.set_extended_font_data(family, italic=italic, bold=bold)
+            log_debug(f"Fsm_dxf_5: Добавлен текстовый стиль: {style_name} "
+                      f"(шрифт: {font_file}, family: {family or '-'})")
         except Exception as e:
             log_warning(f"Fsm_dxf_5: Не удалось добавить текстовый стиль {style_name}: {str(e)}")

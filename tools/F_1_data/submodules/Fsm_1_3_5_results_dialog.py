@@ -96,6 +96,18 @@ class BudgetSelectionResultsDialog(BaseResponsiveDialog):
             forest_fund_label.setStyleSheet("padding: 5px; padding-left: 20px; color: gray;")
         results_layout.addWidget(forest_fund_label)
 
+        # 2.2. в том числе ЗУ в землях ООПТ (показываем всегда, даже если 0)
+        oopt_count = self.results.get('land_plots_oopt', 0)
+        oopt_zu_label = QLabel(
+            f"   в том числе ЗУ в землях ООПТ: {oopt_count}"
+        )
+        # Зелёный цвет если есть ЗУ в землях ООПТ, серый если 0
+        if oopt_count > 0:
+            oopt_zu_label.setStyleSheet("padding: 5px; padding-left: 20px; color: #2E7D32;")
+        else:
+            oopt_zu_label.setStyleSheet("padding: 5px; padding-left: 20px; color: gray;")
+        results_layout.addWidget(oopt_zu_label)
+
         # 3. Объекты капитального строительства
         capital_label = QLabel(
             f"3. Объекты капитального строительства: {self.results['capital_objects']}"

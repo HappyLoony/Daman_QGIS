@@ -35,13 +35,13 @@ from typing import Any, Callable, Dict, List, Optional
 from qgis.PyQt.QtGui import QFont, QFontMetricsF
 
 from Daman_QGIS.utils import log_info, log_warning
-from .Msm_46_types import (
+from .Msm_46_1_types import (
     AvailableSpace,
     LegendContent,
     LegendLayoutMode,
     LegendPlan,
 )
-from .Msm_46_utils import (
+from .Msm_46_5_utils import (
     apply_letter_spacing_to_font,
     parse_letter_spacing_pt,
 )
@@ -192,7 +192,7 @@ class LayoutPlanner:
         font_family = str(config.get('font_family', 'GOST 2.304'))
         font_size_pt = int(config.get('font_size_pt', DEFAULT_FONT_SIZE_PT))
         # letter_spacing_pt: AbsoluteSpacing в pt — глобальный параметр макета
-        # (page-level). Парсинг + apply через shared helpers Msm_46_utils
+        # (page-level). Парсинг + apply через shared helpers Msm_46_5_utils
         # (единое поведение для legend и labels — Msm_34_1 использует те же).
         letter_spacing_pt = parse_letter_spacing_pt(config)
 

@@ -403,8 +403,6 @@ class ExcelExporter(BaseExporter):
                 if not ring:
                     continue
 
-                is_exterior = (ring_idx == 0)
-
                 # Убираем замыкающую точку (первая == последняя)
                 ring_points = ring
                 if len(ring) > 1:
@@ -413,10 +411,11 @@ class ExcelExporter(BaseExporter):
                     if first == last:
                         ring_points = ring[:-1]
 
-                # Нормализация через M_20: ориентация + ротация к СЗ
+                # Нормализация через M_20: unified_cw (все кольца CW) + ротация к СЗ.
+                # Task 4.8/FIX-3: is_exterior убран — после Phase 3 flip он no-op (все кольца CW).
                 point_tuples = [CPM.round_point_tuple(p, precision) for p in ring_points]
                 if len(point_tuples) >= 3:
-                    point_tuples = pnm.normalize_ring(point_tuples, is_exterior=is_exterior)
+                    point_tuples = pnm.normalize_ring(point_tuples)
 
                 # Реконструкция QgsPointXY из нормализованных кортежей
                 normalized_points = [QgsPointXY(t[0], t[1]) for t in point_tuples]

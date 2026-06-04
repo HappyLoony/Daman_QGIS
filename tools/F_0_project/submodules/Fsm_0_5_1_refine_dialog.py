@@ -298,7 +298,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             if saved_crs.isValid():
                 self.initial_object_layer_crs = saved_crs
                 log_info(
-                    f"Fsm_0_5: Загружена исходная CRS из метаданных проекта: "
+                    f"Fsm_0_5_1: Загружена исходная CRS из метаданных проекта: "
                     f"{saved_crs.authid()} ({saved_crs.description()})"
                 )
 
@@ -316,11 +316,11 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 if not current_crs.authid().startswith("USER:"):
                     # Первая калибровка - сохраняем исходную CRS в метаданные
                     project.writeEntry("Daman_QGIS", "initial_object_crs_wkt", current_crs.toWkt())
-                    log_info(f"Fsm_0_5: Исходная CRS сохранена в метаданные проекта: {current_crs.authid()}")
+                    log_info(f"Fsm_0_5_1: Исходная CRS сохранена в метаданные проекта: {current_crs.authid()}")
                 else:
                     # USER CRS - система найдёт оптимальную CRS автоматически
                     log_info(
-                        f"Fsm_0_5: Обнаружена USER CRS ({current_crs.authid()}). "
+                        f"Fsm_0_5_1: Обнаружена USER CRS ({current_crs.authid()}). "
                         "Система найдёт оптимальную CRS автоматически."
                     )
 
@@ -329,8 +329,8 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 if isinstance(layer, QgsVectorLayer) and layer.crs() == current_crs:
                     self.object_layer = layer
                     break
-            log_info(f"Fsm_0_5: Автоопределена CRS объекта из Project CRS: {current_crs.authid()}")
-            log_info(f"Fsm_0_5: {current_crs.description()}")
+            log_info(f"Fsm_0_5_1: Автоопределена CRS объекта из Project CRS: {current_crs.authid()}")
+            log_info(f"Fsm_0_5_1: {current_crs.description()}")
 
             # Переключаем на режим калибровки
             self._switch_to_calibration_mode()
@@ -348,11 +348,11 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                             if not crs.authid().startswith("USER:"):
                                 project.writeEntry("Daman_QGIS", "initial_object_crs_wkt", crs.toWkt())
                         self.object_layer = layer
-                        log_info(f"Fsm_0_5: CRS объекта определена из слоя {layer.name()}: {crs.authid()}")
+                        log_info(f"Fsm_0_5_1: CRS объекта определена из слоя {layer.name()}: {crs.authid()}")
                         self._switch_to_calibration_mode()
                         return
 
-            log_warning("Fsm_0_5: Не удалось определить CRS объекта автоматически")
+            log_warning("Fsm_0_5_1: Не удалось определить CRS объекта автоматически")
 
     def _switch_to_calibration_mode(self) -> bool:
         """
@@ -369,7 +369,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         # Сохраняем исходную CRS (только если ещё не сохранена)
         if self.original_project_crs is None:
             self.original_project_crs = project.crs()
-            log_info(f"Fsm_0_5: Сохранена исходная CRS проекта: {self.original_project_crs.authid()}")
+            log_info(f"Fsm_0_5_1: Сохранена исходная CRS проекта: {self.original_project_crs.authid()}")
 
         # Проверяем возможность трансформации из object_layer_crs в EPSG:3857
         web_mercator = QgsCoordinateReferenceSystem("EPSG:3857")
@@ -382,11 +382,11 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 )
                 if not test_transform.isValid():
                     log_warning(
-                        f"Fsm_0_5: Трансформация {self.object_layer_crs.authid()} -> EPSG:3857 "
+                        f"Fsm_0_5_1: Трансформация {self.object_layer_crs.authid()} -> EPSG:3857 "
                         f"может быть неточной"
                     )
             except QgsCsException as e:
-                log_warning(f"Fsm_0_5: Проблема с трансформацией CRS: {e}")
+                log_warning(f"Fsm_0_5_1: Проблема с трансформацией CRS: {e}")
 
         # Переключаем на EPSG:3857 с защитой от исключений
         crs_switched = False
@@ -394,7 +394,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             project.setCrs(web_mercator)
             crs_switched = True
 
-            log_info(f"Fsm_0_5: Project CRS переключена на EPSG:3857 для калибровки")
+            log_info(f"Fsm_0_5_1: Project CRS переключена на EPSG:3857 для калибровки")
 
             # ВАЖНО: Обновляем canvas для корректного OTF reprojection слоёв с USER CRS
             self.iface.mapCanvas().refresh()
@@ -412,16 +412,16 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                         )
                         layer_extent = extent_transform.transformBoundingBox(layer_extent)
                     except QgsCsException as e:
-                        log_warning(f"Fsm_0_5: Не удалось трансформировать extent: {e}")
+                        log_warning(f"Fsm_0_5_1: Не удалось трансформировать extent: {e}")
 
                 self.iface.mapCanvas().setExtent(layer_extent)
                 self.iface.mapCanvas().refresh()
-                log_info(f"Fsm_0_5: Canvas обновлён, zoom на слой {self.object_layer.name()}")
+                log_info(f"Fsm_0_5_1: Canvas обновлён, zoom на слой {self.object_layer.name()}")
 
             return True
 
         except Exception as e:
-            log_error(f"Fsm_0_5: Ошибка в _switch_to_calibration_mode: {e}")
+            log_error(f"Fsm_0_5_1: Ошибка в _switch_to_calibration_mode: {e}")
             # Rollback CRS если успели переключить
             if crs_switched:
                 self._restore_original_crs()
@@ -431,7 +431,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         """Восстанавливает исходную CRS проекта (при отмене/закрытии)"""
         if self.original_project_crs and self.original_project_crs.isValid():
             QgsProject.instance().setCrs(self.original_project_crs)
-            log_info(f"Fsm_0_5: Восстановлена исходная CRS: {self.original_project_crs.authid()}")
+            log_info(f"Fsm_0_5_1: Восстановлена исходная CRS: {self.original_project_crs.authid()}")
             self.original_project_crs = None
 
     def load_extent_from_boundaries(self) -> bool:
@@ -448,7 +448,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 level=Qgis.Critical,
                 duration=MESSAGE_INFO_DURATION
             )
-            log_error(f"Fsm_0_5: Слой {target_layer_name} не найден")
+            log_error(f"Fsm_0_5_1: Слой {target_layer_name} не найден")
             return False
 
         layer = layers[0]
@@ -460,7 +460,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 level=Qgis.Critical,
                 duration=MESSAGE_INFO_DURATION
             )
-            log_error(f"Fsm_0_5: Слой {target_layer_name} не векторный")
+            log_error(f"Fsm_0_5_1: Слой {target_layer_name} не векторный")
             return False
 
         # Получаем границы в WGS84
@@ -481,8 +481,8 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         self.object_bounds = (min_lon, max_lon)
         self.object_center = ((min_lon + max_lon) / 2, center_lat)
 
-        log_info(f"Fsm_0_5: Загружены границы из слоя {target_layer_name}")
-        log_info(f"Fsm_0_5: Долгота: {min_lon:.6f}° — {max_lon:.6f}°, Широта центра: {center_lat:.6f}°")
+        log_info(f"Fsm_0_5_1: Загружены границы из слоя {target_layer_name}")
+        log_info(f"Fsm_0_5_1: Долгота: {min_lon:.6f}° — {max_lon:.6f}°, Широта центра: {center_lat:.6f}°")
 
         return True
 
@@ -513,7 +513,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             (min_lon, max_lon), center_lat
         )
 
-        log_info(f"Fsm_0_5: Перерасчёт СК - extent загружен, протяженность: {extent_km:.1f} км")
+        log_info(f"Fsm_0_5_1: Перерасчёт СК - extent загружен, протяженность: {extent_km:.1f} км")
 
     def on_table_selection_changed(self):
         """Обработка изменения выбранной ячейки"""
@@ -642,17 +642,17 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                         )
                         point_in_msk = transform.transform(native_coords)
                         log_info(
-                            f"Fsm_0_5: Wrong точка (native): {native_layer_crs.authid()}"
+                            f"Fsm_0_5_1: Wrong точка (native): {native_layer_crs.authid()}"
                             f"({native_coords.x():.4f}, {native_coords.y():.4f}) -> "
                             f"{self.object_layer_crs.authid()}({point_in_msk.x():.4f}, {point_in_msk.y():.4f})"
                         )
                     except QgsCsException as e:
-                        log_warning(f"Fsm_0_5: Ошибка трансформации native -> object_layer: {e}")
+                        log_warning(f"Fsm_0_5_1: Ошибка трансформации native -> object_layer: {e}")
                         # Используем native_coords как есть
                         point_in_msk = native_coords
                 else:
                     log_info(
-                        f"Fsm_0_5: Wrong точка (native, без круговой трансформации): "
+                        f"Fsm_0_5_1: Wrong точка (native, без круговой трансформации): "
                         f"({point_in_msk.x():.4f}, {point_in_msk.y():.4f})"
                     )
 
@@ -675,7 +675,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                     self.points_table.item(row, 1).setText(f"{point_in_msk.x():.4f}")
                     self.points_table.item(row, 2).setText(f"{point_in_msk.y():.4f}")
                     log_warning(
-                        f"Fsm_0_5: Wrong точка (fallback, круговая трансформация!): "
+                        f"Fsm_0_5_1: Wrong точка (fallback, круговая трансформация!): "
                         f"3857({point.x():.2f}, {point.y():.2f}) -> "
                         f"МСК({point_in_msk.x():.4f}, {point_in_msk.y():.4f})"
                     )
@@ -693,7 +693,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                         point_in_initial_crs = transform_to_initial.transform(point)
                         self._save_original_point(row, 'wrong', point_in_initial_crs)
                         log_info(
-                            f"Fsm_0_5: Для перерасчёта СК: 3857 -> исходная CRS "
+                            f"Fsm_0_5_1: Для перерасчёта СК: 3857 -> исходная CRS "
                             f"({self.initial_object_layer_crs.authid()}): "
                             f"({point_in_initial_crs.x():.4f}, {point_in_initial_crs.y():.4f})"
                         )
@@ -702,20 +702,20 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                         self._save_original_point(row, 'wrong', point_in_msk)
 
                 except QgsCsException as e:
-                    log_error(f"Fsm_0_5: Ошибка трансформации координат: {e}")
+                    log_error(f"Fsm_0_5_1: Ошибка трансформации координат: {e}")
                     self.points_table.blockSignals(False)
                     return
             else:
                 # Fallback: используем как есть (если слой не выбран)
                 self.points_table.item(row, 1).setText(f"{point.x():.4f}")
                 self.points_table.item(row, 2).setText(f"{point.y():.4f}")
-                log_warning("Fsm_0_5: Слой объекта не выбран, координаты сохранены без трансформации")
+                log_warning("Fsm_0_5_1: Слой объекта не выбран, координаты сохранены без трансформации")
         else:  # correct
             # Correct = координаты WFS в 3857 (эталон)
             # Оставляем без трансформации
             self.points_table.item(row, 3).setText(f"{point.x():.4f}")
             self.points_table.item(row, 4).setText(f"{point.y():.4f}")
-            log_info(f"Fsm_0_5: Correct точка (3857): ({point.x():.4f}, {point.y():.4f})")
+            log_info(f"Fsm_0_5_1: Correct точка (3857): ({point.x():.4f}, {point.y():.4f})")
 
             # Сохраняем ИСХОДНЫЕ координаты для перерасчёта СК
             self._save_original_point(row, 'correct', point)
@@ -774,7 +774,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 self.original_point_pairs[row] = (wrong_orig, point, orig_crs if orig_crs else crs_authid)
 
         log_info(
-            f"Fsm_0_5: Сохранена исходная {point_type} точка для пары {row+1}: "
+            f"Fsm_0_5_1: Сохранена исходная {point_type} точка для пары {row+1}: "
             f"({point.x():.4f}, {point.y():.4f}) [CRS: {crs_authid}]"
         )
 
@@ -1083,7 +1083,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         self.pair_deviations.append(None)
         self.original_point_pairs.append(None)  # Исходные пары для перерасчёта СК
 
-        log_info(f"Fsm_0_5: Добавлена пара {new_row + 1}. Всего пар: {len(self.point_pairs)}")
+        log_info(f"Fsm_0_5_1: Добавлена пара {new_row + 1}. Всего пар: {len(self.point_pairs)}")
 
         self.update_buttons_state()
 
@@ -1108,7 +1108,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         # Перерисовываем всю графику (индексы изменились)
         self.redraw_all_graphics()
 
-        log_info(f"Fsm_0_5: Удалена пара {row_to_remove + 1}. Осталось пар: {len(self.point_pairs)}")
+        log_info(f"Fsm_0_5_1: Удалена пара {row_to_remove + 1}. Осталось пар: {len(self.point_pairs)}")
 
         self.update_buttons_state()
 
@@ -1210,7 +1210,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         4. Сравниваем результаты по RMSE
         5. Выбираем лучший и показываем сравнение
         """
-        log_info("Fsm_0_5: UNIFIED CALCULATION - запуск обоих режимов")
+        log_info("Fsm_0_5_1: UNIFIED CALCULATION - запуск обоих режимов")
 
         # Проверяем наличие CRS слоя объекта
         if not self.object_layer_crs or not self.object_layer_crs.isValid():
@@ -1229,7 +1229,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         # Загружаем extent если ещё не загружен
         if not self.object_bounds or not self.object_center:
             if not self.load_extent_from_boundaries():
-                log_warning("Fsm_0_5: Не удалось загрузить extent - перерасчёт СК недоступен")
+                log_warning("Fsm_0_5_1: Не удалось загрузить extent - перерасчёт СК недоступен")
                 # Используем только стандартный результат
                 if standard_result:
                     standard_result = self._refine_standard_result(standard_result)
@@ -1262,7 +1262,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             dict или None: {'rmse': float, 'delta_x': float, 'delta_y': float,
                            'new_x_0': float, 'new_y_0': float, 'deviations': list}
         """
-        log_info("Fsm_0_5: --- Стандартный расчёт ---")
+        log_info("Fsm_0_5_1: --- Стандартный расчёт ---")
 
         object_crs = self.object_layer_crs
         epsg_3857 = QgsCoordinateReferenceSystem("EPSG:3857")
@@ -1281,7 +1281,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             deltas.append((dx, dy))
 
         if not deltas:
-            log_error("Fsm_0_5: Нет данных для стандартного расчёта")
+            log_error("Fsm_0_5_1: Нет данных для стандартного расчёта")
             return None
 
         # Медиана смещения (устойчива к выбросам)
@@ -1317,7 +1317,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         new_x_0 = current_x_0 + delta_x
         new_y_0 = current_y_0 + delta_y
 
-        log_info(f"Fsm_0_5: Стандартный: RMSE={rmse:.4f}м, x_0={new_x_0:.2f}, y_0={new_y_0:.2f}")
+        log_info(f"Fsm_0_5_1: Стандартный: RMSE={rmse:.4f}м, x_0={new_x_0:.2f}, y_0={new_y_0:.2f}")
 
         return {
             'rmse': rmse,
@@ -1337,12 +1337,12 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             dict или None: {'rmse': float, 'method_name': str, 'method_id': str,
                            'lon_0': float, 'x_0': float, 'y_0': float, 'params': dict}
         """
-        log_info("Fsm_0_5: --- Перерасчёт СК ---")
+        log_info("Fsm_0_5_1: --- Перерасчёт СК ---")
 
         # Проверяем минимум пар
         filled_pairs = [pair for pair in self.point_pairs if pair is not None]
         if len(filled_pairs) < 2:
-            log_warning("Fsm_0_5: Мало точек для перерасчёта СК (нужно >= 2)")
+            log_warning("Fsm_0_5_1: Мало точек для перерасчёта СК (нужно >= 2)")
             return None
 
         from .Fsm_0_5_3_projection_optimizer import ProjectionOptimizer
@@ -1386,7 +1386,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             control_points_wgs84.append((object_wgs84, reference_wgs84))
 
         if len(control_points_wgs84) < 2:
-            log_warning("Fsm_0_5: Недостаточно точек для перерасчёта СК")
+            log_warning("Fsm_0_5_1: Недостаточно точек для перерасчёта СК")
             return None
 
         # Извлекаем параметры из исходной CRS
@@ -1422,11 +1422,11 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 include_optional=False
             )
         except Exception as e:
-            log_error(f"Fsm_0_5: Ошибка перерасчёта СК: {e}")
+            log_error(f"Fsm_0_5_1: Ошибка перерасчёта СК: {e}")
             return None
 
         if not all_results:
-            log_warning("Fsm_0_5: Перерасчёт СК не дал результатов")
+            log_warning("Fsm_0_5_1: Перерасчёт СК не дал результатов")
             return None
 
         # Выбираем лучший результат.
@@ -1435,9 +1435,9 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             ldp_results = [r for r in all_results if getattr(r, 'approach_type', '') == 'ldp']
             if ldp_results:
                 best_result = ldp_results[0]
-                log_info(f"Fsm_0_5: Pipeline mode: выбран LDP результат (отфильтровано {len(all_results) - len(ldp_results)} calibration)")
+                log_info(f"Fsm_0_5_1: Pipeline mode: выбран LDP результат (отфильтровано {len(all_results) - len(ldp_results)} calibration)")
             else:
-                log_warning("Fsm_0_5: Pipeline mode: нет LDP результатов, используем лучший")
+                log_warning("Fsm_0_5_1: Pipeline mode: нет LDP результатов, используем лучший")
                 best_result = all_results[0]
         else:
             best_result = all_results[0]  # Уже отсортированы по RMSE
@@ -1450,7 +1450,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
 
         approach_type = getattr(best_result, 'approach_type', 'calibration')
         log_info(
-            f"Fsm_0_5: Перерасчёт СК: {best_result.method_name} ({approach_type}) "
+            f"Fsm_0_5_1: Перерасчёт СК: {best_result.method_name} ({approach_type}) "
             f"RMSE={best_result.rmse:.4f}м, lon_0={best_result.lon_0:.4f}"
         )
 
@@ -1552,7 +1552,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         modified_wkt2, success = self._set_wkt2_offsets(wkt2, x_0, y_0)
 
         if not success:
-            log_warning("Fsm_0_5: Refinement: FE/FN not found in WKT2, skipping")
+            log_warning("Fsm_0_5_1: Refinement: FE/FN not found in WKT2, skipping")
             return None
 
         crs = QgsCoordinateReferenceSystem.fromWkt(modified_wkt2)
@@ -1639,14 +1639,14 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             test_crs = crs_builder(current_x_0, current_y_0)
             if test_crs is None or not test_crs.isValid():
                 log_warning(
-                    f"Fsm_0_5: Refinement: failed to build CRS at iteration {iteration + 1}"
+                    f"Fsm_0_5_1: Refinement: failed to build CRS at iteration {iteration + 1}"
                 )
                 break
 
             try:
                 transform = QgsCoordinateTransform(epsg_3857, test_crs, QgsProject.instance())
             except Exception as e:
-                log_warning(f"Fsm_0_5: Refinement: transform creation error: {e}")
+                log_warning(f"Fsm_0_5_1: Refinement: transform creation error: {e}")
                 break
 
             residuals_x: list = []
@@ -1658,7 +1658,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 try:
                     correct_in_virtual = transform.transform(correct_3857)
                 except QgsCsException:
-                    log_warning(f"Fsm_0_5: Refinement: transform error for pair {idx + 1}")
+                    log_warning(f"Fsm_0_5_1: Refinement: transform error for pair {idx + 1}")
                     continue
 
                 res_x = wrong_msk.x() - correct_in_virtual.x()
@@ -1668,7 +1668,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 deviations.append(math.sqrt(res_x**2 + res_y**2))
 
             if not residuals_x:
-                log_warning("Fsm_0_5: Refinement: no valid residuals")
+                log_warning("Fsm_0_5_1: Refinement: no valid residuals")
                 break
 
             true_rmse = math.sqrt(sum(d**2 for d in deviations) / len(deviations))
@@ -1684,12 +1684,12 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             adjustment = math.sqrt(mean_res_x**2 + mean_res_y**2)
 
             log_info(
-                f"Fsm_0_5: Refinement iteration {iteration + 1}: "
+                f"Fsm_0_5_1: Refinement iteration {iteration + 1}: "
                 f"adjustment={adjustment:.6f}m, RMSE={true_rmse:.6f}m"
             )
 
             if adjustment < self.REFINEMENT_CONVERGENCE_THRESHOLD:
-                log_info(f"Fsm_0_5: Refinement converged at iteration {iteration + 1}")
+                log_info(f"Fsm_0_5_1: Refinement converged at iteration {iteration + 1}")
                 best_x_0 = current_x_0
                 best_y_0 = current_y_0
                 best_rmse = true_rmse
@@ -1726,14 +1726,14 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         )
 
         if refined is None:
-            log_warning("Fsm_0_5: Refinement: standard refinement returned None, keeping original")
+            log_warning("Fsm_0_5_1: Refinement: standard refinement returned None, keeping original")
             return result
 
         refined_x_0, refined_y_0, true_rmse, deviations = refined
 
         if true_rmse > original_rmse * 1.5:
             log_warning(
-                f"Fsm_0_5: Refinement: RMSE degraded ({original_rmse:.6f} -> {true_rmse:.6f}), "
+                f"Fsm_0_5_1: Refinement: RMSE degraded ({original_rmse:.6f} -> {true_rmse:.6f}), "
                 f"keeping original"
             )
             return result
@@ -1753,7 +1753,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         result['deviations'] = deviations
 
         log_info(
-            f"Fsm_0_5: Standard refinement: RMSE {original_rmse:.6f} -> {true_rmse:.6f}m, "
+            f"Fsm_0_5_1: Standard refinement: RMSE {original_rmse:.6f} -> {true_rmse:.6f}m, "
             f"x_0={refined_x_0:.2f}, y_0={refined_y_0:.2f}"
         )
 
@@ -1784,7 +1784,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
 
         if refined is None:
             log_warning(
-                "Fsm_0_5: Refinement: interzonal refinement returned None, keeping original"
+                "Fsm_0_5_1: Refinement: interzonal refinement returned None, keeping original"
             )
             return result
 
@@ -1792,7 +1792,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
 
         if true_rmse > original_rmse * 1.5:
             log_warning(
-                f"Fsm_0_5: Refinement: interzonal RMSE degraded "
+                f"Fsm_0_5_1: Refinement: interzonal RMSE degraded "
                 f"({original_rmse:.6f} -> {true_rmse:.6f}), keeping original"
             )
             return result
@@ -1814,7 +1814,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             best.rmse = true_rmse
 
         log_info(
-            f"Fsm_0_5: Interzonal refinement: RMSE {original_rmse:.6f} -> {true_rmse:.6f}m, "
+            f"Fsm_0_5_1: Interzonal refinement: RMSE {original_rmse:.6f} -> {true_rmse:.6f}m, "
             f"x_0={refined_x_0:.2f}, y_0={refined_y_0:.2f}"
         )
 
@@ -1858,7 +1858,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 use_interzonal = False
                 comparison_text = "Результаты близки, выбран стандартный"
 
-            log_info(f"Fsm_0_5: Сравнение: std={std_rmse:.4f}м, int={int_rmse:.4f}м -> {comparison_text}")
+            log_info(f"Fsm_0_5_1: Сравнение: std={std_rmse:.4f}м, int={int_rmse:.4f}м -> {comparison_text}")
 
         elif standard_result:
             use_interzonal = False
@@ -1946,7 +1946,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         # Логируем результат
         for line in status_lines:
             if line.strip():
-                log_info(f"Fsm_0_5: {line}")
+                log_info(f"Fsm_0_5_1: {line}")
 
         self.save_button.setEnabled(True)
 
@@ -1993,7 +1993,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             )
             return
 
-        log_info("Fsm_0_5: Создаю новую проекцию и применяю к проекту...")
+        log_info("Fsm_0_5_1: Создаю новую проекцию и применяю к проекту...")
 
         # НОВЫЙ WORKFLOW: передаём CRS слоя объекта и сам слой
         success = self.parent_tool.apply_projection_offset(
@@ -2011,12 +2011,12 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             # Это нужно если пользователь захочет сделать ещё одну калибровку
             new_project_crs = QgsProject.instance().crs()
             self.object_layer_crs = new_project_crs
-            log_info(f"Fsm_0_5: object_layer_crs обновлена на {new_project_crs.authid()}")
+            log_info(f"Fsm_0_5_1: object_layer_crs обновлена на {new_project_crs.authid()}")
 
             # Очищаем точки - они в старой CRS, повторное использование приведёт к ошибкам
             self.on_clear_all_clicked()
 
-            log_info("Fsm_0_5: Новая проекция успешно создана и применена")
+            log_info("Fsm_0_5_1: Новая проекция успешно создана и применена")
             self.iface.messageBar().pushMessage(
                 "Успех",
                 "Проекция создана и применена к проекту",
@@ -2027,7 +2027,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             self.parent_tool.deactivate_map_tool()
             self.accept()
         else:
-            log_error("Fsm_0_5: Ошибка при создании новой проекции")
+            log_error("Fsm_0_5_1: Ошибка при создании новой проекции")
             self.iface.messageBar().pushMessage(
                 "Ошибка",
                 "Не удалось создать проекцию. Проверьте логи.",
@@ -2052,7 +2052,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             )
             return
 
-        log_info("Fsm_0_5: Создаю кастомную проекцию и применяю к проекту...")
+        log_info("Fsm_0_5_1: Создаю кастомную проекцию и применяю к проекту...")
 
         params = dict(self.interzonal_params)
         pipeline_result = None
@@ -2066,7 +2066,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 params['pipeline_remark'] = pipeline_result['pipeline']
                 params['skip_towgs84'] = True
                 log_info(
-                    f"Fsm_0_5: Pipeline horner deg={pipeline_result['deg']}: "
+                    f"Fsm_0_5_1: Pipeline horner deg={pipeline_result['deg']}: "
                     f"RMSE={pipeline_result['rmse'] * 1000:.2f}mm, "
                     f"Max={pipeline_result['max_err'] * 1000:.2f}mm"
                 )
@@ -2085,9 +2085,9 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             # ВАЖНО: Обновляем object_layer_crs на новую CRS проекта
             new_project_crs = QgsProject.instance().crs()
             self.object_layer_crs = new_project_crs
-            log_info(f"Fsm_0_5: object_layer_crs обновлена на {new_project_crs.authid()}")
+            log_info(f"Fsm_0_5_1: object_layer_crs обновлена на {new_project_crs.authid()}")
 
-            log_success("Fsm_0_5: Кастомная проекция успешно создана и применена")
+            log_success("Fsm_0_5_1: Кастомная проекция успешно создана и применена")
 
             # Pipeline: регистрируем coordinate operation
             if pipeline_result:
@@ -2100,7 +2100,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             self.parent_tool.deactivate_map_tool()
             self.accept()
         else:
-            log_error("Fsm_0_5: Ошибка при создании кастомной проекции")
+            log_error("Fsm_0_5_1: Ошибка при создании кастомной проекции")
             self.iface.messageBar().pushMessage(
                 "Ошибка",
                 "Не удалось создать кастомную проекцию. Проверьте логи.",
@@ -2118,9 +2118,9 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             dict с pipeline данными или None при ошибке
         """
         try:
-            from .Fsm_0_5_exp_zonal_calibration import compute_horner_coefficients
+            from .Fsm_0_5_5_exp_zonal_calibration import compute_horner_coefficients
         except ImportError as e:
-            log_error(f"Fsm_0_5: Pipeline модуль недоступен: {e}")
+            log_error(f"Fsm_0_5_1: Pipeline модуль недоступен: {e}")
             self.pipeline_status.setText("Ошибка импорта")
             return None
 
@@ -2139,7 +2139,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
 
         if len(pairs) < 20:
             log_warning(
-                f"Fsm_0_5: Pipeline пропущен — мало точек: {len(pairs)}/20 "
+                f"Fsm_0_5_1: Pipeline пропущен — мало точек: {len(pairs)}/20 "
                 f"(original_point_pairs: {len(self.original_point_pairs)} записей, "
                 f"non-None: {sum(1 for e in self.original_point_pairs if e is not None)})"
             )
@@ -2151,7 +2151,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
             from Daman_QGIS.constants import TOWGS84_SK42_PROJ
             towgs84_str = TOWGS84_SK42_PROJ.replace('+towgs84=', '')
 
-        log_info(f"Fsm_0_5: Pipeline - вычисление horner коэффициентов ({len(pairs)} точек)")
+        log_info(f"Fsm_0_5_1: Pipeline - вычисление horner коэффициентов ({len(pairs)} точек)")
 
         result = compute_horner_coefficients(
             pairs=pairs,
@@ -2164,7 +2164,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
 
         if result is None:
             self.pipeline_status.setText("Ошибка расчёта")
-            log_error("Fsm_0_5: Pipeline - ошибка вычисления коэффициентов")
+            log_error("Fsm_0_5_1: Pipeline - ошибка вычисления коэффициентов")
 
         return result
 
@@ -2174,7 +2174,7 @@ class RefineProjectionDialog(BaseResponsiveDialog):
         Вызывается ПОСЛЕ создания CRS.
         """
         try:
-            from .Fsm_0_5_exp_zonal_calibration import register_pipeline_in_qgis
+            from .Fsm_0_5_5_exp_zonal_calibration import register_pipeline_in_qgis
         except ImportError:
             return
 
@@ -2189,12 +2189,12 @@ class RefineProjectionDialog(BaseResponsiveDialog):
                 f"OK: RMSE={result['rmse'] * 1000:.1f}mm, Max={result['max_err'] * 1000:.1f}mm"
             )
             log_success(
-                f"Fsm_0_5: Pipeline зарегистрирован: "
+                f"Fsm_0_5_1: Pipeline зарегистрирован: "
                 f"RMSE={result['rmse'] * 1000:.2f}mm, Max={result['max_err'] * 1000:.2f}mm"
             )
         else:
             self.pipeline_status.setText("Ошибка регистрации")
-            log_error("Fsm_0_5: Pipeline - ошибка регистрации в QGIS")
+            log_error("Fsm_0_5_1: Pipeline - ошибка регистрации в QGIS")
 
     def on_cancel_clicked(self):
         """Отмена - восстанавливаем исходную CRS"""

@@ -22,7 +22,7 @@ from qgis.core import (
 
 from Daman_QGIS.utils import log_info, log_warning
 
-from .Msm_46_types import LegendLayoutMode
+from .Msm_46_1_types import LegendLayoutMode
 
 
 # Tolerance для bbox-intersection: компенсирует frame-stroke padding

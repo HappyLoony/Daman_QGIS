@@ -92,7 +92,7 @@ class TestMsm464:
         letter_spacing_pt: float = 0.0,
         reason=None,
     ):
-        from Daman_QGIS.managers.styling.submodules.Msm_46_types import LegendPlan
+        from Daman_QGIS.managers.styling.submodules.Msm_46_1_types import LegendPlan
         return LegendPlan(
             mode=mode,
             wrap_length=wrap_length,

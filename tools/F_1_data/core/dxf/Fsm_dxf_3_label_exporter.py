@@ -12,9 +12,15 @@ from typing import Dict, Any, Optional, Tuple
 from qgis.core import Qgis, QgsFeature, QgsCoordinateTransform, QgsGeometry, QgsPointXY
 from ezdxf.render import mleader
 from ezdxf.render.arrows import ARROWS  # Стрелки для MULTILEADER
-from ezdxf.math import Vec2
+from ezdxf.math import Vec2, Vec3
 
 from Daman_QGIS.utils import log_debug
+
+# Имя текстового стиля выносок MULTILEADER (создаётся в dxf_exporter.py).
+# Имя честное (Bold Italic = "тип Б наклонный"), чтобы НЕ занимать имя
+# "GOST 2.304" - оно остаётся свободным для прямого начертания, если
+# пользователю понадобится обычный текст на чертеже
+GOST_MLEADER_TEXT_STYLE = 'GOST 2.304 Type B italic'
 
 
 class DxfLabelExporter:
@@ -158,6 +164,20 @@ class DxfLabelExporter:
                 # Если не удалось найти границу - смещаем вправо
                 text_position = (centroid_position[0] + 10.0, centroid_position[1])
 
+            # КРИТИЧНО: текст ВСЕГДА справа от точки привязки (left-attachment).
+            # Right-attachment в AutoCAD рендерится корректно ТОЛЬКО при точном
+            # совпадении координат llp/base_point с фактической метрикой шрифта
+            # AutoCAD, которую ezdxf воспроизвести не может (движки измерения
+            # расходятся ~5%). Эмпирика матриц вариантов v4-v8 (2026-06-04):
+            # left-attachment устойчив к промаху оценки ширины текста (полка
+            # рисуется от точки прихода выноски), right - разрыв полки/выноски.
+            # Поэтому горизонтальная компонента смещения зеркалируется вправо
+            # (как у точечных слоёв, у которых выноски всегда были идеальны).
+            if text_position[0] <= leader_start[0] + 0.01:
+                mirrored_dx = leader_start[0] - text_position[0]
+                new_x = leader_start[0] + (mirrored_dx if mirrored_dx > 1.0 else 10.0)
+                text_position = (new_x, text_position[1])
+
             # Получаем параметры выноски из label_config
             # Базовая высота текста из конфига
             base_char_height = label_config.get('label_font_size', 4.0)
@@ -165,8 +185,7 @@ class DxfLabelExporter:
             # (1:500 -> 0.5, 1:1000 -> 1.0, 1:2000 -> 2.0)
             char_height = base_char_height * label_scale_factor
             font_family = label_config.get('label_font_family', 'GOST 2.304')
-            dogleg_length = 0.0  # Длина полки = 0 (без полки)
-            landing_gap = 0.0  # Отступ от текста = 0
+            landing_gap = 0.0  # Отступ от текста = 0 (ненулевой ломает рендер выноски)
             arrow_size = char_height  # Размер стрелки равен высоте текста
 
             # Ширина текстового блока для автопереноса
@@ -189,40 +208,35 @@ class DxfLabelExporter:
             if layer_color_rgb is not None:
                 label_layer.rgb = layer_color_rgb
 
-            # Создаём или модифицируем стиль MULTILEADER с правильными настройками line spacing
-            mleader_style_name = "GOST_MLEADER"
-
-            if mleader_style_name not in doc.mleader_styles:
-                # Создаём новый стиль на основе Standard
-                mleader_style = doc.mleader_styles.duplicate_entry("Standard", mleader_style_name)
-            else:
-                mleader_style = doc.mleader_styles.get(mleader_style_name)
-
+            # Стиль мультивыноски - Standard: все свойства переопределяются
+            # на уровне entity (ezdxf ставит property_override_flags=0x7FFFFFFF),
+            # отдельный стиль GOST_MLEADER не давал ничего и удалён 2026-06-04
+            #
             # ПРИМЕЧАНИЕ: ezdxf 1.4.2 не поддерживает line_spacing атрибуты для MLEADERSTYLE
-            # Атрибуты устанавливаются только в MTEXT (см. ниже), но AutoCAD читает их из стиля
-            # Пользователю потребуется вручную изменить стиль "GOST_MLEADER" в AutoCAD:
-            # Формат -> Стили мультивыносок -> GOST_MLEADER -> Изменить ->
-            # Содержимое -> Стиль межстрочного интервала: "Точный", Межстрочный интервал: 1
+            # Атрибуты устанавливаются только в MTEXT (см. ниже)
 
             # Создаём MULTILEADER builder с использованием стиля
             # Передаём layer через dxfattribs чтобы избежать post-build query
             ml_builder = msp.add_multileader_mtext(
-                style=mleader_style_name,
+                style="Standard",
                 dxfattribs={'layer': label_layer_name}
-            )
-
-            # Настраиваем текст со стилем "GOST 2.304"
-            # Текст подписи используется напрямую без MTEXT-форматирования
-            ml_builder.set_content(
-                label_text,
-                style="GOST 2.304",  # Используем стиль текста GOST (имя должно совпадать с созданным в dxf_exporter)
-                char_height=char_height,
-                alignment=mleader.TextAlignment.center  # Выравнивание по центру
             )
 
             # Определяем сторону присоединения выноски
             # Если текст правее точки начала - присоединяем слева, иначе справа
             connection_side = mleader.ConnectionSide.left if text_position[0] > leader_start[0] else mleader.ConnectionSide.right
+
+            # Настраиваем текст со стилем выносок (GOST_MLEADER_TEXT_STYLE)
+            # Текст подписи используется напрямую без MTEXT-форматирования
+            # Выравнивание center - подтверждено матрицей вариантов в AutoCAD
+            # 2026-06-04 (вариант K1_center_dl0): с комбо has_dogleg=1 +
+            # dogleg_length=0 + landing_gap=0 центр работает корректно
+            ml_builder.set_content(
+                label_text,
+                style=GOST_MLEADER_TEXT_STYLE,  # Стиль создаётся в dxf_exporter
+                char_height=char_height,
+                alignment=mleader.TextAlignment.center  # Выравнивание по центру
+            )
 
             # Добавляем линию выноски (от геометрии к тексту)
             ml_builder.add_leader_line(
@@ -236,11 +250,25 @@ class DxfLabelExporter:
                 size=arrow_size
             )
 
-            # Настраиваем параметры выноски (без полки)
+            # Настраиваем параметры выноски.
+            # КРИТИЧНО (комбо подтверждено матрицей вариантов в AutoCAD 2026-06-04,
+            # вариант K1_center_dl0): рабочая запись = has_dogleg=1 + dogleg_length=0
+            # + landing_gap=0. Полка при этом - ДИНАМИЧЕСКОЕ подчёркивание по ширине
+            # текста (underline connection type), отдельный сегмент полки не нужен.
+            #
+            # Ловушки ezdxf, из-за которых была "разорванная полка" (выноска
+            # приходила в середину полки / по диагонали сквозь текст, лечилась
+            # только ручным touch свойств в AutoCAD):
+            # 1. set_connection_properties(dogleg_length=0) ставит has_dogleg=0 -
+            #    с этим флагом AutoCAD рендерит выноску с разрывом. Поэтому передаём
+            #    ненулевую длину (только ради has_dogleg=1)...
+            # 2. ...и затем явно зануляем dxf.dogleg_length (величина полки 0),
+            #    т.к. ezdxf сам её не зануляет (остаётся 8.0 из стиля Standard)
             ml_builder.set_connection_properties(
-                dogleg_length=0.0,  # Без полки
-                landing_gap=landing_gap
+                dogleg_length=8.0,  # ТОЛЬКО для установки has_dogleg=1, см. ниже
+                landing_gap=landing_gap  # 0.0 - ненулевой отступ ломает рендер
             )
+            ml_builder.multileader.dxf.dogleg_length = 0.0  # Величина полки = 0
 
             # Настраиваем типы присоединения текста (подчёркивание первой строки)
             ml_builder.set_connection_types(
@@ -248,10 +276,12 @@ class DxfLabelExporter:
                 right=mleader.HorizontalConnection.bottom_of_top_line_underline
             )
 
-            # Настраиваем свойства линий выноски
+            # Настраиваем свойства линий выноски - всё ByLayer
             ml_builder.set_leader_properties(
                 leader_type=mleader.LeaderType.straight_lines,
-                color=256  # ByLayer - цвет по слою
+                color=256,  # ByLayer - цвет по слою
+                linetype="BYLAYER",  # Тип линии по слою (default ezdxf - BYBLOCK)
+                lineweight=-1  # LINEWEIGHT_BYLAYER - вес линии по слою (default - BYBLOCK)
             )
 
             # ВАЖНО: build() ничего не возвращает (возвращает None), но создаёт объект в документе
@@ -273,6 +303,23 @@ class DxfLabelExporter:
                 # 1.0 = одинарный интервал (6.6667 единиц при высоте 4)
                 # 2.0 = двойной интервал (13.3333 единиц при высоте 4)
                 object.__setattr__(mtext, 'line_spacing_factor', 1.0)
+                # КРИТИЧНО: word_break=0 - как пишет AutoCAD при пересчёте
+                # (найдено raw-диффом против AutoCAD-recompute, 2026-06-04)
+                object.__setattr__(mtext, 'use_word_break', 0)
+
+            # КРИТИЧНО: пост-build фиксы CONTEXT_DATA (эмпирика AutoCAD 2026-06-04).
+            # ezdxf builder НЕ выставляет context.text_align_type (группа 176),
+            # остаётся 0 (left) при center-выравнивании текста - внутренне
+            # противоречивая запись: AutoCAD при редактировании (перетаскивание
+            # текста) пересчитывал привязку по left-правилам и текст съезжал
+            # с полки без возможности вернуть. С 176=1 (center) перетаскивание
+            # пересчитывается корректно.
+            context = multileader.context
+            context.text_align_type = 1  # center
+            # dogleg_vector без отрицательных нулей (-0.0) - как пишет AutoCAD
+            for leader_data in context.leaders:
+                dv = leader_data.dogleg_vector
+                leader_data.dogleg_vector = Vec3(dv.x + 0.0, dv.y + 0.0, dv.z + 0.0)
 
             return True
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Msm_46_types: Value objects для M_46 LegendManager.
+Msm_46_1_types: Value objects для M_46 LegendManager.
 
 Immutable dataclasses используемые в content collection, space calculation,
 layout planning и placement strategy. Выделены в отдельный модуль для

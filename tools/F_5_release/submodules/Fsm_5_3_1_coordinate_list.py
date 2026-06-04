@@ -11,7 +11,7 @@ Fsm_5_3_1 - Экспорт перечней координат в Excel
 
 import os
 import re
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional
 
 from qgis.core import (
     Qgis, QgsProject, QgsFeature, QgsGeometry, QgsPointXY,
@@ -43,10 +43,8 @@ class Fsm_5_3_1_CoordinateList:
             ref_managers: Reference managers (не используется, сохранён для совместимости)
         """
         self.iface = iface
-        # Кэш слоёв, уже нормализованных под CW + СЗ в рамках одной сессии экспорта.
-        # SPB-экспорт через SplitByFeatureModifier вызывается per-feature,
-        # без кэша слой бы нормализовывался N раз для одного и того же набора фич.
-        self._normalized_layer_ids: Set[str] = set()
+        # Phase 2 (FIX-OPT-5): нормализация делегирована M_47 (stateless @staticmethod).
+        # Layer-id кэш убран — идемпотентность через equals() short-circuit (FIX-5).
 
     def _find_points_layer(self, layer_name: str) -> Optional[QgsVectorLayer]:
         """
@@ -246,6 +244,28 @@ class Fsm_5_3_1_CoordinateList:
 
         return success
 
+    @staticmethod
+    def _work_type_contour_title(layer_name: str, contour_id: Any) -> str:
+        """
+        Заголовок контура по типу работы (определяется из имени слоя).
+
+        Раздел/НГС/Без_Меж -> "Образуемый земельный участок N"
+        ПС -> "Контур публичного сервитута N"
+        Изм -> "Изменяемый земельный участок N"
+
+        Args:
+            layer_name: Имя слоя (Le_2_1_1_* / Le_2_7_*)
+            contour_id: ID контура (поле ID фичи или порядковый номер)
+
+        Returns:
+            Текст заголовка контура
+        """
+        if '_ПС_' in layer_name:
+            return f"Контур публичного сервитута {contour_id}"
+        if '_Изм_' in layer_name:
+            return f"Изменяемый земельный участок {contour_id}"
+        return f"Образуемый земельный участок {contour_id}"
+
     def _export_to_excel(
         self,
         layer: QgsVectorLayer,
@@ -362,11 +382,19 @@ class Fsm_5_3_1_CoordinateList:
 
                 if contour_type == 'exterior':
                     contour_number += 1
-                    if template.contour_format:
+                    contour_title = None
+                    if template.contour_title_by_work_type:
+                        feature_id = contour_info.get('feature_id')
+                        contour_id = feature_id if feature_id else contour_number
+                        contour_title = self._work_type_contour_title(
+                            layer.name(), contour_id
+                        )
+                    elif template.contour_format:
                         contour_title = ExportUtils.format_template_text(
                             template.contour_format, metadata,
                             {'area': area, 'layer_name': layer.name(), '№': contour_number}
                         )
+                    if contour_title:
                         worksheet.merge_range(
                             current_row, 1, current_row, 3,
                             contour_title, subtitle_border_format
@@ -438,10 +466,11 @@ class Fsm_5_3_1_CoordinateList:
         """
         import xlsxwriter
 
-        # Нормализация геометрии слоя: CW + начало с СЗ.
-        # Идемпотентно и кэшировано по layer.id() — при per-feature вызове
-        # из SplitByFeatureModifier выполняется один раз на слой.
-        self._normalize_layer_geometry_cw_from_nw(layer)
+        # Нормализация геометрии слоя: CW + начало с СЗ (делегировано M_47).
+        # Идемпотентно через equals() short-circuit. Memory-слои (split_feature)
+        # M_47 пропускает сам — для них корректность через _reorder_coords_cw_from_nw.
+        from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+        PolygonNormalizationManager.normalize_layer(layer)
 
         metadata = ExportUtils.get_project_metadata()
 
@@ -627,11 +656,11 @@ class Fsm_5_3_1_CoordinateList:
             log_warning("Fsm_5_3_1: merged_layers пуст, пропуск merged export")
             return False
 
-        # Нормализация геометрии всех merged-слоёв: CW + начало с СЗ.
-        # Кэшировано по layer.id() — повторные слои в других merged-вызовах
-        # этой же сессии экспорта пропускаются.
+        # Нормализация геометрии всех merged-слоёв: CW + начало с СЗ (M_47).
+        # Идемпотентно через equals() short-circuit (FIX-5).
+        from Daman_QGIS.managers.geometry import PolygonNormalizationManager
         for _layer in merged_layers:
-            self._normalize_layer_geometry_cw_from_nw(_layer)
+            PolygonNormalizationManager.normalize_layer(_layer)
 
         show_area = extra_context.get('show_area_per_feature', True)
         is_ps = extra_context.get('is_ps', False)
@@ -982,174 +1011,6 @@ class Fsm_5_3_1_CoordinateList:
             )
             return None
 
-    def _normalize_layer_geometry_cw_from_nw(self, layer: QgsVectorLayer) -> None:
-        """
-        Привести геометрию слоя к единому CW-обходу с СЗ-стартом для всех колец.
-
-        Применяется in-place: изменяет полигоны в .gpkg через editBuffer +
-        commitChanges. После этого vertex_idx 0 каждого кольца = СЗ-точка,
-        направление обхода = CW на карте. Это нужно чтобы нумерация в Excel
-        SPB-перечне, Vertex Editor QGIS и последующих экспортах TAB/DXF
-        совпадала (с учётом off-by-one: QGIS считает с 0, Excel/CAD с 1).
-
-        Идемпотентно: повторный запуск ничего не меняет.
-        Кэшируется по layer.id() в self._normalized_layer_ids, чтобы при
-        per-feature SPB-экспорте не нормализовать один слой N раз.
-
-        Применяется ТОЛЬКО в SPB-формате (регион 78 — требование КГА СПб).
-
-        Args:
-            layer: Полигональный слой для нормализации (изменяется in-place).
-        """
-        if not layer or not layer.isValid():
-            return
-        if layer.geometryType() != Qgis.GeometryType.Polygon:
-            return
-
-        layer_id = layer.id()
-        if layer_id in self._normalized_layer_ids:
-            return
-
-        # Edit conflict guard: если другой код уже открыл edit-сессию (например,
-        # пользователь работает в Vertex Editor с несохранёнными правками),
-        # наш commitChanges() закроет её и смешает чужие правки с нашими.
-        # Пропускаем нормализацию — пусть пользователь сначала закроет/сохранит
-        # свою сессию, потом перезапустит F_5_3.
-        if layer.isEditable():
-            log_warning(
-                f"Fsm_5_3_1: Слой {layer.name()} уже в режиме редактирования "
-                f"(возможно, открыт Vertex Editor) — нормализация CW+NW "
-                f"пропущена, чтобы не смешать с чужими правками"
-            )
-            return
-
-        if not layer.startEditing():
-            log_warning(
-                f"Fsm_5_3_1: Не удалось начать редактирование слоя "
-                f"{layer.name()} — нормализация CW+NW пропущена"
-            )
-            return
-
-        modified = 0
-        try:
-            for feature in layer.getFeatures():
-                geom = feature.geometry()
-                if not geom or geom.isEmpty():
-                    continue
-                if geom.type() != Qgis.GeometryType.Polygon:
-                    continue
-
-                new_geom = self._normalize_polygon_geometry(geom)
-                if new_geom is None or new_geom.isEmpty():
-                    continue
-
-                if not layer.changeGeometry(feature.id(), new_geom):
-                    log_warning(
-                        f"Fsm_5_3_1: changeGeometry неуспешно для fid="
-                        f"{feature.id()} в слое {layer.name()}"
-                    )
-                    continue
-                modified += 1
-
-            if not layer.commitChanges():
-                log_error(
-                    f"Fsm_5_3_1: commitChanges не удался для слоя "
-                    f"{layer.name()} — откат"
-                )
-                layer.rollBack()
-                return
-        except Exception as e:
-            log_error(
-                f"Fsm_5_3_1: Ошибка нормализации слоя "
-                f"{layer.name()}: {e}"
-            )
-            try:
-                layer.rollBack()
-            except Exception:
-                pass
-            return
-
-        self._normalized_layer_ids.add(layer_id)
-        log_info(
-            f"Fsm_5_3_1: Нормализовано CW+NW {modified} фич в слое "
-            f"{layer.name()}"
-        )
-
-    def _normalize_polygon_geometry(
-        self,
-        geom: QgsGeometry
-    ) -> Optional[QgsGeometry]:
-        """
-        Нормализовать одну полигональную геометрию: каждое кольцо приводится
-        к CW-обходу на карте и ротируется так, чтобы v0 = ближайшая к СЗ.
-
-        Использует PointNumberingManager.is_clockwise (M_20) как единый
-        источник правды для определения направления.
-
-        Args:
-            geom: Исходная полигональная геометрия (Polygon или MultiPolygon)
-
-        Returns:
-            Новая геометрия с нормализованными кольцами, либо None
-            если входная геометрия не полигональная или пустая.
-        """
-        from Daman_QGIS.managers import PointNumberingManager
-
-        if geom is None or geom.isEmpty():
-            return None
-        if geom.type() != Qgis.GeometryType.Polygon:
-            return None
-
-        is_multi = geom.isMultipart()
-        polygons = geom.asMultiPolygon() if is_multi else [geom.asPolygon()]
-
-        new_polygons = []
-        for polygon in polygons:
-            if not polygon:
-                new_polygons.append(polygon)
-                continue
-
-            new_rings = []
-            for ring in polygon:
-                # Минимум 3 уникальные вершины + замыкающая = 4 элемента
-                if not ring or len(ring) < 4:
-                    new_rings.append(ring)
-                    continue
-
-                # Снять замыкающую (если есть)
-                had_close = (ring[0] == ring[-1])
-                work = list(ring[:-1]) if had_close else list(ring)
-
-                # Шаг 1: реверс на CW если кольцо CCW на карте
-                points_xy = [(p.x(), p.y()) for p in work]
-                if not PointNumberingManager.is_clockwise(points_xy):
-                    work = list(reversed(work))
-
-                # Шаг 2: ротация к СЗ точке
-                min_x = min(p.x() for p in work)
-                max_y = max(p.y() for p in work)
-                nw_idx = 0
-                best_dist = float('inf')
-                for i, p in enumerate(work):
-                    d = (p.x() - min_x) ** 2 + (max_y - p.y()) ** 2
-                    if d < best_dist:
-                        best_dist = d
-                        nw_idx = i
-
-                if nw_idx > 0:
-                    work = work[nw_idx:] + work[:nw_idx]
-
-                # Замкнуть обратно (QGIS требует замкнутости полигональных колец)
-                work.append(QgsPointXY(work[0].x(), work[0].y()))
-                new_rings.append(work)
-
-            new_polygons.append(new_rings)
-
-        if is_multi:
-            return QgsGeometry.fromMultiPolygonXY(new_polygons)
-        else:
-            return QgsGeometry.fromPolygonXY(new_polygons[0])
-
     def _reorder_contours_cw_from_nw(
         self,
         contours_data: List[Dict[str, Any]]
@@ -1191,7 +1052,7 @@ class Fsm_5_3_1_CoordinateList:
         coord = [номер_точки, x_val, y_val]
         В Excel: coord[2] -> колонка "Х (м)" (север), coord[1] -> "Y (м)" (восток).
         Направление определяется через Shoelace formula
-        (PointNumberingManager.is_clockwise): в QGIS осях
+        (_ring_utils.is_clockwise): в QGIS осях
         (x=easting, y=northing) signed_area < 0 → CW на карте.
 
         Args:
@@ -1207,9 +1068,9 @@ class Fsm_5_3_1_CoordinateList:
 
         # Шаг 1: реверс если CCW на карте (приведение к единому CW-обходу)
         if len(coords) >= 3:
-            from Daman_QGIS.managers import PointNumberingManager
+            from Daman_QGIS.managers.geometry import _ring_utils
             points_xy = [(c[1], c[2]) for c in coords]
-            if not PointNumberingManager.is_clockwise(points_xy):
+            if not _ring_utils.is_clockwise(points_xy):
                 coords = list(reversed(coords))
 
         # Шаг 2: ротация к СЗ точке
@@ -1298,9 +1159,13 @@ class Fsm_5_3_1_CoordinateList:
         point_number = 1
         all_raw_contours: List[Dict[str, Any]] = []
 
+        has_id_field = layer.fields().indexOf('ID') >= 0
+
         for feature in layer.getFeatures():
             if not feature.hasGeometry():
                 continue
+
+            feature_id = feature.attribute('ID') if has_id_field else None
 
             geometry = feature.geometry()
 
@@ -1330,7 +1195,8 @@ class Fsm_5_3_1_CoordinateList:
                             'type': 'exterior',
                             'ring_index': 0,
                             'points': points,
-                            'area': area_sqm if polygon_idx == 0 else 0
+                            'area': area_sqm if polygon_idx == 0 else 0,
+                            'feature_id': feature_id
                         })
 
                         # Внутренние контуры (дырки)
@@ -1387,7 +1253,8 @@ class Fsm_5_3_1_CoordinateList:
                 'type': raw_contour['type'],
                 'ring_index': raw_contour.get('ring_index', 0),
                 'coordinates': contour_coords,
-                'area': raw_contour['area']
+                'area': raw_contour['area'],
+                'feature_id': raw_contour.get('feature_id')
             })
 
         return contours

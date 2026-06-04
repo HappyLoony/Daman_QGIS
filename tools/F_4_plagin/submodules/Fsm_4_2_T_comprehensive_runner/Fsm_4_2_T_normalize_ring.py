@@ -88,38 +88,40 @@ class TestNormalizeRing:
             self.logger.error(f"Ожидалось CW (< 0), получено signed_area_2 = {sa_result}")
 
     def test_03_interior_ccw_input(self):
-        """Внутренний контур: CCW на входе -> остается CCW"""
-        self.logger.section("3. Внутренний контур: CCW вход -> CCW выход")
+        """Внутренний контур: CCW на входе -> инвертируется в CW (unified_cw, 2026-05-31)"""
+        self.logger.section("3. Внутренний контур: CCW вход -> CW выход (unified_cw)")
 
         # Квадрат CCW (signed_area > 0)
         ccw_square = [(0, 0), (10, 0), (10, 10), (0, 10)]
         sa = self._compute_signed_area_2(ccw_square)
         self.logger.info(f"Входной signed_area_2 = {sa} (CCW = положительное)")
 
+        # unified_cw: hole теперь CW (было CCW по П/0592). is_exterior=False — no-op.
         result = self.pnm.normalize_ring(ccw_square, is_exterior=False)
         sa_result = self._compute_signed_area_2(result)
 
-        if sa_result > 0:
-            self.logger.success(f"Результат CCW: signed_area_2 = {sa_result}")
+        if sa_result < 0:
+            self.logger.success(f"Результат CW (unified_cw): signed_area_2 = {sa_result}")
         else:
-            self.logger.error(f"Ожидалось CCW (> 0), получено signed_area_2 = {sa_result}")
+            self.logger.error(f"Ожидалось CW (< 0), получено signed_area_2 = {sa_result}")
 
     def test_04_interior_cw_input(self):
-        """Внутренний контур: CW на входе -> инвертируется в CCW"""
-        self.logger.section("4. Внутренний контур: CW вход -> CCW выход")
+        """Внутренний контур: CW на входе -> остаётся CW (unified_cw, 2026-05-31)"""
+        self.logger.section("4. Внутренний контур: CW вход -> CW выход (unified_cw)")
 
         # Квадрат CW (signed_area < 0)
         cw_square = [(0, 0), (0, 10), (10, 10), (10, 0)]
         sa = self._compute_signed_area_2(cw_square)
         self.logger.info(f"Входной signed_area_2 = {sa} (CW = отрицательное)")
 
+        # unified_cw: hole CW остаётся CW (было бы инвертировано в CCW по П/0592).
         result = self.pnm.normalize_ring(cw_square, is_exterior=False)
         sa_result = self._compute_signed_area_2(result)
 
-        if sa_result > 0:
-            self.logger.success(f"Результат CCW: signed_area_2 = {sa_result}")
+        if sa_result < 0:
+            self.logger.success(f"Результат CW (unified_cw): signed_area_2 = {sa_result}")
         else:
-            self.logger.error(f"Ожидалось CCW (> 0), получено signed_area_2 = {sa_result}")
+            self.logger.error(f"Ожидалось CW (< 0), получено signed_area_2 = {sa_result}")
 
     def test_05_nw_rotation(self):
         """Начальная точка = ближайшая к СЗ углу MBR"""

@@ -16,12 +16,12 @@ from Daman_QGIS.constants import PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from .ui.universal_import_dialog import UniversalImportDialog
 from .submodules.Fsm_1_1_1_xml import XmlImportSubmodule
-from .submodules.Fsm_1_1_1_dxf_importer import DxfImporter
+from .submodules.Fsm_1_1_11_dxf_importer import DxfImporter
 from .submodules.Fsm_1_1_2_tab_importer import TabImporter
 from .submodules.Fsm_1_1_4_vypiska_importer import Fsm_1_1_4_VypiskaImporter
-from .submodules.Fsm_1_1_5_shp_importer import ShpImporter
+from .submodules.Fsm_1_1_14_shp_importer import ShpImporter
 from .submodules.Fsm_1_1_8_iboundary_importer import Fsm_1_1_8_IBoundaryImporter
-from .submodules.Fsm_1_1_xml_detector import XmlTypeDetector
+from .submodules.Fsm_1_1_10_xml_detector import XmlTypeDetector
 
 
 class F_1_1_UniversalImport(BaseTool):
@@ -370,6 +370,17 @@ class F_1_1_UniversalImport(BaseTool):
 
             # Объединяем результаты
             if result.get('success'):
+                # M_47 центральная нормализация (CW+NW) всех импортированных полигон-слоёв.
+                # Level-map (решение пользователя 2026-05-31): единая точка для ВСЕХ F_1_1
+                # importers (DXF/TAB/SHP/XML/КПТ/выписка/iboundary) разом. Идемпотентно через
+                # equals(); commit-before-M_47 для SHP (external .shp, editable — strict guard
+                # иначе пропустил бы). Memory/non-polygon слои M_47 пропускает сам.
+                from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+                for _imp_layer in result.get('layers', []):
+                    if _imp_layer is not None and _imp_layer.isValid():
+                        if _imp_layer.isEditable():
+                            _imp_layer.commitChanges()
+                        PolygonNormalizationManager.normalize_layer(_imp_layer)
                 results['layers'].extend(result.get('layers', []))
                 # Проверяем, является ли слой слоем ЗПР
                 if layer_id.startswith(ZPR_PREFIXES):

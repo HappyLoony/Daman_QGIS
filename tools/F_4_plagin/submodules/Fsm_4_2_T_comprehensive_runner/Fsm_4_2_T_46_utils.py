@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_4_2_T_46_utils - Тестирование shared helpers Msm_46_utils.
+Fsm_4_2_T_46_utils - Тестирование shared helpers Msm_46_5_utils.
 
 Тестирует:
 - find_legend: возвращает legend при наличии / None при отсутствии / custom id
@@ -15,7 +15,7 @@ from typing import Any
 
 
 class TestMsm46Utils:
-    """Тесты Msm_46_utils: find_legend, find_main_map, numpad_to_offset."""
+    """Тесты Msm_46_5_utils: find_legend, find_main_map, numpad_to_offset."""
 
     def __init__(self, iface: Any, logger: Any) -> None:
         self.iface = iface
@@ -23,7 +23,7 @@ class TestMsm46Utils:
 
     def run_all_tests(self) -> None:
         """Entry point для comprehensive runner."""
-        self.logger.section("ТЕСТ Msm_46_utils: shared helpers")
+        self.logger.section("ТЕСТ Msm_46_5_utils: shared helpers")
 
         try:
             self.test_01_import()
@@ -44,7 +44,7 @@ class TestMsm46Utils:
             self.test_16_filter_print_visible_preserves_order()
 
         except Exception as e:
-            self.logger.error(f"Критическая ошибка тестов Msm_46_utils: {str(e)}")
+            self.logger.error(f"Критическая ошибка тестов Msm_46_5_utils: {str(e)}")
             import traceback
             self.logger.data("Traceback", traceback.format_exc())
 
@@ -62,10 +62,10 @@ class TestMsm46Utils:
     # === Группа 1: Импорт ===
 
     def test_01_import(self) -> None:
-        """ТЕСТ 1: Импорт Msm_46_utils."""
+        """ТЕСТ 1: Импорт Msm_46_5_utils."""
         self.logger.section("1. Импорт модуля")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import (
                 find_legend, find_main_map, numpad_to_offset
             )
             self.logger.check(
@@ -83,7 +83,7 @@ class TestMsm46Utils:
         self.logger.section("2. find_legend: legend присутствует")
         try:
             from qgis.core import QgsLayoutItemLegend
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import find_legend
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import find_legend
 
             layout = self._new_layout()
             legend = QgsLayoutItemLegend(layout)
@@ -103,7 +103,7 @@ class TestMsm46Utils:
         """ТЕСТ 3: find_legend возвращает None при отсутствии."""
         self.logger.section("3. find_legend: legend отсутствует")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import find_legend
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import find_legend
 
             layout = self._new_layout()
             result = find_legend(layout)
@@ -120,7 +120,7 @@ class TestMsm46Utils:
         self.logger.section("4. find_legend: custom id")
         try:
             from qgis.core import QgsLayoutItemLegend
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import find_legend
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import find_legend
 
             layout = self._new_layout()
             legend = QgsLayoutItemLegend(layout)
@@ -150,7 +150,7 @@ class TestMsm46Utils:
         self.logger.section("5. find_main_map: map присутствует")
         try:
             from qgis.core import QgsLayoutItemMap
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import find_main_map
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import find_main_map
 
             layout = self._new_layout()
             mmap = QgsLayoutItemMap(layout)
@@ -170,7 +170,7 @@ class TestMsm46Utils:
         """ТЕСТ 6: find_main_map возвращает None при отсутствии."""
         self.logger.section("6. find_main_map: map отсутствует")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import find_main_map
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import find_main_map
 
             layout = self._new_layout()
             result = find_main_map(layout)
@@ -187,7 +187,7 @@ class TestMsm46Utils:
         self.logger.section("7. find_main_map: custom id")
         try:
             from qgis.core import QgsLayoutItemMap
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import find_main_map
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import find_main_map
 
             layout = self._new_layout()
             mmap = QgsLayoutItemMap(layout)
@@ -211,7 +211,7 @@ class TestMsm46Utils:
         """ТЕСТ 8: numpad_to_offset(7) = (0, 0) (TopLeft)."""
         self.logger.section("8. numpad_to_offset: ref=7 TopLeft")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import numpad_to_offset
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import numpad_to_offset
             dx, dy = numpad_to_offset(ref_point=7, width=100, height=50)
             self.logger.check(
                 dx == 0.0 and dy == 0.0,
@@ -225,7 +225,7 @@ class TestMsm46Utils:
         """ТЕСТ 9: numpad_to_offset(1) = (0, -h) (LowerLeft)."""
         self.logger.section("9. numpad_to_offset: ref=1 LowerLeft")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import numpad_to_offset
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import numpad_to_offset
             dx, dy = numpad_to_offset(ref_point=1, width=100, height=50)
             self.logger.check(
                 dx == 0.0 and dy == -50.0,
@@ -239,7 +239,7 @@ class TestMsm46Utils:
         """ТЕСТ 10: numpad_to_offset(9) = (-w, 0) (UpperRight)."""
         self.logger.section("10. numpad_to_offset: ref=9 UpperRight")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import numpad_to_offset
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import numpad_to_offset
             dx, dy = numpad_to_offset(ref_point=9, width=100, height=50)
             self.logger.check(
                 dx == -100.0 and dy == 0.0,
@@ -253,7 +253,7 @@ class TestMsm46Utils:
         """ТЕСТ 11: numpad_to_offset(5) = (-w/2, -h/2) (Center)."""
         self.logger.section("11. numpad_to_offset: ref=5 Center")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import numpad_to_offset
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import numpad_to_offset
             dx, dy = numpad_to_offset(ref_point=5, width=100, height=50)
             self.logger.check(
                 dx == -50.0 and dy == -25.0,
@@ -267,7 +267,7 @@ class TestMsm46Utils:
         """ТЕСТ 12: numpad_to_offset(6) = (-w, -h/2) (MiddleRight)."""
         self.logger.section("12. numpad_to_offset: ref=6 MiddleRight")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import numpad_to_offset
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import numpad_to_offset
             dx, dy = numpad_to_offset(ref_point=6, width=100, height=50)
             self.logger.check(
                 dx == -100.0 and dy == -25.0,
@@ -281,7 +281,7 @@ class TestMsm46Utils:
         """ТЕСТ 13: numpad_to_offset(99) = (0, 0) fallback без исключения."""
         self.logger.section("13. numpad_to_offset: unknown ref")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import numpad_to_offset
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import numpad_to_offset
             dx, dy = numpad_to_offset(ref_point=99, width=100, height=50)
             self.logger.check(
                 dx == 0.0 and dy == 0.0,
@@ -327,7 +327,7 @@ class TestMsm46Utils:
         self.logger.section("14. is_layer_hidden_from_print: M_10 отсутствует")
         try:
             from Daman_QGIS.managers import registry
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import (
                 is_layer_hidden_from_print,
             )
 
@@ -349,7 +349,7 @@ class TestMsm46Utils:
         """ТЕСТ 15: is_layer_hidden_from_print читает not_print из layers_db."""
         self.logger.section("15. is_layer_hidden_from_print: not_print=1/0/absent")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import (
                 is_layer_hidden_from_print,
             )
 
@@ -401,7 +401,7 @@ class TestMsm46Utils:
         """ТЕСТ 16: filter_print_visible делит visible/hidden, сохраняет порядок."""
         self.logger.section("16. filter_print_visible: visible/hidden + порядок")
         try:
-            from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import (
                 filter_print_visible,
             )
 

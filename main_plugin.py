@@ -59,7 +59,7 @@ PipInstaller.ensure_dependencies_in_path()
 # Import managers (все импорты из managers в одном блоке для избежания циклических зависимостей)
 from Daman_QGIS.managers import (
     ProjectManager, LayerManager, VersionManager,
-    CadnumSearchManager, LabelsToggleManager, registry,
+    CadnumSearchManager, LabelsToggleManager, EditProviderRefreshManager, registry,
     install_global_exception_hook, uninstall_global_exception_hook,
     track_exception
 )
@@ -159,6 +159,9 @@ class DamanQGIS:
 
         # Общие инструменты (контекстное меню)
         self.cadnum_search = None
+
+        # Восстановление провайдера GPKG-слоя после ручного редактирования (M_48)
+        self.edit_provider_refresh = None
 
         # Heartbeat таймер для периодической проверки лицензии
         self._heartbeat_timer = None
@@ -1213,6 +1216,10 @@ class DamanQGIS:
         self.labels_toggle = LabelsToggleManager(self.iface)
         self.labels_toggle.init_gui(self.toolbar)
 
+        # M_48: восстановление провайдера GPKG-слоя после ручного toggle editing (без кнопки)
+        self.edit_provider_refresh = EditProviderRefreshManager(self.iface)
+        self.edit_provider_refresh.init()
+
         # Проверяем, не открыт ли уже проект плагина нативным способом
         self._check_native_project()
 
@@ -1783,6 +1790,10 @@ class DamanQGIS:
         if self.labels_toggle:
             self.labels_toggle.unload()
             self.labels_toggle = None
+
+        if self.edit_provider_refresh:
+            self.edit_provider_refresh.unload()
+            self.edit_provider_refresh = None
 
         # Очищаем менеджеры
         self.project_manager = None

@@ -22,7 +22,7 @@ from .Fsm_0_5_4_6_gdal_gcp import Fsm_0_5_4_6_GdalGcp
 from .Fsm_0_5_4_7_projestions_api import Fsm_0_5_4_7_ProjectionsApi
 
 # Остальные субмодули F_0
-from .Fsm_0_5_refine_dialog import RefineProjectionDialog
+from .Fsm_0_5_1_refine_dialog import RefineProjectionDialog
 
 # F_0_6 Coordinate Transform
 from .Fsm_0_6_1_transform_dialog import CoordinateTransformDialog

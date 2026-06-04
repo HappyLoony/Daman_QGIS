@@ -1168,6 +1168,15 @@ class Fsm_1_2_4_FgislkLoader:
                 if not uni.isMultipart():
                     uni.convertToMultiType()
 
+                # M_47 нормализация (CW+NW) на geometry-уровне. Level-map (реш. пользователя):
+                # ФГИС-ЛК memory layer (@1117) → normalize_layer пропустил бы по memory-guard,
+                # поэтому normalize_geometry на uni ДО setGeometry. Если слой сохранят в .gpkg
+                # downstream — геометрия уже unified_cw.
+                from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+                _ng = PolygonNormalizationManager.normalize_geometry(uni)
+                if _ng is not None:
+                    uni = _ng
+
                 f = QgsFeature()
                 f.setFields(fields)
                 f.setGeometry(uni)

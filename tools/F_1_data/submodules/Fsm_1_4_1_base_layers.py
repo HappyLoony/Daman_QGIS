@@ -268,18 +268,12 @@ class BaseLayersManager:
         root = project.layerTreeRoot()
 
         # Получаем путь к GeoPackage проекта через M_19
-        gpkg_path = None
-        project_path = os.path.normpath(project.homePath()) if project.homePath() else ""
-        if project_path:
-            structure_manager = registry.get('M_19')
-            structure_manager.project_root = project_path
-            gpkg_path = structure_manager.get_gpkg_path(create=False)
-
-            if gpkg_path and os.path.exists(gpkg_path):
-                log_info(f"Fsm_1_4_1: Найден GeoPackage: {gpkg_path}")
-            else:
-                log_warning(f"Fsm_1_4_1: GeoPackage не найден в проекте: {project_path}")
-                gpkg_path = None
+        structure_manager = registry.get('M_19')
+        gpkg_path = structure_manager.get_gpkg_path_synced(create=False)
+        if gpkg_path and os.path.exists(gpkg_path):
+            log_info(f"Fsm_1_4_1: Найден GeoPackage: {gpkg_path}")
+        else:
+            log_warning("Fsm_1_4_1: GeoPackage не найден в проекте")
 
         # Создаем функцию, которая возвращает геометрию
         def geometry_provider():

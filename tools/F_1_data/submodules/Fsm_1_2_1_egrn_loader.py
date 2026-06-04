@@ -1400,6 +1400,14 @@ class Fsm_1_2_1_EgrnLoader:
             # Удаляем дубликаты по interactionId (возникают при фрагментированной загрузке)
             duplicates_removed = self._remove_duplicates_by_interaction_id(layer)
 
+            # M_47 нормализация (CW+NW) NSPD-полигонов post-commit + post-dedup (финальное состояние).
+            # Level-map FIX-OPT-1: F_1_2 layer-level, слой closed после commit → M_47 startEditing сам.
+            # commit-guard на случай edit-сессии от dedup. Non-polygon/memory M_47 пропускает.
+            from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+            if layer.isEditable():
+                layer.commitChanges()
+            PolygonNormalizationManager.normalize_layer(layer)
+
             return layer, len(features_to_add)
 
         except Exception as e:
@@ -1546,7 +1554,7 @@ class Fsm_1_2_1_EgrnLoader:
             ValueError: Если endpoint не найден или некорректен
         """
         from Daman_QGIS.managers import get_reference_managers
-        from .Fsm_1_2_1_zouit_classifier_dialog import ZouitClassifierDialog
+        from .Fsm_1_2_15_zouit_classifier_dialog import ZouitClassifierDialog
 
         assert self.api_manager is not None  # Type narrowing для Pylance
 
@@ -2102,5 +2110,12 @@ class Fsm_1_2_1_EgrnLoader:
 
         # Удаляем дубликаты по interactionId (возникают при фрагментированной загрузке)
         duplicates_removed = self._remove_duplicates_by_interaction_id(layer)
+
+        # M_47 нормализация (CW+NW) NSPD-полигонов post-commit + post-dedup (path 2 _load_fragments).
+        # Level-map FIX-OPT-1: F_1_2 layer-level, слой closed после commit → M_47 startEditing сам.
+        from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+        if layer.isEditable():
+            layer.commitChanges()
+        PolygonNormalizationManager.normalize_layer(layer)
 
         return layer, len(features_to_add)

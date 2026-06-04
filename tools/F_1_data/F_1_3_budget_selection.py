@@ -323,9 +323,13 @@ class F_1_3_BudgetSelection(BaseTool):
             else:
                 municipal_districts_text = "   - Нет данных\n"
 
-            # ЗУ в лесном фонде (показываем всегда, даже если 0)
+            # ЗУ в лесном фонде и в землях ООПТ (показываем всегда, даже если 0)
             forest_fund_count = results.get('land_plots_forest_fund', 0)
-            forest_fund_text = f"   в том числе ЗУ в лесном фонде: {forest_fund_count}\n"
+            oopt_count = results.get('land_plots_oopt', 0)
+            forest_fund_text = (
+                f"   в том числе ЗУ в лесном фонде: {forest_fund_count}\n"
+                f"   в том числе ЗУ в землях ООПТ: {oopt_count}\n"
+            )
 
             # Площадь границ работ
             area_ha = results.get('boundaries_area_ha')

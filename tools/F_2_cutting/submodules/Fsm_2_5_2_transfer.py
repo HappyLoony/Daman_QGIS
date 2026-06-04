@@ -126,6 +126,12 @@ class Fsm_2_5_2_Transfer:
             # 6. Сохранить изменения
             target_layer.commitChanges()
 
+            # 6a. M_47 нормализация (CW + старт NW) целевого слоя изъятия.
+            # Level-map: F_2_5 layer-level, commit-before-M_47 (FIX-rev2-16) — commitChanges
+            # выше закрыл edit-сессию, M_47 сам startEditing на closed .gpkg-слое.
+            from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+            PolygonNormalizationManager.normalize_layer(target_layer)
+
             # 7. Добавить целевой слой в проект (если новый)
             self._add_layer_to_project(target_layer)
 

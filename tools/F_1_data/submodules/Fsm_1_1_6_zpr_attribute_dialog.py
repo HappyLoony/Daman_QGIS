@@ -5,7 +5,7 @@ Fsm_1_1_6_ZprAttributeDialog - Диалог ввода атрибутов кон
 Per-feature диалог для заполнения обязательных полей ЗПР:
 ID, ID_KV, VRI (комбобокс из VRI.json), MIN_AREA_VRI.
 
-Паттерн: аналогичен Fsm_1_2_1_zouit_classifier_dialog.py
+Паттерн: аналогичен Fsm_1_2_15_zouit_classifier_dialog.py
 (навигация по объектам, Skip/Skip All/Apply).
 """
 

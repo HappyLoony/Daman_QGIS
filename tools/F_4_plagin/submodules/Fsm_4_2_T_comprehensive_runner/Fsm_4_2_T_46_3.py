@@ -53,7 +53,7 @@ class TestMsm463:
     # === Helpers ===
 
     def _make_content(self, titles):
-        from Daman_QGIS.managers.styling.submodules.Msm_46_types import (
+        from Daman_QGIS.managers.styling.submodules.Msm_46_1_types import (
             LegendContent, LegendItem,
         )
         return LegendContent(items=[
@@ -62,7 +62,7 @@ class TestMsm463:
         ])
 
     def _make_space(self, w: float = 192, h: float = 76.5):
-        from Daman_QGIS.managers.styling.submodules.Msm_46_types import (
+        from Daman_QGIS.managers.styling.submodules.Msm_46_1_types import (
             AvailableSpace,
         )
         return AvailableSpace(

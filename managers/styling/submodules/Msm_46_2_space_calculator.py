@@ -23,7 +23,7 @@ from typing import Any, Callable, Dict, Optional
 
 from qgis.core import QgsPrintLayout
 
-from .Msm_46_types import AvailableSpace, LegendLayoutMode
+from .Msm_46_1_types import AvailableSpace, LegendLayoutMode
 
 MODULE_ID = "Msm_46_2"
 

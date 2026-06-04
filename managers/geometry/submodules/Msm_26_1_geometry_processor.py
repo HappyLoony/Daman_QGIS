@@ -6,55 +6,47 @@ Msm_26_1 - Геометрические операции для нарезки �
 ============================================================
 
 Все overlay операции (intersection / difference / unaryUnion) передают
-QgsGeometryParameters(gridSize=0.001) в native QGIS API. GEOS 3.9+
+QgsGeometryParameters(gridSize=0.01) в native QGIS API. GEOS 3.9+
 встроенно делает robust snap-rounding noding:
-  1. Все vertices обоих входов снапятся к grid (1 мм)
+  1. Все vertices обоих входов снапятся к grid (1 см = кадастровая точность)
   2. Snap-rounding noder обрабатывает edges/nodes
   3. OverlayNG строит топологически robust результат
-  4. Все output vertices гарантированно ∈ grid
+  4. Все output vertices гарантированно ∈ grid (сразу на cadastral precision)
 
 Это **deterministic** поведение: на одинаковых входах всегда одинаковый
 выход, без floating-point noise.
 
-ВЫБОР gridSize=0.001 (1 мм)
+ВЫБОР gridSize=0.01 (1 см)
 ============================================================
 - < 1 мм → floating-point noise (vertices off by ε)
-- 1 мм → cadastral noise threshold (real precision DXF ≈ 1мм)
-- 1 см → cadastral precision (Приказ Росреестра), но gridSize=0.01
-  слишком агрессивный — съедает реальные mini-gap'ы ЗУ↔ЗПР (реестровые
-  ошибки, которые оператор должен видеть для коррекции через F_2_3)
-Эмпирический sweep 2026-05-22 на проекте Сапун подтвердил 0.001 как
-sweet spot (см. план migrаtion ниже).
+- 1 мм → промежуточная точность, оставляет sliver-spikes 0–3.6 мм
+  на стыках 3+ ЗУ под углом к ЗПР (vertex ЗУ_6 и computed-точка
+  пересечения ЗПР с гранью ЗУ_12/ЗУ_15 не сливаются, образуя
+  выживающий sliver внутри Раздела — баг 199/205/206 на Сапуне 2026-05-28)
+- 1 см → cadastral precision (Приказ Росреестра). Эмпирически (Сапун,
+  2026-05-28) даёт строго лучший результат:
+  · 0 sliver-spikes внутри Раздела (vs 3 при 0.001)
+  · 0 НГС за ЗПР (overflow), 0 Раздел за ЗПР
+  · 100% vertices snapped к 0.01 (vs 89% при 0.001)
+  · mini-gap'ы ЗУ↔ЗПР НЕ съедаются — сохраняются как sliver-НГС
+    вне Раздела (3 шт. 0.16–0.71 м² на Сапуне), валидные индикаторы
+    реестровой неточности
 
-ИСТОРИЯ: до 2026-05-22 был custom workaround
+ИСТОРИЯ
 ============================================================
-До migration этот модуль содержал:
-- `_snap_to_grid(geom)` — manual snap к COORDINATE_PRECISION=0.01 после
-  каждой overlay операции, с area-based exception (MIN_VALID_AREA=0.10)
-  для degenerate cases
-- `MIN_VALID_AREA = 0.10` — порог "артефакт vs значимое"
-- `clip_to_boundary(geom, boundary)` — post-clip к оригинальной ЗПР для
-  защиты от overflow артефактов (добавлен 2026-05-21)
-Этот стек был костылём из 3 слоёв вокруг проблемы которую GEOS OverlayNG
-уже решает встроенно (см. план migrаtion).
+- 2026-05-22: custom workaround (`_snap_to_grid` + `MIN_VALID_AREA=0.10`
+  + `clip_to_boundary`) заменён на GEOS OverlayNG snap-rounding (gridSize=0.001).
+- 2026-05-28: gridSize переведён с 0.001 на 0.01 (см. раздел "ВЫБОР").
+  Удалён `snap_to_cadastral_precision` — стал no-op, gridSize=0.01 даёт
+  точность 0.01 на выходе сразу.
 
 ЕСЛИ ПОЯВИЛАСЬ РЕГРЕССИЯ → НЕ восстанавливайте старые workarounds:
-- НЕ добавлять manual snap (`snappedToGrid`) ВНУТРИ overlay методов
-  (intersection/difference/create_union) — это вернёт удалённый _snap_to_grid
+- НЕ добавлять manual snap (`snappedToGrid`) ВНУТРИ overlay методов —
+  это вернёт удалённый _snap_to_grid
 - НЕ добавлять `MIN_VALID_AREA` filter — GEOS сам отбрасывает degenerate
-- НЕ добавлять post-clip к original boundary (gridSize garantee'ит
-  overflow ≤ 0.5 мм, в пределах cadastral noise)
-- НЕ менять gridSize на 0.01 — потеряете реестровые ошибки
-
-ИСКЛЮЧЕНИЕ: `snap_to_cadastral_precision` — это ОДИН финальный snap к 0.01м
-на готовой output геометрии, ВНЕ overlay методов, вызывается в caller
-(Msm_26_4 после _cut_by_overlays) для нормализации к кадастровой точности
-из CLAUDE.md. Это не регрессия — это разные слои ответственности:
-gridSize=0.001 даёт робастность overlay; snap_to_cadastral_precision даёт
-точность выходных данных.
-
-Вместо этого: diagnose через сравнение с проектом Сапун (Phase 4 plan).
-Полная карта: `documentation/plans/2026-05-22-geometry-processor-gridsize-refactor.md`
+- НЕ добавлять post-clip к original boundary (gridSize гарантирует
+  overflow = 0)
+- НЕ возвращать gridSize=0.001 — на Сапуне даёт sliver-spikes внутри Раздела
 
 Документация GEOS OverlayNG: https://libgeos.org/doxygen/classgeos_1_1operation_1_1overlayng_1_1OverlayNG.html
 
@@ -79,15 +71,15 @@ from qgis.core import (
 )
 
 from Daman_QGIS.utils import log_info, log_warning
-from Daman_QGIS.constants import COORDINATE_PRECISION
 
 # GEOS OverlayNG snap-rounding precision (м).
 # Передаётся в QgsGeometryParameters.setGridSize для intersection/difference/
 # unaryUnion. Все output vertices гарантированно на этом grid.
 #
-# 0.001 = 1 мм. См. module docstring (раздел "ВЫБОР gridSize") для обоснования.
+# 0.01 = 1 см = кадастровая точность (Приказ Росреестра, CLAUDE.md).
+# См. module docstring (раздел "ВЫБОР gridSize") для обоснования.
 # НЕ менять без полного re-sweep'а на не-Сапун проектах.
-GEOS_GRID_SIZE = 0.001  # м
+GEOS_GRID_SIZE = 0.01  # м
 
 
 class Msm_26_1_GeometryProcessor:
@@ -95,7 +87,6 @@ class Msm_26_1_GeometryProcessor:
 
     def __init__(self) -> None:
         """Инициализация процессора"""
-        self.precision = COORDINATE_PRECISION
 
     def _make_params(self) -> QgsGeometryParameters:
         """QgsGeometryParameters со snap-rounding precision.
@@ -528,47 +519,3 @@ class Msm_26_1_GeometryProcessor:
 
         return geom
 
-    def snap_to_cadastral_precision(self, geom: QgsGeometry) -> QgsGeometry:
-        """Финальный snap к кадастровой точности COORDINATE_PRECISION=0.01м.
-
-        ОТЛИЧИЕ от убранного `_snap_to_grid` (history раздел в module docstring):
-        - Старый _snap_to_grid: вызывался ПОСЛЕ КАЖДОГО intersection/difference
-          внутри overlay операций + имел area-based filter (MIN_VALID_AREA=0.10)
-          + требовал clip_to_boundary post-clip. Костыль из 3 слоёв.
-        - Этот метод: ОДИН вызов на ФИНАЛЬНОЙ геометрии (после всех overlay)
-          в caller (Msm_26_4 после _cut_by_overlays). Без area filter, без
-          post-clip. Просто rounding выходных vertices к кадастровой точности.
-
-        ЗАЧЕМ: Output из intersection/difference (gridSize=0.001) на 1мм grid.
-        CLAUDE.md требует «ТОЧНОСТЬ КООРДИНАТ: 0.01м» для всех координат в
-        GeoPackage. Этот метод нормализует output к 0.01м для соответствия.
-
-        Спорные точки (наш кейс T с 8.2мм/9.5мм vertex расхождениями) сохраняются:
-        snap к 0.01м не сольёт точки которые на 8-9мм друг от друга — они
-        округлятся к разным cell'ам на 1см grid. F_0_4 их по-прежнему ловит
-        как «Близкие точки между объектами», оператор правит через F_2_3.
-
-        Защита от degenerate: если snap делает геометрию невалидной/пустой —
-        откат к оригиналу (1мм vertices лучше чем broken geometry).
-
-        Args:
-            geom: Финальная геометрия после всех overlay операций (1мм grid).
-
-        Returns:
-            QgsGeometry: Геометрия на 0.01м grid. Откат к оригиналу при degenerate.
-        """
-        if geom.isEmpty():
-            return geom
-
-        snapped = geom.snappedToGrid(COORDINATE_PRECISION, COORDINATE_PRECISION)
-
-        if snapped.isEmpty():
-            return geom
-
-        if not snapped.isGeosValid():
-            fixed = snapped.makeValid()
-            if fixed.isEmpty():
-                return geom
-            snapped = fixed
-
-        return snapped

@@ -115,6 +115,7 @@ class Fsm_1_3_0_BudgetTask(BaseAsyncTask):
             'cadastral_quarters': 0,
             'land_plots': 0,
             'land_plots_forest_fund': 0,
+            'land_plots_oopt': 0,
             'capital_objects': 0,
             'settlements': [],
             'municipal_districts': [],

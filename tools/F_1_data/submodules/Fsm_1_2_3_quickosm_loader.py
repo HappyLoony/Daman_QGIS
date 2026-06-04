@@ -1060,11 +1060,9 @@ class Fsm_1_2_3_QuickOSMLoader:
 
                 # Если не получилось, пытаемся получить через M_19
                 if not gpkg_path:
-                    project_path = os.path.normpath(project.homePath()) if project.homePath() else ""
-                    if project_path:
-                        structure_manager = registry.get('M_19')
-                        structure_manager.project_root = project_path
-                        gpkg_path = structure_manager.get_gpkg_path(create=False)
+                    structure_manager = registry.get('M_19')
+                    gpkg_path = structure_manager.get_gpkg_path_synced(create=False)
+                    if gpkg_path:
                         log_info(f"Fsm_1_2_3: Получен путь через M_19: {gpkg_path}")
 
                 if not gpkg_path:

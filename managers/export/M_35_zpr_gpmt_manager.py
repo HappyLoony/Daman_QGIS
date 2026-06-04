@@ -201,6 +201,12 @@ class ZprGpmtManager:
                 result['error'] = "Не удалось сохранить ГПМТ в GeoPackage"
                 return result
 
+            # 5a. M_47 нормализация ГПМТ-полигона (CW+NW). Level-map: M_35 layer-level —
+            # saved_layer свежезагружен из .gpkg (closed, isEditable=False) → M_47 startEditing
+            # сам. Точечный слой нумерации (@218) строится M_20 из united_geometry отдельно.
+            from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+            PolygonNormalizationManager.normalize_layer(saved_layer)
+
             # 6. Добавляем в проект
             QgsProject.instance().addMapLayer(saved_layer)
             log_info(f"M_35: Слой {self.GPMT_LAYER_NAME} добавлен в проект")
@@ -348,11 +354,9 @@ class ZprGpmtManager:
         from Daman_QGIS.managers import registry
 
         project = QgsProject.instance()
-        project_path = os.path.normpath(project.homePath())
 
         structure_manager = registry.get('M_19')
-        structure_manager.project_root = project_path
-        gpkg_path = structure_manager.get_gpkg_path(create=False)
+        gpkg_path = structure_manager.get_gpkg_path_synced(create=False)
 
         if not gpkg_path or not os.path.exists(gpkg_path):
             log_error("M_35: GeoPackage не найден")

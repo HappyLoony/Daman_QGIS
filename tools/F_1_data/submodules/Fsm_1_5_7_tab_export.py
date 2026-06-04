@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Сабмодуль экспорта в TAB (MapInfo)
+Сабмодуль экспорта в TAB (MapInfo).
 
-Рефакторинг: Использует BaseExportSubmodule для устранения дублирования.
+Тонкая обёртка над core.TabExporter — диалог + параметры.
+Вся логика записи в TAB и важные инварианты точности — в TabExporter
+(core/tab_exporter.py). См. там же про две ветки записи (NonEarth GDAL
+для МСК с DEFAULT_BOUNDS vs writeAsVectorFormatV3 для WGS-84) и про
+гарантию precision = 0.01 м для координат, попадающих на сетку BOUNDS.
 """
 
 from typing import Dict, Any, List

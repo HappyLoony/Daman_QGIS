@@ -240,27 +240,6 @@ class Msm_26_4_CuttingEngine:
                 log_info(f"Msm_26_4: После overlay нарезки: {len(razdel_data)} Раздел, "
                         f"{len(ngs_data)} НГС (+{self.statistics['overlay_cuts']} разрезов)")
 
-            # 2.4. Финальный snap к кадастровой точности 0.01 м
-            # Geometry processor работает с gridSize=0.001 (робастность GEOS),
-            # output может содержать vertices на 1мм grid. CLAUDE.md требует
-            # точность 0.01м для всех координат GeoPackage — нормализуем здесь.
-            # Спорные кейсы (vertices в радиусе 1-9мм) сохраняются: 0.01м snap
-            # не сольёт их в одну точку, F_0_4 их по-прежнему ловит для F_2_3.
-            razdel_snapped = 0
-            for item in razdel_data:
-                snapped = self.geometry_processor.snap_to_cadastral_precision(item['geometry'])
-                if not snapped.isEmpty():
-                    item['geometry'] = snapped
-                    razdel_snapped += 1
-            ngs_snapped = 0
-            for item in ngs_data:
-                snapped = self.geometry_processor.snap_to_cadastral_precision(item['geometry'])
-                if not snapped.isEmpty():
-                    item['geometry'] = snapped
-                    ngs_snapped += 1
-            log_info(f"Msm_26_4: Финальный snap к 0.01м: "
-                    f"{razdel_snapped} Раздел, {ngs_snapped} НГС нормализованы")
-
             # 2.5. Привязка НГС к кадастровым кварталам
             if kk_layer and ngs_data:
                 kk_matcher = Msm_26_5_KKMatcher(kk_layer)
@@ -480,6 +459,19 @@ class Msm_26_4_CuttingEngine:
             # как ТОЧНЫЕ КОПИИ исходных атрибутов ЗУ (без нормализации).
             # Это соответствует логике: Без_Меж = существующий ЗУ без изменений.
 
+            # M_47 нормализация (CW+NW) features_data ДО M_20 (level-map FIX-OPT-2).
+            # Msm_26_4 features_data-centric: _number_points (M_20) строит «Точки» из
+            # features_data, create_cutting_layer пишет в .gpkg. normalize_geometry ДО обоих →
+            # «Точки» и .gpkg vertex-order согласованы. razdel/ngs здесь; izm/bez_mezh — @505.
+            # НЕ normalize_layer на 4 layer-results (рассогласовало бы «Точки», построенные
+            # M_20 из ненормализованного features_data).
+            from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+            for _flist in (razdel_features, ngs_features):
+                for _item in _flist:
+                    _ng = PolygonNormalizationManager.normalize_geometry(_item.get('geometry'))
+                    if _ng is not None:
+                        _item['geometry'] = _ng
+
             # 4. Нумерация точек и создание точечных слоёв
             razdel_points_data = []
             ngs_points_data = []
@@ -523,12 +515,18 @@ class Msm_26_4_CuttingEngine:
 
             # 6. Создание слоёв Изм и Без_Меж (если detect_no_change включён)
             # Переназначение ID после миграций Без_Меж -> Изм (3.3.2, 3.3.4)
-            if izm_features:
-                for idx, feat in enumerate(izm_features, start=1):
-                    feat['attributes']['ID'] = idx
-            if bez_mezh_features:
-                for idx, feat in enumerate(bez_mezh_features, start=1):
-                    feat['attributes']['ID'] = idx
+            # M_47 нормализация izm/bez_mezh features_data (level-map FIX-OPT-2, 2 of 4 layer-results).
+            # Не идут через M_20 _number_points, но геометрия в .gpkg должна быть CW+NW.
+            for idx, feat in enumerate(izm_features, start=1):
+                feat['attributes']['ID'] = idx
+                _ng = PolygonNormalizationManager.normalize_geometry(feat.get('geometry'))
+                if _ng is not None:
+                    feat['geometry'] = _ng
+            for idx, feat in enumerate(bez_mezh_features, start=1):
+                feat['attributes']['ID'] = idx
+                _ng = PolygonNormalizationManager.normalize_geometry(feat.get('geometry'))
+                if _ng is not None:
+                    feat['geometry'] = _ng
 
             izm_layer_result = None
             bez_mezh_layer_result = None

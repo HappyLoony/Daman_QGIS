@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_1_1_5_DxfBlockImporter - Импортер блоков DXF с атрибутами (INSERT + ATTRIB)
+Fsm_1_1_13_DxfBlockImporter - Импортер блоков DXF с атрибутами (INSERT + ATTRIB)
 
 Использует библиотеку ezdxf для чтения блоков и их атрибутов из DXF файлов.
 OGR провайдер QGIS не поддерживает импорт блоков DXF, поэтому необходим
@@ -26,7 +26,7 @@ from qgis.PyQt.QtCore import QMetaType
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
-class Fsm_1_1_5_DxfBlockImporter:
+class Fsm_1_1_13_DxfBlockImporter:
     """
     Импортер DXF блоков (INSERT entities) с атрибутами (ATTRIB)
 
@@ -70,10 +70,10 @@ class Fsm_1_1_5_DxfBlockImporter:
         try:
             import ezdxf
             self._ezdxf = ezdxf
-            log_info("Fsm_1_1_5: ezdxf успешно импортирован")
+            log_info("Fsm_1_1_13: ezdxf успешно импортирован")
             return True
         except ImportError as e:
-            log_error(f"Fsm_1_1_5: ezdxf не установлен: {e}")
+            log_error(f"Fsm_1_1_13: ezdxf не установлен: {e}")
             return False
 
     def import_blocks(self, file_path: str,
@@ -127,7 +127,7 @@ class Fsm_1_1_5_DxfBlockImporter:
             # Читаем DXF файл
             # ezdxf автоматически определяет кодировку из $CODEPAGE в заголовке DXF
             # Поддерживает: UTF-8, CP1251 (кириллица), CP1252 (латиница) и др.
-            log_info(f"Fsm_1_1_5: Открытие файла {os.path.basename(file_path)}")
+            log_info(f"Fsm_1_1_13: Открытие файла {os.path.basename(file_path)}")
             assert self._ezdxf is not None  # Гарантировано _ensure_ezdxf()
 
             # Определяем формат: бинарный или текстовый DXF
@@ -140,7 +140,7 @@ class Fsm_1_1_5_DxfBlockImporter:
 
             if is_binary:
                 # Бинарный DXF - ezdxf игнорирует encoding, читает как CP1252
-                log_info("Fsm_1_1_5: Обнаружен бинарный DXF, читаем напрямую")
+                log_info("Fsm_1_1_13: Обнаружен бинарный DXF, читаем напрямую")
                 doc = self._ezdxf.readfile(file_path)  # type: ignore[attr-defined]
             else:
                 # Текстовый DXF - ezdxf игнорирует encoding в readfile(),
@@ -153,7 +153,7 @@ class Fsm_1_1_5_DxfBlockImporter:
             # Логируем обнаруженную кодировку
             codepage = doc.header.get('$CODEPAGE', 'не указана')
             format_type = 'бинарный' if is_binary else 'текстовый'
-            log_info(f"Fsm_1_1_5: DXF ({format_type}), $CODEPAGE: {codepage}, "
+            log_info(f"Fsm_1_1_13: DXF ({format_type}), $CODEPAGE: {codepage}, "
                      f"кодировка: {read_encoding if not is_binary else 'N/A'}")
 
             msp = doc.modelspace()
@@ -170,7 +170,7 @@ class Fsm_1_1_5_DxfBlockImporter:
             all_attribute_tags = self._collect_all_attribute_tags(blocks_data)
             result['attributes_found'] = all_attribute_tags
 
-            log_info(f"Fsm_1_1_5: Найдено {len(blocks_data)} блоков, "
+            log_info(f"Fsm_1_1_13: Найдено {len(blocks_data)} блоков, "
                     f"атрибутов: {len(all_attribute_tags)}")
 
             # Определяем CRS
@@ -196,10 +196,10 @@ class Fsm_1_1_5_DxfBlockImporter:
             result['message'] = (f"Импортировано {len(blocks_data)} блоков "
                                f"с {len(all_attribute_tags)} атрибутами")
 
-            log_info(f"Fsm_1_1_5: {result['message']}")
+            log_info(f"Fsm_1_1_13: {result['message']}")
 
         except Exception as e:
-            log_error(f"Fsm_1_1_5: Ошибка импорта: {e}")
+            log_error(f"Fsm_1_1_13: Ошибка импорта: {e}")
             result['errors'].append(str(e))
             result['message'] = f"Ошибка: {e}"
 
@@ -328,7 +328,7 @@ class Fsm_1_1_5_DxfBlockImporter:
         )
 
         if not layer.isValid():
-            log_error(f"Fsm_1_1_5: Не удалось создать memory layer")
+            log_error(f"Fsm_1_1_13: Не удалось создать memory layer")
             return None
 
         # Начинаем редактирование
@@ -375,7 +375,7 @@ class Fsm_1_1_5_DxfBlockImporter:
 
         layer.commitChanges()
 
-        log_info(f"Fsm_1_1_5: Создан слой '{layer_name}' с {layer.featureCount()} объектами")
+        log_info(f"Fsm_1_1_13: Создан слой '{layer_name}' с {layer.featureCount()} объектами")
 
         return layer
 
@@ -469,7 +469,7 @@ class Fsm_1_1_5_DxfBlockImporter:
         try:
             return text.encode('latin-1', errors='replace').decode('cp1251', errors='replace')
         except (UnicodeEncodeError, UnicodeDecodeError) as e:
-            log_warning(f"Fsm_1_1_5: Ошибка перекодировки текста '{text[:20]}...': {e}")
+            log_warning(f"Fsm_1_1_13: Ошибка перекодировки текста '{text[:20]}...': {e}")
             return text
 
     def _detect_dxf_encoding(self, file_path: str) -> Optional[str]:
@@ -522,36 +522,36 @@ class Fsm_1_1_5_DxfBlockImporter:
 
             if codepage_match:
                 codepage = codepage_match.group(1).upper()
-                log_info(f"Fsm_1_1_5: Обнаружена $CODEPAGE: {codepage}")
+                log_info(f"Fsm_1_1_13: Обнаружена $CODEPAGE: {codepage}")
 
                 encoding = codepage_map.get(codepage)
                 if encoding:
-                    log_info(f"Fsm_1_1_5: Используем кодировку: {encoding}")
+                    log_info(f"Fsm_1_1_13: Используем кодировку: {encoding}")
                     return encoding
                 else:
-                    log_warning(f"Fsm_1_1_5: Неизвестная $CODEPAGE: {codepage}, используем cp1251")
+                    log_warning(f"Fsm_1_1_13: Неизвестная $CODEPAGE: {codepage}, используем cp1251")
                     # Для неизвестных ANSI кодировок на русских системах - cp1251
                     return 'cp1251'
             else:
                 # $CODEPAGE не найден - пробуем определить: UTF-8 или CP1251
                 if header_bytes.startswith(b'\xef\xbb\xbf'):
-                    log_info("Fsm_1_1_5: $CODEPAGE не найден, обнаружен UTF-8 BOM")
+                    log_info("Fsm_1_1_13: $CODEPAGE не найден, обнаружен UTF-8 BOM")
                     return 'utf-8-sig'
 
                 try:
                     header_bytes.decode('utf-8', errors='strict')
                     has_non_ascii = any(b > 127 for b in header_bytes)
                     if has_non_ascii:
-                        log_info("Fsm_1_1_5: $CODEPAGE не найден, файл валидный UTF-8, используем utf-8")
+                        log_info("Fsm_1_1_13: $CODEPAGE не найден, файл валидный UTF-8, используем utf-8")
                         return 'utf-8'
                 except UnicodeDecodeError:
                     pass
 
-                log_info("Fsm_1_1_5: $CODEPAGE не найден, используем cp1251 по умолчанию")
+                log_info("Fsm_1_1_13: $CODEPAGE не найден, используем cp1251 по умолчанию")
                 return 'cp1251'
 
         except Exception as e:
-            log_warning(f"Fsm_1_1_5: Ошибка определения кодировки: {e}, используем cp1251")
+            log_warning(f"Fsm_1_1_13: Ошибка определения кодировки: {e}, используем cp1251")
             return 'cp1251'
 
     def _get_project_crs(self) -> QgsCoordinateReferenceSystem:
@@ -604,7 +604,7 @@ class Fsm_1_1_5_DxfBlockImporter:
             return sorted(list(block_names))
 
         except Exception as e:
-            log_error(f"Fsm_1_1_5: Ошибка чтения блоков: {e}")
+            log_error(f"Fsm_1_1_13: Ошибка чтения блоков: {e}")
             return []
 
     def get_block_attributes_preview(self, file_path: str,
@@ -659,5 +659,5 @@ class Fsm_1_1_5_DxfBlockImporter:
             return preview
 
         except Exception as e:
-            log_error(f"Fsm_1_1_5: Ошибка предпросмотра: {e}")
+            log_error(f"Fsm_1_1_13: Ошибка предпросмотра: {e}")
             return {}

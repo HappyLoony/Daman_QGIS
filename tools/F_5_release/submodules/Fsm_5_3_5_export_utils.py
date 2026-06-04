@@ -422,6 +422,37 @@ class ExportUtils:
         return coords
 
     @staticmethod
+    def _get_crs_official_name(
+        region_code: Optional[str],
+        zone: Optional[str]
+    ) -> Optional[str]:
+        """
+        Получить official_name CRS из Base_CRS.json по региону и зоне.
+
+        Args:
+            region_code: Код региона из метаданных (1_4_region_code)
+            zone: Код зоны из метаданных (1_4_1_zone_code)
+
+        Returns:
+            official_name из Base_CRS.json или None (регион не указан / не найден)
+        """
+        if not region_code or region_code == '-':
+            return None
+
+        try:
+            from Daman_QGIS.managers.reference.submodules.Msm_4_19_crs_reference_manager import (
+                CRSReferenceManager
+            )
+            crs_ref = CRSReferenceManager()
+            entry = crs_ref.get_crs_entry(region_code, zone or '-')
+            if entry:
+                return entry.get('official_name')
+        except Exception as e:
+            log_warning(f"Fsm_5_3_5: не удалось получить official_name CRS: {str(e)}")
+
+        return None
+
+    @staticmethod
     def format_template_text(
         text: Optional[str],
         metadata: Optional[Dict[str, Any]] = None,
@@ -436,7 +467,7 @@ class ExportUtils:
         - Все поля из метаданных проекта (metadata)
         - Дополнительная информация о слое (layer_info)
         - Автоматические:
-          - {crs_name}: форматированное название СК (СК_63_5 -> СК 63 зона 5)
+          - {crs_name}: official_name СК из Base_CRS.json (fallback: 1_4_2_crs_description)
           - {area_formatted}: площадь с пробелами (1 234 567)
           - {area_ha}: площадь в гектарах
           - {object_type}: тип объекта из метаданных
@@ -461,8 +492,15 @@ class ExportUtils:
         if layer_info:
             variables.update(layer_info)
 
-        # CRS: используем 1_4_2_crs_description (человекочитаемое название СК)
-        if '1_4_2_crs_description' in variables:
+        # CRS: official_name из Base_CRS.json (по 1_4_region_code + 1_4_1_zone_code)
+        # Fallback: 1_4_2_crs_description — кастомная CRS (регион "Не указано")
+        crs_official = ExportUtils._get_crs_official_name(
+            variables.get('1_4_region_code'),
+            variables.get('1_4_1_zone_code')
+        )
+        if crs_official:
+            variables['crs_name'] = crs_official
+        elif '1_4_2_crs_description' in variables:
             variables['crs_name'] = variables['1_4_2_crs_description']
 
         # object_type из метаданных

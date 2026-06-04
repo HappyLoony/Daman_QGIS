@@ -129,8 +129,16 @@ class Fsm_2_7_2_MergeProcessor:
                         "Для объединения контуры должны иметь "
                         "общую границу (не менее 2 общих точек)"}
 
-            # Нормализация геометрии: кольца начинаются с СЗ точки (П/0592)
-            merged_geom = self._normalize_polygon_geometry(merged_geom)
+            # M_47 нормализация merged geom: ВСЕ кольца CW + старт с СЗ (unified_cw).
+            # Level-map (corrected execution 2026-05-31): Fsm_2_7_2 = normalize_geometry
+            # на geometry-уровне ЗДЕСЬ (до setGeometry @178 → до M_20 @208), НЕ normalize_layer
+            # @207 — слой в edit-сессии (addFeature без commit), strict isEditable guard
+            # пропустил бы normalize_layer. Бонус: локальный _normalize_polygon_geometry делал
+            # только NW-ротацию без CW-реверса; M_47 даёт полный unified_cw.
+            from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+            _norm = PolygonNormalizationManager.normalize_geometry(merged_geom)
+            if _norm is not None:
+                merged_geom = _norm
 
             is_multipart = merged_geom.isMultipart()
             new_area = merged_geom.area()
@@ -756,9 +764,14 @@ class Fsm_2_7_2_MergeProcessor:
                 contour_type = 'Внешний' if is_outer else 'Внутренний'
                 contour_number = ring_idx + 1
 
-                # Убираем замыкающую точку и нормализуем от СЗ угла
+                # Убираем замыкающую точку и нормализуем от СЗ угла.
+                # FIX-8: _rotate_ring_to_nw заменён на _ring_utils.rotate_to_nw (canonical).
+                # FIX-rev2-12: _ring_utils работает с tuple, ring_points = list[QgsPointXY] →
+                # конверсия на границе (rotate_to_nw НЕ subscriptable на QgsPointXY).
+                from Daman_QGIS.managers.geometry import _ring_utils
                 ring_points = list(ring[:-1])
-                ring_points = self._rotate_ring_to_nw(ring_points)
+                _tuples = _ring_utils.rotate_to_nw([(p.x(), p.y()) for p in ring_points])
+                ring_points = [QgsPointXY(x, y) for (x, y) in _tuples]
 
                 for pt_idx, point in enumerate(ring_points):
                     x_math = point.x()
@@ -784,95 +797,3 @@ class Fsm_2_7_2_MergeProcessor:
                     point_id += 1
 
         return points_data
-
-    @staticmethod
-    def _normalize_polygon_geometry(geom: QgsGeometry) -> QgsGeometry:
-        """Нормализовать геометрию полигона: кольца начинаются с СЗ точки
-
-        После unaryUnion() первая вершина оказывается на стыке
-        объединённых полигонов. Эта функция ротирует каждое кольцо
-        чтобы обход начинался с СЗ точки (стандарт П/0592).
-
-        Args:
-            geom: Исходная геометрия (Polygon или MultiPolygon)
-
-        Returns:
-            Новая геометрия с нормализованными кольцами
-        """
-        from qgis.core import QgsPointXY
-
-        if geom.isEmpty():
-            return geom
-
-        if geom.isMultipart():
-            polygons = geom.asMultiPolygon()
-        else:
-            polygons = [geom.asPolygon()]
-
-        new_polygons = []
-        for polygon in polygons:
-            new_rings = []
-            for ring in polygon:
-                # Убираем замыкающую точку
-                pts = list(ring[:-1])
-                if len(pts) < 3:
-                    new_rings.append(ring)
-                    continue
-
-                # Находим СЗ точку
-                min_x = min(p.x() for p in pts)
-                max_y = max(p.y() for p in pts)
-                best_idx = 0
-                best_dist = float('inf')
-                for i, p in enumerate(pts):
-                    d = (p.x() - min_x) ** 2 + (p.y() - max_y) ** 2
-                    if d < best_dist:
-                        best_dist = d
-                        best_idx = i
-
-                # Ротация
-                if best_idx > 0:
-                    pts = pts[best_idx:] + pts[:best_idx]
-
-                # Замыкаем кольцо
-                pts.append(QgsPointXY(pts[0]))
-                new_rings.append(pts)
-            new_polygons.append(new_rings)
-
-        if geom.isMultipart():
-            return QgsGeometry.fromMultiPolygonXY(new_polygons)
-        else:
-            return QgsGeometry.fromPolygonXY(new_polygons[0])
-
-    @staticmethod
-    def _rotate_ring_to_nw(points: list) -> list:
-        """Ротация кольца чтобы нумерация начиналась с СЗ точки
-
-        Находит точку ближайшую к СЗ углу MBR кольца
-        и ротирует список, чтобы она стала первой.
-        Аналог PointNumberingManager.find_nw_point_index + normalize_ring.
-
-        Args:
-            points: Список QgsPointXY (без замыкающей точки)
-
-        Returns:
-            Ротированный список
-        """
-        if len(points) <= 1:
-            return points
-
-        min_x = min(p.x() for p in points)
-        max_y = max(p.y() for p in points)
-
-        best_idx = 0
-        best_dist_sq = float('inf')
-        for idx, pt in enumerate(points):
-            dist_sq = (pt.x() - min_x) ** 2 + (pt.y() - max_y) ** 2
-            if dist_sq < best_dist_sq:
-                best_dist_sq = dist_sq
-                best_idx = idx
-
-        if best_idx > 0:
-            points = points[best_idx:] + points[:best_idx]
-
-        return points

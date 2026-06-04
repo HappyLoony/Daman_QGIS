@@ -17,7 +17,7 @@ from Daman_QGIS.constants import PLUGIN_NAME, EXPORT_DPI_ROSREESTR
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.title_generator import TitleGenerator
 from Daman_QGIS.managers import registry
-from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
+from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import (
     find_legend,
 )
 
@@ -355,7 +355,7 @@ class LayoutManager:
         layout = self._get_layout()
         if not layout:
             return False
-        # Находим элемент легенды (OPT-2: общий helper из Msm_46_utils)
+        # Находим элемент легенды (OPT-2: общий helper из Msm_46_5_utils)
         legend = find_legend(layout)
 
         if not legend:

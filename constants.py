@@ -731,7 +731,7 @@ EDGE_CDP_STARTUP_TIMEOUT = 10  # секунд ожидания CDP endpoint по
 # ============================================================================
 
 # Маппинг корневых тегов XML выписок на типы записей
-# Используется: Fsm_1_1_4_vypiska_importer, Fsm_1_1_xml_detector
+# Используется: Fsm_1_1_4_vypiska_importer, Fsm_1_1_10_xml_detector
 # Поддерживает как extract_about_property_*, так и extract_base_params_*
 ROOT_TAG_TO_RECORD_MAP = {
     # Земельные участки
@@ -764,7 +764,7 @@ ROOT_TAG_TO_RECORD_MAP = {
 
 # Корневой тег для уведомлений о внесении сведений в реестр границ
 # (interact_entry_boundaries v2.0.1, Приказ Росреестра П/0104/25 от 27.02.2026,
-# вступает в силу с 01.07.2026). Используется: Fsm_1_1_xml_detector,
+# вступает в силу с 01.07.2026). Используется: Fsm_1_1_10_xml_detector,
 # Fsm_1_1_8_iboundary_importer.
 IBOUNDARY_ROOT_TAG = 'interact_entry_boundaries'
 

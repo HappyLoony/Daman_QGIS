@@ -82,7 +82,7 @@ class PolygonBuilder:
         )
 
         if not polygon_candidates:
-            log_warning("Fsm_1_1_2: нет подходящих полилиний для создания полигонов")
+            log_warning("Fsm_1_1_12: нет подходящих полилиний для создания полигонов")
             return []
 
         if progress_callback:
@@ -115,7 +115,7 @@ class PolygonBuilder:
                         polygon = polygon.makeValid()
                         # Проверяем что исправление сработало
                         if not polygon or polygon.isEmpty() or not polygon.isGeosValid():
-                            log_warning(f"Fsm_1_1_2: Не удалось исправить невалидный полигон, пропускаем")
+                            log_warning(f"Fsm_1_1_12: Не удалось исправить невалидный полигон, пропускаем")
                             continue
 
                 result_polygons.append(polygon)
@@ -286,41 +286,6 @@ class PolygonBuilder:
 
         return groups
     
-    def _normalize_ring_orientation(self, ring: List[QgsPointXY], should_be_ccw: bool) -> List[QgsPointXY]:
-        """
-        Нормализация ориентации кольца (CCW для exterior, CW для holes).
-
-        Best practice из Shapely: exterior CCW (sign=1.0), interior CW.
-        Это стандарт OGC Simple Features и обеспечивает корректную работу
-        с различными GIS инструментами.
-
-        Args:
-            ring: Список точек кольца
-            should_be_ccw: True для exterior (CCW), False для holes (CW)
-
-        Returns:
-            Кольцо с правильной ориентацией
-        """
-        if len(ring) < 3:
-            return ring
-
-        # Вычисляем signed area (формула Shoelace)
-        # Положительная = CCW, отрицательная = CW
-        signed_area = 0.0
-        n = len(ring)
-        for i in range(n):
-            j = (i + 1) % n
-            signed_area += ring[i].x() * ring[j].y()
-            signed_area -= ring[j].x() * ring[i].y()
-
-        is_ccw = signed_area > 0
-
-        # Инвертируем если ориентация неправильная
-        if is_ccw != should_be_ccw:
-            return list(reversed(ring))
-
-        return ring
-
     def _create_polygon_with_rings(self,
                                   exterior: Dict[str, Any],
                                   holes: List[Dict[str, Any]]) -> Optional[QgsGeometry]:
@@ -338,27 +303,18 @@ class PolygonBuilder:
         Returns:
             Полигон с дырками или None при ошибке
         """
-        # Нормализуем exterior (CCW)
-        exterior_ring = self._normalize_ring_orientation(
-            exterior['vertices'],
-            should_be_ccw=True
-        )
-        rings = [exterior_ring]
-
-        # Нормализуем и добавляем holes (CW)
-        for hole in holes:
-            hole_ring = self._normalize_ring_orientation(
-                hole['vertices'],
-                should_be_ccw=False  # Holes должны быть CW
-            )
-            rings.append(hole_ring)
+        # FIX-4: локальная OGC-нормализация (_normalize_ring_orientation) убрана —
+        # она задавала exterior CCW / holes CW (OGC), что конфликтует с unified_cw.
+        # Нормализация теперь делегирована M_47 централизованно в F_1_1 @369
+        # (normalize_layer после импорта слоя). Builder строит кольца как есть.
+        rings = [exterior['vertices']] + [hole['vertices'] for hole in holes]
 
         # Создаем геометрию
         polygon = QgsGeometry.fromPolygonXY(rings)
 
         # Проверка корректности
         if not polygon or polygon.isEmpty():
-            log_warning("Fsm_1_1_2: не удалось создать полигон с дырками")
+            log_warning("Fsm_1_1_12: не удалось создать полигон с дырками")
             return None
 
         return polygon
@@ -385,7 +341,7 @@ class PolygonBuilder:
                 fixed = polygon.makeValid()
                 if fixed and fixed.isGeosValid():
                     valid_polygons.append(fixed)
-                    log_info("Fsm_1_1_2: геометрия исправлена")
+                    log_info("Fsm_1_1_12: геометрия исправлена")
                 else:
                     self.statistics['invalid_geometries'] += 1
             else:
@@ -395,7 +351,7 @@ class PolygonBuilder:
             errors = polygon.validateGeometry()
             if errors:
                 for error in errors:
-                    log_warning(f"Fsm_1_1_2: топологическая ошибка: {error.what()}")
+                    log_warning(f"Fsm_1_1_12: топологическая ошибка: {error.what()}")
         
         return valid_polygons
     
@@ -512,14 +468,14 @@ class PolygonBuilder:
                         total_holes += len(part) - 1
 
         if skipped_geoms:
-            log_warning(f"Fsm_1_1_2: {len(skipped_geoms)} GeometryCollection нормализованы в Polygon:\n" + "\n".join(skipped_geoms))
+            log_warning(f"Fsm_1_1_12: {len(skipped_geoms)} GeometryCollection нормализованы в Polygon:\n" + "\n".join(skipped_geoms))
 
         # Создаем MultiPolygon геометрию
         multi_polygon_geom = QgsGeometry.fromMultiPolygonXY(multi_parts)
 
         # Валидация и исправление геометрии
         if not multi_polygon_geom.isGeosValid():
-            log_warning("Fsm_1_1_2: MultiPolygon невалиден, исправление геометрии...")
+            log_warning("Fsm_1_1_12: MultiPolygon невалиден, исправление геометрии...")
             multi_polygon_geom = multi_polygon_geom.makeValid()
 
             # makeValid() может вернуть GeometryCollection — извлекаем полигоны
@@ -528,7 +484,7 @@ class PolygonBuilder:
             if flat_type == Qgis.WkbType.GeometryCollection:
                 centroid = multi_polygon_geom.centroid().asPoint()
                 log_warning(
-                    f"Fsm_1_1_2: makeValid() вернул GeometryCollection "
+                    f"Fsm_1_1_12: makeValid() вернул GeometryCollection "
                     f"at ({centroid.x():.2f}, {centroid.y():.2f}), извлекаем полигоны"
                 )
                 extracted_parts = []
@@ -541,12 +497,12 @@ class PolygonBuilder:
                             extracted_parts.append(poly_data)
                 if extracted_parts:
                     multi_polygon_geom = QgsGeometry.fromMultiPolygonXY(extracted_parts)
-                    log_info(f"Fsm_1_1_2: извлечено {len(extracted_parts)} полигонов из GeometryCollection")
+                    log_info(f"Fsm_1_1_12: извлечено {len(extracted_parts)} полигонов из GeometryCollection")
                 else:
-                    log_error("Fsm_1_1_2: GeometryCollection не содержит валидных полигонов")
+                    log_error("Fsm_1_1_12: GeometryCollection не содержит валидных полигонов")
 
             elif not multi_polygon_geom.isGeosValid():
-                log_error("Fsm_1_1_2: Не удалось исправить геометрию MultiPolygon")
+                log_error("Fsm_1_1_12: Не удалось исправить геометрию MultiPolygon")
 
         # Создаем ОДИН feature с MultiPolygon
         feature = QgsFeature()
@@ -563,7 +519,7 @@ class PolygonBuilder:
         layer.commitChanges()
         layer.updateExtents()
 
-        log_info(f"Fsm_1_1_2: создан MultiPolygon с {len(multi_parts)} частями и {total_holes} внутренними контурами")
+        log_info(f"Fsm_1_1_12: создан MultiPolygon с {len(multi_parts)} частями и {total_holes} внутренними контурами")
 
         return layer
 
@@ -604,7 +560,7 @@ class PolygonBuilder:
             if not polygon.isGeosValid():
                 polygon = polygon.makeValid()
                 if not polygon or polygon.isEmpty() or not polygon.isGeosValid():
-                    log_warning(f"Fsm_1_1_2: Полигон #{idx} невалиден, пропускаем")
+                    log_warning(f"Fsm_1_1_12: Полигон #{idx} невалиден, пропускаем")
                     continue
 
             # Считаем количество внутренних контуров (дырок)
@@ -644,7 +600,7 @@ class PolygonBuilder:
         layer.commitChanges()
         layer.updateExtents()
 
-        log_info(f"Fsm_1_1_2: создано {len(features_to_add)} полигонов с {total_holes} внутренними контурами")
+        log_info(f"Fsm_1_1_12: создано {len(features_to_add)} полигонов с {total_holes} внутренними контурами")
 
         return layer
     
@@ -671,7 +627,7 @@ class PolygonBuilder:
                 polylines.append(geom)
 
         if not polylines:
-            log_warning("Fsm_1_1_2: нет геометрий в слое")
+            log_warning("Fsm_1_1_12: нет геометрий в слое")
             return None
 
         # Создаем построитель и обрабатываем
@@ -695,5 +651,5 @@ class PolygonBuilder:
             return new_layer
         else:
             # Изменяем существующий (не рекомендуется)
-            log_warning("Fsm_1_1_2: изменение существующего слоя не реализовано")
+            log_warning("Fsm_1_1_12: изменение существующего слоя не реализовано")
             return None

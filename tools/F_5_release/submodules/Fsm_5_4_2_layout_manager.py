@@ -19,7 +19,7 @@ from qgis.core import (
 from Daman_QGIS.utils import log_info, log_error, log_warning
 from Daman_QGIS.constants import EXPORT_DPI_ROSREESTR
 from Daman_QGIS.managers import registry
-from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
+from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import (
     find_legend, filter_print_visible,
 )
 from Daman_QGIS.managers.styling.submodules.Msm_34_1_layout_builder import (
@@ -182,7 +182,7 @@ class Fsm_5_4_2_LayoutManager:
         Returns:
             True при успехе
         """
-        # Найти легенду (OPT-2: общий helper из Msm_46_utils)
+        # Найти легенду (OPT-2: общий helper из Msm_46_5_utils)
         legend = find_legend(layout)
         main_map = None
         for item in layout.items():

@@ -32,6 +32,7 @@ class DocumentTemplate:
     title_template: str  # с {переменными}
     supports_wgs84: bool = False
     contour_format: Optional[str] = None  # "Контур {№}" для перечней координат
+    contour_title_by_work_type: bool = False  # шапка контура по типу работы (ОЗУ/ПС/Изм из имени слоя) + поле ID фичи; имеет приоритет над contour_format
     column_source: Optional[Dict[str, str]] = field(default=None)  # {"database": "Base_cutting", "field": "full_name"}
     filename_template: str = ""  # шаблон имени файла
     priority: int = 0  # -1 = universal fallback
@@ -51,6 +52,7 @@ COORD_CUTTING_OKS_RAZDEL = DocumentTemplate(
     source_layers=['Le_2_1_1_*_Раздел'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
+    contour_title_by_work_type=True,
     supports_wgs84=True,
     filename_template='Приложение_{appendix}_координаты_Раздел',
 )
@@ -62,6 +64,7 @@ COORD_CUTTING_OKS_NGS = DocumentTemplate(
     source_layers=['Le_2_1_1_*_НГС'],
     title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
+    contour_title_by_work_type=True,
     supports_wgs84=True,
     filename_template='Приложение_{appendix}_координаты_НГС',
 )
@@ -73,6 +76,7 @@ COORD_CUTTING_OKS_PS = DocumentTemplate(
     source_layers=['Le_2_1_1_*_ПС*'],
     title_template='Перечень координат характерных точек контуров публичных сервитутов',
     contour_format='Контур {№}',
+    contour_title_by_work_type=True,
     supports_wgs84=True,
     filename_template='Приложение_{appendix}_координаты_ПС',
 )
@@ -150,8 +154,9 @@ COORD_STAGE_1 = DocumentTemplate(
     doc_type='coordinate_list',
     name='Перечень координат (Этап 1)',
     source_layers=['Le_2_7_1_*'],
-    title_template='Перечень координат характерных точек границ образуемых земельных участков (1 этап)',
+    title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
+    contour_title_by_work_type=True,
     supports_wgs84=True,
     filename_template='Приложение_{appendix}_координаты_Этап_1',
 )
@@ -161,8 +166,9 @@ COORD_STAGE_2 = DocumentTemplate(
     doc_type='coordinate_list',
     name='Перечень координат (Этап 2)',
     source_layers=['Le_2_7_2_*'],
-    title_template='Перечень координат характерных точек границ образуемых земельных участков (2 этап)',
+    title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
+    contour_title_by_work_type=True,
     supports_wgs84=True,
     filename_template='Приложение_{appendix}_координаты_Этап_2',
 )
@@ -172,8 +178,9 @@ COORD_STAGE_FINAL = DocumentTemplate(
     doc_type='coordinate_list',
     name='Перечень координат (Итог)',
     source_layers=['Le_2_7_3_*'],
-    title_template='Перечень координат характерных точек границ образуемых земельных участков (итог)',
+    title_template='Перечень координат характерных точек границ образуемых земельных участков',
     contour_format='Контур {№}',
+    contour_title_by_work_type=True,
     supports_wgs84=True,
     filename_template='Приложение_{appendix}_координаты_Итог',
 )
@@ -199,8 +206,7 @@ COORD_GPMT = DocumentTemplate(
     name='Координаты ГПМТ',
     source_layers=['L_1_14_1_ГПМТ'],
     title_template='Перечень координат характерных точек границ территории, '
-                   'применительно к которой осуществляется подготовка проекта '
-                   'межевания территории {object_type} объекта',
+                   'в отношении которой разработан проект межевания территории',
     supports_wgs84=True,
     filename_template='ГПМТ_координаты',
 )

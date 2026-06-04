@@ -523,7 +523,34 @@ class ProjectStructureManager:
         db_folder = self.get_folder(FolderType.DATABASE, create=create)
         if not db_folder:
             return None
-        return os.path.join(db_folder, PROJECT_FILES["gpkg"]["name"])
+        # Нормализация в forward-slash (best practice QGIS на Windows).
+        # КРИТИЧНО: URI слоёв строится как f"{gpkg_path}|layername=...". На Windows
+        # os.path.join даёт backslash-формат, а исходные слои (L_*) загружены с
+        # forward-slash. Один физический project.gpkg с РАЗНЫМ написанием пути QGIS
+        # трактует как РАЗНЫЕ datasource → две SQLite-связи к файлу → при ручном
+        # редактировании одного слоя write-lock GeoPackage блокирует ЧТЕНИЕ слоёв
+        # на другой связи → слои и подписи пропадают до перезапуска. Единый
+        # forward-slash формат = одна связь = нет блокировки.
+        return os.path.join(db_folder, PROJECT_FILES["gpkg"]["name"]).replace("\\", "/")
+
+    def get_gpkg_path_synced(self, create: bool = False) -> Optional[str]:
+        """`get_gpkg_path` с предварительной синхронизацией `project_root` из
+        текущего QgsProject.
+
+        Консолидирует дублируемый в инструментах паттерн «class 3»:
+            project = QgsProject.instance()
+            structure_manager.project_root = os.path.normpath(project.homePath())
+            gpkg_path = structure_manager.get_gpkg_path(create=...)
+
+        Если проект не открыт (homePath пуст) — project_root не перетирается, и
+        результат определяется текущим состоянием (обычно None). Возвращаемый путь
+        всегда forward-slash (см. get_gpkg_path).
+        """
+        from qgis.core import QgsProject
+        home = QgsProject.instance().homePath()
+        if home:
+            self.project_root = os.path.normpath(home)
+        return self.get_gpkg_path(create=create)
 
     def get_qgs_path(self, project_name: str) -> Optional[str]:
         """

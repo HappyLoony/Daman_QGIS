@@ -34,6 +34,7 @@ class SpatialAnalyzer:
             'cadastral_quarters': 0,
             'land_plots': 0,
             'land_plots_forest_fund': 0,  # ЗУ в лесном фонде
+            'land_plots_oopt': 0,  # ЗУ в землях ООПТ
             'capital_objects': 0,
             'settlements': [],
             'municipal_districts': [],  # Муниципальные образования (АТД_МО)
@@ -74,13 +75,23 @@ class SpatialAnalyzer:
             log_info(f"Fsm_1_3_4: Земельные участки (округленные) - {count} из {total}")
 
             # 2.1. Земельные участки в лесном фонде
-            forest_fund_count = self._count_forest_fund_land_plots(layer, boundaries_geom)
+            forest_fund_count = self._count_land_plots_by_category(
+                layer, boundaries_geom, "Земли лесного фонда"
+            )
             results['land_plots_forest_fund'] = forest_fund_count
             log_info(f"Fsm_1_3_4: ЗУ в лесном фонде - {forest_fund_count} из {count}")
+
+            # 2.2. Земельные участки в землях ООПТ
+            oopt_count = self._count_land_plots_by_category(
+                layer, boundaries_geom, "Земли особо охраняемых территорий и объектов"
+            )
+            results['land_plots_oopt'] = oopt_count
+            log_info(f"Fsm_1_3_4: ЗУ в землях ООПТ - {oopt_count} из {count}")
         else:
             log_warning(f"Fsm_1_3_4: Слой {LAYER_SELECTION_ZU} не найден - количество ЗУ будет 0")
             results['land_plots'] = 0
             results['land_plots_forest_fund'] = 0
+            results['land_plots_oopt'] = 0
 
         # 3. Объекты капитального строительства (используем слой выборки)
         layer = self._get_layer_by_name(LAYER_SELECTION_OKS)
@@ -526,15 +537,17 @@ class SpatialAnalyzer:
             log_warning(f"Fsm_1_3_4: Ошибка получения муниципальных образований - {str(e)}")
             return []
 
-    def _count_forest_fund_land_plots(self, layer, boundaries_geom):
-        """Подсчет земельных участков с категорией 'Земли лесного фонда' (только уникальные кадастровые номера)
+    def _count_land_plots_by_category(self, layer, boundaries_geom, target_category):
+        """Подсчет земельных участков с заданной категорией земель (только уникальные кадастровые номера)
 
         Args:
             layer: Слой земельных участков (Le_1_9_1_1_Выборка_ЗУ - округленный слой из F_2_1)
             boundaries_geom: Подготовленная геометрия границ
+            target_category: Точное название категории, напр. "Земли лесного фонда"
+                или "Земли особо охраняемых территорий и объектов"
 
         Returns:
-            int: Количество уникальных ЗУ в лесном фонде
+            int: Количество уникальных ЗУ в заданной категории
         """
 
         try:
@@ -568,7 +581,7 @@ class SpatialAnalyzer:
             if not cad_field:
                 log_warning(f"Fsm_1_3_4: Поле с кадастровым номером не найдено в {layer.name()}, подсчёт всех объектов")
             else:
-                log_info(f"Fsm_1_3_4: Используется поле '{cad_field}' для уникальности лесных ЗУ")
+                log_info(f"Fsm_1_3_4: Используется поле '{cad_field}' для уникальности ЗУ категории '{target_category}'")
 
             unique_cadnums = set()  # Набор уникальных кадастровых номеров лесных ЗУ
             total_features = layer.featureCount()
@@ -582,7 +595,7 @@ class SpatialAnalyzer:
                 # Если CRS отличаются, создаем трансформацию
                 if boundaries_crs != layer_crs:
                     transform = QgsCoordinateTransform(layer_crs, boundaries_crs, self.project)
-                    log_info(f"Fsm_1_3_4: Трансформация CRS для лесных ЗУ")
+                    log_info(f"Fsm_1_3_4: Трансформация CRS для ЗУ категории '{target_category}'")
                 else:
                     transform = None
             else:
@@ -617,7 +630,7 @@ class SpatialAnalyzer:
                             if geom.intersects(boundaries_geom):
                                 # Проверяем категорию
                                 category = feature.attribute(field_name)
-                                if category == "Земли лесного фонда":
+                                if category == target_category:
                                     if cad_field:
                                         # Добавляем уникальный кадастровый номер
                                         cad_num = feature.attribute(cad_field)
@@ -640,7 +653,7 @@ class SpatialAnalyzer:
                             if geom.intersects(boundaries_geom):
                                 # Проверяем категорию
                                 category = feature.attribute(field_name)
-                                if category == "Земли лесного фонда":
+                                if category == target_category:
                                     if cad_field:
                                         # Добавляем уникальный кадастровый номер
                                         cad_num = feature.attribute(cad_field)
@@ -652,11 +665,11 @@ class SpatialAnalyzer:
             # Возвращаем количество уникальных номеров или обычный счётчик
             result = len(unique_cadnums) if cad_field else count
             if cad_field:
-                log_info(f"Fsm_1_3_4: Лесные ЗУ - {result} уникальных кадастровых номеров")
+                log_info(f"Fsm_1_3_4: ЗУ категории '{target_category}' - {result} уникальных кадастровых номеров")
             return result
 
         except Exception as e:
-            log_warning(f"Fsm_1_3_4: Ошибка подсчета лесных ЗУ - {str(e)}")
+            log_warning(f"Fsm_1_3_4: Ошибка подсчета ЗУ категории '{target_category}' - {str(e)}")
             return 0
 
     def _get_intersecting_oopt(self, layer, boundaries_geom):

@@ -168,6 +168,15 @@ class TransformApplicator:
             # Успех - удаляем .bak
             _cleanup_bak(bak_path)
 
+            # M_47 нормализация (CW+NW) после МСК-репроекции (OPT-1, level-map debate 2026-05-31).
+            # F_0 мутирует координаты in-place (transform сохраняет порядок вершин, но v0=NW
+            # value-dependent → поворот СК может сменить NW-вершину). tab_exporter наследует
+            # физ. порядок AS-IS → нормализуем для unified_cw. Слой closed после commitChanges
+            # @158 → M_47 startEditing сам. Идемпотентно: если F_0 = input-conditioning ДО
+            # нарезки, M_47 здесь = no-op через equals() (решение пользователя «оба sequencing»).
+            from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+            PolygonNormalizationManager.normalize_layer(layer)
+
             log_info(f"Fsm_0_6_3: Трансформировано {transform_count} фич")
 
             if round_fallback_count > 0:
@@ -305,8 +314,10 @@ class TransformApplicator:
         source_name = os.path.splitext(os.path.basename(source_path))[0]
         layer_name = layer.name()
 
-        # Файл GPKG: рядом с исходным, имя = имя слоя
-        gpkg_path = os.path.join(source_dir, f"{source_name}_transform.gpkg")
+        # Файл GPKG: рядом с исходным, имя = имя слоя.
+        # forward-slash (best practice QGIS на Windows, консистентно с M_19.get_gpkg_path):
+        # одно написание datasource во всём проекте → нет расщепления связей GeoPackage.
+        gpkg_path = os.path.join(source_dir, f"{source_name}_transform.gpkg").replace("\\", "/")
 
         # Если файл уже существует, добавляем суффикс
         counter = 1

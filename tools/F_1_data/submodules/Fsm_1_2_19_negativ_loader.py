@@ -234,7 +234,7 @@ class Fsm_1_2_19_NegativLoader:
             grouped: Словарь target_name -> features (мутируется)
             ref_managers: Менеджеры справочников для получения списка слоёв
         """
-        from .Fsm_1_2_19_negativ_classifier_dialog import NegativClassifierDialog
+        from .Fsm_1_2_20_negativ_classifier_dialog import NegativClassifierDialog
 
         # Получаем список всех слоёв для комбобокса
         all_layers = ref_managers.layer.get_base_layers()

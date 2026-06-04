@@ -28,7 +28,7 @@ from Daman_QGIS.core.base_tool import BaseTool
 from Daman_QGIS.utils import log_info, log_error, log_warning, log_success, path_for_display
 from Daman_QGIS.constants import EXPORT_DPI_ROSREESTR
 from Daman_QGIS.managers import get_reference_managers, registry
-from Daman_QGIS.managers.styling.submodules.Msm_46_utils import (
+from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import (
     filter_print_visible,
 )
 

@@ -35,7 +35,7 @@ from Daman_QGIS.database.project_db import ProjectDB
 from .submodules.Fsm_0_4_5_coordinator import Fsm_0_4_5_TopologyCoordinator
 from .submodules.Fsm_0_4_6_fixer import Fsm_0_4_6_TopologyFixer
 from .submodules.Fsm_0_4_7_dialog import Fsm_0_4_7_TopologyCheckDialog
-from .submodules.Fsm_0_4_10_async_task import Fsm_0_4_10_TopologyCheckTask
+from .submodules.Fsm_0_4_15_async_task import Fsm_0_4_15_TopologyCheckTask
 from Daman_QGIS.constants import PLUGIN_NAME
 # registry already imported above
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
@@ -198,7 +198,7 @@ class F_0_4_TopologyCheck(BaseTool):
         for layer in layers:
             # Создаём task для этого слоя (передаём layer_id, НЕ layer!)
             # Также передаём processing_context созданный в main thread
-            task = Fsm_0_4_10_TopologyCheckTask(
+            task = Fsm_0_4_15_TopologyCheckTask(
                 layer_id=layer.id(),
                 layer_name=layer.name(),
                 processing_context=processing_context

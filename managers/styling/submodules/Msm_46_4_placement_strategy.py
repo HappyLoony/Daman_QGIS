@@ -7,7 +7,7 @@ Strategy pattern (3 режима LegendLayoutMode):
 - FixedPanelPlacement — фиксированная панель вне main_map (без рамки, clamp по высоте)
 - OutsidePlacement    — STUB v1: легенда на отдельном листе (план v2 Atlas)
 
-OPT-2 consensus: find_legend переиспользуется из Msm_46_utils,
+OPT-2 consensus: find_legend переиспользуется из Msm_46_5_utils,
 не дублируется внутри ABC.
 
 # TODO QGIS 3.44+: после апгрейда LTR _apply_wrap_to_titles можно удалить
@@ -28,8 +28,8 @@ from qgis.PyQt.QtGui import QFont, QFontMetricsF  # QFont для fallback в _ap
 
 from Daman_QGIS.utils import log_info, log_warning
 from .Msm_46_3_layout_planner import LayoutPlanner
-from .Msm_46_types import LegendLayoutMode, LegendPlan, LegendResult
-from .Msm_46_utils import apply_letter_spacing_to_font, find_legend
+from .Msm_46_1_types import LegendLayoutMode, LegendPlan, LegendResult
+from .Msm_46_5_utils import apply_letter_spacing_to_font, find_legend
 
 MODULE_ID = "Msm_46_4"
 
@@ -202,7 +202,7 @@ class PlacementStrategy(ABC):
     ) -> None:
         """Применить letter-spacing к font во всех text-стилях легенды.
 
-        Использует shared `apply_letter_spacing_to_font` из Msm_46_utils —
+        Использует shared `apply_letter_spacing_to_font` из Msm_46_5_utils —
         тот же helper применяется в Msm_34_1 для font'ов label-элементов
         (title/appendix/organization). Единое поведение для всей схемы.
 

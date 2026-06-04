@@ -28,7 +28,7 @@ from Daman_QGIS.database.schemas import ImportSettings
 from Daman_QGIS.constants import PLUGIN_NAME, MIN_POLYGON_AREA, COORDINATE_PRECISION
 from Daman_QGIS.managers import CoordinatePrecisionManager
 from Daman_QGIS.utils import log_info, log_warning, log_error
-from .Fsm_1_1_2_polygon_builder import PolygonBuilder
+from .Fsm_1_1_12_polygon_builder import PolygonBuilder
 
 class DxfImporter(BaseImporter):
     """
@@ -62,7 +62,7 @@ class DxfImporter(BaseImporter):
             self._ezdxf = ezdxf
             return True
         except ImportError as e:
-            log_error(f"Fsm_1_1_1: ezdxf не установлен: {e}")
+            log_error(f"Fsm_1_1_11: ezdxf не установлен: {e}")
             return False
 
     def _detect_dxf_encoding(self, file_path: str) -> Optional[str]:
@@ -116,19 +116,19 @@ class DxfImporter(BaseImporter):
 
             if codepage_match:
                 codepage = codepage_match.group(1).upper()
-                log_info(f"Fsm_1_1_1: Обнаружена $CODEPAGE: {codepage}")
+                log_info(f"Fsm_1_1_11: Обнаружена $CODEPAGE: {codepage}")
 
                 encoding = codepage_map.get(codepage)
                 if encoding:
                     return encoding
                 else:
-                    log_warning(f"Fsm_1_1_1: Неизвестная $CODEPAGE: {codepage}, используем cp1251")
+                    log_warning(f"Fsm_1_1_11: Неизвестная $CODEPAGE: {codepage}, используем cp1251")
                     return 'cp1251'
             else:
                 # $CODEPAGE не найден - пробуем определить: UTF-8 или CP1251
                 # UTF-8 BOM
                 if header_bytes.startswith(b'\xef\xbb\xbf'):
-                    log_info("Fsm_1_1_1: $CODEPAGE не найден, обнаружен UTF-8 BOM")
+                    log_info("Fsm_1_1_11: $CODEPAGE не найден, обнаружен UTF-8 BOM")
                     return 'utf-8-sig'
 
                 # Пробуем декодировать как UTF-8 (strict) - если получится, значит UTF-8
@@ -137,16 +137,16 @@ class DxfImporter(BaseImporter):
                     # Если есть не-ASCII байты, это надёжный UTF-8
                     has_non_ascii = any(b > 127 for b in header_bytes)
                     if has_non_ascii:
-                        log_info("Fsm_1_1_1: $CODEPAGE не найден, файл валидный UTF-8 с не-ASCII, используем utf-8")
+                        log_info("Fsm_1_1_11: $CODEPAGE не найден, файл валидный UTF-8 с не-ASCII, используем utf-8")
                         return 'utf-8'
                 except UnicodeDecodeError:
                     pass  # Не UTF-8, значит CP1251
 
-                log_info("Fsm_1_1_1: $CODEPAGE не найден, используем cp1251 по умолчанию")
+                log_info("Fsm_1_1_11: $CODEPAGE не найден, используем cp1251 по умолчанию")
                 return 'cp1251'
 
         except Exception as e:
-            log_warning(f"Fsm_1_1_1: Ошибка определения кодировки: {e}, используем cp1251")
+            log_warning(f"Fsm_1_1_11: Ошибка определения кодировки: {e}, используем cp1251")
             return 'cp1251'
 
     def _is_binary_dxf(self, file_path: str) -> bool:
@@ -174,7 +174,7 @@ class DxfImporter(BaseImporter):
             return False
 
         except Exception as e:
-            log_warning(f"Fsm_1_1_1: Ошибка определения формата DXF: {e}")
+            log_warning(f"Fsm_1_1_11: Ошибка определения формата DXF: {e}")
             return False
 
     def _fix_binary_dxf_encoding(self, text: str) -> str:
@@ -213,7 +213,7 @@ class DxfImporter(BaseImporter):
             return fixed_text
 
         except (UnicodeEncodeError, UnicodeDecodeError) as e:
-            log_warning(f"Fsm_1_1_1: Ошибка перекодировки текста '{text[:20]}...': {e}")
+            log_warning(f"Fsm_1_1_11: Ошибка перекодировки текста '{text[:20]}...': {e}")
             return text
 
     def log_message(self, message: str, level: Qgis.MessageLevel = Qgis.Info):
@@ -484,7 +484,7 @@ class DxfImporter(BaseImporter):
 
         except Exception as e:
             self.log_message(f"Ошибка импорта DXF: {e}", Qgis.Critical)
-            log_error(f"Fsm_1_1_1: Ошибка импорта DXF: {e}")
+            log_error(f"Fsm_1_1_11: Ошибка импорта DXF: {e}")
             return None
 
     def _extract_all_polylines(self, msp: Any, doc: Any) -> List[QgsGeometry]:
@@ -694,7 +694,7 @@ class DxfImporter(BaseImporter):
                     polylines.extend(nested)
 
         except Exception as e:
-            log_warning(f"Fsm_1_1_1: Ошибка при извлечении из блока '{block_name}': {e}")
+            log_warning(f"Fsm_1_1_11: Ошибка при извлечении из блока '{block_name}': {e}")
 
         return polylines
 
@@ -744,7 +744,7 @@ class DxfImporter(BaseImporter):
             return QgsGeometry.fromPolylineXY(points)
 
         except Exception as e:
-            log_warning(f"Fsm_1_1_1: Ошибка конвертации entity {entity.dxftype()}: {e}")
+            log_warning(f"Fsm_1_1_11: Ошибка конвертации entity {entity.dxftype()}: {e}")
             return None
 
     def _build_polygon_layer(self, polylines: List[QgsGeometry],
@@ -923,7 +923,7 @@ class DxfImporter(BaseImporter):
             if not polygon.isGeosValid():
                 polygon = polygon.makeValid()
                 if not polygon or polygon.isEmpty() or not polygon.isGeosValid():
-                    log_warning(f"Fsm_1_1_1: Полигон #{idx} невалиден, пропускаем")
+                    log_warning(f"Fsm_1_1_11: Полигон #{idx} невалиден, пропускаем")
                     continue
 
             # UNIFIED PATTERN: Конвертируем в MultiPolygon если нужно
@@ -1151,7 +1151,7 @@ class DxfImporter(BaseImporter):
                 open_polylines.append(geom)
 
         self.log_message(
-            f"Fsm_1_1_1: Mixed разделение: {len(closed_polylines)} замкнутых, "
+            f"Fsm_1_1_11: Mixed разделение: {len(closed_polylines)} замкнутых, "
             f"{len(open_polylines)} открытых полилиний"
         )
 
@@ -1166,7 +1166,7 @@ class DxfImporter(BaseImporter):
             )
             stats = builder.statistics
             self.log_message(
-                f"Fsm_1_1_1: PolygonBuilder (Mixed): {stats['polygons_created']} полигонов, "
+                f"Fsm_1_1_11: PolygonBuilder (Mixed): {stats['polygons_created']} полигонов, "
                 f"{stats['holes_created']} holes"
             )
 
@@ -1179,13 +1179,13 @@ class DxfImporter(BaseImporter):
                     for part in geom.asGeometryCollection():
                         if part.type() == Qgis.GeometryType.Polygon and part.area() >= MIN_POLYGON_AREA:
                             clean_polygons.append(part)
-                    self.log_message("Fsm_1_1_1: GeometryCollection нормализован в Polygon")
+                    self.log_message("Fsm_1_1_11: GeometryCollection нормализован в Polygon")
                 else:
                     clean_polygons.append(geom)
             polygons = clean_polygons
 
         if not polygons and not open_polylines:
-            self.log_message("Fsm_1_1_1: нет объектов для Mixed слоя", Qgis.Warning)
+            self.log_message("Fsm_1_1_11: нет объектов для Mixed слоя", Qgis.Warning)
             return None
 
         # 3. Записать в temp GPKG
@@ -1204,7 +1204,7 @@ class DxfImporter(BaseImporter):
         driver = ogr.GetDriverByName('GPKG')
         ds = driver.CreateDataSource(temp_path)
         if not ds:
-            self.log_message("Fsm_1_1_1: Не удалось создать temp GPKG для Mixed слоя", Qgis.Critical)
+            self.log_message("Fsm_1_1_11: Не удалось создать temp GPKG для Mixed слоя", Qgis.Critical)
             return None
 
         srs = osr.SpatialReference()
@@ -1244,7 +1244,7 @@ class DxfImporter(BaseImporter):
         )
 
         if not layer.isValid():
-            self.log_message("Fsm_1_1_1: Не удалось загрузить Mixed слой из temp GPKG", Qgis.Critical)
+            self.log_message("Fsm_1_1_11: Не удалось загрузить Mixed слой из temp GPKG", Qgis.Critical)
             return None
 
         # Помечаем для save_to_gpkg (temp файл, нужно скопировать в project GPKG)

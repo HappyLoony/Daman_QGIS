@@ -114,7 +114,7 @@ class TestFsm4246Integration:
             from Daman_QGIS.managers.styling.M_46_legend_manager import (
                 LegendManager,
             )
-            from Daman_QGIS.managers.styling.submodules.Msm_46_types import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_1_types import (
                 LegendResult,
             )
 
@@ -159,7 +159,7 @@ class TestFsm4246Integration:
             from Daman_QGIS.managers.styling.M_46_legend_manager import (
                 LegendManager,
             )
-            from Daman_QGIS.managers.styling.submodules.Msm_46_types import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_1_types import (
                 LegendResult,
             )
 
@@ -200,7 +200,7 @@ class TestFsm4246Integration:
             from Daman_QGIS.managers.styling.M_46_legend_manager import (
                 LegendManager,
             )
-            from Daman_QGIS.managers.styling.submodules.Msm_46_types import (
+            from Daman_QGIS.managers.styling.submodules.Msm_46_1_types import (
                 LegendResult,
             )
 

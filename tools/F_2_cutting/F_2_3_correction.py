@@ -378,6 +378,16 @@ class F_2_3_Correction(BaseTool):
         # После ручного редактирования могут появиться дубли (пользователь двигает вершины)
         updated_features = self._remove_duplicate_vertices(updated_features)
 
+        # M_47 нормализация (CW + старт NW) НА УРОВНЕ features_data — ДО M_20.
+        # Level-map: F_2_3 features_data-centric (M_20 строит «Точки» из updated_features,
+        # запись в .gpkg через _update_layer_in_gpkg позже). normalize_geometry на каждой
+        # geom гарантирует, что «Точки» M_20 и итоговый .gpkg vertex-order согласованы.
+        from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+        for _item in updated_features:
+            _ng = PolygonNormalizationManager.normalize_geometry(_item.get('geometry'))
+            if _ng is not None:
+                _item['geometry'] = _ng
+
         # Нумерация точек
         # ВАЖНО: sort_northwest=False, т.к. данные уже отсортированы в _collect_features_sorted_by_northwest
         # Это гарантирует совпадение порядка контуров и нумерации точек

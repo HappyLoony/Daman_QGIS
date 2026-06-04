@@ -31,13 +31,13 @@ Crash-first дебаг: plan_and_apply НЕ глотает исключения 
 from qgis.core import QgsPrintLayout
 
 from Daman_QGIS.utils import log_info, log_warning
-from .submodules.Msm_46_utils import find_legend, find_main_map
+from .submodules.Msm_46_5_utils import find_legend, find_main_map
 from .submodules.Msm_46_3_layout_planner import LayoutPlanner
 from .submodules.Msm_46_4_placement_strategy import (
     OutsidePlacement,
     choose_strategy,
 )
-from .submodules.Msm_46_types import (
+from .submodules.Msm_46_1_types import (
     AvailableSpace,
     LegendContent,
     LegendItem,
