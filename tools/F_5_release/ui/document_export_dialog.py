@@ -1,43 +1,45 @@
 # -*- coding: utf-8 -*-
 """
-Диалог выбора документов для экспорта
+Диалог выбора продуктов для экспорта документов
 
 Функциональность:
-    - Отображение слоёв с доступными шаблонами из TemplateRegistry
-    - Выбор типа документа: ведомость / перечень координат
+    - Плоский список чекбоксов продуктов из ProductRegistry.get_products()
+    - Доступность / tooltip / подтекст состава — ТОЛЬКО через describe()
+      (non-mutating интроспекция; expand() при отрисовке НЕ вызывается)
+    - Недоступный продукт: disabled + tooltip с искомыми слоями
     - Опция создания версии WGS-84 для перечней координат
     - Информация о папке сохранения
 
-Шаблоны: Fsm_5_3_8_template_registry.py (DocumentTemplate, TemplateRegistry)
+Продукты: Fsm_5_3_10_product_registry.py (ExportProduct, ProductRegistry)
+Эталон UX: background_dialog.py (диалог F_5_2)
 """
 
 from typing import List, Dict, Any
 
-from qgis.core import QgsProject, QgsVectorLayer
 from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QCheckBox, QGroupBox, QScrollArea, QWidget, QComboBox
+    QCheckBox, QGroupBox, QScrollArea, QWidget
 )
 from qgis.PyQt.QtCore import Qt
 
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
-from Daman_QGIS.utils import path_for_display
+from Daman_QGIS.utils import path_for_display, log_warning
 
-from ..submodules.Fsm_5_3_8_template_registry import (
-    DocumentTemplate, TemplateRegistry
+from ..submodules.Fsm_5_3_10_product_registry import (
+    ExportProduct, ProductRegistry
 )
 
 
 class DocumentExportDialog(BaseResponsiveDialog):
-    """Диалог выбора документов для экспорта"""
+    """Диалог выбора продуктов для экспорта документов"""
 
-    # Адаптивные размеры диалога
-    WIDTH_RATIO = 0.50
-    HEIGHT_RATIO = 0.65
-    MIN_WIDTH = 600
-    MAX_WIDTH = 900
-    MIN_HEIGHT = 450
-    MAX_HEIGHT = 700
+    # Адаптивные размеры диалога (компактные, как у background_dialog)
+    WIDTH_RATIO = 0.30
+    HEIGHT_RATIO = 0.45
+    MIN_WIDTH = 360
+    MAX_WIDTH = 520
+    MIN_HEIGHT = 300
+    MAX_HEIGHT = 460
 
     def __init__(
         self,
@@ -53,10 +55,13 @@ class DocumentExportDialog(BaseResponsiveDialog):
         """
         super().__init__(parent)
         self.output_folder = output_folder
-        self.layer_widgets: List[tuple] = []  # [(layer, checkbox, combo, templates), ...]
+        # {product_id: QCheckBox} — только для enabled-продуктов учитываем в
+        # выборе; disabled-чекбоксы тоже хранятся (для единообразия), но никогда
+        # не отмечены.
+        self.checkboxes: Dict[str, QCheckBox] = {}
         self.create_wgs84_checkbox = None
 
-        self.setWindowTitle("Экспорт документов по шаблону")
+        self.setWindowTitle("Выберите документы для экспорта")
 
         self._init_ui()
 
@@ -68,27 +73,26 @@ class DocumentExportDialog(BaseResponsiveDialog):
         header_label = QLabel("<b>Выберите документы для экспорта:</b>")
         layout.addWidget(header_label)
 
-        # === СПИСОК СЛОЁВ (SCROLL AREA) ===
+        # === СПИСОК ПРОДУКТОВ (SCROLL AREA) ===
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setMinimumHeight(300)
+        scroll_area.setMinimumHeight(160)
 
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout()
         scroll_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        scroll_layout.setSpacing(6)
 
-        # Собираем слои с доступными шаблонами
-        layers_data = self._collect_layers_with_templates()
-
-        if not layers_data:
-            no_layers_label = QLabel(
-                "<i>Нет слоёв с доступными шаблонами документов</i>"
+        products = ProductRegistry.get_products()
+        if not products:
+            no_products_label = QLabel(
+                "<i>Нет доступных продуктов экспорта</i>"
             )
-            no_layers_label.setStyleSheet("color: #999; padding: 20px;")
-            scroll_layout.addWidget(no_layers_label)
+            no_products_label.setStyleSheet("color: #999; padding: 20px;")
+            scroll_layout.addWidget(no_products_label)
         else:
-            for layer_data in layers_data:
-                widget = self._create_layer_widget(layer_data)
+            for product in products:
+                widget = self._create_product_widget(product)
                 scroll_layout.addWidget(widget)
 
         scroll_widget.setLayout(scroll_layout)
@@ -127,7 +131,7 @@ class DocumentExportDialog(BaseResponsiveDialog):
             folder_info = QLabel(
                 f"<i>Файлы будут сохранены в: {path_for_display(self.output_folder)}</i>"
             )
-            folder_info.setStyleSheet("color: #555; padding: 10px;")
+            folder_info.setStyleSheet("color: #555; padding: 5px;")
             folder_info.setWordWrap(True)
             layout.addWidget(folder_info)
 
@@ -148,115 +152,150 @@ class DocumentExportDialog(BaseResponsiveDialog):
 
         self.setLayout(layout)
 
-    def _collect_layers_with_templates(self) -> List[Dict[str, Any]]:
+    def _create_product_widget(self, product: ExportProduct) -> QWidget:
         """
-        Собрать слои с доступными шаблонами из TemplateRegistry
+        Создать виджет одного продукта: чекбокс + серый подтекст состава.
 
-        Returns:
-            Список [{layer, templates: [DocumentTemplate, ...]}]
-        """
-        result: List[Dict[str, Any]] = []
-
-        for layer in QgsProject.instance().mapLayers().values():
-            if not isinstance(layer, QgsVectorLayer):
-                continue
-            if layer.featureCount() == 0:
-                continue
-
-            templates = TemplateRegistry.get_templates_for_layer(layer.name())
-            if templates:
-                result.append({
-                    'layer': layer,
-                    'templates': templates
-                })
-
-        return result
-
-    def _create_layer_widget(self, layer_data: Dict[str, Any]) -> QGroupBox:
-        """
-        Создать виджет для одного слоя
+        Доступность, tooltip и подтекст берутся ТОЛЬКО через
+        ProductRegistry.describe() (non-mutating). expand() здесь НЕ вызывается.
 
         Args:
-            layer_data: {layer, templates: [DocumentTemplate, ...]}
+            product: Продукт экспорта (ExportProduct).
 
         Returns:
-            QGroupBox с чекбоксом и выбором типа документа
+            QWidget с чекбоксом и подтекстом.
         """
-        layer = layer_data['layer']
-        templates: List[DocumentTemplate] = layer_data['templates']
+        info = self._describe_safe(product.product_id)
+        available = bool(info.get('available'))
 
-        group_box = QGroupBox()
-        layout = QHBoxLayout()
+        container = QWidget()
+        container_layout = QVBoxLayout()
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(1)
 
-        # Чекбокс с именем слоя
-        checkbox = QCheckBox(layer.name())
+        checkbox = QCheckBox(product.name)
         checkbox.setChecked(False)
-        checkbox.setMinimumWidth(300)
-        layout.addWidget(checkbox)
+        checkbox.setEnabled(available)
 
-        # Комбобокс для выбора шаблона
-        combo = QComboBox()
-        combo.setMinimumWidth(250)
-        for template in templates:
-            combo.addItem(template.name, template)
-        layout.addWidget(combo)
+        if available:
+            # tooltip — описание продукта (краткое назначение)
+            checkbox.setToolTip(product.description)
+            subtitle = self._compose_subtitle(info)
+        else:
+            # Недоступный продукт: disabled + tooltip с искомыми слоями/паттернами
+            checkbox.setToolTip(self._compose_unavailable_tooltip(info))
+            subtitle = "Нет слоёв для этого документа"
 
-        # Если только 1 шаблон - скрываем комбобокс, показываем label
-        if len(templates) == 1:
-            info_label = QLabel(f"<i>({templates[0].name})</i>")
-            info_label.setStyleSheet("color: #666;")
-            layout.addWidget(info_label)
-            combo.setVisible(False)
+        container_layout.addWidget(checkbox)
 
-        layout.addStretch()
+        if subtitle:
+            subtitle_label = QLabel(subtitle)
+            subtitle_label.setWordWrap(True)
+            subtitle_label.setStyleSheet(
+                "color: #777; font-size: 11px; padding-left: 22px;"
+            )
+            container_layout.addWidget(subtitle_label)
 
-        group_box.setLayout(layout)
+        container.setLayout(container_layout)
 
-        # Сохраняем ссылки для получения выбора
-        self.layer_widgets.append((layer, checkbox, combo, templates))
+        self.checkboxes[product.product_id] = checkbox
+        return container
 
-        return group_box
+    @staticmethod
+    def _describe_safe(product_id: str) -> Dict[str, Any]:
+        """
+        Безопасно получить describe()-словарь продукта.
+
+        describe() уже перехватывает свои исключения и возвращает безопасный
+        словарь; обёртка добавляет защиту на случай неожиданного сбоя, чтобы
+        отрисовка диалога не падала.
+
+        Args:
+            product_id: Идентификатор продукта.
+
+        Returns:
+            Словарь describe(): {available, groups, searched_patterns}.
+        """
+        try:
+            return ProductRegistry.describe(product_id)
+        except Exception as e:
+            log_warning(
+                f"F_5_3: ошибка describe() продукта '{product_id}': {e}"
+            )
+            return {'available': False, 'groups': [], 'searched_patterns': []}
+
+    @staticmethod
+    def _compose_subtitle(info: Dict[str, Any]) -> str:
+        """
+        Собрать серый подтекст состава доступного продукта одной строкой.
+
+        Формат: группы через "; ", для каждой группы — имя и (если есть) этапы.
+        Пример: «ОКС: Этап 1, Этап 2, Итог; ПО».
+
+        Args:
+            info: Словарь describe() продукта.
+
+        Returns:
+            Строка подтекста (может быть пустой).
+        """
+        groups = info.get('groups') or []
+        parts: List[str] = []
+        for grp in groups:
+            name = grp.get('name', '')
+            stages = grp.get('stages') or []
+            if stages:
+                parts.append(f"{name}: {', '.join(stages)}")
+            elif name:
+                parts.append(name)
+        return "; ".join(parts)
+
+    @staticmethod
+    def _compose_unavailable_tooltip(info: Dict[str, Any]) -> str:
+        """
+        Собрать tooltip недоступного продукта со списком искомых слоёв.
+
+        Args:
+            info: Словарь describe() продукта.
+
+        Returns:
+            Текст tooltip.
+        """
+        patterns = info.get('searched_patterns') or []
+        if not patterns:
+            return "Нет слоёв для этого документа"
+        searched = "\n".join(f"  - {p}" for p in patterns)
+        return "Нет слоёв для этого документа.\nИскомые слои:\n" + searched
 
     def _select_all(self):
-        """Выбрать все слои"""
-        for _layer, checkbox, _combo, _templates in self.layer_widgets:
-            checkbox.setChecked(True)
+        """Выбрать все доступные (enabled) продукты"""
+        for checkbox in self.checkboxes.values():
+            if checkbox.isEnabled():
+                checkbox.setChecked(True)
 
     def _deselect_all(self):
-        """Снять выбор со всех слоёв"""
-        for _layer, checkbox, _combo, _templates in self.layer_widgets:
+        """Снять выбор со всех продуктов"""
+        for checkbox in self.checkboxes.values():
             checkbox.setChecked(False)
 
-    def get_selected_items(self) -> List[Dict[str, Any]]:
+    def get_selected_product_ids(self) -> List[str]:
         """
-        Получить список выбранных элементов
+        Получить список product_id выбранных продуктов.
 
         Returns:
-            Список [{layer: QgsVectorLayer, template: DocumentTemplate}]
+            Список product_id отмеченных enabled-чекбоксов в порядке отрисовки.
         """
-        selected: List[Dict[str, Any]] = []
-
-        for layer, checkbox, combo, templates in self.layer_widgets:
-            if checkbox.isChecked():
-                # Получаем выбранный шаблон
-                if len(templates) == 1:
-                    template = templates[0]
-                else:
-                    template = combo.currentData()
-
-                if template:
-                    selected.append({
-                        'layer': layer,
-                        'template': template,
-                    })
-
+        selected: List[str] = []
+        for product in ProductRegistry.get_products():
+            checkbox = self.checkboxes.get(product.product_id)
+            if checkbox is not None and checkbox.isEnabled() and checkbox.isChecked():
+                selected.append(product.product_id)
         return selected
 
     def get_create_wgs84(self) -> bool:
         """
-        Получить значение опции создания WGS-84
+        Получить значение опции создания WGS-84.
 
         Returns:
-            True если нужно создавать версию WGS-84
+            True если нужно создавать версию WGS-84.
         """
         return self.create_wgs84_checkbox.isChecked() if self.create_wgs84_checkbox else False

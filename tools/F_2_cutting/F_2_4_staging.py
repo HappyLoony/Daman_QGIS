@@ -478,38 +478,70 @@ class F_2_4_Staging(BaseTool):
                 stage1_data, zpr_layer
             )
 
-        # 4. Нумерация точек для 1 этапа и обновление поля "Точки"
-        stage1_data = self._number_points_and_update_field(stage1_data)
-
-        # 5. Создание слоя 1 этапа
-        stage1_layer = self._create_staging_layer(
-            stage1_name, source_layer.crs(), source_layer.fields(),
-            stage1_data, add_merged_field=False
-        )
-
-        # 6. Создание точечного слоя 1 этапа
-        if stage1_points_name:
-            self._create_points_layer_from_data(stage1_data, stage1_points_name, source_layer.crs())
-
-        # 7. Формирование данных для 2 этапа (только объединяемые участки)
+        # 4. Формирование данных для 2 этапа (только объединяемые участки)
         # Передаём stage1_data чтобы получить правильные ID (100, 101...) для Состав_контуров
+        # _prepare_stage2_data зависит только от геометрий и attrs.ID stage1 —
+        # нумерация точек на этом шаге ещё не нужна
         stage2_data, merged_contours_info = self._prepare_stage2_data(
             source_layer, feature_zpr_mapping, features_by_zpr,
             merging_features, stage1_data
         )
 
-        if stage2_data:
-            # 7.1. Присвоение Вид_Работ для 2 этапа (с указанием объединённых ID)
-            if self._work_type_manager:
-                lt = LayerType.RAZDEL if layer_type == 'RAZDEL' else LayerType.NGS
-                stage2_data = self._work_type_manager.assign_work_type_stage2(
-                    stage2_data, lt, zpr_layer
+        # 4.1. Присвоение Вид_Работ для 2 этапа (с указанием объединённых ID)
+        if stage2_data and self._work_type_manager:
+            lt = LayerType.RAZDEL if layer_type == 'RAZDEL' else LayerType.NGS
+            stage2_data = self._work_type_manager.assign_work_type_stage2(
+                stage2_data, lt, zpr_layer
+            )
+
+        # 5. ЕДИНАЯ нумерация точек merged(stage1+stage2): единое пространство
+        # номеров — контуры обоих этапов по возрастанию ID (интерливинг),
+        # общие координаты этапов наследуют номер. РОВНО ОДИН вызов на тип слоя:
+        # повторный вызов на том же менеджере сбросил бы счётчик (auto_reset)
+        # и этапы снова стали бы независимыми.
+        for item in stage1_data:
+            item['stage'] = 1
+        for item in stage2_data:
+            item['stage'] = 2
+        merged_data = stage1_data + stage2_data
+
+        point_numbering = PointNumberingManager()
+        merged_data, points_data = self._number_points_and_update_field(
+            merged_data, point_numbering
+        )
+
+        # 5.1. Раскладка points_data по этапам через contour_id.
+        # Уникальность contour_id в merged гарантирована логикой (matching ∩ merged
+        # zpr_id = пусто, промежуточные > max_zpr_id) — defensive-проверка ниже
+        # страхует будущие правки fallback-веток (не silent).
+        stage_by_contour: Dict[Any, int] = {}
+        for item in merged_data:
+            cid = item.get('contour_id')
+            existing_stage = stage_by_contour.get(cid)
+            item_stage = item.get('stage', 1)
+            if existing_stage is not None and existing_stage != item_stage:
+                log_error(
+                    f"F_2_4: Дубликат contour_id={cid} между этапами "
+                    f"({existing_stage} и {item_stage}) — раскладка точек по "
+                    f"Т-слоям может быть неверной, проверьте поле ID слоя ЗПР"
                 )
+            stage_by_contour[cid] = item_stage
 
-            # 8. Нумерация точек для 2 этапа и обновление поля "Точки"
-            stage2_data = self._number_points_and_update_field(stage2_data)
+        stage1_points = [p for p in points_data if stage_by_contour.get(p.get('contour_id')) == 1]
+        stage2_points = [p for p in points_data if stage_by_contour.get(p.get('contour_id')) == 2]
 
-            # 9. Создание слоя 2 этапа с дополнительным полем "Состав_контуров"
+        # 6. Создание слоя 1 этапа
+        stage1_layer = self._create_staging_layer(
+            stage1_name, source_layer.crs(), source_layer.fields(),
+            stage1_data, add_merged_field=False
+        )
+
+        # 7. Создание точечного слоя 1 этапа
+        if stage1_points_name:
+            self._create_points_layer_from_data(stage1_points, stage1_points_name, source_layer.crs())
+
+        if stage2_data:
+            # 8. Создание слоя 2 этапа с дополнительным полем "Состав_контуров"
             # Поле добавляется в _create_staging_layer когда add_merged_field=True
             if stage2_name:
                 stage2_layer = self._create_staging_layer(
@@ -517,9 +549,9 @@ class F_2_4_Staging(BaseTool):
                     stage2_data, add_merged_field=True
                 )
 
-            # 10. Создание точечного слоя 2 этапа
+            # 9. Создание точечного слоя 2 этапа
             if stage2_points_name:
-                self._create_points_layer_from_data(stage2_data, stage2_points_name, source_layer.crs())
+                self._create_points_layer_from_data(stage2_points, stage2_points_name, source_layer.crs())
         else:
             log_info(f"F_2_4: Нет данных для 2 этапа ({layer_type})")
 
@@ -1231,22 +1263,33 @@ class F_2_4_Staging(BaseTool):
 
     def _number_points_and_update_field(
         self,
-        features_data: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Нумерация точек и обновление поля 'Точки' в атрибутах
+        features_data: List[Dict[str, Any]],
+        point_numbering: 'PointNumberingManager'
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Единая нумерация точек merged-списка и обновление поля 'Точки'
 
-        Вызывает PointNumberingManager.process_polygon_layer() и обновляет
-        поле 'Точки' в атрибутах каждого объекта.
+        Вызывается ОДИН раз на тип слоя для merged-списка (stage1 + stage2):
+        единое пространство номеров — контуры обоих этапов нумеруются по
+        возрастанию ID (интерливинг), общие координаты наследуют номер.
+
+        Нумерация по возрастанию ID контуров (sort_northwest=False) —
+        осознанное расхождение с СЗ-порядком эталона F_2_1/M_26: там ID
+        присвоены по СЗ и порядки совпадают, в F_2_4 ID приходят из ЗПР.
+
+        Поле 'Точки' раздаётся ПО ССЫЛКЕ (M_20 мутирует те же dict'ы) —
+        НЕ индексным сопоставлением списков (исторический корень
+        100%-перестановки поля при NW-пересортировке внутри M_20).
 
         Args:
-            features_data: Список данных объектов с 'geometry' и 'attributes'
+            features_data: merged-список объектов с 'geometry' и 'attributes'
+            point_numbering: менеджер нумерации (прокидывается caller'ом —
+                            заготовка для будущей сквозной нумерации Раздел→НГС)
 
         Returns:
-            List[Dict]: Обновлённый features_data с заполненным полем 'Точки'
-                       и добавленным 'points_data' для создания точечного слоя
+            Tuple: (features_data с заполненным полем 'Точки', points_data)
         """
         if not features_data:
-            return features_data
+            return features_data, []
 
         # Подготавливаем данные для PointNumberingManager
         # Нужны поля: 'geometry', 'contour_id', 'attributes'
@@ -1257,7 +1300,12 @@ class F_2_4_Staging(BaseTool):
                     contour_id = 0
                 item['contour_id'] = contour_id
 
-        # M_47 pass-1 (level-map two-pass): normalize_geometry на features_data ДО M_20.
+        # Детерминированный порядок нумерации: по возрастанию ID контуров.
+        # Сортировка непосредственно перед M_20 (контракт менеджеров ВРИ/Вид_Работ
+        # порядок не гарантирует, даже если фактически они мутируют in-place).
+        features_data.sort(key=lambda x: x['attributes'].get('ID', 0))
+
+        # M_47 pass-1 (level-map two-pass): normalize_geometry на merged ДО M_20.
         # F_2_4 mixed-level — M_20 строит «Точки» из features_data здесь; pass-1 держит
         # «Точки» и .gpkg vertex-order согласованными. Pass-2 (normalize_layer на .gpkg
         # после OGR-записи) — в caller _create_staging_layer, страхует OGR ring-reorder.
@@ -1272,49 +1320,37 @@ class F_2_4_Staging(BaseTool):
         regional_mgr = registry.get('M_44')
         per_ring = regional_mgr.is_region('78') if regional_mgr else False
 
-        point_numbering = PointNumberingManager()
-        features_with_points, points_data = point_numbering.process_polygon_layer(
+        _, points_data = point_numbering.process_polygon_layer(
             features_data, precision=2,
+            sort_northwest=False,
             per_ring_numbering=per_ring
         )
 
-        # Обновление поля "Точки" в атрибутах
-        for i, item in enumerate(features_data):
-            if i < len(features_with_points):
-                point_numbers_str = features_with_points[i].get('point_numbers_str', '-')
-                item['attributes']['Точки'] = point_numbers_str
-            else:
-                item['attributes']['Точки'] = '-'
-
-        # Сохраняем points_data для последующего создания точечного слоя
-        # Записываем в последний элемент как служебное поле
-        if features_data:
-            features_data[0]['_points_data'] = points_data
+        # Обновление поля "Точки" по ссылке: M_20 пишет point_numbers_str
+        # в те же dict'ы — иммунитет к любому изменению порядка списка
+        for item in features_data:
+            item['attributes']['Точки'] = item.get('point_numbers_str', '-') or '-'
 
         log_info(f"F_2_4: Нумерация точек завершена, обновлено {len(features_data)} объектов")
-        return features_data
+        return features_data, points_data
 
     def _create_points_layer_from_data(
         self,
-        features_data: List[Dict[str, Any]],
+        points_data: List[Dict[str, Any]],
         points_layer_name: str,
         crs: Any
     ) -> None:
-        """Создание точечного слоя из уже пронумерованных данных
-
-        Использует points_data, сохранённые в features_data методом
-        _number_points_and_update_field().
+        """Создание точечного слоя из уже пронумерованных точек
 
         Args:
-            features_data: Данные объектов с '_points_data'
+            points_data: Список точек (срез merged points_data по этапу,
+                        формат M_20.process_polygon_layer)
             points_layer_name: Имя создаваемого точечного слоя
             crs: Система координат
         """
-        if not self._point_layer_creator or not features_data:
+        if not self._point_layer_creator:
             return
 
-        # Извлекаем points_data из служебного поля
-        points_data = features_data[0].get('_points_data', [])
         if not points_data:
             log_warning(f"F_2_4: Нет данных точек для слоя {points_layer_name}")
             return
@@ -1352,8 +1388,11 @@ class F_2_4_Staging(BaseTool):
         """Создание итогового точечного слоя из точек 1 и 2 этапов
 
         Объединяет точки из слоёв 1 и 2 этапов с добавлением поля "Этап".
-        Дубли точек по ID - нормальная ситуация, так как каждый этап
-        имеет свой чертёж.
+        Единое пространство номеров (нумерация merged stage1+stage2):
+        общая координата этапов представлена ДВУМЯ фичами (по одной на
+        контур каждого этапа) с ОДИНАКОВЫМ номером — инвариант
+        «дубль = та же точка, тот же номер». Конфликт «одна координата,
+        разные номера» невозможен by construction.
 
         Args:
             stage1_points_name: Имя точечного слоя 1 этапа

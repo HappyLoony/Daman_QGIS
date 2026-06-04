@@ -79,7 +79,10 @@ class DocumentFactory:
 
         elif doc_type == 'attribute_list':
             exporter = self._get_attribute_exporter()
-            return exporter.export_layer(layer, template, output_folder)
+            return exporter.export_layer(
+                layer, template, output_folder,
+                extra_context=extra_context or {},
+            )
 
         elif doc_type == 'cadnum_list':
             exporter = self._get_cadnum_exporter()

@@ -227,6 +227,19 @@ class Fsm_5_3_1_CoordinateList:
         if extra_context.get('summary_table'):
             return self._export_summary_table(output_folder, extra_context)
 
+        # Generic merged-перечень координат ОЗУ (Раздел + НГС в одном файле) —
+        # layer is None. Своя ветка с циклом WGS-84 (НЕ переиспользуем
+        # merged_export-ветку SPB: она без WGS-цикла).
+        if extra_context.get('ozu_merged'):
+            success = self._export_to_excel_ozu_merged(
+                template, output_folder, False, appendix_num, extra_context
+            )
+            if success and create_wgs84 and template.supports_wgs84:
+                self._export_to_excel_ozu_merged(
+                    template, output_folder, True, appendix_num, extra_context
+                )
+            return success
+
         # Merged export (объединённый перечень SPB) — layer is None
         if extra_context.get('merged_export'):
             return self._export_to_excel_spb_merged(
@@ -432,6 +445,208 @@ class Fsm_5_3_1_CoordinateList:
         finally:
             workbook.close()
 
+        return True
+
+    def _export_to_excel_ozu_merged(
+        self,
+        template: DocumentTemplate,
+        output_folder: str,
+        is_wgs84: bool,
+        appendix_num: str,
+        extra_context: Dict[str, Any]
+    ) -> bool:
+        """
+        Экспорт generic merged-перечня координат ОЗУ (Раздел + НГС в одном файле).
+
+        5-колоночный layout как у одиночного _export_to_excel (Приложение N,
+        титул, CRS official_name, заголовки колонок, замыкание контуров),
+        но контуры собираются конкатенацией результатов
+        _collect_contours_with_coordinates() по каждому слою группы из
+        extra_context['merged_layers'] (порядок: Раздел, затем НГС).
+
+        Особенности (решения #10, #16 плана):
+        - Нумерация точек: из Т_*-слоёв каждого слоя-источника КАК ЕСТЬ,
+          per-layer (без общего unique_points между слоями). Дубли номеров
+          между секциями допустимы.
+        - Шапки контуров ФОРСИРОВАННО work-type (_work_type_contour_title)
+          независимо от template.contour_title_by_work_type (у шаблонов
+          ПО/ВО/сетей флаг False — форс обязателен).
+        - Имя файла: filename_override резолвится через format_template_text
+          (плейсхолдер {appendix}); суффикс _WGS84 дописывается ПОСЛЕ резолва.
+
+        Args:
+            template: Шаблон документа (первого члена группы)
+            output_folder: Папка для сохранения
+            is_wgs84: Экспортировать в WGS-84
+            appendix_num: Номер приложения
+            extra_context: Контекст продукта (ozu_merged, merged_layers, group_name)
+
+        Returns:
+            bool: Успешность экспорта
+        """
+        import xlsxwriter
+
+        merged_layers = extra_context.get('merged_layers', [])
+        if not merged_layers:
+            log_warning(
+                "Fsm_5_3_1: merged_layers пуст, пропуск ozu_merged export"
+            )
+            return False
+
+        # Нормализация геометрии всех слоёв группы: CW + начало с СЗ (M_47).
+        # Идемпотентно через equals() short-circuit. Safety-net перед сбором.
+        from Daman_QGIS.managers.geometry import PolygonNormalizationManager
+        for _layer in merged_layers:
+            PolygonNormalizationManager.normalize_layer(_layer)
+
+        metadata = ExportUtils.get_project_metadata()
+
+        # Имя файла: override обязателен (плейсхолдер {appendix}).
+        # Резолвим через format_template_text (НЕ применять RAW — в override
+        # есть {appendix}). Fallback — filename_template + '_' + group_name.
+        group_name = extra_context.get('group_name', '')
+        layer_info = {'appendix': appendix_num, 'group_name': group_name}
+        layer_info.update(extra_context)
+
+        filename_override = extra_context.get('filename_override')
+        if filename_override:
+            filename_base = ExportUtils.format_template_text(
+                filename_override, metadata, layer_info
+            )
+        elif template.filename_template:
+            filename_base = ExportUtils.format_template_text(
+                template.filename_template, metadata, layer_info
+            )
+            if group_name:
+                filename_base += f'_{group_name}'
+        else:
+            filename_base = f"Приложение_{appendix_num}_координаты_{group_name}"
+
+        if is_wgs84:
+            filename_base += '_WGS84'
+
+        filename = f"{ExportUtils.sanitize_filename(filename_base)}.xlsx"
+        filepath = os.path.join(output_folder, filename)
+
+        workbook = xlsxwriter.Workbook(filepath)
+        try:
+            worksheet = workbook.add_worksheet('Координаты')
+            fmt = ExcelFormatManager(workbook)
+
+            # Настройка ширины колонок
+            fmt.set_smart_column_widths(worksheet, ['', '№ Точки', 'X', 'Y', ''])
+
+            # Строка 1: Номер приложения (колонка E)
+            appendix_text = f"Приложение {appendix_num}"
+            worksheet.write('E1', appendix_text, fmt.get_appendix_format())  # type: ignore[arg-type]
+
+            # Строка 2: Заголовок (объединение A2:E2)
+            # title_override (ПС-специфичный титул, §4.1): если задан в
+            # extra_context — используется как есть вместо title_template шаблона
+            # (merged-item несёт template первого члена, чей титул не ПС-специфичен).
+            title_text = extra_context.get('title_override') or ExportUtils.format_template_text(
+                template.title_template, metadata, layer_info
+            )
+            worksheet.merge_range('A2:E2', title_text, fmt.get_title_format())  # type: ignore[call-arg]
+            # Высота строки (merged cells не поддерживают auto-fit)
+            title_height = ExcelFormatManager.calc_merged_row_height(
+                title_text, col_widths=[15, 15, 15, 15, 15],
+                font_size=16, bold=True
+            )
+            worksheet.set_row(1, title_height)  # row index 1 = A2
+
+            # Строка 4: Система координат (объединение D4:E4)
+            if is_wgs84:
+                crs_text = "Система координат: WGS-84"
+            else:
+                crs_name = ExportUtils.format_template_text("{crs_name}", metadata)
+                crs_text = f"Система координат: {crs_name}"
+            worksheet.merge_range('D4:E4', crs_text, fmt.get_crs_format())  # type: ignore[call-arg]
+
+            # Заголовки колонок координат
+            headers = COORD_HEADERS_WGS84 if is_wgs84 else COORD_HEADERS_LOCAL
+
+            # Начинаем с 6 строки (индекс 5)
+            current_row = 5
+            data_format = fmt.get_data_format(with_border=True)
+            header_col_format = fmt.get_header_format(
+                with_border=True, bg_color='#FFFFFF'
+            )
+            coord_format = fmt.get_coordinate_format(is_wgs84, with_border=True)
+            subtitle_border_format = fmt.get_data_format(
+                align='center', with_border=True
+            )
+
+            # Конкатенация контуров по слоям группы (Раздел, затем НГС).
+            # Общий unique_points между слоями НЕ создаётся (решение #10).
+
+            # Fallback-счётчик контуров (если поле ID пустое) — СКВОЗНОЙ по
+            # файлу (rev-impl P-3, решение пользователя 2026-06-04): без дублей
+            # «Образуемый ЗУ N» между секциями Раздел/НГС. Независим от
+            # нумерации точек внутри _collect_*.
+            contour_number = 0
+
+            for src_layer in merged_layers:
+                contours_data = self._collect_contours_with_coordinates(
+                    src_layer, is_wgs84
+                )
+
+                for contour_info in contours_data:
+                    contour_type = contour_info['type']
+                    coordinates = contour_info['coordinates']
+                    ring_index = contour_info.get('ring_index', 0)
+
+                    if contour_type == 'exterior':
+                        contour_number += 1
+                        # ФОРС work-type шапки независимо от флага шаблона
+                        # (решение #16): contour_id = feature_id, fallback —
+                        # сквозной порядковый номер контура по файлу.
+                        feature_id = contour_info.get('feature_id')
+                        contour_id = feature_id if feature_id else contour_number
+                        contour_title = self._work_type_contour_title(
+                            src_layer.name(), contour_id
+                        )
+                        worksheet.merge_range(
+                            current_row, 1, current_row, 3,
+                            contour_title, subtitle_border_format
+                        )
+                        current_row += 1
+
+                        # Заголовки колонок
+                        worksheet.write(current_row, 1, headers['point_num'], header_col_format)
+                        worksheet.write(current_row, 2, headers['x'], header_col_format)
+                        worksheet.write(current_row, 3, headers['y'], header_col_format)
+                        current_row += 1
+                    else:
+                        hole_title = f"Внутренний контур {ring_index}"
+                        worksheet.merge_range(
+                            current_row, 1, current_row, 3,
+                            hole_title, subtitle_border_format
+                        )
+                        current_row += 1
+
+                        worksheet.write(current_row, 1, headers['point_num'], header_col_format)
+                        worksheet.write(current_row, 2, headers['x'], header_col_format)
+                        worksheet.write(current_row, 3, headers['y'], header_col_format)
+                        current_row += 1
+
+                    # Выводим координаты точек
+                    for coord in coordinates:
+                        worksheet.write(current_row, 1, coord[0], data_format)
+                        # Геодезический порядок: X=север, Y=восток
+                        worksheet.write(current_row, 2, coord[2], coord_format)
+                        worksheet.write(current_row, 3, coord[1], coord_format)
+                        current_row += 1
+
+            # Настройка области печати
+            worksheet.print_area(0, 0, current_row - 1, 4)
+        finally:
+            workbook.close()
+
+        log_info(
+            f"Fsm_5_3_1: ozu_merged export ({len(merged_layers)} слоёв) -> "
+            f"{os.path.basename(filepath)}"
+        )
         return True
 
     def _export_to_excel_spb(

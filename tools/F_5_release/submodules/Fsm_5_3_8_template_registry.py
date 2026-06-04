@@ -211,6 +211,21 @@ COORD_GPMT = DocumentTemplate(
     filename_template='ГПМТ_координаты',
 )
 
+# ГПМТ при внесении изменений в ПМТ. Выбирается продуктом (ProductRegistry):
+# непустой слой Изм -> COORD_GPMT_IZM, иначе COORD_GPMT. Имя файла без номера
+# приложения (решение #12). Титул — дословная формулировка пользователя (§4.4).
+COORD_GPMT_IZM = DocumentTemplate(
+    template_id='coord_gpmt_izm',
+    doc_type='gpmt_coordinates',
+    name='Координаты ГПМТ (внесение изменений)',
+    source_layers=['L_1_14_2_ГПМТ_ВНЕС_ИЗМ'],
+    title_template='Перечень координат характерных точек границ территории, '
+                   'применительно к которой осуществляется внесение изменений '
+                   'в проект межевания территории',
+    supports_wgs84=True,
+    filename_template='ГПМТ_координаты_Изм',
+)
+
 CHARACTERISTICS_GPMT = DocumentTemplate(
     template_id='characteristics_gpmt',
     doc_type='gpmt_characteristics',
@@ -240,6 +255,21 @@ VEDOMOST_ZU_RAZDEL = DocumentTemplate(
     title_template='Ведомость образуемых земельных участков',
     column_source={'database': 'Base_cutting', 'field': 'full_name'},
     filename_template='Ведомость_ОЗУ_Раздел',
+)
+
+# Объединённая ведомость ОЗУ (Раздел + НГС + Без_Меж + Изм одного ЗПР в одну
+# таблицу). Выбирается ТОЛЬКО продуктом (ProductRegistry), не автоматчингом:
+# source_layers=[] -> matches_layer() = False -> шаблон не появляется в выдаче
+# get_templates_for_layer для слоёв нарезки (нет side-effect на старый API).
+# Имя файла различается по ЗПР через filename_override от expander'а (решение #1).
+VEDOMOST_OZU = DocumentTemplate(
+    template_id='vedomost_ozu',
+    doc_type='attribute_list',
+    name='Ведомость ОЗУ',
+    source_layers=[],  # не автоматчится — только продуктовый путь
+    title_template='Ведомость образуемых земельных участков',
+    column_source={'database': 'Base_cutting', 'field': 'full_name'},
+    filename_template='Ведомость_ОЗУ',
 )
 
 VEDOMOST_ZU_LO = DocumentTemplate(
@@ -363,10 +393,12 @@ DOCUMENT_TEMPLATES: List[DocumentTemplate] = [
     COORD_ZU_SELECTION,
     # ГПМТ
     COORD_GPMT,
+    COORD_GPMT_IZM,
     CHARACTERISTICS_GPMT,
     # Ведомости
     VEDOMOST_ZU_SELECTION,
     VEDOMOST_ZU_RAZDEL,
+    VEDOMOST_OZU,
     VEDOMOST_ZU_LO,
     VEDOMOST_ZU_VO,
     # Перечни КН

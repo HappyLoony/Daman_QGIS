@@ -39,7 +39,8 @@ class Fsm_5_3_2_AttributeList:
         self,
         layer: QgsVectorLayer,
         template: DocumentTemplate,
-        output_folder: str
+        output_folder: str,
+        extra_context: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Экспорт слоя в Excel (ведомость)
@@ -48,10 +49,18 @@ class Fsm_5_3_2_AttributeList:
             layer: Слой для экспорта
             template: Шаблон документа из TemplateRegistry
             output_folder: Папка для сохранения
+            extra_context: Дополнительный контекст (продуктовый слой / региональные
+                модификаторы). При extra_context['vedomost_merged'] = True экспорт
+                идёт по объединённому пути (_export_vedomost_merged); иначе —
+                обычный single-layer путь (обратная совместимость по default=None)
 
         Returns:
             bool: Успешность экспорта
         """
+        # Диспетч: объединённая ведомость ОЗУ (несколько слоёв в одну таблицу)
+        if extra_context and extra_context.get('vedomost_merged'):
+            return self._export_vedomost_merged(template, output_folder, extra_context)
+
         try:
             import xlsxwriter
         except ImportError:
@@ -170,6 +179,198 @@ class Fsm_5_3_2_AttributeList:
         log_info(f"Fsm_5_3_2: Экспорт ведомости завершён: {filepath}")
         return True
 
+    def _export_vedomost_merged(
+        self,
+        template: DocumentTemplate,
+        output_folder: str,
+        extra_context: Dict[str, Any]
+    ) -> bool:
+        """
+        Экспорт объединённой ведомости ОЗУ (строки нескольких слоёв в одну таблицу)
+
+        Строки берутся из всех слоёв extra_context['merged_layers'] в переданном
+        порядке (Раздел -> НГС -> Без_Меж -> Изм). Внутри каждого слоя строки
+        сортируются по полю ID (числовая сортировка, нечисловые в конец).
+        Колонки определяются как в single-layer пути — через column_source
+        (Base_cutting full_name). Отсутствующие поля/значения -> "-".
+
+        Args:
+            template: Шаблон документа (VEDOMOST_OZU)
+            output_folder: Папка для сохранения
+            extra_context: Контекст продукта. Ожидаемые ключи:
+                merged_layers: List[QgsVectorLayer] — слои состава в порядке
+                group_name: str — имя ЗПР-группы (для имени файла / лога)
+                filename_override: Optional[str] — шаблон имени файла с {group_name}
+
+        Returns:
+            bool: Успешность экспорта
+        """
+        try:
+            import xlsxwriter
+        except ImportError:
+            log_error("Fsm_5_3_2: Библиотека xlsxwriter не установлена")
+            return False
+
+        merged_layers: List[QgsVectorLayer] = extra_context.get('merged_layers') or []
+        if not merged_layers:
+            log_warning("Fsm_5_3_2: Объединённая ведомость без слоёв (merged_layers пуст)")
+            return False
+
+        group_name = extra_context.get('group_name', '')
+
+        # Колонки — тот же механизм, что и в single-layer пути.
+        # Для column_source = Base_cutting слой не используется при определении
+        # колонок; первый слой передаётся для совместимости сигнатуры.
+        column_names = self._get_column_names(template, merged_layers[0])
+        if not column_names:
+            log_warning(
+                f"Fsm_5_3_2: Не удалось определить колонки объединённой ведомости "
+                f"(группа '{group_name}')"
+            )
+            return False
+
+        metadata = ExportUtils.get_project_metadata()
+
+        # Формируем имя файла: filename_override (с {group_name}) приоритетнее
+        # статичного filename_template шаблона. Без override merged-ведомости
+        # всех ЗПР получили бы одно имя и перезаписали бы друг друга.
+        filename_override = extra_context.get('filename_override')
+        if filename_override:
+            filename_base = ExportUtils.format_template_text(
+                filename_override, metadata, {'group_name': group_name}
+            )
+        elif template.filename_template:
+            filename_base = ExportUtils.format_template_text(
+                template.filename_template, metadata, {'group_name': group_name}
+            )
+        else:
+            filename_base = f"Ведомость_ОЗУ_{group_name}" if group_name else "Ведомость_ОЗУ"
+
+        filename = f"{ExportUtils.sanitize_filename(filename_base)}.xlsx"
+        filepath = os.path.join(output_folder, filename)
+
+        workbook = xlsxwriter.Workbook(filepath)
+        worksheet = workbook.add_worksheet('Ведомость')
+        fmt = ExcelFormatManager(workbook)
+
+        current_row = 0
+
+        # Заголовок документа из шаблона
+        formatted_title = ExportUtils.format_template_text(
+            template.title_template, metadata, {'group_name': group_name}
+        )
+        last_col = len(column_names) - 1
+        worksheet.merge_range(
+            current_row, 0, current_row, last_col,
+            formatted_title, fmt.get_title_format(font_size=14)
+        )
+        worksheet.set_row(current_row, 30)
+        current_row += 1
+
+        # Пустая строка после заголовка
+        current_row += 1
+
+        # Заголовки колонок (наименования)
+        header_format = fmt.get_header_format()
+        for col_idx, col_name in enumerate(column_names):
+            worksheet.write(current_row, col_idx, col_name, header_format)
+        worksheet.set_row(current_row, 40)
+        current_row += 1
+
+        # Номера колонок под заголовками (1, 2, 3, ...)
+        col_num_format = fmt.get_column_number_format()
+        for col_idx in range(len(column_names)):
+            worksheet.write(current_row, col_idx, col_idx + 1, col_num_format)
+        worksheet.set_row(current_row, 20)
+        current_row += 1
+
+        data_format = fmt.get_data_format()
+        number_format = fmt.get_number_format()
+        row_number = 0
+        has_row_number_col = column_names[0] in ["№ п/п", "ID", "№"]
+
+        # Строки из всех слоёв в переданном порядке
+        for layer in merged_layers:
+            # Сопоставление колонок с полями текущего слоя (схемы слоёв могут
+            # различаться — у НГС/Без_Меж/Изм состав полей отличается от Раздела)
+            field_indices: Dict[int, int] = {}
+            for col_idx, col_name in enumerate(column_names):
+                field_index = self._find_field_index(layer, col_name)
+                if field_index >= 0:
+                    field_indices[col_idx] = field_index
+
+            for feature in self._sorted_features_by_id(layer):
+                row_number += 1
+
+                if has_row_number_col:
+                    worksheet.write(current_row, 0, row_number, data_format)
+                    start_col = 1
+                else:
+                    start_col = 0
+
+                for col_idx in range(start_col, len(column_names)):
+                    if col_idx in field_indices:
+                        field_idx = field_indices[col_idx]
+                        value = feature.attribute(field_idx)
+
+                        if value is None or value == "":
+                            worksheet.write(current_row, col_idx, "-", data_format)
+                        elif isinstance(value, (int, float)):
+                            if "площадь" in column_names[col_idx].lower():
+                                worksheet.write(current_row, col_idx, value, number_format)
+                            else:
+                                worksheet.write(current_row, col_idx, value, data_format)
+                        else:
+                            worksheet.write(current_row, col_idx, str(value), data_format)
+                    else:
+                        worksheet.write(current_row, col_idx, "-", data_format)
+
+                current_row += 1
+
+        # Автоподбор ширины колонок
+        fmt.set_smart_column_widths(worksheet, column_names)
+
+        # Настройка области печати
+        if current_row > 0:
+            worksheet.print_area(0, 0, current_row - 1, len(column_names) - 1)
+
+        workbook.close()
+
+        log_info(
+            f"Fsm_5_3_2: Экспорт объединённой ведомости завершён "
+            f"(группа '{group_name}', строк {row_number}): {filepath}"
+        )
+        return True
+
+    def _sorted_features_by_id(self, layer: QgsVectorLayer) -> List[Any]:
+        """
+        Получить фичи слоя, отсортированные по полю ID
+
+        Числовые значения ID — по возрастанию, нечисловые/отсутствующие — в конец
+        (стабильно, в порядке исходного чтения слоя).
+
+        Args:
+            layer: Слой
+
+        Returns:
+            Список фич в порядке сортировки
+        """
+        id_index = self._find_field_index(layer, "ID")
+        features = list(layer.getFeatures())
+
+        if id_index < 0:
+            return features
+
+        def sort_key(feature: Any) -> Any:
+            value = feature.attribute(id_index)
+            try:
+                return (0, float(value))
+            except (TypeError, ValueError):
+                # Нечисловые / None -> в конец
+                return (1, 0.0)
+
+        return sorted(features, key=sort_key)
+
     def _get_column_names(
         self,
         template: DocumentTemplate,
@@ -246,6 +447,7 @@ class Fsm_5_3_2_AttributeList:
             "Арендаторы": ["Арендаторы", "tenants"],
             "Статус": ["Статус", "status"],
             "Вид работ": ["Вид_Работ", "work_type"],
+            "Способ образования земельного участка/ вид работ": ["Вид_Работ", "work_type"],
             "ЗПР": ["ЗПР", "zpr"],
             "Кадастровый номер": ["КН", "kn", "cadastral_number"],
             "Единое землепользование": ["ЕЗ", "ez"],

@@ -27,6 +27,38 @@ from Daman_QGIS.utils import log_info, log_error, log_warning, path_for_display
 from .ui.document_export_dialog import DocumentExportDialog
 from .submodules.Fsm_5_3_3_document_factory import DocumentFactory
 from .submodules.Fsm_5_3_5_export_utils import ExportUtils
+from .submodules.Fsm_5_3_10_product_registry import (
+    ProductRegistry,
+    _CUTTING_GROUPS,
+    _STAGING_GROUPS,
+)
+
+# Маркеры 78-потока: при их наличии item НЕ группируется post-grouping
+# (трасса маркеров §7 — двухступенчатая защита; группировка опознаёт 78-поток
+# по этим ключам, не по продуктовым маркерам).
+_REGION_78_MARKERS = (
+    'split_by_feature',
+    'spb_format',
+    'merged_export',
+    'summary_table',
+    'explanatory_note',
+)
+
+# Карта group_key -> group_name для продуктовых перечней (coord_ozu/coord_ps):
+# per-layer items несут только group_key, имя группы для filename_override/title
+# берётся отсюда. Источник истины — определения групп в реестре продуктов
+# (Fsm_5_3_10), реконструкция вручную запрещена (риск рассинхрона).
+_GROUP_KEY_TO_NAME = {
+    grp['group_key']: grp['group_name']
+    for grp in (_CUTTING_GROUPS + _STAGING_GROUPS)
+}
+
+# ПС-специфичный титул merged-перечня публичных сервитутов (§4.1):
+# generic merged-ПС item НЕ наследует титул первого члена (он по типу работы),
+# а получает этот ПС-специфичный титул.
+_PS_MERGED_TITLE = (
+    'Перечень координат характерных точек контуров публичных сервитутов'
+)
 
 
 class F_5_3_DocumentExport(BaseTool):
@@ -68,16 +100,43 @@ class F_5_3_DocumentExport(BaseTool):
         )
 
         if dialog.exec():
-            selected_items = dialog.get_selected_items()
+            product_ids = dialog.get_selected_product_ids()
             create_wgs84 = dialog.get_create_wgs84()
 
-            if not selected_items:
+            if not product_ids:
                 QMessageBox.warning(
                     self.iface.mainWindow(),
                     "Предупреждение",
                     "Не выбрано ни одного документа для экспорта"
                 )
                 return
+
+            # Раскрываем выбранные продукты в items через ProductRegistry.expand().
+            # Порядок раскрытия фиксирован независимо от порядка выбора в GUI
+            # (§5: детерминизм нумерации приложений). Перечни координат идут до
+            # ведомостей: coord_ozu -> coord_ps -> coord_gpmt (счётчик приложений
+            # инкрементится только на coordinate_list), затем vedomost_ozu
+            # (ведомости не нумеруются приложениями).
+            expand_order = ('coord_ozu', 'coord_ps', 'coord_gpmt', 'vedomost_ozu')
+            selected_set = set(product_ids)
+
+            selected_items: List[Dict[str, Any]] = []
+            for product_id in expand_order:
+                if product_id in selected_set:
+                    selected_items.extend(ProductRegistry.expand(product_id))
+
+            if not selected_items:
+                QMessageBox.warning(
+                    self.iface.mainWindow(),
+                    "Предупреждение",
+                    "Для выбранных документов не найдено непустых слоёв"
+                )
+                return
+
+            log_info(
+                f"F_5_3: выбрано продуктов {len(product_ids)}, "
+                f"раскрыто items {len(selected_items)}"
+            )
 
             # Экспортируем выбранные документы
             self._export_documents(selected_items, output_folder, create_wgs84)
@@ -158,6 +217,12 @@ class F_5_3_DocumentExport(BaseTool):
                 log_warning(f"F_5_3: Ошибка региональных модификаторов, "
                             f"экспорт без модификаций: {e}")
 
+        # Post-grouping продуктовых items (§7, вариант B): слияние per-layer
+        # coord_ozu/coord_ps в merged-перечни «один файл на ЗПР». Выполняется
+        # ПОСЛЕ региональных модификаторов и ДО назначения appendix-номеров.
+        # Старые items (без product_id) проходят шаг прозрачно.
+        selected_items = self._group_product_items(selected_items)
+
         # Создаём прогресс-диалог
         progress = QProgressDialog(
             "Экспорт документов...",
@@ -193,11 +258,16 @@ class F_5_3_DocumentExport(BaseTool):
             template = item['template']
             extra_context = item.get('extra_context', {})
 
-            # Имя для лога: layer.name() или filename_override (merged items)
-            display_name = (
-                layer.name() if layer is not None
-                else extra_context.get('filename_override', 'merged')
-            )
+            # Имя для лога/прогресса: для слоевого item — layer.name();
+            # для merged-item с group_name (продуктовый перечень) —
+            # "Перечень {group_name}"; иначе filename_override.
+            group_name = extra_context.get('group_name')
+            if layer is not None:
+                display_name = layer.name()
+            elif group_name:
+                display_name = f"Перечень {group_name}"
+            else:
+                display_name = extra_context.get('filename_override', 'merged')
 
             doc_type_name = DocumentFactory.get_doc_type_name(template.doc_type)
             progress.setValue(current)
@@ -324,3 +394,137 @@ class F_5_3_DocumentExport(BaseTool):
                 if '_ПС' in name or name.endswith('_ПС'):
                     return True
         return False
+
+    @staticmethod
+    def _group_product_items(
+        items: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Post-grouping (§7, вариант B): слить per-layer продуктовые items
+        coord_ozu/coord_ps в merged-items «один файл на ЗПР».
+
+        Группируются ТОЛЬКО items, у которых extra_context имеет product_id из
+        ('coord_ozu', 'coord_ps') И group_key И НЕТ маркеров 78-потока
+        (split_by_feature / spb_format / merged_export / summary_table /
+        explanatory_note). Остальные items проходят прозрачно в исходном порядке.
+
+        Группы — по first-seen group_key (порядок сохраняется). Каждая группа из
+        N members -> ОДИН merged-item на позиции первого члена; позиции остальных
+        членов удаляются. merged-item:
+            {layer: None, template: <шаблон первого члена>,
+             extra_context: {ozu_merged: True,
+                             merged_layers: [item['layer'] каждого члена],
+                             group_name, product_id, group_key, filename_override}}.
+        Группа из одного члена тоже становится merged-item (единый формат на ЗПР).
+
+        filename_override (§5/§7):
+        - coord_ozu -> 'Приложение_{appendix}_координаты_' + group_name
+          (для этапных group_key вида oks_stage_N имя группы 'ОКС_Этап_N' уже
+          содержит этап — group_name используется как есть);
+        - coord_ps  -> 'Приложение_{appendix}_координаты_ПС_' + group_name.
+        Литерал '{appendix}' остаётся в строке — резолвится экспортёром через
+        format_template_text (номер приложения здесь ещё неизвестен).
+
+        coord_ps merged-item дополнительно получает title_override
+        (ПС-специфичный титул, §4.1) — не наследует титул первого члена.
+
+        vedomost_ozu items НЕ группируются (уже merged из expander).
+
+        Args:
+            items: items любого источника (продукт или старый GUI).
+
+        Returns:
+            Список items с post-grouping. Не-группируемые items — без изменений.
+        """
+        # Группы по first-seen group_key. group_order хранит ключи в порядке
+        # первого появления; группа merged-item ставится на позицию первого члена.
+        # result_slots — выходной список с плейсхолдером (None) для позиций членов
+        # группы; merged-item подставляется на позицию первого члена группы.
+        result_slots: List[Optional[Dict[str, Any]]] = []
+        group_order: List[str] = []
+        group_members: Dict[str, List[Dict[str, Any]]] = {}
+        group_first_slot: Dict[str, int] = {}
+
+        for item in items:
+            extra_context = item.get('extra_context') or {}
+            product_id = extra_context.get('product_id')
+            group_key = extra_context.get('group_key')
+
+            groupable = (
+                product_id in ('coord_ozu', 'coord_ps')
+                and bool(group_key)
+                and not any(extra_context.get(m) for m in _REGION_78_MARKERS)
+            )
+
+            if not groupable:
+                result_slots.append(item)
+                continue
+
+            slot_index = len(result_slots)
+            if group_key not in group_members:
+                group_members[group_key] = []
+                group_order.append(group_key)
+                group_first_slot[group_key] = slot_index
+                # Резерв позиции под merged-item (на месте первого члена).
+                result_slots.append(None)
+            group_members[group_key].append(item)
+
+        if not group_order:
+            # Нет групп — вернуть исходный список без изменений.
+            return list(items)
+
+        # Построить merged-item для каждой группы, поставить на зарезервированную
+        # позицию первого члена.
+        for group_key in group_order:
+            members = group_members[group_key]
+            first_member = members[0]
+            first_ctx = first_member.get('extra_context') or {}
+            product_id = first_ctx.get('product_id')
+            group_name = _GROUP_KEY_TO_NAME.get(group_key, group_key)
+
+            merged_layers = [m['layer'] for m in members]
+
+            # Этапные группы (ОКС_Этап_N / ОКС_Итог): в имени файла — суффикс
+            # этапа БЕЗ префикса "ОКС_" (план §5: ..._Этап_1 / _Этап_2 / _Итог;
+            # этапность существует только для ОКС, префикс избыточен).
+            filename_part = group_name
+            if filename_part.startswith('ОКС_'):
+                filename_part = filename_part[4:]
+
+            if product_id == 'coord_ps':
+                filename_override = (
+                    'Приложение_{appendix}_координаты_ПС_' + filename_part
+                )
+            else:  # coord_ozu
+                filename_override = (
+                    'Приложение_{appendix}_координаты_' + filename_part
+                )
+
+            merged_extra: Dict[str, Any] = {
+                'ozu_merged': True,
+                'merged_layers': merged_layers,
+                'group_name': group_name,
+                'product_id': product_id,
+                'group_key': group_key,
+                'filename_override': filename_override,
+            }
+            if product_id == 'coord_ps':
+                merged_extra['title_override'] = _PS_MERGED_TITLE
+
+            merged_item = {
+                'layer': None,
+                'template': first_member['template'],
+                'extra_context': merged_extra,
+            }
+            result_slots[group_first_slot[group_key]] = merged_item
+
+        # Удалить плейсхолдеры позиций членов группы (кроме первого, заменённого
+        # merged-item). Здесь None остаётся только если merged-item не подставлен,
+        # что невозможно (каждый group_key получает merged-item выше).
+        grouped = [slot for slot in result_slots if slot is not None]
+
+        log_info(
+            f"F_5_3: Post-grouping продуктовых items: {len(items)} -> "
+            f"{len(grouped)} ({len(group_order)} merged-групп)"
+        )
+        return grouped
