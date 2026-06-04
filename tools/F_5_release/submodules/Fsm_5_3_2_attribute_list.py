@@ -34,6 +34,8 @@ class Fsm_5_3_2_AttributeList:
         """
         self.iface = iface
         self.ref_managers = ref_managers
+        # Lazy-кэш маппинга full_name -> working_name из Base_cutting
+        self._cutting_name_map: Optional[Dict[str, str]] = None
 
     def export_layer(
         self,
@@ -416,6 +418,39 @@ class Fsm_5_3_2_AttributeList:
             names.insert(0, "№ п/п")
         return names
 
+    def _cutting_full_name_map(self) -> Dict[str, str]:
+        """
+        Маппинг full_name -> working_name из справочника Base_cutting
+
+        Источник истины для связи "колонка ведомости -> поле слоя": слои
+        нарезки/этапности создаются с полями working_name из той же базы.
+        Хвостовые пробелы full_name справочника игнорируются (strip).
+        Кэшируется на время жизни экспортёра.
+
+        Returns:
+            Словарь {full_name_stripped: working_name}; пустой при недоступном
+            справочнике (fallback на name_mapping/partial-match сохраняется)
+        """
+        if self._cutting_name_map is None:
+            mapping: Dict[str, str] = {}
+            try:
+                if self.ref_managers:
+                    cutting_data = (
+                        self.ref_managers.layer_field_structure.get_cutting_fields()
+                    )
+                    for item in cutting_data or []:
+                        full = (item.get('full_name') or '').strip()
+                        working = (item.get('working_name') or '').strip()
+                        if full and working:
+                            mapping[full] = working
+            except Exception as e:
+                log_warning(
+                    f"Fsm_5_3_2: не удалось построить маппинг Base_cutting "
+                    f"full_name -> working_name: {e}"
+                )
+            self._cutting_name_map = mapping
+        return self._cutting_name_map
+
     def _find_field_index(self, layer: QgsVectorLayer, column_name: str) -> int:
         """
         Найти индекс поля в слое по имени колонки
@@ -459,6 +494,17 @@ class Fsm_5_3_2_AttributeList:
         for i, field in enumerate(fields):
             if field.name() == column_name or field.displayName() == column_name:
                 return i
+
+        # Справочный маппинг Base_cutting: full_name -> working_name (источник
+        # истины — слои нарезки/этапности создаются с полями working_name из той
+        # же базы). Чинит колонки ведомости, отсутствующие в name_mapping ниже:
+        # ручной словарь не совпадал с реальными full_name справочника, из-за
+        # чего большинство колонок merged-ведомости рендерилось "-".
+        working_name = self._cutting_full_name_map().get(column_name.strip())
+        if working_name:
+            idx = fields.indexOf(working_name)
+            if idx >= 0:
+                return idx
 
         # Затем ищем по маппингу
         if column_name in name_mapping:
