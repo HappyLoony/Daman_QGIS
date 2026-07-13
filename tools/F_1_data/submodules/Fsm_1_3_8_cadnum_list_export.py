@@ -9,9 +9,10 @@ from typing import List, Tuple
 from qgis.core import QgsProject, QgsVectorLayer
 from Daman_QGIS.constants import LAYER_SELECTION_ZU, LAYER_SELECTION_OKS
 from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.managers.styling import _font_canon
 
 
-class CadnumListExporter:
+class Fsm_1_3_8_CadnumListExporter:
     """Экспортер перечней кадастровых номеров"""
 
     def __init__(self, iface):
@@ -59,7 +60,7 @@ class CadnumListExporter:
 
             # Форматы
             header_format = workbook.add_format({
-                'font_name': 'Times New Roman',
+                'font_name': _font_canon.excel_font_name(),
                 'font_size': 12,
                 'bold': True,
                 'align': 'center',
@@ -68,7 +69,7 @@ class CadnumListExporter:
             })
 
             cell_format = workbook.add_format({
-                'font_name': 'Times New Roman',
+                'font_name': _font_canon.excel_font_name(),
                 'font_size': 11,
                 'align': 'left',
                 'valign': 'vcenter',

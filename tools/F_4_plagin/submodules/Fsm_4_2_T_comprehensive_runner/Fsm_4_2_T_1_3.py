@@ -120,12 +120,12 @@ class TestF13:
 
         submodules = [
             ('Fsm_1_3_0_budget_task', 'Fsm_1_3_0_BudgetTask'),
-            ('Fsm_1_3_1_boundaries_processor', 'BoundariesProcessor'),
-            ('Fsm_1_3_2_vector_loader', 'VectorLoader'),
-            ('Fsm_1_3_3_forest_loader', 'ForestLoader'),
-            ('Fsm_1_3_4_spatial_analyzer', 'SpatialAnalyzer'),
-            ('Fsm_1_3_5_results_dialog', 'BudgetSelectionResultsDialog'),
-            ('Fsm_1_3_7_intersections_calculator', 'IntersectionsCalculator'),
+            ('Fsm_1_3_1_boundaries_processor', 'Fsm_1_3_1_BoundariesProcessor'),
+            ('Fsm_1_3_2_vector_loader', 'Fsm_1_3_2_VectorLoader'),
+            ('Fsm_1_3_3_forest_loader', 'Fsm_1_3_3_ForestLoader'),
+            ('Fsm_1_3_4_spatial_analyzer', 'Fsm_1_3_4_SpatialAnalyzer'),
+            ('Fsm_1_3_5_results_dialog', 'Fsm_1_3_5_BudgetSelectionResultsDialog'),
+            ('Fsm_1_3_7_intersections_calculator', 'Fsm_1_3_7_IntersectionsCalculator'),
         ]
 
         for module_file, class_name in submodules:
@@ -137,9 +137,9 @@ class TestF13:
                 if hasattr(module, class_name):
                     self.logger.success(f"{class_name} доступен")
                 else:
-                    self.logger.warning(f"{class_name} не найден в модуле")
+                    self.logger.fail(f"{class_name} не найден в модуле")
             except Exception as e:
-                self.logger.warning(f"{class_name}: ошибка импорта - {str(e)[:50]}")
+                self.logger.fail(f"{class_name}: ошибка импорта - {str(e)[:50]}")
 
     def test_04_async_manager(self):
         """ТЕСТ 4: Проверка AsyncTaskManager (M_17)"""

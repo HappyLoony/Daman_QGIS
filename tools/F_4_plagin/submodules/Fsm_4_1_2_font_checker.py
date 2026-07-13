@@ -2,20 +2,32 @@
 """
 Fsm_4_1_2_FontChecker - Проверка установленных шрифтов
 
-Проверяет наличие требуемых шрифтов GOST и OpenSans в системе
+Проверяет наличие требуемых шрифтов канона M_49 в системе:
+GOST 2.304 (чертёжный), Avenir Next W1G (мастер-план),
+IBM Plex Sans (интерфейс плагина).
+Источник списка — _font_canon.required_font_files()
 """
 
 import sys
 import os
-from typing import Dict, Any, Set, List
+from typing import Dict, Any, Set, List, Tuple
 
 from qgis.core import Qgis
 from Daman_QGIS.constants import PLUGIN_NAME, PLUGIN_DIR
+from Daman_QGIS.managers.styling import _font_canon
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
 class FontChecker:
     """Проверка установленных шрифтов"""
+
+    # Назначение ролей канона для пользовательских отчётов
+    # (единая формулировка Fsm_4_1_7 и Fsm_4_1_11)
+    ROLE_PURPOSES: Dict[_font_canon.FontRole, str] = {
+        _font_canon.FontRole.DRAWING: 'для DXF/AutoCAD',
+        _font_canon.FontRole.MASTERPLAN: 'для мастер-плана',
+        _font_canon.FontRole.PLUGIN_UI: 'для интерфейса плагина',
+    }
 
     @staticmethod
     def get_plugin_fonts_dir() -> str:
@@ -31,25 +43,41 @@ class FontChecker:
     @staticmethod
     def get_required_fonts() -> List[str]:
         """
-        Получить список требуемых шрифтов из папки плагина
+        Получить канон-список требуемых шрифтов (M_49 / _font_canon)
+
+        Замена сканирования data/fonts целиком: проверяются и ставятся
+        ТОЛЬКО файлы канона (без легаси из папки)
 
         Returns:
             list: Список файлов шрифтов
         """
-        fonts_dir = FontChecker.get_plugin_fonts_dir()
-        required_fonts = []
-
-        log_info(f"Fsm_4_1_2: Путь к шрифтам: {fonts_dir}")
-
-        if os.path.exists(fonts_dir):
-            for file in os.listdir(fonts_dir):
-                if file.endswith(('.ttf', '.otf')):
-                    required_fonts.append(file)
-            log_info(f"Fsm_4_1_2: Найдено {len(required_fonts)} файлов шрифтов для проверки")
-        else:
-            log_warning(f"Fsm_4_1_2: Папка шрифтов не существует: {fonts_dir}")
-
+        required_fonts = _font_canon.required_font_files()
+        log_info(f"Fsm_4_1_2: Канон-список шрифтов: {len(required_fonts)} файлов")
         return required_fonts
+
+    @staticmethod
+    def group_missing_by_role(missing_fonts: List[str]) -> List[Tuple[int, str, str]]:
+        """
+        Сгруппировать отсутствующие шрифты по ролям канона M_49
+
+        Единый источник формулировки для отчётов Fsm_4_1_7 (HTML)
+        и Fsm_4_1_11 (plain text) — исключает рассинхрон
+
+        Args:
+            missing_fonts: Имена файлов отсутствующих шрифтов
+
+        Returns:
+            list: Кортежи (количество, семейство, назначение) для ролей
+                с хотя бы одним отсутствующим файлом
+        """
+        missing_lower = {f.lower() for f in missing_fonts}
+        groups: List[Tuple[int, str, str]] = []
+        for role, files in _font_canon.FONT_FILES.items():
+            count = sum(1 for f in files if f.lower() in missing_lower)
+            if count > 0:
+                purpose = FontChecker.ROLE_PURPOSES.get(role, '')
+                groups.append((count, _font_canon.get_family(role), purpose))
+        return groups
 
     @staticmethod
     def get_system_fonts() -> Set[str]:
@@ -97,7 +125,7 @@ class FontChecker:
     @staticmethod
     def check_fonts() -> Dict[str, Any]:
         """
-        Проверка установленных шрифтов из папки resources/styles/fonts
+        Проверка установленных шрифтов по канон-списку M_49
 
         Returns:
             dict: Информация о шрифтах

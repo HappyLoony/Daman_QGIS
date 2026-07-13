@@ -29,6 +29,7 @@ from .Fsm_1_1_4_3_geometry import extract_geometry
 from .Fsm_1_1_4_4_layer_creator import create_and_save_layer
 from .Fsm_1_1_4_6_layer_splitter import split_and_create_layers
 from .Fsm_1_1_4_7_unified_land_processor import Fsm_1_1_4_7_UnifiedLandProcessor
+from .Fsm_1_1_4_8_form_deriver import derive_form_tech
 
 
 class Fsm_1_1_4_VypiskaImporter(BaseImporter):
@@ -723,5 +724,17 @@ class Fsm_1_1_4_VypiskaImporter(BaseImporter):
 
             except Exception as e:
                 log_warning(f"Fsm_1_1_4 (_extract_all_attributes): Ошибка извлечения поля '{working_name}': {e}")
+
+        # ДЕРИВАЦИЯ ТРАНЗИТНОЙ ФОРМЫ (__Форма_тех) из ветки right_holder.
+        # Форма НЕ извлекается штатным xpath (Msm_4_17 first-match+break хранит
+        # только значение) → выделенный экстрактор присутствия ветки (§5.3).
+        # Только для ЗУ/ЕЗ; правообладатели в корне (right_records) → root_element.
+        if record_type in ('land_record', 'unified_land_record') and root_element is not None:
+            try:
+                form_value = derive_form_tech(root_element)
+                if form_value:
+                    attributes['__Форма_тех'] = form_value
+            except Exception as e:
+                log_warning(f"Fsm_1_1_4 (_extract_all_attributes): Ошибка деривации '__Форма_тех': {e}")
 
         return attributes

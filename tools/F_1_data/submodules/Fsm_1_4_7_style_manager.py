@@ -10,7 +10,7 @@ from Daman_QGIS.constants import PLUGIN_NAME
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
-class StyleManager:
+class Fsm_1_4_7_StyleManager:
     """Менеджер стилей растровых слоев"""
     
     def __init__(self, iface):

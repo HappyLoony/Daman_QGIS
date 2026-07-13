@@ -14,7 +14,9 @@ from qgis.core import (
 
 from .base_exporter import BaseExporter
 from Daman_QGIS.constants import PLUGIN_NAME
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import (
+    log_info, log_warning, log_error, is_internal_field, exportable_field_indices
+)
 
 
 class ShapefileExporter(BaseExporter):
@@ -144,7 +146,9 @@ class ShapefileExporter(BaseExporter):
         options.driverName = "ESRI Shapefile"
         options.fileEncoding = params.get('encoding', 'UTF-8')
 
-        # Обработка полей (Shapefile ограничивает имена до 10 символов)
+        # Транзитные __-поля исключаем из выгрузки ВСЕГДА (K6/OPT-8, §5.1):
+        # в ветке truncate — не добавляем их индекс; в ветке без truncate —
+        # ставим options.attributes безусловно.
         if params.get('truncate_fields', True):
             options.attributes = []
             truncated_fields = QgsFields()
@@ -152,6 +156,11 @@ class ShapefileExporter(BaseExporter):
 
             for field in layer.fields():
                 original_name = field.name()
+
+                # Пропускаем транзитные __-поля (не попадают в .shp)
+                if is_internal_field(original_name):
+                    continue
+
                 # Обрезаем до 10 символов
                 truncated_name = original_name[:10]
 
@@ -177,6 +186,9 @@ class ShapefileExporter(BaseExporter):
                 log_info(
                     f"Имена полей обрезаны для Shapefile: {field_mapping}"
                 )
+        else:
+            # Без обрезки имён — всё равно исключаем транзитные __-поля
+            options.attributes = exportable_field_indices(layer)
 
         # Добавляем трансформацию если нужно
         if layer.crs() != target_crs:

@@ -157,10 +157,14 @@ class LandCategoryAssignmentManager:
         Returns:
             Строковое значение категории
         """
-        centroid = geometry.centroid()
-        if centroid.isEmpty():
-            log_warning(f"M_36: Не удалось вычислить центроид для ID={feature_id}")
+        # Точка-зонд категории — точка ВНУТРИ ЗУ (M_9). centroid Г-образного
+        # ЗУ может лечь в чужую зону → неверная категория.
+        from Daman_QGIS.managers.geometry import AnchorPointManager
+        anchor_pt = AnchorPointManager.anchor_point(geometry, "surface")
+        if anchor_pt is None:
+            log_warning(f"M_36: Не удалось вычислить точку привязки для ID={feature_id}")
             return _FALLBACK_CATEGORY
+        anchor_geom = QgsGeometry.fromPointXY(anchor_pt)
 
         for zone in zone_layers:
             spatial_index: QgsSpatialIndex = zone["index"]
@@ -169,17 +173,17 @@ class LandCategoryAssignmentManager:
             layer_name: str = zone["layer_name"]
             transform: Optional[QgsCoordinateTransform] = zone.get("transform")
 
-            # Трансформируем центроид в CRS зонального слоя если нужно
-            test_centroid = QgsGeometry(centroid)
+            # Трансформируем точку привязки в CRS зонального слоя если нужно
+            test_anchor = QgsGeometry(anchor_geom)
             test_geometry = QgsGeometry(geometry)
             if transform is not None:
-                test_centroid.transform(transform)
+                test_anchor.transform(transform)
                 test_geometry.transform(transform)
 
-            centroid_bbox = test_centroid.boundingBox()
+            anchor_bbox = test_anchor.boundingBox()
 
             # Быстрый поиск кандидатов через пространственный индекс
-            candidate_ids = spatial_index.intersects(centroid_bbox)
+            candidate_ids = spatial_index.intersects(anchor_bbox)
             if not candidate_ids:
                 continue
 
@@ -192,7 +196,7 @@ class LandCategoryAssignmentManager:
                     if zone_geom.isEmpty():
                         continue
 
-                    if test_centroid.within(zone_geom):
+                    if test_anchor.within(zone_geom):
                         # Центроид внутри - проверяем полное вмещение
                         if not test_geometry.within(zone_geom):
                             log_warning(

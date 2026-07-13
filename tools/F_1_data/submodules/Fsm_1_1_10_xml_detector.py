@@ -33,7 +33,7 @@ def _strip_namespace(tag: str) -> str:
     return _CLARK_NS_RE.sub('', tag)
 
 
-class XmlTypeDetector:
+class Fsm_1_1_10_XmlTypeDetector:
     """Детектор типа XML файла"""
 
     # Root tag для КПТ
@@ -100,11 +100,11 @@ class XmlTypeDetector:
             # Универсальное решение - стрипать namespace prefix всегда.
             local_name = _strip_namespace(root_tag)
 
-            if local_name == XmlTypeDetector.KPT_ROOT_TAG:
+            if local_name == Fsm_1_1_10_XmlTypeDetector.KPT_ROOT_TAG:
                 return 'KPT'
-            elif local_name == XmlTypeDetector.IBOUNDARY_ROOT_TAG:
+            elif local_name == Fsm_1_1_10_XmlTypeDetector.IBOUNDARY_ROOT_TAG:
                 return 'IBOUNDARY'
-            elif local_name in XmlTypeDetector.VYPISKA_ROOT_TAGS:
+            elif local_name in Fsm_1_1_10_XmlTypeDetector.VYPISKA_ROOT_TAGS:
                 return 'VYPISKA'
             else:
                 log_warning(f"Fsm_1_1_detector: Неизвестный root tag в XML: {root_tag}")
@@ -138,7 +138,7 @@ class XmlTypeDetector:
         }
 
         for file_path in file_paths:
-            xml_type = XmlTypeDetector.detect_xml_type(file_path)
+            xml_type = Fsm_1_1_10_XmlTypeDetector.detect_xml_type(file_path)
             if xml_type == 'KPT':
                 classified['KPT'].append(file_path)
             elif xml_type == 'VYPISKA':

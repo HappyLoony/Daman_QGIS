@@ -11,11 +11,11 @@
 
 from typing import Dict, Any, List
 
-from .Fsm_1_5_0_base_export_submodule import BaseExportSubmodule
+from .Fsm_1_5_0_base_export_submodule import Fsm_1_5_0_BaseExportSubmodule
 from ..core.tab_exporter import TabExporter
 
 
-class TabExportSubmodule(BaseExportSubmodule):
+class Fsm_1_5_7_TabExportSubmodule(Fsm_1_5_0_BaseExportSubmodule):
     """Сабмодуль для экспорта в TAB формат"""
 
     FORMAT_NAME = "TAB (MapInfo)"

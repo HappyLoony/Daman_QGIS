@@ -21,13 +21,13 @@ from .ui.export_dialog import ExportDialog
 # Импортируем все сабмодули с новыми именами
 # Примечание: ExcelExportSubmodule и ExcelListExportSubmodule перенесены в F_5_3
 from .submodules import (
-    DxfExportSubmodule,
-    GeoJSONExportSubmodule,
-    KMLExportSubmodule,
-    KMZExportSubmodule,
-    ShapefileExportSubmodule,
-    TabExportSubmodule,
-    ExcelTableExportSubmodule
+    Fsm_1_5_1_DxfExportSubmodule,
+    Fsm_1_5_3_GeoJSONExportSubmodule,
+    Fsm_1_5_4_KMLExportSubmodule,
+    Fsm_1_5_5_KMZExportSubmodule,
+    Fsm_1_5_6_ShapefileExportSubmodule,
+    Fsm_1_5_7_TabExportSubmodule,
+    Fsm_1_5_9_ExcelTableExportSubmodule
 )
 
 
@@ -37,13 +37,13 @@ class F_1_5_UniversalExport(BaseTool):
     # Маппинг форматов на сабмодули
     # Примечание: excel и excel_list перенесены в F_5_3 (экспорт по шаблону)
     FORMAT_MODULES = {
-        'dxf': DxfExportSubmodule,
-        'geojson': GeoJSONExportSubmodule,
-        'kml': KMLExportSubmodule,
-        'kmz': KMZExportSubmodule,
-        'shapefile': ShapefileExportSubmodule,
-        'tab': TabExportSubmodule,
-        'excel_table': ExcelTableExportSubmodule
+        'dxf': Fsm_1_5_1_DxfExportSubmodule,
+        'geojson': Fsm_1_5_3_GeoJSONExportSubmodule,
+        'kml': Fsm_1_5_4_KMLExportSubmodule,
+        'kmz': Fsm_1_5_5_KMZExportSubmodule,
+        'shapefile': Fsm_1_5_6_ShapefileExportSubmodule,
+        'tab': Fsm_1_5_7_TabExportSubmodule,
+        'excel_table': Fsm_1_5_9_ExcelTableExportSubmodule
     }
 
     # Имена форматов для отображения

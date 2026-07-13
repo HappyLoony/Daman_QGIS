@@ -234,14 +234,11 @@ class Fsm_0_4_8_LineChecker:
                             if length < self.MIN_OVERLAP_LENGTH:
                                 continue
 
-                            # Геометрия для отображения - центроид пересечения
-                            error_geom = intersection.centroid()
-                            if not error_geom or error_geom.isEmpty():
-                                error_geom = intersection
-
+                            # Сырая линия пересечения — координатор (Fsm_0_4_5:571)
+                            # централизует точку привязки через M_9 (midpoint линии).
                             errors.append({
                                 'type': 'line_overlap',
-                                'geometry': error_geom,
+                                'geometry': intersection,
                                 'feature_id': fid,
                                 'feature_id2': cid,
                                 'description': f'Наложение линий (объекты {fid} и {cid}), длина {length:.4f} м',

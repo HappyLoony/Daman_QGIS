@@ -48,6 +48,21 @@ QgsGeometryParameters(gridSize=0.01) в native QGIS API. GEOS 3.9+
   overflow = 0)
 - НЕ возвращать gridSize=0.001 — на Сапуне даёт sliver-spikes внутри Раздела
 
+СВОЙСТВО CONTAINMENT (GEOS OverlayNG, best-practice):
+- output ⊆ snapped(input1) ∩ snapped(input2), но НЕ обязательно ⊆ original input
+  (vertices смещаются на ≤ 0.5×gridSize). Overflow worst-case = 0.5×gridSize.
+  На gridSize=0.01 это 5 мм — в пределах кадастрового шума.
+- gridSize применять для multi-geometry overlay / floating-point noise (DXF) /
+  multiway junctions (3+ границы в точке) / когда нужна deterministic топология.
+  НЕ применять когда нужна EXACT original precision или для single-geometry
+  transforms (rotate/translate — precision не релевантна).
+НЕ ПУТАТЬ с:
+- `QgsGeometry.snappedToGrid()` — post-process snap ОДНОЙ геометрии, без overlay
+  logic; не замена gridSize в overlay.
+- `processing.run("native:snappointstogrid")` — алгоритм для точечных слоёв,
+  другая абстракция.
+Требует GEOS 3.9+ (OverlayNG); в QGIS 3.40 — GEOS 3.14, OK.
+
 Документация GEOS OverlayNG: https://libgeos.org/doxygen/classgeos_1_1operation_1_1overlayng_1_1OverlayNG.html
 
 МЕТОДЫ

@@ -6,7 +6,7 @@ Fsm_4_2_T_qgis_environment - Тест окружения QGIS
 1. Версия QGIS и совместимость
 2. Доступность Processing framework
 3. GDAL/OGR и драйверы
-4. Шрифты (GOST 2.304)
+4. Шрифты канона M_49 (GOST 2.304, Avenir Next W1G, IBM Plex Sans)
 5. Пути и переменные окружения
 6. Провайдеры данных (ogr, memory, WFS)
 
@@ -227,26 +227,50 @@ class TestQgisEnvironment:
             self.logger.error(f"Ошибка проверки CRS: {e}")
 
     def test_06_fonts(self) -> None:
-        """ТЕСТ 6: Шрифты (GOST 2.304)"""
+        """ТЕСТ 6: Шрифты канона M_49 (DRAWING/MASTERPLAN/PLUGIN_UI)"""
         self.logger.section("6. Шрифты")
 
         try:
             from qgis.PyQt.QtGui import QFontDatabase
+            from Daman_QGIS.managers.styling import _font_canon
 
             font_db = QFontDatabase()
-            all_fonts = font_db.families()
+            all_fonts = set(font_db.families())
 
             self.logger.info(f"Системных шрифтов: {len(all_fonts)}")
 
-            # Проверяем GOST шрифты
-            gost_fonts = [f for f in all_fonts if 'GOST' in f.upper() or 'ГОСТ' in f.upper()]
+            # Роли канона, устанавливаемые плагином (F_4_1) — проверяем
+            # КАЖДОЕ family точным совпадением в QFontDatabase
+            required_roles = [
+                _font_canon.FontRole.DRAWING,
+                _font_canon.FontRole.MASTERPLAN,
+                _font_canon.FontRole.PLUGIN_UI,
+            ]
 
-            if gost_fonts:
-                self.logger.success(f"GOST шрифты установлены: {len(gost_fonts)}")
-                for font in gost_fonts[:3]:  # Показываем первые 3
-                    self.logger.info(f"  - {font}")
+            for role in required_roles:
+                family = _font_canon.get_family(role)
+                if family in all_fonts:
+                    self.logger.success(
+                        f"Шрифт '{family}' (роль {role.value}) установлен"
+                    )
+                else:
+                    self.logger.warning(
+                        f"Шрифт '{family}' (роль {role.value}) не найден "
+                        f"(установите через F_4_1)"
+                    )
+
+            # DOCUMENT — системный шрифт Windows, плагином НЕ ставится:
+            # проверка мягкая (info, не warning)
+            doc_family = _font_canon.get_family(_font_canon.FontRole.DOCUMENT)
+            if doc_family in all_fonts:
+                self.logger.success(
+                    f"Системный шрифт '{doc_family}' (роль document) доступен"
+                )
             else:
-                self.logger.warning("GOST шрифты не найдены (установите через F_4_1)")
+                self.logger.info(
+                    f"Системный шрифт '{doc_family}' не найден "
+                    f"(ставится ОС, вне scope плагина)"
+                )
 
         except Exception as e:
             self.logger.error(f"Ошибка проверки шрифтов: {e}")

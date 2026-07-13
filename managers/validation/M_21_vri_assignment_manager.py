@@ -547,8 +547,9 @@ class VRIAssignmentManager:
     ) -> str:
         """Получить значение для поля Общее (территория общего пользования)
 
-        Для множественных ВРИ: если хотя бы один ВРИ относится к территории
-        общего пользования - возвращает "Отнесен".
+        Для множественных ВРИ: ЗУ относится к территории общего пользования
+        только если ВСЕ ВРИ относятся. Если хотя бы один ВРИ не относится -
+        возвращает "Не отнесен".
 
         Args:
             zpr_layer: Слой ЗПР
@@ -559,10 +560,9 @@ class VRIAssignmentManager:
         """
         vri_data_list = self.get_vri_for_zpr_id(zpr_layer, zpr_id)
         if vri_data_list:
-            # Если хотя бы один ВРИ - территория общего пользования
-            for vri_data in vri_data_list:
-                if vri_data.get('is_public_territory', False):
-                    return self.PUBLIC_TERRITORY_YES
+            # "Отнесен" только если ВСЕ ВРИ - территория общего пользования
+            if all(vri.get('is_public_territory', False) for vri in vri_data_list):
+                return self.PUBLIC_TERRITORY_YES
             return self.PUBLIC_TERRITORY_NO
         return "-"
 
@@ -631,8 +631,8 @@ class VRIAssignmentManager:
                 full_names = [vri.get('full_name', '') for vri in vri_data_list if vri.get('full_name')]
                 attrs['План_ВРИ'] = ', '.join(full_names) if full_names else '-'
 
-                # Общая_земля - если хотя бы один ВРИ относится к территории общего пользования
-                is_public = any(vri.get('is_public_territory', False) for vri in vri_data_list)
+                # Общая_земля - только если ВСЕ ВРИ относятся к территории общего пользования
+                is_public = all(vri.get('is_public_territory', False) for vri in vri_data_list)
                 attrs['Общая_земля'] = self.PUBLIC_TERRITORY_YES if is_public else self.PUBLIC_TERRITORY_NO
 
                 assigned_count += 1
@@ -805,8 +805,8 @@ class VRIAssignmentManager:
                 full_names = [vri.get('full_name', '') for vri in vri_data_list if vri.get('full_name')]
                 attrs['План_ВРИ'] = ', '.join(full_names) if full_names else '-'
 
-                # Общая_земля - если хотя бы один ВРИ относится к территории общего пользования
-                is_public = any(vri.get('is_public_territory', False) for vri in vri_data_list)
+                # Общая_земля - только если ВСЕ ВРИ относятся к территории общего пользования
+                is_public = all(vri.get('is_public_territory', False) for vri in vri_data_list)
                 attrs['Общая_земля'] = self.PUBLIC_TERRITORY_YES if is_public else self.PUBLIC_TERRITORY_NO
 
                 assigned_count += 1
@@ -921,8 +921,8 @@ class VRIAssignmentManager:
                 full_names = [vri.get('full_name', '') for vri in vri_data_list if vri.get('full_name')]
                 attrs['План_ВРИ'] = ', '.join(full_names) if full_names else '-'
 
-                # Общая_земля - если хотя бы один ВРИ относится к территории общего пользования
-                is_public = any(vri.get('is_public_territory', False) for vri in vri_data_list)
+                # Общая_земля - только если ВСЕ ВРИ относятся к территории общего пользования
+                is_public = all(vri.get('is_public_territory', False) for vri in vri_data_list)
                 attrs['Общая_земля'] = self.PUBLIC_TERRITORY_YES if is_public else self.PUBLIC_TERRITORY_NO
 
                 assigned_count += 1

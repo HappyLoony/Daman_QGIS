@@ -9,9 +9,13 @@ from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import List, Optional, Dict, Set, Tuple, TYPE_CHECKING
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import (
+    log_info, log_warning, log_error, normalize_for_classification
+)
 from Daman_QGIS.managers.reference.submodules import ProductionCalendarManager
+from Daman_QGIS.managers.styling import _font_canon
 from .Fsm_6_1_3_parser import TimesheetData, SPECIAL_CATEGORIES, SPECIAL_CATEGORIES_ORDER
+from .Fsm_6_1_6_norm import compute_employee_norm, absence_by_day
 
 # Ленивый импорт openpyxl для избежания ошибки np.float при загрузке плагина
 if TYPE_CHECKING:
@@ -19,8 +23,8 @@ if TYPE_CHECKING:
     from openpyxl.worksheet.worksheet import Worksheet
     from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
-# Шрифт по умолчанию для генерируемых файлов
-DEFAULT_FONT_NAME = "Times New Roman"
+# Шрифт по умолчанию для генерируемых файлов (канон DOCUMENT из _font_canon)
+DEFAULT_FONT_NAME = _font_canon.excel_font_name()
 DEFAULT_FONT_SIZE = 11
 
 
@@ -192,8 +196,14 @@ class SummaryTimesheetGenerator:
         employees_data: List[Tuple[str, Dict[str, float]]] = []
         column_totals: Dict[str, float] = {col: 0.0 for col in all_columns}
 
-        # Создаём маппинг lowercase -> canonical для категорий
-        category_mapping: Dict[str, str] = {cat.lower(): cat for cat in categories}
+        # Создаём маппинг нормализованный+lowercase -> canonical для категорий.
+        # normalize_for_classification чистит nbsp/zero-width/тире (парсер несёт
+        # невидимые символы из Excel), .lower() -- case-fold (parser хранит
+        # оригинальный регистр). Тот же предикат применяется на стороне нормы
+        # (absence_by_day) -> согласованность факт<->норма (R5-1/C3).
+        category_mapping: Dict[str, str] = {
+            normalize_for_classification(cat).lower(): cat for cat in categories
+        }
 
         def sum_hours_until(daily_hours: Dict[int, float], limit_day: Optional[int]) -> float:
             """Сумма часов до указанного дня включительно."""
@@ -218,12 +228,15 @@ class SummaryTimesheetGenerator:
                             hours_by_column[code] = hours
                         column_totals[code] += hours
 
-            # Специальные категории (сопоставляем без учёта регистра)
+            # Специальные категории (сопоставляем без учёта регистра и
+            # невидимых символов -- C3).
             for category in ts.special_categories:
                 cat_name = category.category
                 if cat_name:
-                    # Находим каноническое имя категории
-                    canonical_name = category_mapping.get(cat_name.lower())
+                    # Находим каноническое имя категории (нормализация + case-fold)
+                    canonical_name = category_mapping.get(
+                        normalize_for_classification(cat_name).lower()
+                    )
                     if canonical_name:
                         # Считаем часы только до end_day
                         hours = sum_hours_until(category.daily_hours, end_day)
@@ -243,8 +256,10 @@ class SummaryTimesheetGenerator:
         timesheets: List[TimesheetData],
         output_folder: str,
         report_end_date: Optional[date] = None,
-        employee_rates: Optional[Dict[str, float]] = None
-    ) -> Optional[str]:
+        employee_rates: Optional[Dict[str, float]] = None,
+        calendar_manager: Optional[ProductionCalendarManager] = None,
+        calendar_unavailable: bool = False
+    ) -> Tuple[Optional[str], bool]:
         """
         Сгенерировать сводный табель.
 
@@ -255,9 +270,19 @@ class SummaryTimesheetGenerator:
                            Если None - используется вчерашняя дата.
             employee_rates: Словарь {ФИО: ставка} для расчёта индивидуальных норм.
                            Если None или ФИО отсутствует - используется ставка 1.0.
+            calendar_manager: ProductionCalendarManager от оркестратора (D1).
+                           Если None - создаётся внутри (один источник на запуск,
+                           анти-retry-storm). Статус дня = SSOT этого менеджера.
+            calendar_unavailable: флаг недоступности календаря от оркестратора.
+                           При True норма/отклонение не считаются (пустые ячейки).
 
         Returns:
-            Путь к созданному файлу или None при ошибке
+            Tuple (path, calendar_unavailable):
+            - path: путь к созданному файлу или None при ошибке;
+            - calendar_unavailable: True если календарь оказался недоступен
+              (в т.ч. упал mid-run) -> "Отклонение" пусто у всех. Контракт G1:
+              оркестратор эмитит плашку в GUI из finished() (главный поток);
+              прямой iface из QgsTask-потока запрещён.
         """
         # Патч numpy для совместимости со старыми версиями openpyxl
         from .Fsm_6_1_3_parser import _patch_numpy_float
@@ -269,7 +294,7 @@ class SummaryTimesheetGenerator:
 
         if not timesheets:
             log_warning("Fsm_6_1_5: Нет табелей для сводки")
-            return None
+            return None, calendar_unavailable
 
         log_info(f"Fsm_6_1_5: Генерация сводного табеля для {len(timesheets)} сотрудников")
 
@@ -289,7 +314,7 @@ class SummaryTimesheetGenerator:
 
             if not all_columns:
                 log_warning("Fsm_6_1_5: Не найдено шифров проектов и категорий")
-                return None
+                return None, calendar_unavailable
 
             # Строим матрицу данных (с учётом end_day)
             end_day = report_end_date.day if report_end_date else None
@@ -307,30 +332,72 @@ class SummaryTimesheetGenerator:
             if report_end_date is None:
                 report_end_date = date.today() - timedelta(days=1)
 
+            # GUI-authoritative год/месяц для расчёта нормы (из конечной даты
+            # периода, НЕ из ts.year/ts.month -- B4 лишь ориентир).
+            gui_year = report_end_date.year
+            gui_month = report_end_date.month
+
             log_info(f"Fsm_6_1_5: Расчетный период: {month_start} - {report_end_date}")
 
-            # Рассчитываем нормы часов с учётом предпраздничных дней
-            calendar_manager = ProductionCalendarManager()
+            # Карта ФИО -> TimesheetData для helper нормы (F-01, строим один раз)
+            timesheets_by_fio: Dict[str, TimesheetData] = {
+                ts.fio: ts for ts in timesheets_sorted
+            }
 
-            # Норма за период (от начала месяца до вчера включительно)
-            if month_start:
-                norm_period = calendar_manager.get_work_hours_for_period(
-                    month_start, report_end_date
+            # Рассчитываем нормы часов с учётом предпраздничных дней.
+            # Производственный календарь сетевой -> при недоступности
+            # is_workday/is_shortened_day бросают RuntimeError. Ловим ДО основного
+            # цикла (F-07): иначе падение зануляет весь файл через общий except.
+            # Менеджер от оркестратора (D1), иначе создаём свой (один на запуск).
+            if calendar_manager is None:
+                calendar_manager = ProductionCalendarManager()
+
+            norm_period: Optional[float] = None
+            norm_month: Optional[float] = None
+
+            if calendar_unavailable:
+                # Оркестратор уже определил недоступность -> не дёргаем сеть
+                # повторно (анти-retry-storm), норма/отклонение пустые.
+                log_warning(
+                    "Fsm_6_1_5: Производственный календарь недоступен (флаг "
+                    "оркестратора). Нормы и отклонения не рассчитаны (пустые ячейки)."
                 )
             else:
-                norm_period = 0.0
+                try:
+                    # Норма за период (от начала месяца до вчера включительно)
+                    if month_start:
+                        norm_period = calendar_manager.get_work_hours_for_period(
+                            month_start, report_end_date
+                        )
+                    else:
+                        norm_period = 0.0
 
-            # Норма за весь месяц
-            norm_month = calendar_manager.get_work_hours_for_month(year, month)
+                    # Норма за весь месяц (GUI-authoritative год/месяц, E2):
+                    # per-employee норма считается от GUI (gui_year/gui_month),
+                    # шапка "Норма часов за месяц" обязана быть от того же
+                    # источника, иначе два источника года в одном файле.
+                    norm_month = calendar_manager.get_work_hours_for_month(
+                        gui_year, gui_month
+                    )
 
-            log_info(
-                f"Fsm_6_1_5: Норма часов - за период: {norm_period}, за месяц: {norm_month}"
-            )
+                    log_info(
+                        f"Fsm_6_1_5: Норма часов - за период: {norm_period}, за месяц: {norm_month}"
+                    )
+                except RuntimeError as e:
+                    # Календарь недоступен: норма/отклонение не считаются,
+                    # шапка "Норма" пустая, ячейки "Отклонение" пустые, файл строится.
+                    norm_period = None
+                    norm_month = None
+                    calendar_unavailable = True
+                    log_warning(
+                        f"Fsm_6_1_5: Производственный календарь недоступен: {e}. "
+                        "Нормы и отклонения не рассчитаны (пустые ячейки)."
+                    )
 
             # Создаем книгу
             wb = Workbook()
 
-            # Заменяем Font 0 (дефолтный Calibri) на Times New Roman.
+            # Заменяем Font 0 (дефолтный Calibri) на DEFAULT_FONT_NAME (канон M_49).
             # Именно Font 0 Excel использует для расчёта единиц ширины колонок.
             # _named_styles['Normal'].font создаёт НОВЫЙ font, не заменяет Font 0.
             wb._fonts[0] = Font(name=DEFAULT_FONT_NAME, size=DEFAULT_FONT_SIZE)
@@ -441,7 +508,15 @@ class SummaryTimesheetGenerator:
             current_row = 6
             first_data_row = 6  # Запоминаем первую строку данных
             grand_total = 0.0
-            total_expected_hours = 0.0  # Сумма индивидуальных норм для общего отклонения
+            # FIX-7: итог отклонения = Σ round(per-employee deviation), отдельный
+            # аккумулятор (не round(grand_total - Σнорм)).
+            sum_round_deviation = 0.0
+            any_norm_unavailable = False  # NEW-4: хотя бы одна норма None -> итог пустой
+            # FIX-9/G1: ссылки на ячейки "Отклонение" всех сотрудников. При
+            # mid-run сбое календаря (первые K строк уже получили число до
+            # выставления флага) обнуляем ВСЕ собранные ячейки после цикла ->
+            # инвариант "пусто у ВСЕХ, не у первых K".
+            deviation_cells = []
 
             for fio, hours_by_column in employees_data:
                 # Получаем ставку сотрудника
@@ -449,14 +524,35 @@ class SummaryTimesheetGenerator:
                 if employee_rates and fio in employee_rates:
                     rate = employee_rates[fio]
 
-                # Отпуск считается по полной ставке (1.0), остальное по rate
-                vacation_hours = hours_by_column.get("Отпуск", 0.0)
-                if rate == 1.0:
-                    employee_norm = norm_period
+                # Индивидуальная норма через единый helper: по-дневная норма с
+                # cap, отсутствия нейтрализуются подённо. None при недоступности
+                # календаря (F-07). Источник absence -- per-day карта absence_by_day
+                # (C2/FIX-2), согласованная с фактом employee_total (R5-1).
+                ts_for_norm = timesheets_by_fio.get(fio)
+                if ts_for_norm is None:
+                    employee_norm = None
                 else:
-                    work_norm = norm_period - vacation_hours
-                    employee_norm = work_norm * rate + vacation_hours
-                total_expected_hours += employee_norm
+                    absence_map = absence_by_day(ts_for_norm, end_day)
+                    employee_norm = compute_employee_norm(
+                        ts_for_norm, absence_map, rate, end_day,
+                        calendar_manager, gui_year, gui_month,
+                        calendar_unavailable
+                    )
+                    # Anti-retry-storm (DEFECT-2): None при ещё не выставленном
+                    # флаге = календарь стал недоступен в процессе. Выставляем
+                    # флаг, чтобы остальные сотрудники не били сеть повторно
+                    # (helper при флаге -> сразу None без сетевых вызовов).
+                    if employee_norm is None and not calendar_unavailable:
+                        calendar_unavailable = True
+                        log_warning(
+                            "Fsm_6_1_5: производственный календарь стал "
+                            "недоступен, расчёт нормы остановлен для остальных "
+                            "сотрудников (отклонение пустое)"
+                        )
+
+                # None-guard (NEW-2): помечаем недоступность нормы для итога
+                if employee_norm is None:
+                    any_norm_unavailable = True
 
                 # ФИО
                 ws.cell(current_row, 1).value = fio
@@ -485,12 +581,22 @@ class SummaryTimesheetGenerator:
                 ws.cell(current_row, total_col).border = self._thin_border
                 ws.cell(current_row, total_col).alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
-                # Отклонение от индивидуальной нормы (итого - норма * ставка)
-                deviation = employee_total - employee_norm
-                ws.cell(current_row, deviation_col).value = deviation
-                ws.cell(current_row, deviation_col).font = bold_font
-                ws.cell(current_row, deviation_col).border = self._thin_border
-                ws.cell(current_row, deviation_col).alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                # Отклонение от индивидуальной нормы (итого - норма).
+                # None-guard (NEW-2): при недоступной норме ячейка пустая,
+                # round (C1/F-09) гасит float-шум per-day суммирования.
+                if employee_norm is not None:
+                    deviation = round(employee_total - employee_norm, 2)
+                    # FIX-7: аккумулируем округлённое per-employee отклонение
+                    sum_round_deviation += deviation
+                else:
+                    deviation = None
+                dev_cell = ws.cell(current_row, deviation_col)
+                dev_cell.value = deviation
+                dev_cell.font = bold_font
+                dev_cell.border = self._thin_border
+                dev_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                # FIX-9/G1: запоминаем ячейку для возможной пост-цикловой очистки
+                deviation_cells.append(dev_cell)
 
                 grand_total += employee_total
                 current_row += 1
@@ -498,6 +604,15 @@ class SummaryTimesheetGenerator:
             # Последняя строка данных сотрудников (для толстых границ)
             last_data_row = current_row - 1
             totals_row = current_row  # Строка "Сумма по объекту"
+
+            # FIX-9/G1: инвариант "всё-или-ничего" для "Отклонение". Если
+            # календарь стал недоступен В СЕРЕДИНЕ цикла (первые K сотрудников
+            # уже получили числовое отклонение до выставления флага), обнуляем
+            # ВСЕ собранные ячейки -> отклонение пусто у ВСЕХ N, не у первых K.
+            # Плашку в GUI эмитит оркестратор (запрет iface из QgsTask-потока).
+            if calendar_unavailable:
+                for dev_cell in deviation_cells:
+                    dev_cell.value = None
 
             # === Строка сумм по проектам (с толстыми границами) ===
             # Колонка A - заливка 15%
@@ -524,8 +639,14 @@ class SummaryTimesheetGenerator:
             ws.cell(current_row, total_col).border = self._thick_border
             ws.cell(current_row, total_col).alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
-            # Общее отклонение (сумма часов - сумма индивидуальных норм)
-            total_deviation = grand_total - total_expected_hours
+            # Общее отклонение (FIX-7): Σ round(per-employee deviation), НЕ
+            # round(grand_total - Σнорм). NEW-4/F-07: при недоступном календаре
+            # или любой None-норме итог пустой (пустая ячейка честнее
+            # перекошенного). round гасит остаточный float-шум суммы.
+            if calendar_unavailable or any_norm_unavailable:
+                total_deviation = None
+            else:
+                total_deviation = round(sum_round_deviation, 2)
             ws.cell(current_row, deviation_col).value = total_deviation
             ws.cell(current_row, deviation_col).font = bold_font
             ws.cell(current_row, deviation_col).border = self._thick_border
@@ -624,8 +745,9 @@ class SummaryTimesheetGenerator:
             # Закрепляем первую колонку (A - ФИО) и 5 строк заголовка
             ws.freeze_panes = 'B6'
 
-            # Сохраняем файл с динамическим именем
-            output_filename = f"Сводный табель Отдел архитектуры_и ПМ_{year}_{month:02d}.xlsx"
+            # Сохраняем файл с динамическим именем (GUI-authoritative год/месяц,
+            # E2 -- согласовано с шапкой нормы и per-employee нормой).
+            output_filename = f"Сводный табель Отдел архитектуры_и ПМ_{gui_year}_{gui_month:02d}.xlsx"
             output_path = Path(output_folder) / output_filename
             wb.save(str(output_path))
             wb.close()
@@ -636,8 +758,8 @@ class SummaryTimesheetGenerator:
                 f"общий итог часов: {grand_total}"
             )
 
-            return str(output_path)
+            return str(output_path), calendar_unavailable
 
         except Exception as e:
             log_error(f"Fsm_6_1_5: Ошибка генерации: {e}")
-            return None
+            return None, calendar_unavailable

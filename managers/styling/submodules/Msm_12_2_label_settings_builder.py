@@ -34,6 +34,7 @@ from qgis.PyQt.QtGui import QColor, QFont
 import math
 from Daman_QGIS.constants import LAYER_BOUNDARIES_EXACT
 from Daman_QGIS.utils import log_warning
+from Daman_QGIS.managers.styling import _font_canon
 
 
 class LabelSettingsBuilder:
@@ -254,14 +255,20 @@ class LabelSettingsBuilder:
         text_format = QgsTextFormat()
 
         # 1. Шрифт
-        font_family = config.get('label_font_family', 'GOST 2.304')
+        # H1 (план M_49): подписи канвы получают из канона ТОЛЬКО строки.
+        # Построение остаётся QFont(family) БЕЗ регистрации TTF (фабрика и
+        # регистрация шрифтов M_49 здесь запрещены) — подписи рассчитывают
+        # на системную установку шрифта через F_4_1.
+        font_family = config.get(
+            'label_font_family',
+            _font_canon.get_family(_font_canon.FontRole.DRAWING)
+        )
         font = QFont(font_family)
 
         font_style = config.get('label_font_style', 'Bold Italic')
-        if 'Bold' in font_style:
-            font.setBold(True)
-        if 'Italic' in font_style:
-            font.setItalic(True)
+        bold, italic = _font_canon.parse_font_style(font_style)
+        font.setBold(bold)
+        font.setItalic(italic)
 
         text_format.setFont(font)
 
@@ -630,12 +637,21 @@ class LabelSettingsBuilder:
                         if not feature_geom:
                             fallback_point = QgsPointXY(0, 0)
                         else:
-                            # makeValid() перед GEOS операцией на невалидной геометрии
+                            # makeValid() перед M_9 (скрытое преобразование остаётся
+                            # у потребителя, FIX-12); затем визуальный центр (pole).
+                            from Daman_QGIS.managers.geometry import AnchorPointManager
                             valid_geom = feature_geom.makeValid()
-                            if valid_geom and not valid_geom.isEmpty():
-                                fallback_point = valid_geom.poleOfInaccessibility(1.0)[0].asPoint()
-                            else:
-                                fallback_point = feature_geom.centroid().asPoint()
+                            pole_pt = AnchorPointManager.anchor_point(valid_geom, "pole")
+                            if pole_pt is None:
+                                # Точка-внутри не получена (вырожден/невалид) —
+                                # подпись пропускается (как ветка vis-part ниже),
+                                # БЕЗ (0,0)-fallback (увёл бы подпись в начало МСК).
+                                log_warning(
+                                    "Msm_12_2: точка привязки не получена "
+                                    "(невалидная геометрия), подпись пропущена"
+                                )
+                                continue
+                            fallback_point = pole_pt
 
                         # Смещаем центроид в направлении назначенного угла
                         shift_factor = 0.3
@@ -669,7 +685,15 @@ class LabelSettingsBuilder:
 
                     # Проверка 1: Пересечение пустое (feature полностью вне extent)
                     if visible_part.isEmpty():
-                        fallback_point = feature_geom.poleOfInaccessibility(1.0)[0].asPoint()
+                        from Daman_QGIS.managers.geometry import AnchorPointManager
+                        fb_pt = AnchorPointManager.anchor_point(feature_geom, "pole")
+                        if fb_pt is None:
+                            log_warning(
+                                "Msm_12_2: точка привязки не получена (feature вне "
+                                "extent), подпись пропущена"
+                            )
+                            continue
+                        fallback_point = fb_pt
 
                         shift_factor = 0.3
                         dx = corner_x - fallback_point.x()
@@ -918,12 +942,12 @@ class LabelSettingsBuilder:
                     if not geom or geom.isEmpty():
                         continue
 
-                    pole = geom.poleOfInaccessibility(1.0)
-                    if not pole[0] or pole[0].isEmpty():
+                    from Daman_QGIS.managers.geometry import AnchorPointManager
+                    pole = AnchorPointManager.pole_with_radius(geom)
+                    if pole is None:
                         continue
 
-                    pole_pt = pole[0].asPoint()
-                    pole_radius = pole[1]
+                    pole_pt, pole_radius = pole
 
                     # Проверка: помещается ли текст внутри полигона
                     if do_fit_check and scale > 0:
@@ -1099,7 +1123,7 @@ class LabelSettingsBuilder:
             Словарь со стандартными значениями
         """
         return {
-            'label_font_family': 'GOST 2.304',
+            'label_font_family': _font_canon.get_family(_font_canon.FontRole.DRAWING),
             'label_font_style': 'Bold Italic',
             'label_font_size': 4.0,
             'label_font_color_RGB': '0,0,0',

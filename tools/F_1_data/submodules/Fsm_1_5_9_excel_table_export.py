@@ -20,9 +20,10 @@ from Daman_QGIS.managers import AttributeProcessor
 from Daman_QGIS.managers import (
     registry, FolderType
 )
+from Daman_QGIS.managers.styling import _font_canon
 
 
-class ExcelTableExportSubmodule:
+class Fsm_1_5_9_ExcelTableExportSubmodule:
     """Сабмодуль для экспорта таблицы атрибутов в Excel"""
     
     def __init__(self, iface):
@@ -213,7 +214,7 @@ class ExcelTableExportSubmodule:
 
         # Форматы
         header_format = workbook.add_format({
-            'font_name': 'Times New Roman',
+            'font_name': _font_canon.excel_font_name(),
             'font_size': 11,
             'bold': True,
             'align': 'center',
@@ -224,7 +225,7 @@ class ExcelTableExportSubmodule:
         })
 
         data_format = workbook.add_format({
-            'font_name': 'Times New Roman',
+            'font_name': _font_canon.excel_font_name(),
             'font_size': 11,
             'align': 'center',
             'valign': 'vcenter',
@@ -233,7 +234,7 @@ class ExcelTableExportSubmodule:
         })
 
         number_format = workbook.add_format({
-            'font_name': 'Times New Roman',
+            'font_name': _font_canon.excel_font_name(),
             'font_size': 11,
             'align': 'center',
             'valign': 'vcenter',

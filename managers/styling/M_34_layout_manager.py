@@ -15,7 +15,17 @@ M_34: LayoutManager - Менеджер макетов печати
 - F_5_1: Чертёж планировки территории (будущее)
 - F_5_2: Чертёж межевания территории (будущее)
 
-Используется: F_1_4, F_5_*
+Используется: F_1_4, F_5_* (вкл. F_5_4 «Мастер-план», ранее F_6_6 — переименован).
+
+ОБЩАЯ ИНФРА МАКЕТОВ (M_34 + Msm_34_1_layout_builder + Msm_34_2_extent_shifter):
+делится между F_1_4 (графика к запросам) и F_5_4 (мастер-план). При ЛЮБОЙ задаче на
+макеты/легенду/экстенты/экспорт PDF — НЕ дублировать логику, сперва проверять есть ли
+она в M_34 / Msm_34_*. Конфиг макетов — Base_layout.json (ключи `{format}_{orientation}_{DPT|MP}`),
+Base_drawings.json (visible_layers — list через «;», overview_layers, drawing_name).
+Подложки хардкод: main = L_1_3_2 (справочный/ЦОС), overview = L_1_3_3 (ЕЭКО основной).
+Шрифты макета — через M_49 FontManager (DOC_TYPE_FONTS / Avenir Next W1G для мастер-плана);
+substring-матч регистрации TTF исторически не находил `gost_2.304*.ttf` из-за underscore
+(дефект устранён в M_49).
 """
 
 import os
@@ -392,7 +402,7 @@ class LayoutManager:
             layout_name: Имя создаваемого макета
             page_format: Формат страницы (A4, A3, A2, A1). Если None - из метаданных
             orientation: 'landscape' или 'portrait'. Если None - из метаданных проекта
-            doc_type: Тип документации для выбора шрифта (DOC_TYPE_FONTS)
+            doc_type: Тип документации для выбора шрифта (_font_canon.DOC_TYPE_FAMILIES)
 
         Returns:
             QgsPrintLayout или None при ошибке

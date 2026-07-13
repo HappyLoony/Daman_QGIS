@@ -3,7 +3,13 @@
 Msm_25_2 - Классификатор прав на земельные участки
 
 Определяет в какой слой L_1_11_* должен попасть объект
-на основе полей "Права", "Собственники", "Обременения".
+на основе полей "Права", "__Форма_тех" (транзитная форма собственности),
+"Обременения".
+
+Вариант B (§4/§5.5): классификатор читает ТРАНЗИТНУЮ ФОРМУ (__Форма_тех),
+а НЕ "Собственники" (та теперь = ИМЯ правообладателя, в классификации не
+участвует). Параметр `owners_value` в методах сохранён по имени, но несёт
+значение формы (см. classify_feature / get_field_names).
 
 Объект может попасть в несколько слоёв:
 - Один основной (по праву собственности)
@@ -15,7 +21,7 @@ Msm_25_2 - Классификатор прав на земельные учас�
 from collections import Counter
 from typing import Dict, List, Tuple, Optional
 
-from Daman_QGIS.utils import log_info, log_warning
+from Daman_QGIS.utils import log_info, log_warning, normalize_for_classification
 
 # Lazy import для избежания циклических зависимостей
 def _get_reference_managers():
@@ -113,6 +119,22 @@ class Msm_25_2_RightsClassifier:
 
     # Слой для неопознанных участков
     UNKNOWN_LAYER = "L_1_11_6_Права_ЗУ_Свед_нет"
+
+    # Имя транзитного поля формы собственности (Вариант B): читается вместо
+    # "Собственники" (та теперь = ИМЯ правообладателя). Форма несёт словарь
+    # классификатора (Частная/Муниципальная/...). Исключено из экспорта.
+    FORM_FIELD_NAME = "__Форма_тех"
+
+    # Род-нормализация формы (K1, §5.5): НСПД `ownership_type` даёт форму в
+    # среднем роде ("Частное"), словарь классификатора — в женском ("Частная").
+    # Единый словарь на входе в поле, БЕЗ плодения ключей классификатора.
+    # Применяется к формам no-выписка ЗУ (форма из НСПД); формы выписки уже
+    # приходят из ветки holder в правильном роде (§3).
+    FORM_NORMALIZATION: Dict[str, str] = {
+        "Частное": "Частная",
+        "Государственное": "Государственная",
+        "Муниципальное": "Муниципальная",
+    }
 
     def __init__(self):
         """Инициализация классификатора"""
@@ -303,7 +325,9 @@ class Msm_25_2_RightsClassifier:
 
         # Парсим поля
         rights_list = self.parse_field(rights_value)
-        owners_list = self.parse_field(owners_value)
+        # owners_value здесь = ТРАНЗИТНАЯ ФОРМА (__Форма_тех), не имя правообладателя.
+        # Нормализуем: невидимые символы НСПД (\xa0 и др.) + род ("Частное"->"Частная").
+        owners_list = [self._normalize_form(f) for f in self.parse_field(owners_value)]
         encumbrances_list = self.parse_field(encumbrances_value)
 
         # Определяем основной слой
@@ -331,11 +355,35 @@ class Msm_25_2_RightsClassifier:
         log_warning("\n".join(parts))
         self._unclassified.clear()
 
+    @classmethod
+    def _normalize_form(cls, form_value: str) -> str:
+        """Нормализация значения формы собственности для классификатора.
+
+        Двухступенчато (K1, §5.5):
+        1. `normalize_for_classification` — убирает невидимые символы НСПД
+           (`\\xa0`, zero-width, юникод-тире), которые может нести
+           `ownership_type` из WFS → иначе точное `==` в словаре промахнётся.
+        2. Род-нормализация ("Частное" -> "Частная") — НСПД даёт форму в ср.
+           роде, словарь классификатора — в ж. роде.
+
+        Args:
+            form_value: Значение формы (один токен из parse_field)
+
+        Returns:
+            Нормализованное значение формы
+        """
+        normalized = normalize_for_classification(form_value)
+        return cls.FORM_NORMALIZATION.get(normalized, normalized)
+
     def get_field_names(self) -> Tuple[str, str, str]:
         """
         Получить имена полей для классификации
 
+        ВАЖНО (Вариант B): второе поле — ТРАНЗИТНАЯ ФОРМА (__Форма_тех),
+        а НЕ "Собственники". Форма несёт словарь классификатора; "Собственники"
+        переосмыслено в чистое имя правообладателя и в классификации не участвует.
+
         Returns:
-            Tuple[str, str, str]: (rights_field, owners_field, encumbrances_field)
+            Tuple[str, str, str]: (rights_field, form_field, encumbrances_field)
         """
-        return ("Права", "Собственники", "Обременения")
+        return ("Права", self.FORM_FIELD_NAME, "Обременения")

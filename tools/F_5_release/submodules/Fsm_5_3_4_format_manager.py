@@ -9,6 +9,8 @@ Fsm_5_3_4 - Менеджер форматирования Excel
 
 from typing import Dict, Any, List, Optional, Tuple
 
+from Daman_QGIS.managers.styling import _font_canon
+
 
 class ExcelFormatManager:
     """
@@ -28,9 +30,9 @@ class ExcelFormatManager:
         'border': '#000000',
     }
 
-    # Стандартные шрифты
+    # Стандартные шрифты ('default' — канон DOCUMENT из _font_canon)
     FONTS = {
-        'default': 'Times New Roman',
+        'default': _font_canon.excel_font_name(),
         'monospace': 'Courier New',
     }
 

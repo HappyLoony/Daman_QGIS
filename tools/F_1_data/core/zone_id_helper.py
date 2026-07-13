@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_1_zone_id_helper: Гарантировать наличие поля 'ID' в слоях
+zone_id_helper: Гарантировать наличие поля 'ID' в слоях
 функциональных (Le_1_2_8_*) и территориальных (Le_1_2_9_*) зон.
 
 Используется:
@@ -69,7 +69,7 @@ def ensure_id_field(layer: QgsVectorLayer) -> bool:
     provider = layer.dataProvider()
     if provider is None:
         log_warning(
-            f"Fsm_1_zone_id: dataProvider() = None для слоя '{layer.name()}'"
+            f"zone_id_helper: dataProvider() = None для слоя '{layer.name()}'"
         )
         return False
 
@@ -82,14 +82,14 @@ def ensure_id_field(layer: QgsVectorLayer) -> bool:
     success = provider.addAttributes([field])
     if not success:
         log_warning(
-            f"Fsm_1_zone_id: не удалось добавить '{_ID_FIELD_NAME}' "
+            f"zone_id_helper: не удалось добавить '{_ID_FIELD_NAME}' "
             f"в слой '{layer.name()}'"
         )
         return False
 
     layer.updateFields()
     log_info(
-        f"Fsm_1_zone_id: Добавлено поле '{_ID_FIELD_NAME}' "
+        f"zone_id_helper: Добавлено поле '{_ID_FIELD_NAME}' "
         f"({_ID_FIELD_TYPE_NAME} {_ID_FIELD_LENGTH}) в слой '{layer.name()}'"
     )
     return True

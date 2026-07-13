@@ -14,7 +14,7 @@ from qgis.core import (
 
 from .base_exporter import BaseExporter
 from Daman_QGIS.constants import PLUGIN_NAME
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, exportable_field_indices
 
 
 class KMLExporter(BaseExporter):
@@ -136,6 +136,9 @@ class KMLExporter(BaseExporter):
         options = QgsVectorFileWriter.SaveVectorOptions()
         options.driverName = "KML"
         options.fileEncoding = "UTF-8"
+
+        # Исключаем транзитные __-поля из выгрузки (K6/§5.1)
+        options.attributes = exportable_field_indices(layer)
 
         # Настройки KML
         datasource_options = []

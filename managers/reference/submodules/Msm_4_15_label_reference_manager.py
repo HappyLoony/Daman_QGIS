@@ -6,6 +6,7 @@ import json
 from typing import List, Dict, Optional
 from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
 from Daman_QGIS.utils import log_warning, log_error
+from Daman_QGIS.managers.styling import _font_canon
 
 
 class LabelReferenceManager(BaseReferenceLoader):
@@ -137,14 +138,15 @@ class LabelReferenceManager(BaseReferenceLoader):
         Получить конфигурацию подписей по умолчанию
 
         Returns:
-            Словарь со стандартными значениями (GOST 2.304, 4мм, черный, буфер 1мм)
+            Словарь со стандартными значениями (канон DRAWING из _font_canon,
+            4мм, черный, буфер 1мм)
 
         Example:
             >>> defaults = manager.get_default_config()
             >>> print(f"Шрифт по умолчанию: {defaults['label_font_family']}")
         """
         return {
-            'label_font_family': 'GOST 2.304',
+            'label_font_family': _font_canon.get_family(_font_canon.FontRole.DRAWING),
             'label_font_style': 'Bold Italic',
             'label_font_size': 4.0,
             'label_font_color_RGB': '0,0,0',

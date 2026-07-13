@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_0_4_14: Анализ покрытия — гибридный детектор зазоров и проблем coverage
+Fsm_0_4_14: Анализ покрытия — per-layer детектор проблем coverage
 
-ТРИ КОМПЛЕМЕНТАРНЫХ МЕТОДА:
+ДВА КОМПЛЕМЕНТАРНЫХ МЕТОДА (per-layer):
 
 1. **GEOS CoverageValidator** (primary, GEOS >= 3.12)
    QgsGeometry.validateCoverage(gap_width) возвращает MULTILINESTRING invalid edges
@@ -10,22 +10,22 @@ Fsm_0_4_14: Анализ покрытия — гибридный детекто�
    Индустриальный стандарт (PostGIS ST_CoverageInvalidEdges, ArcGIS "Must not have gaps").
    Тип ошибки: 'coverage_invalid_edge'
 
-2. **Envelope-difference** (для внутренних дырок)
-   Negative space через envelope.difference(union) даёт ЗАКРЫТЫЕ внутренние пустоты:
-   дырки в одном полигоне, изолированные между 3+ features. Открытые межграничные
-   зазоры детектит метод (1) — здесь они отфильтровываются по пересечению с
-   invalid edges из (1).
-   Тип ошибки: 'gap'
-
 3. **Union spike-check** (для пиковых узлов)
-   Острые углы на boundary union'а. Spike-точки которые лежат на invalid edges
-   из (1) — отфильтровываются (это та же junction problem).
+   Острые углы на boundary union'а одного слоя. Spike-точки которые лежат на
+   invalid edges из (1) — отфильтровываются (это та же junction problem).
    Тип ошибки: 'gap_spike'
 
+ИСТОРИЯ (INV-1, план F_0_4 2026-06-16): метод 2 (envelope-difference, тип 'gap')
+ВЫНЕСЕН из этого per-layer чекера в whole-project класс C (Fsm_0_4_16,
+тип 'coverage_gap'). Причина: зазор покрытия — межслойный феномен (по сумме всех
+образуемых нарезки внутри ЗПР), внутрислойный envelope-diff давал ложные
+срабатывания. `_build_union_and_envelope` СОХРАНЁН — метод 3 (gap_spike) зависит
+от того же union одного слоя (spike одного слоя != spike whole-project union).
+
 ДЕДУПЛИКАЦИЯ:
-Validator (1) — primary. Методы (2) и (3) дополнительные и фильтруют свои находки
-если они пространственно совпадают с invalid edges из (1). Итог: 3 непересекающихся
-набора ошибок, оператор видит каждую проблему ровно один раз.
+Validator (1) — primary. Метод (3) фильтрует свои находки если они пространственно
+совпадают с invalid edges из (1). Итог: 2 непересекающихся набора ошибок,
+оператор видит каждую проблему ровно один раз.
 
 Встроен в pipeline F_0_4 — выполняется всегда вместе с остальными checker'ами.
 """
@@ -52,7 +52,10 @@ class Fsm_0_4_14_GapChecker:
     """
 
     # Минимальная площадь зазора для отсечения шума float-арифметики (м²)
-    # 0.0001 м² = 1 мм² — ловим даже micro-gaps в junction points
+    # 0.0001 м² = 1 мм² — ловим даже micro-gaps в junction points (было 0.01 —
+    # пропускало micro-gaps в junction). MAX_GAP_AREA-фильтр УДАЛЁН НАМЕРЕННО
+    # (скрывал реальные крупные пустоты) — НЕ возвращать. gap-check встроен в
+    # pipeline F_0_4 без checkbox (enable_gap_check удалён) — выполняется всегда.
     MIN_GAP_AREA = 0.0001
 
     # Буферный коэффициент для envelope (20% от максимального размера bbox)
@@ -87,18 +90,17 @@ class Fsm_0_4_14_GapChecker:
             spike_angle_threshold or self.DEFAULT_SPIKE_THRESHOLD
         )
         self.coverage_invalid_edges_found = 0
-        self.gaps_found = 0
         self.spikes_found = 0
 
     def check(self, layer: QgsVectorLayer) -> List[Dict[str, Any]]:
         """
-        Анализ покрытия слоя: поиск зазоров и spike-узлов на union boundary.
+        Анализ покрытия слоя: invalid edges + spike-узлы на union boundary.
 
         Args:
             layer: Полигональный слой для проверки
 
         Returns:
-            Список ошибок (type='gap' и type='gap_spike')
+            Список ошибок (type='coverage_invalid_edge' и type='gap_spike')
         """
         errors: List[Dict[str, Any]] = []
 
@@ -137,35 +139,21 @@ class Fsm_0_4_14_GapChecker:
         errors.extend(coverage_errors)
         self.coverage_invalid_edges_found = len(coverage_errors)
 
-        # 2. Построение негативного пространства для МЕТОДА 2 и 3
-        union_geom, envelope_geom = self._build_union_and_envelope(layer)
-        if union_geom is None or envelope_geom is None:
+        # 2. Построение union для МЕТОДА 3 (spike-анализ одного слоя).
+        # envelope больше не используется для метода 2 (вынесен в класс C),
+        # но _build_union_and_envelope СОХРАНЁН — union нужен для spike.
+        union_geom, _envelope_geom = self._build_union_and_envelope(layer)
+        if union_geom is None:
             self._log_summary()
             return errors
 
         if union_geom.type() != Qgis.GeometryType.Polygon:
             log_warning(
                 f"Fsm_0_4_14: Union вернул не-полигональную геометрию "
-                f"({union_geom.wkbType()}), envelope-анализ невозможен"
+                f"({union_geom.wkbType()}), spike-анализ невозможен"
             )
             self._log_summary()
             return errors
-
-        negative_space = envelope_geom.difference(union_geom)
-        if negative_space is None or negative_space.isEmpty():
-            log_info(
-                "Fsm_0_4_14: Негативное пространство пустое "
-                "(полное покрытие без зазоров)"
-            )
-        else:
-            # МЕТОД 2: envelope-difference для ВНУТРЕННИХ дырок
-            # (дедуп: фильтруем gap polygons чьи boundary пересекаются с invalid edges)
-            gap_errors = self._classify_gaps(
-                negative_space, envelope_geom, feature_index, feature_map,
-                invalid_edges_union=invalid_edges_union
-            )
-            errors.extend(gap_errors)
-            self.gaps_found = len(gap_errors)
 
         # МЕТОД 3: spike-углы на union boundary
         # (дедуп: фильтруем точки лежащие на invalid edges)
@@ -180,22 +168,18 @@ class Fsm_0_4_14_GapChecker:
         return errors
 
     def _log_summary(self) -> None:
-        """Логирование итоговой статистики по 3 методам."""
+        """Логирование итоговой статистики по 2 методам (per-layer)."""
         if self.coverage_invalid_edges_found > 0:
             log_warning(
                 f"Fsm_0_4_14: Coverage invalid edges: "
                 f"{self.coverage_invalid_edges_found}"
-            )
-        if self.gaps_found > 0:
-            log_warning(
-                f"Fsm_0_4_14: Внутренние пустоты (gap polygons): {self.gaps_found}"
             )
         if self.spikes_found > 0:
             log_warning(
                 f"Fsm_0_4_14: Spike-узлы (вне junction): {self.spikes_found}"
             )
         if (self.coverage_invalid_edges_found == 0 and
-                self.gaps_found == 0 and self.spikes_found == 0):
+                self.spikes_found == 0):
             log_info("Fsm_0_4_14: Проблем покрытия не обнаружено")
 
     def _build_union_and_envelope(
@@ -290,6 +274,28 @@ class Fsm_0_4_14_GapChecker:
         Возвращает invalid edges per polygon — MULTILINESTRING на shared
         boundaries где edges не совпадают (junction problems, sliver gaps).
 
+        ГОЧА (НЕ откатывать на processing-алгоритм): processing-wrapper
+        `native:coveragevalidate` СЛОМАН в QGIS 3.40 LTR (verified MCP,
+        май 2026) — IS_VALID работает, но output INVALID_EDGES всегда
+        пустой (0 features) даже на synthetic-тесте с known-зазорами. Поэтому
+        используется ПРЯМОЙ PyQGIS API `QgsGeometry.validateCoverage`, а не
+        `processing.run('native:coveragevalidate')`. Не «оптимизировать»
+        обратно на processing.
+
+        Семантика gap_width = МАКСИМАЛЬНАЯ ширина детектируемого зазора:
+        зазоры шире считаются «намеренными» (улицы/проезды) и игнорируются;
+        кадастровый sliver-порог = 1.0 м (DEFAULT_GAP_WIDTH).
+
+        graceful degradation: на GEOS 3.11 validateCoverage бросает
+        QgsNotSupportedException → try/except ниже ловит, метод тихо
+        отключается (методы 2/3 остаются). Метод доступен с QGIS 3.36.
+
+        Задел: GEOS 3.14 (авг 2025) добавил GEOSCoverageClean (auto-snap
+        малых зазоров + align shared edges) — в QGIS 3.40 ещё нет, ждать
+        QGIS 3.46+/4.0 как Stage 2 fix для 'coverage_invalid_edge'. Соседние
+        coverage-API: simplifyCoverageVW (Visvalingam-Whyatt с сохранением
+        shared edges), unionCoverage (быстрее unaryUnion на valid coverage).
+
         Returns:
             (errors, invalid_edges_union):
                 errors — список ошибок типа 'coverage_invalid_edge'
@@ -345,16 +351,12 @@ class Fsm_0_4_14_GapChecker:
                 continue
             fid = fids_ordered[i]
             edge_geoms.append(part)
-            # Точка-индикатор: центроид invalid edges feature'а
-            indicator = part.pointOnSurface()
-            if indicator is None or indicator.isEmpty():
-                indicator = part.centroid()
-            if indicator is None or indicator.isEmpty():
-                continue
+            # Сырая линия invalid edges — координатор (Fsm_0_4_5:571)
+            # централизует точку привязки через M_9 (midpoint линии).
             length = part.length()
             errors.append({
                 'type': 'coverage_invalid_edge',
-                'geometry': indicator,
+                'geometry': part,
                 'edge_geometry': part,
                 'feature_id': fid,
                 'description': (
@@ -384,8 +386,8 @@ class Fsm_0_4_14_GapChecker:
     ) -> Tuple[QgsSpatialIndex, Dict[int, QgsFeature]]:
         """Spatial index features слоя для маппинга union→feature_id.
 
-        Используется в _classify_gaps и _check_union_spikes чтобы привязать
-        ошибку (gap/spike) к конкретному feature, а не оставлять feature_id=-1.
+        Используется в _check_union_spikes чтобы привязать spike-ошибку к
+        конкретному feature, а не оставлять feature_id=-1.
         """
         index = QgsSpatialIndex()
         feature_map: Dict[int, QgsFeature] = {}
@@ -425,181 +427,6 @@ class Fsm_0_4_14_GapChecker:
                 best_distance = d
                 best_fid = fid
         return best_fid if best_distance <= tolerance else -1
-
-    @staticmethod
-    def _find_features_touching_gap(
-        gap_geom: QgsGeometry,
-        index: QgsSpatialIndex,
-        feature_map: Dict[int, QgsFeature]
-    ) -> List[int]:
-        """Найти fid всех features чьи границы касаются зазора.
-
-        Зазор — это негативное пространство между features, его boundary
-        состоит из участков boundary соседних features.
-        """
-        candidate_ids = index.intersects(gap_geom.boundingBox())
-        touching: List[int] = []
-        for fid in candidate_ids:
-            feat = feature_map.get(fid)
-            if not feat:
-                continue
-            if feat.geometry().intersects(gap_geom) or feat.geometry().touches(gap_geom):
-                touching.append(fid)
-        return touching
-
-    def _classify_gaps(
-        self,
-        negative_space: QgsGeometry,
-        envelope_geom: QgsGeometry,
-        feature_index: QgsSpatialIndex,
-        feature_map: Dict[int, QgsFeature],
-        invalid_edges_union: Optional[QgsGeometry] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Разбиение негативного пространства на отдельные зазоры
-        и классификация по типу (internal/external) и площади.
-
-        Args:
-            negative_space: Результат envelope.difference(union)
-            envelope_geom: Геометрия envelope для определения external/internal
-
-        Returns:
-            Список ошибок type='gap'
-        """
-        errors: List[Dict[str, Any]] = []
-
-        # Граница envelope для определения external зазоров.
-        # QgsGeometry не имеет метода boundary() — он на QgsAbstractGeometry.
-        # Паттерн совпадает с Fsm_2_1_7:123 и Fsm_1_4_4:113.
-        boundary_abstract = envelope_geom.constGet().boundary()
-        if boundary_abstract is None:
-            log_warning(
-                "Fsm_0_4_14: envelope boundary не извлечена, "
-                "все зазоры будут классифицированы как internal"
-            )
-            envelope_boundary = QgsGeometry()
-        else:
-            envelope_boundary = QgsGeometry(boundary_abstract.clone())
-
-        # Разбиваем multipart на отдельные полигоны
-        if negative_space.isMultipart():
-            gap_polygons = negative_space.asGeometryCollection()
-        else:
-            gap_polygons = [negative_space]
-
-        log_info(
-            f"Fsm_0_4_14: Найдено {len(gap_polygons)} "
-            "фрагментов негативного пространства"
-        )
-
-        skipped_small = 0
-        skipped_external = 0
-        skipped_dedup = 0
-
-        for gap_geom in gap_polygons:
-            if gap_geom is None or gap_geom.isEmpty():
-                continue
-
-            # Только полигоны
-            if gap_geom.type() != Qgis.GeometryType.Polygon:
-                continue
-
-            area = gap_geom.area()
-
-            # Отсечение шума float-арифметики
-            if area < self.MIN_GAP_AREA:
-                skipped_small += 1
-                continue
-
-            # Определение типа: internal или external
-            # External = касается границы envelope (пространство за пределами объектов)
-            is_external = gap_geom.intersects(envelope_boundary)
-
-            if is_external:
-                skipped_external += 1
-                continue
-
-            # ДЕДУП: если boundary этой gap пересекается с invalid edges
-            # из CoverageValidator — пропускаем (та же проблема уже отмечена)
-            if invalid_edges_union is not None and not invalid_edges_union.isEmpty():
-                gap_boundary_abstract = gap_geom.constGet().boundary()
-                if gap_boundary_abstract is not None:
-                    gap_boundary = QgsGeometry(gap_boundary_abstract.clone())
-                    if gap_boundary.intersects(invalid_edges_union):
-                        skipped_dedup += 1
-                        continue
-
-            # Определение severity по площади
-            severity = self._get_gap_severity(area)
-
-            # Точка для визуализации - центроид зазора
-            centroid = gap_geom.centroid()
-            if centroid is None or centroid.isEmpty():
-                centroid = gap_geom.pointOnSurface()
-
-            error_geom = centroid if centroid and not centroid.isEmpty() else gap_geom
-
-            # Соседние features (касаются boundary зазора)
-            touching_fids = self._find_features_touching_gap(
-                gap_geom, feature_index, feature_map
-            )
-            primary_fid = touching_fids[0] if touching_fids else -1
-            neighbors_str = (
-                ', '.join(str(fid) for fid in touching_fids[:5])
-                if touching_fids else '?'
-            )
-
-            errors.append({
-                'type': 'gap',
-                'geometry': error_geom,
-                'feature_id': primary_fid,
-                'neighbor_fids': touching_fids,
-                'description': (
-                    f'Зазор покрытия: площадь {area:.4f} м2 '
-                    f'(внутренний, {severity}, '
-                    f'соседние объекты: {neighbors_str})'
-                ),
-                'area': round(area, 4),
-                'gap_type': 'internal',
-                'severity': severity
-            })
-
-        # Логирование статистики
-        if skipped_small > 0:
-            log_info(
-                f"Fsm_0_4_14: Пропущено {skipped_small} "
-                f"микро-зазоров (< {self.MIN_GAP_AREA} м2)"
-            )
-        if skipped_external > 0:
-            log_info(
-                f"Fsm_0_4_14: Пропущено {skipped_external} "
-                "внешних зазоров (за пределами покрытия)"
-            )
-        if skipped_dedup > 0:
-            log_info(
-                f"Fsm_0_4_14: Пропущено {skipped_dedup} "
-                "внутренних зазоров (дедуп с CoverageValidator)"
-            )
-
-        return errors
-
-    @staticmethod
-    def _get_gap_severity(area: float) -> str:
-        """
-        Определение серьезности зазора по площади.
-
-        Args:
-            area: Площадь зазора в м2
-
-        Returns:
-            Строка серьезности на русском языке
-        """
-        if area < 1.0:
-            return 'критический'
-        elif area < 10.0:
-            return 'предупреждение'
-        else:
-            return 'информация'
 
     def _check_union_spikes(
         self,
@@ -735,10 +562,6 @@ class Fsm_0_4_14_GapChecker:
     def get_coverage_invalid_edges_count(self) -> int:
         """Возвращает количество invalid edges из CoverageValidator"""
         return self.coverage_invalid_edges_found
-
-    def get_gap_count(self) -> int:
-        """Возвращает количество найденных внутренних зазоров (после дедупа)"""
-        return self.gaps_found
 
     def get_spike_count(self) -> int:
         """Возвращает количество найденных spike-узлов (после дедупа)"""

@@ -19,7 +19,7 @@ import re
 from qgis.core import QgsVectorLayer, QgsFeature, QgsProject
 
 from Daman_QGIS.utils import log_info, log_warning, log_success
-from .Fsm_1_zone_id_helper import ensure_id_field
+from ..core.zone_id_helper import ensure_id_field
 
 SOURCE_LAYER_NAME = "Le_1_2_8_1_Фун_зоны"
 

@@ -35,6 +35,7 @@ from typing import Any, Callable, Dict, List, Optional
 from qgis.PyQt.QtGui import QFont, QFontMetricsF
 
 from Daman_QGIS.utils import log_info, log_warning
+from Daman_QGIS.managers.styling import _font_canon
 from .Msm_46_1_types import (
     AvailableSpace,
     LegendContent,
@@ -189,7 +190,10 @@ class LayoutPlanner:
         # делает M_46.facade через choose_strategy(mode), а не через plan.mode).
         min_sym_w = float(config.get('legend_min_symbol_width', 10))
         min_sym_h = float(config.get('legend_min_symbol_height', 3.5))
-        font_family = str(config.get('font_family', 'GOST 2.304'))
+        font_family = str(config.get(
+            'font_family',
+            _font_canon.get_family(_font_canon.FontRole.DRAWING)
+        ))
         font_size_pt = int(config.get('font_size_pt', DEFAULT_FONT_SIZE_PT))
         # letter_spacing_pt: AbsoluteSpacing в pt — глобальный параметр макета
         # (page-level). Парсинг + apply через shared helpers Msm_46_5_utils

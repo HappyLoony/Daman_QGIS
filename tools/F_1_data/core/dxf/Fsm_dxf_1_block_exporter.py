@@ -14,7 +14,7 @@ import string
 from typing import Dict, Any, Optional
 from qgis.core import Qgis, QgsFeature, QgsVectorLayer, QgsCoordinateTransform, QgsGeometry
 
-from Daman_QGIS.utils import log_debug, log_info, log_warning
+from Daman_QGIS.utils import log_debug, log_info, log_warning, exportable_fields
 from Daman_QGIS.managers import CoordinatePrecisionManager as CPM
 from Daman_QGIS.constants import DXF_BLOCK_ATTR_TEXT_HEIGHT
 
@@ -92,9 +92,9 @@ class DxfBlockExporter:
         insert_x, insert_y = CPM.round_coordinates(centroid.x(), centroid.y(), coordinate_precision)
         insert_point = (insert_x, insert_y)
 
-        # Собираем значения атрибутов
+        # Собираем значения атрибутов (без транзитных __-полей — K6/§5.1)
         attribute_values = {}
-        fields = layer.fields()
+        fields = exportable_fields(layer)
         for field in fields:
             field_name = field.name()
             value = feature[field_name]
@@ -362,7 +362,8 @@ class DxfBlockExporter:
             # === ДОБАВЛЯЕМ ATTDEF ДЛЯ ВСЕХ АТРИБУТОВ ===
             # Атрибуты НЕВИДИМЫЕ на чертеже, но доступны в свойствах блока AutoCAD
             # Размещаем атрибуты с отступом вниз от геометрии
-            fields = layer.fields()
+            # Без транзитных __-полей (K6/§5.1): ATTDEF и значения должны совпадать
+            fields = exportable_fields(layer)
             attdef_count = 0
             y_offset = -text_height * 2  # Начальный отступ вниз (две высоты текста)
             text_spacing = text_height * 1.2  # Интервал между строками (1.2 высоты)

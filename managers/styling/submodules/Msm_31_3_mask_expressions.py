@@ -294,13 +294,13 @@ in_mask(32637)
             if not mask_bbox.contains(QgsPointXY(first_vertex)):
                 return False
 
-            # Для полигонов - проверка pointOnSurface
-            # Это оптимальный баланс между точностью и скоростью
-            point_on_surface = feature_geom.pointOnSurface()
-            if point_on_surface is None or point_on_surface.isEmpty():
-                # Fallback на centroid
-                return mask_geom.contains(feature_geom.centroid())
-            return mask_geom.contains(point_on_surface)
+            # Для полигонов - точка-зонд ВНУТРИ объекта (M_9).
+            from Daman_QGIS.managers.geometry import AnchorPointManager
+            anchor_pt = AnchorPointManager.anchor_point(feature_geom, "surface")
+            if anchor_pt is None:
+                # Точка-внутри не получена (вырожден/невалид) — объект не в маске.
+                return False
+            return mask_geom.contains(QgsGeometry.fromPointXY(anchor_pt))
 
         elif geom_type == QgsWkbTypes.GeometryType.LineGeometry:
             # Для линий - intersects (пересечение любой частью)

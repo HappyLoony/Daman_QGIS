@@ -4,7 +4,7 @@ M_24_SyncManager - Менеджер синхронизации выписок с
 
 Назначение:
     Автоматическая синхронизация данных из слоёв выписок ЕГРН (Le_1_6_*)
-    в слои выборки (L_2_1_*).
+    в слои выборки (Le_1_9_1_1_Выборка_ЗУ / L_1_9_2_Выборка_ОКС).
 
 Паттерн:
     Facade - предоставляет упрощённый интерфейс к подсистеме из 5 субменеджеров.
@@ -27,6 +27,7 @@ API:
 from typing import Dict, List, Optional, Any
 from qgis.core import QgsProject, QgsVectorLayer
 
+from Daman_QGIS.constants import LAYER_SELECTION_ZU, LAYER_SELECTION_OKS
 from Daman_QGIS.utils import log_info, log_warning, log_success, log_error
 
 from .submodules.Msm_24_1_layer_matcher import Msm_24_1_LayerMatcher
@@ -73,7 +74,7 @@ class SyncManager:
         Returns:
             dict: {
                 'has_vypiski': bool,      # Есть слои выписок Le_1_6_*
-                'has_selection': bool,    # Есть слои выборки L_2_1_*
+                'has_selection': bool,    # Есть слои выборки (ЗУ/ОКС)
                 'can_sync': bool,         # Можно выполнить синхронизацию
                 'vypiska_count': int,     # Количество слоёв выписок
                 'selection_count': int    # Количество слоёв выборки
@@ -90,11 +91,16 @@ class SyncManager:
             and not layer.name().startswith('Le_1_6_4')  # ЧЗУ не участвуют
         ]
 
-        # Слои выборки (L_2_1_* и Le_2_1_*)
+        # Слои выборки (цель синка) — АКТУАЛЬНЫЕ имена из констант.
+        # FIX (2026-07-12): старый фильтр по литералам 'L_2_1_'/'Le_2_1_' был
+        # мёртв (Le_2_1_ = живой cutting-префикс LAYER_CUTTING_PREFIX, слои
+        # нарезки — не выборки) → доминирование M_24 не работало. Берём точные
+        # имена слоёв выборки из констант, как это делает Msm_24_1_LayerMatcher.
+        selection_names = {LAYER_SELECTION_ZU, LAYER_SELECTION_OKS}
         selection_layers = [
             layer for layer in all_layers
             if isinstance(layer, QgsVectorLayer)
-            and (layer.name().startswith('L_2_1_') or layer.name().startswith('Le_2_1_'))
+            and layer.name() in selection_names
         ]
 
         has_vypiski = len(vypiska_layers) > 0

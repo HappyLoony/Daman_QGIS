@@ -148,43 +148,43 @@ class TestF11:
             return
 
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_1_xml import XmlImportSubmodule
-            self.logger.success("XmlImportSubmodule доступен")
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_1_xml import Fsm_1_1_1_XmlImportSubmodule
+            self.logger.success("Fsm_1_1_1_XmlImportSubmodule доступен")
 
             self.logger.check(
-                hasattr(XmlImportSubmodule, 'import_file'),
-                "XmlImportSubmodule имеет метод import_file",
-                "Метод import_file отсутствует в XmlImportSubmodule!"
+                hasattr(Fsm_1_1_1_XmlImportSubmodule, 'import_file'),
+                "Fsm_1_1_1_XmlImportSubmodule имеет метод import_file",
+                "Метод import_file отсутствует в Fsm_1_1_1_XmlImportSubmodule!"
             )
 
         except Exception as e:
-            self.logger.warning(f"XmlImportSubmodule недоступен: {str(e)}")
+            self.logger.warning(f"Fsm_1_1_1_XmlImportSubmodule недоступен: {str(e)}")
 
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_11_dxf_importer import DxfImporter
-            self.logger.success("DxfImporter доступен")
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_11_dxf_importer import Fsm_1_1_11_DxfImporter
+            self.logger.success("Fsm_1_1_11_DxfImporter доступен")
 
             self.logger.check(
-                hasattr(DxfImporter, 'import_file'),
-                "DxfImporter имеет метод import_file",
-                "Метод import_file отсутствует в DxfImporter!"
+                hasattr(Fsm_1_1_11_DxfImporter, 'import_file'),
+                "Fsm_1_1_11_DxfImporter имеет метод import_file",
+                "Метод import_file отсутствует в Fsm_1_1_11_DxfImporter!"
             )
 
         except Exception as e:
-            self.logger.warning(f"DxfImporter недоступен: {str(e)}")
+            self.logger.warning(f"Fsm_1_1_11_DxfImporter недоступен: {str(e)}")
 
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_2_tab_importer import TabImporter
-            self.logger.success("TabImporter доступен")
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_2_tab_importer import Fsm_1_1_2_TabImporter
+            self.logger.success("Fsm_1_1_2_TabImporter доступен")
 
             self.logger.check(
-                hasattr(TabImporter, 'import_file'),
-                "TabImporter имеет метод import_file",
-                "Метод import_file отсутствует в TabImporter!"
+                hasattr(Fsm_1_1_2_TabImporter, 'import_file'),
+                "Fsm_1_1_2_TabImporter имеет метод import_file",
+                "Метод import_file отсутствует в Fsm_1_1_2_TabImporter!"
             )
 
         except Exception as e:
-            self.logger.warning(f"TabImporter недоступен: {str(e)}")
+            self.logger.warning(f"Fsm_1_1_2_TabImporter недоступен: {str(e)}")
 
     def test_04_format_validation(self):
         """ТЕСТ 4: Валидация форматов"""
@@ -221,13 +221,13 @@ class TestF11:
 
     def test_05_xml_submodule(self):
         """ТЕСТ 5: Тест XML сабмодуля"""
-        self.logger.section("5. Тест XmlImportSubmodule")
+        self.logger.section("5. Тест Fsm_1_1_1_XmlImportSubmodule")
 
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_1_xml import XmlImportSubmodule
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_1_xml import Fsm_1_1_1_XmlImportSubmodule
 
-            xml_module = XmlImportSubmodule(self.iface)
-            self.logger.success("XmlImportSubmodule инициализирован")
+            xml_module = Fsm_1_1_1_XmlImportSubmodule(self.iface)
+            self.logger.success("Fsm_1_1_1_XmlImportSubmodule инициализирован")
 
             required_methods = ['import_file', 'validate_import', 'supports_format']
             for method_name in required_methods:
@@ -241,13 +241,13 @@ class TestF11:
 
     def test_06_dxf_submodule(self):
         """ТЕСТ 6: Тест DXF сабмодуля"""
-        self.logger.section("6. Тест DxfImporter")
+        self.logger.section("6. Тест Fsm_1_1_11_DxfImporter")
 
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_11_dxf_importer import DxfImporter
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_11_dxf_importer import Fsm_1_1_11_DxfImporter
 
-            dxf_module = DxfImporter(self.iface)
-            self.logger.success("DxfImporter инициализирован")
+            dxf_module = Fsm_1_1_11_DxfImporter(self.iface)
+            self.logger.success("Fsm_1_1_11_DxfImporter инициализирован")
 
             required_methods = ['import_file', 'validate_import', 'supports_format']
             for method_name in required_methods:
@@ -261,13 +261,13 @@ class TestF11:
 
     def test_07_tab_submodule(self):
         """ТЕСТ 7: Тест TAB сабмодуля"""
-        self.logger.section("7. Тест TabImporter")
+        self.logger.section("7. Тест Fsm_1_1_2_TabImporter")
 
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_2_tab_importer import TabImporter
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_1_2_tab_importer import Fsm_1_1_2_TabImporter
 
-            tab_module = TabImporter(self.iface)
-            self.logger.success("TabImporter инициализирован")
+            tab_module = Fsm_1_1_2_TabImporter(self.iface)
+            self.logger.success("Fsm_1_1_2_TabImporter инициализирован")
 
             required_methods = ['import_file', 'validate_import', 'supports_format']
             for method_name in required_methods:

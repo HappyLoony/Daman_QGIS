@@ -139,9 +139,9 @@ class TestF63:
                 if hasattr(module, class_name):
                     self.logger.success(f"{class_name} доступен")
                 else:
-                    self.logger.warning(f"{class_name} не найден в модуле")
+                    self.logger.fail(f"{class_name} не найден в модуле")
             except Exception as e:
-                self.logger.warning(f"{class_name}: ошибка импорта - {str(e)[:50]}")
+                self.logger.fail(f"{class_name}: ошибка импорта - {str(e)[:50]}")
 
     def test_04_template_registry(self):
         """ТЕСТ 4: Проверка TemplateRegistry и типов документов"""

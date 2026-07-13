@@ -15,12 +15,12 @@ from ezdxf.render.arrows import ARROWS  # Стрелки для MULTILEADER
 from ezdxf.math import Vec2, Vec3
 
 from Daman_QGIS.utils import log_debug
+from Daman_QGIS.managers.styling import _font_canon
 
 # Имя текстового стиля выносок MULTILEADER (создаётся в dxf_exporter.py).
-# Имя честное (Bold Italic = "тип Б наклонный"), чтобы НЕ занимать имя
-# "GOST 2.304" - оно остаётся свободным для прямого начертания, если
-# пользователю понадобится обычный текст на чертеже
-GOST_MLEADER_TEXT_STYLE = 'GOST 2.304 Type B italic'
+# Источник строки — канон M_49 (_font_canon); история имени, двойная
+# привязка шрифта и замена gost.shx — в docstring _font_canon.py
+GOST_MLEADER_TEXT_STYLE = _font_canon.DXF_TEXT_STYLE_LABELS
 
 
 class DxfLabelExporter:
@@ -56,22 +56,21 @@ class DxfLabelExporter:
                     return (point.x(), point.y())
 
             elif geom_type == Qgis.GeometryType.Line:
-                # Для линий - середина линии
-                # МИГРАЦИЯ LINESTRING → MULTILINESTRING: упрощённый паттерн
-                lines = geometry.asMultiPolyline() if geometry.isMultipart() else [geometry.asPolyline()]
-                if lines and len(lines[0]) > 0:
-                    # Берём первую линию, середину
-                    line = lines[0]
-                    mid_idx = len(line) // 2
-                    return (line[mid_idx].x(), line[mid_idx].y())
-                else:
+                # Для линий - середина по длине. M_9 на линии игнорирует
+                # strategy и всегда возвращает midpoint (interpolate(length/2)).
+                from Daman_QGIS.managers.geometry import AnchorPointManager
+                pt = AnchorPointManager.anchor_point(geometry, "pole")
+                if pt is None:
                     return None
+                return (pt.x(), pt.y())
 
             elif geom_type == Qgis.GeometryType.Polygon:
-                # Для полигонов - центроид
-                centroid = geometry.centroid()
-                point = centroid.asPoint()
-                return (point.x(), point.y())
+                # Для полигонов - визуальный центр (M_9 pole).
+                from Daman_QGIS.managers.geometry import AnchorPointManager
+                pt = AnchorPointManager.anchor_point(geometry, "pole")
+                if pt is None:
+                    return None
+                return (pt.x(), pt.y())
             else:
                 return None
 
@@ -95,7 +94,8 @@ class DxfLabelExporter:
             label_config: Конфигурация подписей из Base_labels.json со значениями:
                 - label_field: имя поля с текстом подписи
                 - label_font_size: размер шрифта и стрелки (по умолчанию 4.0)
-                - label_font_family: семейство шрифта (по умолчанию 'GOST 2.304')
+                - label_font_family: семейство шрифта (по умолчанию канон
+                  DRAWING из _font_canon)
                 - label_auto_wrap_length: длина автопереноса (по умолчанию 50)
                 - label_dogleg_length: длина полки выноски (по умолчанию 5.0)
                 - label_landing_gap: отступ от текста (по умолчанию 2.0)
@@ -184,7 +184,10 @@ class DxfLabelExporter:
             # Применяем масштабный коэффициент для AutoCAD
             # (1:500 -> 0.5, 1:1000 -> 1.0, 1:2000 -> 2.0)
             char_height = base_char_height * label_scale_factor
-            font_family = label_config.get('label_font_family', 'GOST 2.304')
+            font_family = label_config.get(
+                'label_font_family',
+                _font_canon.get_family(_font_canon.FontRole.DRAWING)
+            )
             landing_gap = 0.0  # Отступ от текста = 0 (ненулевой ломает рендер выноски)
             arrow_size = char_height  # Размер стрелки равен высоте текста
 

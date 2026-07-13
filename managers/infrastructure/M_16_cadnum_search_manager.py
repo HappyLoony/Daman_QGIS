@@ -6,7 +6,7 @@ CadnumSearchManager - Поиск объектов по кадастровому 
 - Поиск по КН и номерам ЗОУИТ через контекстное меню карты (ПКМ)
 - Валидацию формата кадастровых номеров (XX:XX:XXXX:X+)
 - Валидацию формата номеров ЗОУИТ (XX:XX-X.X+)
-- Поддержку полей 'cad_num'/'cad_number' и 'reg_numb_border'/'numb_border'
+- Поддержку полей 'cad_num'/'cad_number'/'КН' и 'reg_numb_border'/'numb_border'
 - Экспорт найденных объектов
 - Масштабирование и подсветку результатов
 """
@@ -38,8 +38,11 @@ class CadnumSearchManager:
     """Менеджер поиска объектов по кадастровому номеру и номеру ЗОУИТ"""
 
     # Имена полей кадастрового номера (поддерживаемые варианты)
+    # cad_num/cad_number - WFS-слои НСПД (L_1_2_*); КН - рабочие слои плагина
+    # (Выборка_ОКС, Выборка_ЗУ, выписки), где working_name="КН" (Base_selection_*.json)
     FIELD_CADNUM = 'cad_num'
     FIELD_CADNUMBER = 'cad_number'
+    FIELD_CADNUM_CYR = 'КН'
 
     # Имена полей номера ЗОУИТ (WFS = reg_numb_border, KPT-импорт = numb_border)
     FIELD_REG_NUMB_BORDER = 'reg_numb_border'
@@ -195,6 +198,39 @@ class CadnumSearchManager:
         return CadnumSearchManager.classify_identifier(text) != 'unknown'
 
     @staticmethod
+    def sanitize_input(text: str) -> str:
+        """
+        Санитизация вставляемого текста (КН / ЗОУИТ)
+
+        Очищает значения, скопированные из внешних программ (Excel, Word, web),
+        от невидимых и нестандартных символов, которые ломают валидацию и
+        утяжеляют поле ввода. Сохраняет цифры, ':', '-', '.', пробелы и переводы
+        строк (разделители для parse_input).
+
+        Args:
+            text: Исходный текст из буфера обмена
+
+        Returns:
+            str: Очищенный plain-текст
+        """
+        if not text:
+            return ''
+
+        # Zero-width и BOM - удаляем (не whitespace, переживают split)
+        for ch in ('\u200b', '\u200c', '\u200d', '\ufeff'):
+            text = text.replace(ch, '')
+
+        # Неразрывные / узкие пробелы - в обычный пробел
+        for ch in ('\xa0', '\u202f', '\u2007', '\u2008', '\u2009'):
+            text = text.replace(ch, ' ')
+
+        # Юникод-тире - в дефис-минус (формат ЗОУИТ XX:XX-X.X)
+        for ch in ('\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2212'):
+            text = text.replace(ch, '-')
+
+        return text
+
+    @staticmethod
     def parse_input(text: str) -> List[str]:
         """
         Парсинг ввода пользователя - разделение по разделителям
@@ -220,18 +256,21 @@ class CadnumSearchManager:
         """
         Определить имя поля кадастрового номера в слое
 
-        Проверяет наличие полей 'cad_num' или 'cad_number' в слое
+        Проверяет наличие полей 'cad_num', 'cad_number' (WFS НСПД) или 'КН'
+        (рабочие слои плагина: Выборка_ОКС, Выборка_ЗУ, выписки) в слое
 
         Args:
             layer: Слой для проверки
 
         Returns:
-            str: Имя поля ('cad_num' или 'cad_number') или None если не найдено
+            str: Имя поля ('cad_num', 'cad_number' или 'КН') или None если не найдено
         """
         if layer.fields().indexFromName(CadnumSearchManager.FIELD_CADNUM) >= 0:
             return CadnumSearchManager.FIELD_CADNUM
         elif layer.fields().indexFromName(CadnumSearchManager.FIELD_CADNUMBER) >= 0:
             return CadnumSearchManager.FIELD_CADNUMBER
+        elif layer.fields().indexFromName(CadnumSearchManager.FIELD_CADNUM_CYR) >= 0:
+            return CadnumSearchManager.FIELD_CADNUM_CYR
         return None
 
     @staticmethod
@@ -482,6 +521,20 @@ class CadnumSearchManager:
         return combined_extent if has_features else None
 
 
+class SanitizingTextEdit(QTextEdit):
+    """QTextEdit с санитизацией вставки/drop из внешних программ.
+
+    Отсекает rich-text: Excel/Word/web при копировании тащат HTML-форматирование
+    (<span style=...>), от которого документ распухает и поле начинает лагать при
+    редактировании. insertFromMimeData берёт только plain-текст и нормализует
+    невидимые/нестандартные символы через CadnumSearchManager.sanitize_input.
+    """
+
+    def insertFromMimeData(self, source):
+        text = source.text() if source and source.hasText() else ''
+        self.insertPlainText(CadnumSearchManager.sanitize_input(text))
+
+
 class CadnumSearchDialog(BaseResponsiveDialog):
     """Диалог для поиска объектов по кадастровым номерам"""
 
@@ -544,7 +597,8 @@ class CadnumSearchDialog(BaseResponsiveDialog):
         hint_label.setStyleSheet("color: gray; font-size: 9pt;")
         layout.addWidget(hint_label)
 
-        self.input_text = QTextEdit()
+        self.input_text = SanitizingTextEdit()
+        self.input_text.setAcceptRichText(False)
         self.input_text.setPlaceholderText(
             "Пример:\n"
             "77:01:0001001:1234\n"

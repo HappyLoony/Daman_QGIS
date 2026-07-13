@@ -14,7 +14,7 @@ from qgis.PyQt.QtWidgets import (
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class NegativClassifierDialog(BaseResponsiveDialog):
+class Fsm_1_2_20_NegativClassifierDialog(BaseResponsiveDialog):
     """Диалог для классификации одного неопознанного объекта негативного процесса"""
 
     WIDTH_RATIO = 0.85

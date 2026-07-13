@@ -15,7 +15,7 @@ from qgis.core import (
 from Daman_QGIS.utils import log_info
 
 
-class BoundariesProcessor:
+class Fsm_1_3_1_BoundariesProcessor:
     """Обработчик границ для выборки"""
     
     def __init__(self, iface, project_manager, layer_manager):

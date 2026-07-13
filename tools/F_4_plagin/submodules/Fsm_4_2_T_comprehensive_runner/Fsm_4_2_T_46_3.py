@@ -71,12 +71,13 @@ class TestMsm463:
         )
 
     def _config_inline(self):
+        from Daman_QGIS.managers.styling import _font_canon
         return {
             'legend_placement_mode': 'dynamic',
             'legend_min_symbol_width': 10,
             'legend_min_symbol_height': 3.5,
             'legend_min_wrap_length': 40,
-            'font_family': 'GOST 2.304',
+            'font_family': _font_canon.get_family(_font_canon.FontRole.DRAWING),
             'font_size_pt': 14,
         }
 

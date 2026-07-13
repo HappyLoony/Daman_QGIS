@@ -15,7 +15,7 @@ from ..core import BaseImporter
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
-class XmlImportSubmodule(BaseImporter):
+class Fsm_1_1_1_XmlImportSubmodule(BaseImporter):
     """Сабмодуль для импорта XML файлов Росреестра"""
 
     # Маппинг типов слоев из kd_kpt на слои Base_layers.json

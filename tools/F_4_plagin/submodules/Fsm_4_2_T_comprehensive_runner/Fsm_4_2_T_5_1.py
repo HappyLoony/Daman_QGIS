@@ -10,7 +10,7 @@ Fsm_4_2_T_5_1 - Комплексный тест ФГИС ЛК: монитори�
   5. SSL сертификаты Минцифры (verify=False)
   6. Changelog Рослесхоза -- доступность страницы
   7. DNS/CT мониторинг поддоменов (crt.sh)
-  8. TileCache (RAM + disk)
+  8. Fsm_1_2_4_TileCache (RAM + disk)
   9. Тайловая сетка: CUSTOM_RESOLUTIONS, mercator_to_tile, tile_to_geometry
   10. PBF тайл: загрузка, парсинг, извлечение слоёв
   11. snappedToGrid для merge геометрий на границах тайлов
@@ -123,8 +123,10 @@ CHANGELOG_URL = "https://rosleshoz.gov.ru/information-systems/fgis-lk-informatio
 # Контракт changelog ФГИС-ЛК: канарейка для breaking changes в тайлах/схеме PBF.
 # При смене серии требуется регресс: endpoint gwc-01/02, LAYER_MAPPING (Fsm_1_2_4), схема PBF.
 # Обновлять expected_series после верификации плагина на новой серии.
+# 4.19 верифицирована 2026-07-10: gwc-01 жив (TMS root + тайл HTTP 200),
+# LAYER_MAPPING/PBF-схема без изменений (зелёные тесты 1, 11, 15-17, 27).
 FGISLK_CHANGELOG_CONTRACT = {
-    "expected_series": "4.17",
+    "expected_series": "4.19",
     "required_phrases": ("обновление", "фгис"),
 }
 
@@ -650,10 +652,10 @@ class TestFgislkMonitoring:
         try:
             from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_4_fgislk_loader import (
                 Fsm_1_2_4_FgislkLoader,
-                TileCache,
+                Fsm_1_2_4_TileCache,
             )
             self.logger.success("Fsm_1_2_4_FgislkLoader импортирован")
-            self.logger.success("TileCache импортирован")
+            self.logger.success("Fsm_1_2_4_TileCache импортирован")
 
             # Проверяем константы класса
             self.logger.check(
@@ -850,13 +852,13 @@ class TestFgislkMonitoring:
             self.logger.warning(f"Не удалось проверить через loader: {str(e)[:60]}")
 
     def _test_14_tile_cache(self):
-        """ТЕСТ 14: TileCache (RAM + disk)."""
-        self.logger.section("14. TileCache")
+        """ТЕСТ 14: Fsm_1_2_4_TileCache (RAM + disk)."""
+        self.logger.section("14. Fsm_1_2_4_TileCache")
 
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_4_fgislk_loader import TileCache
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_4_fgislk_loader import Fsm_1_2_4_TileCache
 
-            cache = TileCache()
+            cache = Fsm_1_2_4_TileCache()
 
             # Тест RAM кэша
             test_data = b"test_pbf_data_12345"
@@ -883,7 +885,7 @@ class TestFgislkMonitoring:
                 tmp_path = tmp.name
 
             try:
-                cache2 = TileCache()
+                cache2 = Fsm_1_2_4_TileCache()
                 cache2.put("disk_key", test_data, tmp_path)
 
                 # Очищаем RAM, проверяем что данные загружаются с диска
@@ -910,7 +912,7 @@ class TestFgislkMonitoring:
             )
 
         except Exception as e:
-            self.logger.error(f"Ошибка TileCache: {str(e)}")
+            self.logger.error(f"Ошибка Fsm_1_2_4_TileCache: {str(e)}")
 
     # ===================================================================
     # ГРУППА 5: Загрузка и парсинг PBF

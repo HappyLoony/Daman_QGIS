@@ -20,7 +20,7 @@ from Daman_QGIS.constants import PLUGIN_NAME
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
-class ShpImporter(BaseImporter):
+class Fsm_1_1_14_ShpImporter(BaseImporter):
     """
     Импортер Shapefile файлов.
     Реализует все абстрактные методы базового класса: import_file, supports_format
@@ -34,13 +34,13 @@ class ShpImporter(BaseImporter):
     def log_message(self, message: str, level: Qgis.MessageLevel = Qgis.Info):
         """Логирование сообщений"""
         if level == Qgis.Info:
-            log_info(f"ShpImporter: {message}")
+            log_info(f"Fsm_1_1_14: {message}")
         elif level == Qgis.Warning:
-            log_warning(f"ShpImporter: {message}")
+            log_warning(f"Fsm_1_1_14: {message}")
         elif level == Qgis.Critical:
-            log_error(f"ShpImporter: {message}")
+            log_error(f"Fsm_1_1_14: {message}")
         else:
-            log_info(f"ShpImporter: {message}")
+            log_info(f"Fsm_1_1_14: {message}")
 
     def apply_encoding(self, layer: QgsVectorLayer, encoding: str = "cp1251"):
         """Применение кодировки к атрибутам слоя"""

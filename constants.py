@@ -224,6 +224,18 @@ GPKG_SETTINGS_SUFFIX = "_settings.json"
 # Используется: 3 файла, ~6 использований
 DEFAULT_LAYER_ORDER = 999  # Порядок для слоёв без явного определения
 
+# Функции-вызыватели auto_cleanup_layers(), которые ПО ДИЗАЙНУ не создают
+# слоёв в Base_layers.json (легитимный no-op очистки: правка на месте, rmtree,
+# домен другой функции). M_10.cleanup_for_function для них оставляет тихий
+# log_info; для функции НЕ из этого списка пустой layers_to_remove = подозрение
+# на рассинхрон get_name() <-> creating_function -> log_warning.
+# Источник истины для теста контракта Fsm_4_2_T_cleanup_contract.
+CLEANUP_NOOP_WHITELIST = frozenset({
+    "F_1_3_Бюджет",
+    "F_2_3_Корректировка",
+    "Fsm_1_2_13_1_Выборка",
+})
+
 # Имена слоёв для выборки ЗУ и ОКС (Fsm_1_2_13)
 # Используется: Fsm_1_2_13_1_land_selection.py
 LAYER_BOUNDARIES_EXACT = "L_1_1_1_Границы_работ"
@@ -283,7 +295,7 @@ ZPR_PREFIXES = (ZPR_PREFIX_STANDARD, ZPR_PREFIX_LINEAR)
 
 # Префиксы слоёв функциональных и территориальных зон —
 # для них при импорте/распределении гарантируется наличие
-# поля 'ID' (String 50, код зоны) через Fsm_1_zone_id_helper.
+# поля 'ID' (String 50, код зоны) через zone_id_helper.
 ZONE_PREFIX_FUNZON = "Le_1_2_8_"
 ZONE_PREFIX_TERZON = "Le_1_2_9_"
 ZONE_PREFIXES = (ZONE_PREFIX_FUNZON, ZONE_PREFIX_TERZON)
@@ -595,7 +607,7 @@ DRIVER_GPKG = "GPKG"
 # ============================================================================
 
 # Имена базовых растровых подложек НСПД (соответствуют layer_name в Base_api_endpoints.json)
-# URI формируется динамически в Fsm_1_2_6_raster_loader / Fsm_1_4_1_base_layers.
+# URI формируется динамически в Fsm_1_2_6_raster_loader.
 # User-Agent и Referer инжектируются через NSPD preprocessor (main_plugin._register_nspd_preprocessor).
 LAYER_NSPD_ORTHO = "L_1_3_1_NSPD_Ortho"   # ЕЭКО ортофото — category_id=36346, endpoint_id=20
 LAYER_NSPD_REF   = "L_1_3_2_NSPD_Ref"     # ЦОС (Цифровая объектовая схема, справочный) — category_id=235, endpoint_id=16
@@ -686,7 +698,7 @@ WMTS_DEFAULT_TILE_EXPIRY_HOURS = 720
 
 # zmin для НСПД XYZ слоёв — обрезка холостых запросов на малых зумах.
 # На z<zmin QGIS вообще не выпускает запросы → исчезает burst 403/404 при случайном отзуме.
-# Используется: Fsm_1_2_6_raster_loader.py (add_nspd_ortho/ref/base), Fsm_1_4_1_base_layers.py (add_nspd_ortho).
+# Используется: Fsm_1_2_6_raster_loader.py (add_nspd_ortho/ref/base).
 #   L_1_3_1 NSPD_Ortho (ЕЭКО ортофото):   z<12 сервер отдаёт HTTP 403 (verified 2026-05-21).
 #                                         NSPD не генерит ortho-мозаику на overview-зумах (на z<12
 #                                         1 пиксель = >300м, аэрофото 1-2м бессмысленно).
@@ -863,6 +875,10 @@ TOKEN_RETRY_DELAY_SECONDS = 2  # Задержка между попытками
 AUTHED_REQUEST_MAX_ATTEMPTS = 3       # Макс. попыток на endpoint в окне
 AUTHED_REQUEST_WINDOW_SECONDS = 60    # Окно circuit-breaker (60 секунд)
 AUTHED_REQUEST_BACKOFF_SECONDS = (2, 5, 10)  # Exponential backoff между попытками
+# Single-flight bounded-wait (D4): waiter ждёт идущий recovery-цикл не дольше
+# этого таймаута. Покрывает backoff 2+5с + 2xHTTP, НЕ покрывает GUI-фазу и
+# вырожденный refresh-hang (после таймаута — fail-fast локальным AuthFailureError).
+AUTHED_REQUEST_RECOVERY_WAIT_SECONDS = 12  # Bounded-wait single-flight recovery
 
 # Heartbeat: периодическая проверка статуса лицензии
 HEARTBEAT_INTERVAL_MS = 4 * 60 * 60 * 1000  # 4 часа в миллисекундах
@@ -998,10 +1014,4 @@ PAGE_ORIENTATIONS = {
 # Значения по умолчанию для формата листа
 DEFAULT_PAGE_FORMAT = "A4"
 DEFAULT_PAGE_ORIENTATION = "Альбомная"
-
-# Шрифт по виду документации
-DOC_TYPE_FONTS = {
-    "ДПТ": "GOST 2.304",
-    "Мастер-план": "Avenir Next W1G",
-}
 

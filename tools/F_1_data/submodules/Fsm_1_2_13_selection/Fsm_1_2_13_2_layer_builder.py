@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_2_1_6: Построитель слоёв результата выборки
+Fsm_1_2_13_2: Построитель слоёв результата выборки
 Создание слоёв, сохранение в GeoPackage, применение стилей
 """
 
@@ -18,7 +18,7 @@ from Daman_QGIS.constants import MAX_FIELD_LEN, PROVIDER_OGR, DRIVER_GPKG
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_debug
 
 
-class Fsm_2_1_6_LayerBuilder:
+class Fsm_1_2_13_2_LayerBuilder:
     """Построитель слоёв результата выборки"""
 
     def __init__(self, plugin_dir: str):
@@ -62,7 +62,7 @@ class Fsm_2_1_6_LayerBuilder:
             if field_definitions is None:
                 raise FileNotFoundError(f"{json_filename} не найден ни на remote ни локально")
         except Exception as e:
-            log_error(f"Fsm_2_1_6: Не удалось загрузить {json_filename}: {str(e)}")
+            log_error(f"Fsm_1_2_13_2: Не удалось загрузить {json_filename}: {str(e)}")
             raise ValueError(f"Не удалось загрузить структуру полей из {json_filename}")
 
         # Создаём временный memory слой с геометрией MultiPolygon
@@ -81,7 +81,7 @@ class Fsm_2_1_6_LayerBuilder:
         )
 
         if not result_layer.isValid():
-            log_error(f"Fsm_2_1_6: Не удалось создать memory слой {layer_name}")
+            log_error(f"Fsm_1_2_13_2: Не удалось создать memory слой {layer_name}")
             return None
 
         # Создаем новую структуру полей
@@ -107,7 +107,7 @@ class Fsm_2_1_6_LayerBuilder:
         result_layer.commitChanges()
 
         field_count = len([f for f in field_definitions if f.get('working_name') != 'Имя'])
-        log_info(f"Fsm_2_1_6: Слой {layer_name} создан с {field_count} полями")
+        log_info(f"Fsm_1_2_13_2: Слой {layer_name} создан с {field_count} полями")
 
         return result_layer
 
@@ -124,10 +124,10 @@ class Fsm_2_1_6_LayerBuilder:
             QgsVectorLayer: Загруженный из GeoPackage слой или None при ошибке
         """
         if not layer or layer.featureCount() == 0:
-            log_info(f"Fsm_2_1_6: Слой {layer_name} пуст - пропускаем сохранение в GeoPackage")
+            log_info(f"Fsm_1_2_13_2: Слой {layer_name} пуст - пропускаем сохранение в GeoPackage")
             return None
 
-        log_debug(f"Fsm_2_1_6: Сохранение слоя {layer_name} в GeoPackage...")
+        log_debug(f"Fsm_1_2_13_2: Сохранение слоя {layer_name} в GeoPackage...")
 
         # Настройки для сохранения в GeoPackage
         save_options = QgsVectorFileWriter.SaveVectorOptions()
@@ -144,25 +144,25 @@ class Fsm_2_1_6_LayerBuilder:
         )
 
         if error[0] != QgsVectorFileWriter.NoError:
-            log_error(f"Fsm_2_1_6: Ошибка сохранения {layer_name} в GeoPackage: {error}")
+            log_error(f"Fsm_1_2_13_2: Ошибка сохранения {layer_name} в GeoPackage: {error}")
             # Диагностика проблемы блокировки файла
             import os
-            log_error(f"Fsm_2_1_6: Путь к GPKG: {gpkg_path}")
-            log_error(f"Fsm_2_1_6: Файл существует: {os.path.exists(gpkg_path)}")
+            log_error(f"Fsm_1_2_13_2: Путь к GPKG: {gpkg_path}")
+            log_error(f"Fsm_1_2_13_2: Файл существует: {os.path.exists(gpkg_path)}")
             if os.path.exists(gpkg_path):
-                log_error(f"Fsm_2_1_6: Файл доступен для записи: {os.access(gpkg_path, os.W_OK)}")
-            log_error(f"Fsm_2_1_6: Возможные причины: файл открыт в другой программе, "
+                log_error(f"Fsm_1_2_13_2: Файл доступен для записи: {os.access(gpkg_path, os.W_OK)}")
+            log_error(f"Fsm_1_2_13_2: Возможные причины: файл открыт в другой программе, "
                      "сетевой диск с блокировкой, незакрытое соединение QGIS")
             return None
 
-        log_debug(f"Fsm_2_1_6: Слой {layer_name} успешно сохранён в GeoPackage")
+        log_debug(f"Fsm_1_2_13_2: Слой {layer_name} успешно сохранён в GeoPackage")
 
         # Загружаем слой из GeoPackage
         uri = f"{gpkg_path}|layername={layer_name}"
         saved_layer = QgsVectorLayer(uri, layer_name, PROVIDER_OGR)
 
         if not saved_layer.isValid():
-            log_error(f"Fsm_2_1_6: Не удалось загрузить слой {layer_name} из GeoPackage")
+            log_error(f"Fsm_1_2_13_2: Не удалось загрузить слой {layer_name} из GeoPackage")
             return None
 
         return saved_layer
@@ -199,7 +199,7 @@ class Fsm_2_1_6_LayerBuilder:
         )
 
         if not result_layer.isValid():
-            log_error(f"Fsm_2_1_6: Не удалось создать memory слой {layer_name}")
+            log_error(f"Fsm_1_2_13_2: Не удалось создать memory слой {layer_name}")
             return None
 
         # Копируем структуру полей из исходного слоя
@@ -212,6 +212,6 @@ class Fsm_2_1_6_LayerBuilder:
         result_layer.commitChanges()
 
         field_count = source_layer.fields().count()
-        log_info(f"Fsm_2_1_6: GENERIC слой {layer_name} создан с {field_count} полями (копия из {source_layer.name()})")
+        log_info(f"Fsm_1_2_13_2: GENERIC слой {layer_name} создан с {field_count} полями (копия из {source_layer.name()})")
 
         return result_layer

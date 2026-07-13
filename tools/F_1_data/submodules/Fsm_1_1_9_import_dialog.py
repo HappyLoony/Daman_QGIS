@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Tool_1_X_ImportDialog - Универсальный диалог импорта данных
+Fsm_1_1_9_ImportDialog - Универсальный диалог импорта данных
 
 Объединенный диалог для выбора типа данных и формата файла
 с иерархической структурой выбора (группа -> слой)
@@ -20,7 +20,7 @@ from qgis.core import QgsProject, QgsMessageLog, Qgis
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class Tool_1_X_ImportDialog(BaseResponsiveDialog):
+class Fsm_1_1_9_ImportDialog(BaseResponsiveDialog):
     """Универсальный диалог импорта с выбором группа -> слой"""
 
     WIDTH_RATIO = 0.45

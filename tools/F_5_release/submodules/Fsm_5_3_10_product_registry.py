@@ -74,14 +74,15 @@ EXPORT_PRODUCTS: List[ExportProduct] = [
         name='Ведомость ОЗУ',
         description='Ведомость образуемых земельных участков по каждой ЗПР '
                     '(Раздел, НГС, Без_Меж, Изм). Один файл на ЗПР. '
-                    'При этапности ОКС — только Раздел и НГС Итога.',
+                    'При этапности ОКС — единый файл: Этап 1 и Этап 2 '
+                    '(Раздел, НГС) + Без_Меж.',
     ),
     ExportProduct(
         product_id='coord_ozu',
         name='Перечни координат ОЗУ',
         description='Перечни координат характерных точек образуемых земельных '
                     'участков (Раздел, НГС) по каждой ЗПР. Один файл на ЗПР; '
-                    'при этапности ОКС — Этап 1, Этап 2, Итог.',
+                    'при этапности ОКС — единый файл: Этап 1 и Этап 2.',
     ),
     ExportProduct(
         product_id='coord_ps',
@@ -194,8 +195,12 @@ _CUTTING_GROUPS: List[Dict[str, Any]] = [
 ]
 
 
-# Группы этапности ОКС (Le_2_7_*). Продукты используют ТОЛЬКО Раздел и НГС
-# (решение #13: Без_Меж/Изм при этапности вне состава до доработки F_2_4).
+# Группы этапности ОКС (Le_2_7_*). После рефактора F_2_4 (план
+# _PLAN_F_2_4_final_layer_cleanup, §4.4) этот список используется ТОЛЬКО для
+# детекции активной этапности (_is_staging_active по Раздел/НГС каждого этапа) и
+# для карты _GROUP_KEY_TO_NAME. Составы продуктов при этапности собираются
+# явными единими 'oks'-группами прямо в _resolve_groups (перечень: Этап-1+Этап-2
+# Раздел/НГС; ведомость: то же + Без_Меж_Итог), НЕ из этого списка per-stage.
 # ПС/Изм-слоёв этапности F_2_4 не создаёт вообще (§3 «Факты о слоях этапности»).
 _STAGING_GROUPS: List[Dict[str, Any]] = [
     {
@@ -371,6 +376,27 @@ class ProductRegistry:
         return False
 
     @staticmethod
+    def _log_staging_invariant() -> None:
+        """
+        Инвариант этапности (§4.4/NEW-B): при активной этапности нарезные ОКС
+        Раздел/НГС должны быть пусты — этапная ОКС-группа их заменяет.
+
+        Сигнал аномалии через log_error (НЕ assert — плагин не крашить). Control-flow
+        НЕ переключает: нарезные ОКС остаются пропущенными существующим `continue`
+        в staging-ветках, этапная группа используется. log_error лишь помечает
+        нарушение инварианта (например, ручное восстановление нарезного ОКС-слоя
+        при уже созданной этапности) для диагностики.
+        """
+        oks_razdel = ProductRegistry._find_layer(constants.LAYER_CUTTING_OKS_RAZDEL)
+        oks_ngs = ProductRegistry._find_layer(constants.LAYER_CUTTING_OKS_NGS)
+        if oks_razdel is not None or oks_ngs is not None:
+            log_error(
+                "Fsm_5_3_10: нарезные ОКС Раздел/НГС непусты одновременно с "
+                "активной этапностью — инвариант нарушен (этапная ОКС-группа "
+                "заменяет нарезную; проверьте слои нарезки ОКС)"
+            )
+
+    @staticmethod
     def _resolve_groups(product_id: str):
         """
         ОБЩИЙ helper детекции для describe() и expand().
@@ -383,6 +409,15 @@ class ProductRegistry:
         по составу продукта; поле 'resolved' — словарь {тип: QgsVectorLayer} для
         точечного доступа в expanders. Группа включается, только если найден хотя
         бы один слой её состава.
+
+        КЛАСС ДЕФЕКТА (прецедент 2026-07-09, отклонение 2 плана F_2_4): 'resolved'
+        НЕНАДЁЖЕН при ДУБЛЯХ ТИПОВ в composition. Единая этапная ОКС-группа несёт
+        [razdel, ngs, razdel, ngs] (Этап-1 и Этап-2): одинаковый ключ типа
+        перезаписывается, в resolved останется ПОСЛЕДНИЙ слой типа (Этап-2), Этап-1
+        теряется. Expander над мульти-слойной группой ОБЯЗАН итерировать
+        'layers'/'layer_types' (сохраняют дубли), НЕ resolved[type]. resolved
+        корректен ТОЛЬКО для групп с уникальными типами (нарезные ЗПР, ПС, GPMT).
+        При добавлении этапности к ПС/иному продукту — перепроверить его expander.
 
         Args:
             product_id: Идентификатор продукта.
@@ -422,12 +457,14 @@ class ProductRegistry:
 
         staging_active = ProductRegistry._is_staging_active()
 
-        # Перечни координат ОЗУ: Раздел + НГС. При этапности ОКС — этапные группы
-        # вместо нарезной ОКС-группы.
+        # Перечни координат ОЗУ: Раздел + НГС. При этапности ОКС — ОДНА этапная
+        # группа (group_key='oks') из слоёв Этап-1 и Этап-2 (§4.4). post-grouping
+        # F_5_3 сольёт per-layer items в ОДИН файл на ЗПР ОКС. Без_Меж НЕ включается
+        # (у Без_Меж нет точечного слоя — Fsm_5_3_1 искал бы несуществующий Т-слой).
         if product_id == 'coord_ozu':
             for cgrp in _CUTTING_GROUPS:
                 if cgrp['group_key'] == 'oks' and staging_active:
-                    continue  # ОКС из нарезки заменяется этапными группами
+                    continue  # ОКС из нарезки заменяется единой этапной группой
                 composition = [
                     ('razdel', cgrp['razdel']),
                     ('ngs', cgrp['ngs']),
@@ -437,15 +474,25 @@ class ProductRegistry:
                 if grp is not None:
                     groups.append(grp)
             if staging_active:
-                for sgrp in _STAGING_GROUPS:
-                    composition = [
-                        ('razdel', sgrp['razdel']),
-                        ('ngs', sgrp['ngs']),
-                    ]
-                    searched_patterns.extend(name for _t, name in composition)
-                    grp = ProductRegistry._build_group(sgrp, composition)
-                    if grp is not None:
-                        groups.append(grp)
+                ProductRegistry._log_staging_invariant()
+                # Единая группа 'oks': [Этап-1 Раздел/НГС, Этап-2 Раздел/НГС].
+                # Порядок по этапу (читабельнее). Шаблон coord_stage_final (title
+                # generic, filename overridden post-grouping'ом на '..._ОКС').
+                composition = [
+                    ('razdel', constants.LAYER_STAGING_1_RAZDEL),
+                    ('ngs', constants.LAYER_STAGING_1_NGS),
+                    ('razdel', constants.LAYER_STAGING_2_RAZDEL),
+                    ('ngs', constants.LAYER_STAGING_2_NGS),
+                ]
+                searched_patterns.extend(name for _t, name in composition)
+                oks_stage_grp = {
+                    'group_key': 'oks',
+                    'group_name': 'ОКС',
+                    'template_coord': 'coord_stage_final',
+                }
+                grp = ProductRegistry._build_group(oks_stage_grp, composition)
+                if grp is not None:
+                    groups.append(grp)
             return groups, searched_patterns
 
         # Перечни координат ПС: ПС-слой каждой ЗПР-группы (этапных ПС не существует).
@@ -458,8 +505,8 @@ class ProductRegistry:
                     groups.append(grp)
             return groups, searched_patterns
 
-        # Ведомость ОЗУ: Раздел + НГС + Без_Меж + Изм. При этапности ОКС — только
-        # Раздел + НГС Итога (решение #13).
+        # Ведомость ОЗУ: Раздел + НГС + Без_Меж + Изм. При этапности ОКС (v5,
+        # снятие решения #13) — единый файл: Этап-1+Этап-2 Раздел/НГС + Без_Меж_Итог.
         if product_id == 'vedomost_ozu':
             for cgrp in _CUTTING_GROUPS:
                 if cgrp['group_key'] == 'oks' and staging_active:
@@ -476,16 +523,32 @@ class ProductRegistry:
                 if grp is not None:
                     groups.append(grp)
             if staging_active:
-                final_grp = _STAGING_GROUPS[-1]  # Итог
+                ProductRegistry._log_staging_invariant()
+                # v5 (снятие решения #13): единый файл-ведомость на ЗПР ОКС из 5
+                # слоёв — Этап-1 Раздел/НГС, Этап-2 Раздел/НГС, Без_Меж_Итог.
+                # Источник Раздел/НГС = Этап-1+Этап-2 (НЕ Итог): Итог после §4.2
+                # чистится от временных, а ведомость по требованию содержит и
+                # основные, и временные → дубли территории (100/101 + ID=ЗПР)
+                # НАМЕРЕННЫ, консистентны с перечнем [Р1,НГС1,Р2,НГС2]. Без_Меж
+                # берётся из LAYER_STAGING_FINAL_BEZ_MEZH (единый непустой final —
+                # у Без_Меж нет этапного деления). Порядок: Раздел/НГС по этапу,
+                # Без_Меж последним (конвенция Раздел->НГС->Без_Меж).
+                # СЦЕПКА С §4.1: Общая_земля объединённых (строки Этап-2)
+                # наследуется из слоя Этап-2, который получает Общая_земля ТОЛЬКО
+                # через §4.1 (assign_vri_to_features на stage2_data).
                 composition = [
-                    ('razdel', final_grp['razdel']),
-                    ('ngs', final_grp['ngs']),
+                    ('razdel', constants.LAYER_STAGING_1_RAZDEL),
+                    ('ngs', constants.LAYER_STAGING_1_NGS),
+                    ('razdel', constants.LAYER_STAGING_2_RAZDEL),
+                    ('ngs', constants.LAYER_STAGING_2_NGS),
+                    ('bez_mezh', constants.LAYER_STAGING_FINAL_BEZ_MEZH),
                 ]
                 searched_patterns.extend(name for _t, name in composition)
                 # Итог-ведомость использует имя группы 'ОКС' (один файл на ЗПР ОКС)
-                vedomost_oks_grp = dict(final_grp)
-                vedomost_oks_grp['group_key'] = 'oks'
-                vedomost_oks_grp['group_name'] = 'ОКС'
+                vedomost_oks_grp = {
+                    'group_key': 'oks',
+                    'group_name': 'ОКС',
+                }
                 grp = ProductRegistry._build_group(vedomost_oks_grp, composition)
                 if grp is not None:
                     groups.append(grp)
@@ -508,22 +571,28 @@ class ProductRegistry:
 
         Returns:
             Копия source_group с добавленными 'layers' (упорядоченный список
-            найденных слоёв) и 'resolved' ({тип: QgsVectorLayer}). None если ни
-            один слой состава не найден.
+            найденных слоёв), 'layer_types' (параллельный список типов, СОХРАНЯЕТ
+            дубли типов — например [razdel, ngs, razdel, ngs] для единой этапной
+            ОКС-группы) и 'resolved' ({тип: QgsVectorLayer}, дубли перезаписываются
+            — потребители дублей типов читают layers/layer_types, не resolved).
+            None если ни один слой состава не найден.
         """
         resolved: Dict[str, QgsVectorLayer] = {}
         layers: List[QgsVectorLayer] = []
+        layer_types: List[str] = []
         for layer_type, layer_name in composition:
             layer = ProductRegistry._find_layer(layer_name)
             if layer is not None:
                 resolved[layer_type] = layer
                 layers.append(layer)
+                layer_types.append(layer_type)
 
         if not layers:
             return None
 
         grp = dict(source_group)
         grp['layers'] = layers
+        grp['layer_types'] = layer_types
         grp['resolved'] = resolved
         return grp
 
@@ -613,7 +682,9 @@ class ProductRegistry:
 
         groups, _patterns = ProductRegistry._resolve_groups('vedomost_ozu')
         for grp in groups:
-            merged_layers = grp['layers']  # порядок Раздел -> НГС -> Без_Меж -> Изм
+            # Нарезка: Раздел -> НГС -> Без_Меж -> Изм.
+            # Этапность (v5): Этап-1 Раздел/НГС -> Этап-2 Раздел/НГС -> Без_Меж_Итог.
+            merged_layers = grp['layers']
             group_name = grp['group_name']
             items.append({
                 'layer': None,
@@ -648,13 +719,16 @@ class ProductRegistry:
 
         groups, _patterns = ProductRegistry._resolve_groups('coord_ozu')
         for grp in groups:
-            resolved = grp['resolved']
             # template_id зависит от режима: нарезка -> per-work-type шаблон,
             # этапность -> единый этапный шаблон группы.
             stage_template_id = grp.get('template_coord')
 
-            for layer_type in ('razdel', 'ngs'):
-                layer = resolved.get(layer_type)
+            # Итерируем по УПОРЯДОЧЕННОМУ списку (layers/layer_types), а не по
+            # resolved: единая этапная ОКС-группа несёт дубли типов
+            # [razdel, ngs, razdel, ngs] (Этап-1 + Этап-2) — resolved.get(type)
+            # потерял бы Этап-1 (перезапись). Каждый слой -> отдельный item;
+            # post-grouping F_5_3 сольёт их в один файл по group_key.
+            for layer, layer_type in zip(grp['layers'], grp['layer_types']):
                 if layer is None:
                     continue
 
@@ -662,8 +736,10 @@ class ProductRegistry:
                     template_id = stage_template_id
                 elif layer_type == 'razdel':
                     template_id = grp['template_razdel']
-                else:
+                elif layer_type == 'ngs':
                     template_id = grp['template_ngs']
+                else:
+                    continue
 
                 template = ProductRegistry._select_coord_template(layer, template_id)
                 if template is None:

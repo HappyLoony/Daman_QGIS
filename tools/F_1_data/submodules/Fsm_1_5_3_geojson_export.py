@@ -2,16 +2,16 @@
 """
 Сабмодуль экспорта в GeoJSON
 
-Рефакторинг: Использует BaseExportSubmodule для устранения дублирования.
+Рефакторинг: Использует Fsm_1_5_0_BaseExportSubmodule для устранения дублирования.
 """
 
 from typing import Dict, Any, List
 
-from .Fsm_1_5_0_base_export_submodule import BaseExportSubmodule
+from .Fsm_1_5_0_base_export_submodule import Fsm_1_5_0_BaseExportSubmodule
 from ..core.geojson_exporter import GeoJSONExporter
 
 
-class GeoJSONExportSubmodule(BaseExportSubmodule):
+class Fsm_1_5_3_GeoJSONExportSubmodule(Fsm_1_5_0_BaseExportSubmodule):
     """Сабмодуль для экспорта в GeoJSON формат"""
 
     FORMAT_NAME = "GeoJSON"

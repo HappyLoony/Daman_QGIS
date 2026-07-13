@@ -8,16 +8,20 @@
 """
 from typing import List
 
+from Daman_QGIS.managers.styling import _font_canon
+
 
 class ExplanatoryNoteStyles:
     """Переиспользуемые стилевые утилиты."""
 
-    FONT_NAME = 'Times New Roman'
+    # Связная группа констант ГОСТ 21.101 (решение плана M_49: остаётся
+    # локальной, font-имена инициализируются из канона word_font_name())
+    FONT_NAME = _font_canon.word_font_name()
     FONT_SIZE_PT = 12
     FIRST_LINE_INDENT_CM = 1.25
     LINE_SPACING = 1.5
     TABLE_BORDER_SZ = 4  # Word units: 4 = 0.5pt по ГОСТ 2.303
-    HEADER_FONT_NAME = 'Times New Roman'
+    HEADER_FONT_NAME = _font_canon.word_font_name()
 
     @staticmethod
     def set_para_style(p, justify: bool = True, first_line_cm: float = 1.25,
@@ -41,7 +45,7 @@ class ExplanatoryNoteStyles:
         pf.space_after = Pt(space_after_pt)
 
     @staticmethod
-    def set_run_style(run, font: str = 'Times New Roman', size_pt: int = 12,
+    def set_run_style(run, font: str = FONT_NAME, size_pt: int = 12,
                       bold: bool = False, italic: bool = False) -> None:
         """Задать стиль run: шрифт, размер, жирность, курсив."""
         from docx.shared import Pt

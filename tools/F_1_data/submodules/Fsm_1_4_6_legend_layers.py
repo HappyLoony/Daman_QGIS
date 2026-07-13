@@ -12,7 +12,7 @@ from Daman_QGIS.constants import PLUGIN_NAME
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
-class LegendLayersCreator:
+class Fsm_1_4_6_LegendLayersCreator:
     """Создатель слоев для легенды (отключен)"""
     
     def __init__(self, iface):

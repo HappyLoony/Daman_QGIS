@@ -13,7 +13,7 @@ from Daman_QGIS.constants import PLUGIN_NAME, LAYER_SELECTION_ZU, LAYER_SELECTIO
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
-class SpatialAnalyzer:
+class Fsm_1_3_4_SpatialAnalyzer:
     """Анализатор пространственных пересечений"""
     
     def __init__(self, iface):
@@ -66,7 +66,7 @@ class SpatialAnalyzer:
             results['cadastral_quarters'] = count
             log_info(f"Fsm_1_3_4: Кадастровые кварталы - {count} из {total}")
 
-        # 2. Земельные участки (используем округленный слой из F_2_1)
+        # 2. Земельные участки (используем округленный слой из Fsm_1_2_13_1)
         layer = self._get_layer_by_name(LAYER_SELECTION_ZU)
         if layer:
             total = layer.featureCount()
@@ -541,7 +541,7 @@ class SpatialAnalyzer:
         """Подсчет земельных участков с заданной категорией земель (только уникальные кадастровые номера)
 
         Args:
-            layer: Слой земельных участков (Le_1_9_1_1_Выборка_ЗУ - округленный слой из F_2_1)
+            layer: Слой земельных участков (Le_1_9_1_1_Выборка_ЗУ - округленный слой из Fsm_1_2_13_1)
             boundaries_geom: Подготовленная геометрия границ
             target_category: Точное название категории, напр. "Земли лесного фонда"
                 или "Земли особо охраняемых территорий и объектов"

@@ -13,7 +13,7 @@ import os
 from typing import Optional, Dict, Any
 
 from qgis.PyQt.QtCore import Qt, QPointF, QSizeF
-from qgis.PyQt.QtGui import QFont, QFontMetricsF, QColor
+from qgis.PyQt.QtGui import QFontMetricsF, QColor
 from qgis.core import (
     QgsProject, QgsPrintLayout, QgsLayoutSize, Qgis,
     QgsLayoutItemMap, QgsLayoutItemLegend, QgsLayoutItemLabel,
@@ -25,15 +25,13 @@ from qgis.core import (
 # Конверсия QFontMetricsF.horizontalAdvance(px) → mm. Qt logical DPI = 96.
 _PX_TO_MM = 25.4 / 96.0
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_error
 from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
-from Daman_QGIS.constants import EXPORT_DPI_ROSREESTR, DOC_TYPE_FONTS
+from Daman_QGIS.constants import EXPORT_DPI_ROSREESTR
+from Daman_QGIS.managers.styling import _font_canon
 
 from .Msm_46_1_types import LegendLayoutMode
-from .Msm_46_5_utils import (
-    apply_letter_spacing_to_font,
-    parse_letter_spacing_pt,
-)
+from .Msm_46_5_utils import parse_letter_spacing_pt
 
 
 class LayoutBuilder:
@@ -77,14 +75,24 @@ class LayoutBuilder:
         self._config_file = 'Base_layout.json'
         self._config: Optional[Dict[str, Any]] = None
         self._layout: Optional[QgsPrintLayout] = None
-        self._font_family: str = DOC_TYPE_FONTS.get('ДПТ', 'GOST 2.304')
+        self._font_family: str = _font_canon.get_family_for_doc_type('ДПТ')
 
     # === Static helpers (text-related) ===
 
-    # Letter-spacing helper удалён — используется shared
-    # `apply_letter_spacing_to_font` + `parse_letter_spacing_pt` из Msm_46_5_utils
+    # Letter-spacing helper удалён — применяется через M_49.make_qfont,
+    # который делегирует в `apply_letter_spacing_to_font` из Msm_46_5_utils
     # (тот же helper применяется в Msm_46_3 planner и Msm_46_4 strategy для
     # font'ов легенды). Единое поведение для всей схемы.
+
+    @staticmethod
+    def _font_manager():
+        """Lazy-доступ к M_49 FontManager.
+
+        Top-level импорт registry из субмодуля styling невозможен
+        (циклический импорт managers -> styling -> M_34 -> Msm_34_1).
+        """
+        from Daman_QGIS.managers import registry
+        return registry.get('M_49')
 
     @staticmethod
     def fit_label_to_height(label: QgsLayoutItemLabel) -> None:
@@ -164,49 +172,8 @@ class LayoutBuilder:
             f"(bbox {bbox_w:.0f}x{bbox_h:.0f} мм)"
         )
 
-    # Кэш зарегистрированных шрифтов (class-level, один раз за сессию)
-    _registered_fonts: set = set()
-
-    def _ensure_font_registered(self, font_family: str) -> None:
-        """
-        Регистрация шрифта в Qt если он не найден в системе.
-        Ищет TTF файлы в data/fonts/ плагина.
-        """
-        if font_family in self._registered_fonts:
-            return
-
-        from qgis.PyQt.QtGui import QFontDatabase
-        db = QFontDatabase()
-
-        # Проверяем есть ли шрифт
-        if font_family in db.families():
-            self._registered_fonts.add(font_family)
-            return
-
-        # Ищем TTF в data/fonts/
-        plugin_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        fonts_dir = os.path.join(plugin_dir, 'data', 'fonts')
-
-        if not os.path.isdir(fonts_dir):
-            log_warning(f"Msm_34_1: Папка шрифтов не найдена: {fonts_dir}")
-            return
-
-        registered = 0
-        for filename in os.listdir(fonts_dir):
-            if font_family.lower().replace(' ', '') in filename.lower().replace(' ', ''):
-                if filename.endswith(('.ttf', '.otf')):
-                    font_path = os.path.join(fonts_dir, filename)
-                    font_id = QFontDatabase.addApplicationFont(font_path)
-                    if font_id >= 0:
-                        registered += 1
-                    else:
-                        log_warning(f"Msm_34_1: Не удалось зарегистрировать: {filename}")
-
-        if registered > 0:
-            self._registered_fonts.add(font_family)
-            log_info(f"Msm_34_1: Шрифт '{font_family}' зарегистрирован ({registered} файлов)")
-        else:
-            log_warning(f"Msm_34_1: Шрифт '{font_family}' не найден в {fonts_dir}")
+    # Кэш и регистрация TTF перенесены в M_49 FontManager (этап 2 плана
+    # M_49): registry.get('M_49').ensure_registered / make_qfont.
 
     def load_config(self) -> bool:
         """
@@ -244,7 +211,8 @@ class LayoutBuilder:
         Args:
             config_key: Ключ конфигурации (например 'A4_landscape', 'A3_landscape')
             layout_name: Имя создаваемого макета
-            doc_type: Тип документации для выбора шрифта из DOC_TYPE_FONTS
+            doc_type: Тип документации для выбора шрифта
+                (_font_canon.DOC_TYPE_FAMILIES)
 
         Returns:
             QgsPrintLayout или None при ошибке
@@ -264,7 +232,7 @@ class LayoutBuilder:
         try:
             # Шрифт из базы данных (font_family в params)
             self._font_family = str(params['font_family'])
-            self._ensure_font_registered(self._font_family)
+            self._font_manager().ensure_registered(self._font_family)
 
             # Создаем макет
             self._layout = QgsPrintLayout(QgsProject.instance())
@@ -550,7 +518,8 @@ class LayoutBuilder:
         """
         Настройка стилей текста легенды.
 
-        Шрифт из DOC_TYPE_FONTS, стиль (bold/italic) из Base_layout.json (legend_font).
+        Семейство шрифта — из канона M_49 (_font_canon через build()),
+        стиль (bold/italic) из Base_layout.json (legend_font).
         Title получает bold дополнительно к стилю из базы.
 
         Args:
@@ -560,17 +529,16 @@ class LayoutBuilder:
         font_family = self._font_family
         font_size = 14
         text_color = QColor(50, 50, 50)
-        font_style = str(params.get('legend_font', 'regular')).lower()
-
-        base_bold = 'bold' in font_style
-        base_italic = 'italic' in font_style
+        font_style = str(params.get('legend_font', 'regular'))
+        font_manager = self._font_manager()
 
         # Title style (base + bold)
         title_style = legend.style(QgsLegendStyle.Title)
         title_format = QgsTextFormat()
-        title_font = QFont(font_family, font_size)
+        title_font = font_manager.make_qfont(font_family, font_size, font_style)
+        # Title всегда bold — безусловный post-override поверх базы
+        # (НЕ из font_style)
         title_font.setBold(True)
-        title_font.setItalic(base_italic)
         title_format.setFont(title_font)
         title_format.setSize(font_size)
         title_format.setColor(text_color)
@@ -582,9 +550,7 @@ class LayoutBuilder:
         for style_type in [QgsLegendStyle.Group, QgsLegendStyle.Subgroup]:
             style = legend.style(style_type)
             fmt = QgsTextFormat()
-            f = QFont(font_family, font_size)
-            f.setBold(base_bold)
-            f.setItalic(base_italic)
+            f = font_manager.make_qfont(font_family, font_size, font_style)
             fmt.setFont(f)
             fmt.setSize(font_size)
             fmt.setColor(text_color)
@@ -596,9 +562,7 @@ class LayoutBuilder:
         # SymbolLabel style (из базы + margins)
         symbol_style = legend.style(QgsLegendStyle.SymbolLabel)
         symbol_format = QgsTextFormat()
-        symbol_font = QFont(font_family, font_size)
-        symbol_font.setBold(base_bold)
-        symbol_font.setItalic(base_italic)
+        symbol_font = font_manager.make_qfont(font_family, font_size, font_style)
         symbol_format.setFont(symbol_font)
         symbol_format.setSize(font_size)
         symbol_format.setColor(text_color)
@@ -624,7 +588,7 @@ class LayoutBuilder:
         width = params.get('title_label_width', 267)
         height = params.get('title_label_height', 25)
         font_family = self._font_family
-        font_style = str(params.get('title_label_font', 'regular')).lower()
+        font_style = str(params.get('title_label_font', 'regular'))
 
         ref_point = self._REF_POINTS[params['title_label_ref_point']]
 
@@ -638,10 +602,8 @@ class LayoutBuilder:
 
         # Шрифт (size=14 константа, стиль из базы, letter_spacing из page-level)
         text_format = QgsTextFormat()
-        font = QFont(font_family, 14)
-        font.setBold('bold' in font_style)
-        font.setItalic('italic' in font_style)
-        apply_letter_spacing_to_font(font, parse_letter_spacing_pt(params))
+        font = self._font_manager().make_qfont(
+            font_family, 14, font_style, parse_letter_spacing_pt(params))
         text_format.setFont(font)
         text_format.setSize(14)
         label.setTextFormat(text_format)
@@ -673,7 +635,7 @@ class LayoutBuilder:
         width = params.get('appendix_label_width', 35)
         height = params.get('appendix_label_height', 5)
         font_family = self._font_family
-        font_style = str(params.get('appendix_label_font', 'regular')).lower()
+        font_style = str(params.get('appendix_label_font', 'regular'))
 
         ref_point = self._REF_POINTS[params['appendix_label_ref_point']]
 
@@ -687,11 +649,10 @@ class LayoutBuilder:
 
         # Шрифт (size=14 константа, стиль из базы, letter_spacing из page-level)
         text_format = QgsTextFormat()
-        font = QFont(font_family, 14)
-        font.setBold('bold' in font_style)
-        font.setItalic('italic' in font_style)
+        font = self._font_manager().make_qfont(
+            font_family, 14, font_style, parse_letter_spacing_pt(params))
+        # Underline — специфика appendix_label, post-override поверх фабрики
         font.setUnderline(True)
-        apply_letter_spacing_to_font(font, parse_letter_spacing_pt(params))
         text_format.setFont(font)
         text_format.setSize(14)
         label.setTextFormat(text_format)
@@ -732,7 +693,7 @@ class LayoutBuilder:
         width = params.get('organization_label_width', 100)
         height = params.get('organization_label_height', 5)
         font_family = self._font_family
-        font_style = str(params.get('organization_label_font', 'regular')).lower()
+        font_style = str(params.get('organization_label_font', 'regular'))
 
         ref_point = self._REF_POINTS[params['organization_label_ref_point']]
 
@@ -747,10 +708,8 @@ class LayoutBuilder:
         # Шрифт (size=14 константа, стиль из базы; font_family per-макет;
         # letter_spacing из page-level letter_spacing_pt)
         text_format = QgsTextFormat()
-        font = QFont(font_family, 14)
-        font.setBold('bold' in font_style)
-        font.setItalic('italic' in font_style)
-        apply_letter_spacing_to_font(font, parse_letter_spacing_pt(params))
+        font = self._font_manager().make_qfont(
+            font_family, 14, font_style, parse_letter_spacing_pt(params))
         text_format.setFont(font)
         text_format.setSize(14)
         label.setTextFormat(text_format)

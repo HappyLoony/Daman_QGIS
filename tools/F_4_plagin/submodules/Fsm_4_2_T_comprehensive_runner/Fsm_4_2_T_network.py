@@ -36,8 +36,12 @@ class TestNetwork:
             self.test_01_init()
 
             # Тесты реальных запросов
-            self.test_10_api_availability()
+            self.test_10_api_availability()  # health-check без JWT — вне D2
+            # D5: test_11/test_12 идут через Msm_29_6 (session-level D2 lockout).
+            # Первый auth-провал залочил бы второй authed-тест локально → сброс
+            # состояния менеджера между auth-тестами (reset_instance-дисциплина).
             self.test_11_api_response_format()
+            self._reset_authed_manager()
             self.test_12_api_action_list()
 
             # Тесты HTTP кодов
@@ -69,6 +73,10 @@ class TestNetwork:
             self.loader = BaseReferenceLoader()
             self.validator = LicenseValidator()
 
+            # D5: чистый старт для authed-класса сьюта — иначе lockout/CB от
+            # прошлого in-session прогона (test_12) протёк бы в первый test_11.
+            self._reset_authed_manager()
+
             self.logger.success("Модули загружены для сетевых тестов")
 
         except ImportError as e:
@@ -81,6 +89,23 @@ class TestNetwork:
             return TokenManager.get_instance().get_auth_headers()
         except Exception:
             return {}
+
+    def _reset_authed_manager(self) -> None:
+        """D5: сброс Msm_29_6 singleton между authed-тестами.
+
+        Session-level auth lockout (D2) от первого auth-провала иначе залочил
+        бы последующий authed-тест локально (fail-fast без сети). reset_instance
+        очищает lockout/circuit-breaker/snapshot — каждый auth-тест стартует
+        с чистого состояния. Callback восстанавливается лениво при следующей
+        активации (в тестовой сессии не критично).
+        """
+        try:
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_6_authed_request import (
+                AuthedRequestManager,
+            )
+            AuthedRequestManager.reset_instance()
+        except Exception as e:
+            self.logger.warning(f"reset AuthedRequestManager failed: {e}")
 
     def test_10_api_availability(self):
         """ТЕСТ 10: Доступность API (health check)"""
@@ -131,12 +156,21 @@ class TestNetwork:
             self.logger.error(f"Ошибка проверки доступности: {str(e)}")
 
     def test_11_api_response_format(self):
-        """ТЕСТ 11: Формат ответа API (action=list с JWT)"""
+        """ТЕСТ 11: Формат ответа API (action=list с JWT)
+
+        D5 (2026-07-12): мигрирован на Msm_29_6 AuthedRequestManager (SSOT
+        retry/refresh/backoff/circuit-breaker) — прямой requests.get с
+        JWT-заголовками мимо менеджера триггерил CrowdSec bruteforce-bucket
+        при сломанном auth. AuthFailureError/CircuitBreakerError трактуются
+        как fail-строка отчёта, не crash.
+        """
         self.logger.section("11. Формат ответа API")
 
         try:
-            import requests
-            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
+            from Daman_QGIS.constants import get_api_url
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_6_authed_request import (
+                AuthedRequestManager, AuthFailureError, CircuitBreakerError,
+            )
 
             headers = self._get_auth_headers()
             if not headers:
@@ -144,7 +178,18 @@ class TestNetwork:
                 return
 
             url = get_api_url("list")
-            response = requests.get(url, headers=headers, timeout=API_TIMEOUT)
+            try:
+                response = AuthedRequestManager.get_instance().request("GET", url)
+            except AuthFailureError as e:
+                self.logger.fail(f"Auth failure (сессия заблокирована): {e}")
+                return
+            except CircuitBreakerError as e:
+                self.logger.fail(f"Circuit breaker открыт: {e}")
+                return
+
+            if response is None:
+                self.logger.fail("Запрос вернул None (транзиент/недоступно)")
+                return
 
             if response.status_code == 200:
                 try:
@@ -185,12 +230,21 @@ class TestNetwork:
             self.logger.error(f"Ошибка проверки формата: {str(e)}")
 
     def test_12_api_action_list(self):
-        """ТЕСТ 12: Действие list (проверка списка файлов)"""
+        """ТЕСТ 12: Действие list (проверка списка файлов)
+
+        D5 (2026-07-12): мигрирован на Msm_29_6 AuthedRequestManager (SSOT
+        retry/refresh/backoff/circuit-breaker) — прямой requests.get с
+        JWT-заголовками мимо менеджера триггерил CrowdSec bruteforce-bucket
+        при сломанном auth. AuthFailureError/CircuitBreakerError трактуются
+        как fail-строка отчёта, не crash.
+        """
         self.logger.section("12. API action=list")
 
         try:
-            import requests
-            from Daman_QGIS.constants import API_TIMEOUT, get_api_url
+            from Daman_QGIS.constants import get_api_url
+            from Daman_QGIS.managers.infrastructure.submodules.Msm_29_6_authed_request import (
+                AuthedRequestManager, AuthFailureError, CircuitBreakerError,
+            )
 
             headers = self._get_auth_headers()
             if not headers:
@@ -198,7 +252,18 @@ class TestNetwork:
                 return
 
             url = get_api_url("list")
-            response = requests.get(url, headers=headers, timeout=API_TIMEOUT)
+            try:
+                response = AuthedRequestManager.get_instance().request("GET", url)
+            except AuthFailureError as e:
+                self.logger.fail(f"Auth failure (сессия заблокирована): {e}")
+                return
+            except CircuitBreakerError as e:
+                self.logger.fail(f"Circuit breaker открыт: {e}")
+                return
+
+            if response is None:
+                self.logger.fail("Запрос вернул None (транзиент/недоступно)")
+                return
 
             if response.status_code == 200:
                 data = response.json()

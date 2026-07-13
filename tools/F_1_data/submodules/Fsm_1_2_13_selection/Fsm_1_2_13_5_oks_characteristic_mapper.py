@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_2_1_9: Маппер характеристик ОКС - определение типа и значения основной характеристики
+Fsm_1_2_13_5: Маппер характеристик ОКС - определение типа и значения основной характеристики
 Заполняет поля "Значение" и "Характеристика" для ОКС на основе данных WFS
 """
 
@@ -10,7 +10,7 @@ from qgis.core import QgsFeature, QgsFields
 from Daman_QGIS.utils import log_warning
 
 
-class Fsm_2_1_9_OKSCharacteristicMapper:
+class Fsm_1_2_13_5_OKSCharacteristicMapper:
     """Маппер характеристик ОКС для выборки 2_1
 
     Определяет тип основной характеристики и её значение по данным из WFS слоя.
@@ -60,11 +60,11 @@ class Fsm_2_1_9_OKSCharacteristicMapper:
         """
         # Проверяем наличие целевых полей
         if 'Значение' not in [f.name() for f in target_feature.fields()]:
-            log_warning("Fsm_2_1_9: Поле 'Значение' не найдено в целевом слое")
+            log_warning("Fsm_1_2_13_5: Поле 'Значение' не найдено в целевом слое")
             return
 
         if 'Характеристика' not in [f.name() for f in target_feature.fields()]:
-            log_warning("Fsm_2_1_9: Поле 'Характеристика' не найдено в целевом слое")
+            log_warning("Fsm_1_2_13_5: Поле 'Характеристика' не найдено в целевом слое")
             return
 
         # Создаём список доступных полей один раз (оптимизация)

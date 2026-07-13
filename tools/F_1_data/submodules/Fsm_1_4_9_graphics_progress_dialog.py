@@ -14,7 +14,7 @@ from qgis.PyQt.QtWidgets import (
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class GraphicsProgressDialog(BaseResponsiveDialog):
+class Fsm_1_4_9_GraphicsProgressDialog(BaseResponsiveDialog):
     """Минималистичный диалог отображения прогресса"""
 
     SIZING_MODE = 'content'

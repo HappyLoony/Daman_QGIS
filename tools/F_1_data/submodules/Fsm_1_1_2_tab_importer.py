@@ -17,7 +17,7 @@ from Daman_QGIS.database.schemas import ImportSettings
 from Daman_QGIS.constants import PLUGIN_NAME
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
-class TabImporter(BaseImporter):
+class Fsm_1_1_2_TabImporter(BaseImporter):
     """
     Импортер TAB файлов MapInfo.
     Реализует все абстрактные методы базового класса: import_file, supports_format
@@ -207,6 +207,12 @@ class TabImporter(BaseImporter):
             Qgis.Info
         )
 
+        # F_1_1: превентивная валидация и авто-исправление невалидной геометрии
+        # (hole-outside-shell и др.) ДО материализации в GPKG (вариант B).
+        # Валидатор строит MultiPolygon memory-слой → save_to_gpkg рождает
+        # gpkg-слой сразу MultiPolygon (одна запись, без orphan-ghost).
+        layer = self._validate_and_fix_geometry(layer, layer_name)
+
         self.result_layer = layer
 
         # Сохраняем в GPKG через LayerProcessor
@@ -235,6 +241,85 @@ class TabImporter(BaseImporter):
             self._create_buffer_layers(layer)
 
         return layer
+
+    def _validate_and_fix_geometry(self, layer: QgsVectorLayer, layer_name: str) -> QgsVectorLayer:
+        """Валидация и авто-исправление геометрии импортированного TAB-слоя (F_1_1).
+
+        Делегирует в Fsm_1_1_15_GeometryValidator (per-feature-selective fix
+        невалидных, promotion валидных в MultiPolygon). Сводку показывает
+        пользователю (messageBar) + отправляет в телеметрию (M_32). Не блокирует
+        импорт при наличии исправлений — блокирует только при сбое построения
+        (fail-closed, exception пробрасывается наверх).
+
+        Args:
+            layer: In-memory OGR-слой (до save_to_gpkg).
+            layer_name: Имя слоя (для сообщений).
+
+        Returns:
+            Исправленный MultiPolygon memory-слой либо исходный слой as-is
+            (если полигональной невалидности нет).
+        """
+        try:
+            from .Fsm_1_1_15_geometry_validator import Fsm_1_1_15_GeometryValidator
+
+            fixed_layer, stats = Fsm_1_1_15_GeometryValidator.validate_and_fix_layer(layer)
+
+            invalid = stats.get('invalid', 0)
+            zm_skipped = stats.get('zm_skipped', 0)
+            if invalid > 0 or zm_skipped > 0:
+                fixed = stats.get('fixed', 0)
+                unfixable = stats.get('unfixable', 0)
+                area_delta = stats.get('area_delta', 0.0)
+
+                summary = (
+                    f"Слой '{layer_name}': исправлено {fixed} из {invalid} "
+                    f"невалидных геометрий (дельта площади {area_delta:.2f} м²)"
+                )
+                if unfixable > 0:
+                    summary += f"; не исправлено: {unfixable} (перенесены как есть)"
+                if zm_skipped > 0:
+                    summary += f"; Z/M-геометрий пропущено: {zm_skipped} (перенесены как есть)"
+
+                log_warning(f"Fsm_1_1_2: {summary}")
+
+                # messageBar (не блокирует импорт)
+                if self.iface is not None:
+                    self.iface.messageBar().pushMessage(
+                        "Исправлена геометрия",
+                        summary,
+                        level=Qgis.Warning if (unfixable > 0 or zm_skipped > 0) else Qgis.Info,
+                        duration=8,
+                    )
+
+                # M_32 telemetry (best-effort, не ломает импорт)
+                try:
+                    from Daman_QGIS.managers import registry
+                    telemetry = registry.get('M_32')
+                    if telemetry is not None:
+                        telemetry.track_event('geometry_fix_on_import', {
+                            'func': 'F_1_1',
+                            'format': 'TAB',
+                            'checked': stats.get('checked', 0),
+                            'invalid': invalid,
+                            'fixed': fixed,
+                            'unfixable': unfixable,
+                            'zm_skipped': zm_skipped,
+                        })
+                except Exception:
+                    pass
+
+            return fixed_layer
+
+        except Exception as e:
+            # fail-closed: сбой валидатора блокирует импорт (геометрия-фикс
+            # не должен молча пропустить невалидную геометрию).
+            self.log_message(
+                f"Fsm_1_1_2: сбой валидации/исправления геометрии слоя "
+                f"'{layer_name}': {e}",
+                Qgis.Critical,
+            )
+            raise
+
     def _apply_attributes_mapping(self, layer: QgsVectorLayer):
         """
         Применение маппинга атрибутов

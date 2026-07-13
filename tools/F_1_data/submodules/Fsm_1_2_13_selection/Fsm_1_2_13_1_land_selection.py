@@ -30,8 +30,8 @@ from Daman_QGIS.managers import FeatureSortManager, OksZuAnalysisManager, SyncMa
 from Daman_QGIS.managers.infrastructure.M_17_async_task_manager import MessageBarReporter
 
 # Импорт субмодулей
-from .Fsm_1_2_13_3_selection_engine import Fsm_2_1_8_SelectionEngine
-from .Fsm_1_2_13_6_zouit_selection import Fsm_2_1_10_ZouitSelection
+from .Fsm_1_2_13_3_selection_engine import Fsm_1_2_13_3_SelectionEngine
+from .Fsm_1_2_13_6_zouit_selection import Fsm_1_2_13_6_ZouitSelection
 
 
 def pluralize_plots(count: int) -> str:
@@ -51,7 +51,7 @@ def pluralize_plots(count: int) -> str:
         return "участков"
 
 
-class F_2_1_LandSelection(BaseTool):
+class Fsm_1_2_13_1_LandSelection(BaseTool):
     """Инструмент выборки земельных участков и ОКС (координатор)"""
 
     def __init__(self, iface) -> None:
@@ -89,7 +89,7 @@ class F_2_1_LandSelection(BaseTool):
 
     def get_name(self) -> str:
         """Получить имя инструмента"""
-        return "F_2_1_Выборка"
+        return "Fsm_1_2_13_1_Выборка"
 
     def run(self) -> None:
         """Основной метод запуска инструмента"""
@@ -101,23 +101,23 @@ class F_2_1_LandSelection(BaseTool):
 
     def _perform_selection_workflow_all(self) -> None:
         """Выполнение процесса выборки для всех доступных объектов (ЗУ и ОКС)"""
-        log_info("F_2_1: Запуск универсальной выборки объектов")
+        log_info("Fsm_1_2_13_1: Запуск универсальной выборки объектов")
 
         # Ленивая инициализация движка выборки
         if not self.selection_engine:
             if not self.plugin_dir:
-                log_error("F_2_1: Не удалось инициализировать Selection engine - plugin_dir не установлен")
+                log_error("Fsm_1_2_13_1: Не удалось инициализировать Selection engine - plugin_dir не установлен")
                 return
             gpkg_path = self._get_gpkg_path()
             if gpkg_path and os.path.exists(gpkg_path):
-                self.selection_engine = Fsm_2_1_8_SelectionEngine(
+                self.selection_engine = Fsm_1_2_13_3_SelectionEngine(
                     self.iface,
                     self.plugin_dir,
                     gpkg_path
                 )
-                log_info(f"F_2_1: Selection engine инициализирован: {gpkg_path}")
+                log_info(f"Fsm_1_2_13_1: Selection engine инициализирован: {gpkg_path}")
             else:
-                log_error("F_2_1: Не удалось инициализировать Selection engine - проект не открыт")
+                log_error("Fsm_1_2_13_1: Не удалось инициализировать Selection engine - проект не открыт")
                 return
 
         # Проверяем наличие слоёв границ
@@ -205,7 +205,7 @@ class F_2_1_LandSelection(BaseTool):
             )
             return
 
-        log_info(f"F_2_1: Найдено {len(available_source_layers)} исходных слоёв для выборки")
+        log_info(f"Fsm_1_2_13_1: Найдено {len(available_source_layers)} исходных слоёв для выборки")
 
         # Прогресс-бар: выборка слоёв + ЗОУИТ + 4 постобработки
         total_steps = len(available_source_layers) + 1 + 4
@@ -255,7 +255,7 @@ class F_2_1_LandSelection(BaseTool):
                             boundaries_layer_500m, progress_callback=progress_cb
                         )
                     else:
-                        log_warning(f"F_2_1: Пропущена выборка ЗУ из {layer_name} - не все слои границ доступны")
+                        log_warning(f"Fsm_1_2_13_1: Пропущена выборка ЗУ из {layer_name} - не все слои границ доступны")
 
                 elif obj_type == 'KK':
                     # Выборка для КК (кадастровые кварталы) - требует только точные границы
@@ -266,7 +266,7 @@ class F_2_1_LandSelection(BaseTool):
                             LAYER_SELECTION_KK, "КК", progress_callback=progress_cb
                         )
                     else:
-                        log_warning(f"F_2_1: Пропущена выборка КК из {layer_name} - слой точных границ недоступен")
+                        log_warning(f"Fsm_1_2_13_1: Пропущена выборка КК из {layer_name} - слой точных границ недоступен")
 
                 elif obj_type == 'OKS':
                     # Выборка для ОКС (требует только точные границы)
@@ -279,7 +279,7 @@ class F_2_1_LandSelection(BaseTool):
                         self._perform_selection_workflow_oks(layer_name, source_layer, boundaries_layer_exact,
                                                             progress_callback=progress_cb)
                     else:
-                        log_warning(f"F_2_1: Пропущена выборка ОКС из {layer_name} - слой точных границ недоступен")
+                        log_warning(f"Fsm_1_2_13_1: Пропущена выборка ОКС из {layer_name} - слой точных границ недоступен")
 
                 elif obj_type == 'NP':
                     # Выборка для НП (населённые пункты) - требует только точные границы
@@ -290,7 +290,7 @@ class F_2_1_LandSelection(BaseTool):
                             LAYER_SELECTION_NP, "НП", progress_callback=progress_cb
                         )
                     else:
-                        log_warning(f"F_2_1: Пропущена выборка НП из {layer_name} - слой точных границ недоступен")
+                        log_warning(f"Fsm_1_2_13_1: Пропущена выборка НП из {layer_name} - слой точных границ недоступен")
 
                 elif obj_type == 'MO':
                     # Выборка для МО (муниципальные образования) - требует только точные границы
@@ -301,7 +301,7 @@ class F_2_1_LandSelection(BaseTool):
                             LAYER_SELECTION_MO, "МО", progress_callback=progress_cb
                         )
                     else:
-                        log_warning(f"F_2_1: Пропущена выборка МО из {layer_name} - слой точных границ недоступен")
+                        log_warning(f"Fsm_1_2_13_1: Пропущена выборка МО из {layer_name} - слой точных границ недоступен")
 
                 elif obj_type == 'TERZONY':
                     # TODO: Выборка для ТерЗоны - WFS API не найден
@@ -312,7 +312,7 @@ class F_2_1_LandSelection(BaseTool):
                             LAYER_SELECTION_TERZONY, "ТерЗоны", progress_callback=progress_cb
                         )
                     else:
-                        log_warning(f"F_2_1: Пропущена выборка ТерЗоны из {layer_name} - слой точных границ недоступен")
+                        log_warning(f"Fsm_1_2_13_1: Пропущена выборка ТерЗоны из {layer_name} - слой точных границ недоступен")
 
                 elif obj_type == 'VODA':
                     # TODO: Выборка для Вода - WFS API не найден
@@ -323,11 +323,11 @@ class F_2_1_LandSelection(BaseTool):
                             LAYER_SELECTION_VODA, "Вода", progress_callback=progress_cb
                         )
                     else:
-                        log_warning(f"F_2_1: Пропущена выборка Вода из {layer_name} - слой точных границ недоступен")
+                        log_warning(f"Fsm_1_2_13_1: Пропущена выборка Вода из {layer_name} - слой точных границ недоступен")
 
                 step += 1
 
-            log_info(f"F_2_1: Выборка завершена успешно. Обработано слоёв: {len(available_source_layers)}")
+            log_info(f"Fsm_1_2_13_1: Выборка завершена успешно. Обработано слоёв: {len(available_source_layers)}")
 
             # Выборка ЗОУИТ — из всех Le_1_2_5_* слоёв в один перечень
             if boundaries_layer_exact:
@@ -337,7 +337,7 @@ class F_2_1_LandSelection(BaseTool):
                 self._reload_boundaries_if_needed(boundaries_layer_exact)
                 self._perform_selection_workflow_zouit(boundaries_layer_exact, progress_callback=progress_cb)
             else:
-                log_warning("F_2_1: Пропущена выборка ЗОУИТ - слой точных границ недоступен")
+                log_warning("Fsm_1_2_13_1: Пропущена выборка ЗОУИТ - слой точных границ недоступен")
             step += 1
 
             # Синхронизация с выписками (M_24) - если выписки уже загружены
@@ -371,7 +371,7 @@ class F_2_1_LandSelection(BaseTool):
             reporter.set_completed(True, f"Выборка завершена: {len(available_source_layers)} слоёв")
 
         except Exception as e:
-            log_error(f"F_2_1: Ошибка в процессе выборки: {e}")
+            log_error(f"Fsm_1_2_13_1: Ошибка в процессе выборки: {e}")
             reporter.set_completed(False, f"Ошибка выборки: {e}")
 
     def _perform_selection_workflow_zu(self, source_layer_name: str, source_layer: QgsVectorLayer,
@@ -410,21 +410,21 @@ class F_2_1_LandSelection(BaseTool):
                 QMessageBox.StandardButton.No
             )
             if reply != QMessageBox.StandardButton.Yes:
-                log_info(f"F_2_1: Пропущена выборка ЗУ из {source_layer_name}")
+                log_info(f"Fsm_1_2_13_1: Пропущена выборка ЗУ из {source_layer_name}")
                 return
 
             # Удаляем существующие слои
             for layer in existing_layers:
                 QgsProject.instance().removeMapLayer(layer.id())
-                log_info(f"F_2_1: Удален существующий слой {layer.name()}")
+                log_info(f"Fsm_1_2_13_1: Удален существующий слой {layer.name()}")
 
         # Проверяем что движок выборки инициализирован
         if not self.selection_engine:
-            log_error("F_2_1: Selection engine не инициализирован")
+            log_error("Fsm_1_2_13_1: Selection engine не инициализирован")
             return
 
         # Выполняем выборку через движок
-        log_info(f"F_2_1: Запуск выборки ЗУ из {source_layer_name}")
+        log_info(f"Fsm_1_2_13_1: Запуск выборки ЗУ из {source_layer_name}")
         final_layer_1, final_layer_2, final_layer_3 = self.selection_engine.perform_selection_zu(
             boundaries_layer_exact, boundaries_layer_10m, boundaries_layer_minus2cm,
             boundaries_layer_500m, source_layer, object_type='ZU',
@@ -438,11 +438,11 @@ class F_2_1_LandSelection(BaseTool):
             sorted_layer_1 = self.feature_sort_manager.sort_layer(final_layer_1)
             # Если слой был отсортирован (новый memory layer), пересохраняем в GeoPackage
             if sorted_layer_1 != final_layer_1:
-                from .Fsm_1_2_13_2_layer_builder import Fsm_2_1_6_LayerBuilder
+                from .Fsm_1_2_13_2_layer_builder import Fsm_1_2_13_2_LayerBuilder
                 assert self.plugin_dir is not None  # Type narrowing для Pylance
                 gpkg_path = self._get_gpkg_path()
                 if gpkg_path:
-                    builder = Fsm_2_1_6_LayerBuilder(self.plugin_dir)
+                    builder = Fsm_1_2_13_2_LayerBuilder(self.plugin_dir)
                     final_layer_1 = builder.save_layer_to_gpkg(sorted_layer_1, LAYER_SELECTION_ZU, gpkg_path)
             else:
                 final_layer_1 = sorted_layer_1
@@ -451,11 +451,11 @@ class F_2_1_LandSelection(BaseTool):
             sorted_layer_2 = self.feature_sort_manager.sort_layer(final_layer_2)
             # Если слой был отсортирован (новый memory layer), пересохраняем в GeoPackage
             if sorted_layer_2 != final_layer_2:
-                from .Fsm_1_2_13_2_layer_builder import Fsm_2_1_6_LayerBuilder
+                from .Fsm_1_2_13_2_layer_builder import Fsm_1_2_13_2_LayerBuilder
                 assert self.plugin_dir is not None  # Type narrowing для Pylance
                 gpkg_path = self._get_gpkg_path()
                 if gpkg_path:
-                    builder = Fsm_2_1_6_LayerBuilder(self.plugin_dir)
+                    builder = Fsm_1_2_13_2_LayerBuilder(self.plugin_dir)
                     final_layer_2 = builder.save_layer_to_gpkg(sorted_layer_2, LAYER_SELECTION_ZU_10M, gpkg_path)
             else:
                 final_layer_2 = sorted_layer_2
@@ -463,11 +463,11 @@ class F_2_1_LandSelection(BaseTool):
         if final_layer_3:
             sorted_layer_3 = self.feature_sort_manager.sort_layer(final_layer_3)
             if sorted_layer_3 != final_layer_3:
-                from .Fsm_1_2_13_2_layer_builder import Fsm_2_1_6_LayerBuilder
+                from .Fsm_1_2_13_2_layer_builder import Fsm_1_2_13_2_LayerBuilder
                 assert self.plugin_dir is not None
                 gpkg_path = self._get_gpkg_path()
                 if gpkg_path:
-                    builder = Fsm_2_1_6_LayerBuilder(self.plugin_dir)
+                    builder = Fsm_1_2_13_2_LayerBuilder(self.plugin_dir)
                     final_layer_3 = builder.save_layer_to_gpkg(sorted_layer_3, LAYER_SELECTION_ZU_500M, gpkg_path)
             else:
                 final_layer_3 = sorted_layer_3
@@ -482,26 +482,26 @@ class F_2_1_LandSelection(BaseTool):
             layers_to_add.append(final_layer_3)
 
         if not layers_to_add:
-            log_info("F_2_1: Нет слоёв для добавления (все слои пусты)")
+            log_info("Fsm_1_2_13_1: Нет слоёв для добавления (все слои пусты)")
         elif self.layer_manager:
             for layer in layers_to_add:
                 self.layer_manager.add_layer(layer, make_readonly=False, auto_number=False, check_precision=False)
-            log_info(f"F_2_1: Добавлено слоёв: {len(layers_to_add)}")
+            log_info(f"Fsm_1_2_13_1: Добавлено слоёв: {len(layers_to_add)}")
 
             # Сортируем все слои
-            log_info("F_2_1: Сортировка всех слоёв по order_layers из Base_layers.json")
+            log_info("Fsm_1_2_13_1: Сортировка всех слоёв по order_layers из Base_layers.json")
             self.layer_manager.sort_all_layers()
-            log_info("F_2_1: Слои отсортированы по order_layers")
+            log_info("Fsm_1_2_13_1: Слои отсортированы по order_layers")
 
         # Показываем результат
         count_1 = final_layer_1.featureCount() if final_layer_1 else 0
         count_2 = final_layer_2.featureCount() if final_layer_2 else 0
         count_3 = final_layer_3.featureCount() if final_layer_3 else 0
 
-        log_info(f"F_2_1: ИТОГОВЫЕ РЕЗУЛЬТАТЫ ВЫБОРКИ ЗУ из {source_layer_name}:")
-        log_info(f"F_2_1:   {LAYER_SELECTION_ZU}: {count_1} {pluralize_plots(count_1)}")
-        log_info(f"F_2_1:   {LAYER_SELECTION_ZU_10M}: {count_2} {pluralize_plots(count_2)}")
-        log_info(f"F_2_1:   {LAYER_SELECTION_ZU_500M}: {count_3} {pluralize_plots(count_3)}")
+        log_info(f"Fsm_1_2_13_1: ИТОГОВЫЕ РЕЗУЛЬТАТЫ ВЫБОРКИ ЗУ из {source_layer_name}:")
+        log_info(f"Fsm_1_2_13_1:   {LAYER_SELECTION_ZU}: {count_1} {pluralize_plots(count_1)}")
+        log_info(f"Fsm_1_2_13_1:   {LAYER_SELECTION_ZU_10M}: {count_2} {pluralize_plots(count_2)}")
+        log_info(f"Fsm_1_2_13_1:   {LAYER_SELECTION_ZU_500M}: {count_3} {pluralize_plots(count_3)}")
 
         # Результат логируется, но НЕ показывается в messageBar —
         # чтобы не перебивать общий прогресс-бар из _perform_selection_workflow_all()
@@ -528,26 +528,26 @@ class F_2_1_LandSelection(BaseTool):
                 QMessageBox.StandardButton.No
             )
             if reply != QMessageBox.StandardButton.Yes:
-                log_info(f"F_2_1: Пропущена выборка ОКС из {source_layer_name}")
+                log_info(f"Fsm_1_2_13_1: Пропущена выборка ОКС из {source_layer_name}")
                 return
 
             # Удаляем существующий слой
             QgsProject.instance().removeMapLayer(existing_layer.id())
-            log_info(f"F_2_1: Удален существующий слой {LAYER_SELECTION_OKS}")
+            log_info(f"Fsm_1_2_13_1: Удален существующий слой {LAYER_SELECTION_OKS}")
 
         # Проверяем что движок выборки инициализирован
         if not self.selection_engine:
-            log_error("F_2_1: Selection engine не инициализирован")
+            log_error("Fsm_1_2_13_1: Selection engine не инициализирован")
             return
 
         # Выполняем выборку ОКС через движок
-        log_info(f"F_2_1: Запуск выборки ОКС из {source_layer_name}")
+        log_info(f"Fsm_1_2_13_1: Запуск выборки ОКС из {source_layer_name}")
         final_layer = self.selection_engine.perform_selection_oks(
             boundaries_layer_exact, source_layer, progress_callback=progress_callback
         )
 
         if not final_layer:
-            log_info("F_2_1: Слой ОКС пуст - нет объектов для добавления")
+            log_info("Fsm_1_2_13_1: Слой ОКС пуст - нет объектов для добавления")
             return
 
         # Сортируем слой по полю "КН" (если поле присутствует)
@@ -556,11 +556,11 @@ class F_2_1_LandSelection(BaseTool):
         sorted_layer = self.feature_sort_manager.sort_layer(final_layer)
         # Если слой был отсортирован (новый memory layer), пересохраняем в GeoPackage
         if sorted_layer != final_layer:
-            from .Fsm_1_2_13_2_layer_builder import Fsm_2_1_6_LayerBuilder
+            from .Fsm_1_2_13_2_layer_builder import Fsm_1_2_13_2_LayerBuilder
             assert self.plugin_dir is not None  # Type narrowing для Pylance
             gpkg_path = self._get_gpkg_path()
             if gpkg_path:
-                builder = Fsm_2_1_6_LayerBuilder(self.plugin_dir)
+                builder = Fsm_1_2_13_2_LayerBuilder(self.plugin_dir)
                 final_layer = builder.save_layer_to_gpkg(sorted_layer, LAYER_SELECTION_OKS, gpkg_path)
         else:
             final_layer = sorted_layer
@@ -572,17 +572,17 @@ class F_2_1_LandSelection(BaseTool):
             raise ValueError("layer_manager не инициализирован")
 
         self.layer_manager.add_layer(final_layer, make_readonly=False, auto_number=False, check_precision=False)
-        log_info("F_2_1: Слой добавлен через layer_manager")
+        log_info("Fsm_1_2_13_1: Слой добавлен через layer_manager")
 
         # Сортируем все слои
-        log_info("F_2_1: Сортировка всех слоёв по order_layers из Base_layers.json")
+        log_info("Fsm_1_2_13_1: Сортировка всех слоёв по order_layers из Base_layers.json")
         self.layer_manager.sort_all_layers()
-        log_info("F_2_1: Слои отсортированы по order_layers")
+        log_info("Fsm_1_2_13_1: Слои отсортированы по order_layers")
 
         # Показываем результат
         count = final_layer.featureCount()
-        log_info(f"F_2_1: ИТОГОВЫЕ РЕЗУЛЬТАТЫ ВЫБОРКИ ОКС из {source_layer_name}:")
-        log_info(f"F_2_1:   {LAYER_SELECTION_OKS}: {count} объектов")
+        log_info(f"Fsm_1_2_13_1: ИТОГОВЫЕ РЕЗУЛЬТАТЫ ВЫБОРКИ ОКС из {source_layer_name}:")
+        log_info(f"Fsm_1_2_13_1:   {LAYER_SELECTION_OKS}: {count} объектов")
 
         # Результат логируется, но НЕ показывается в messageBar —
         # чтобы не перебивать общий прогресс-бар из _perform_selection_workflow_all()
@@ -612,9 +612,9 @@ class F_2_1_LandSelection(BaseTool):
             boundaries_layer: Слой границ для проверки и перезагрузки
         """
         if boundaries_layer.providerType() == 'ogr' and 'project.gpkg' in boundaries_layer.source():
-            log_info("F_2_1: Обновление слоя границ после записи в GPKG...")
+            log_info("Fsm_1_2_13_1: Обновление слоя границ после записи в GPKG...")
             boundaries_layer.reload()
-            log_info(f"F_2_1: Слой обновлён. featureCount: {boundaries_layer.featureCount()}")
+            log_info(f"Fsm_1_2_13_1: Слой обновлён. featureCount: {boundaries_layer.featureCount()}")
 
     def _perform_selection_workflow_generic(self, source_layer_name: str, source_layer: QgsVectorLayer,
                                              boundaries_layer_exact: QgsVectorLayer,
@@ -647,27 +647,27 @@ class F_2_1_LandSelection(BaseTool):
                 QMessageBox.StandardButton.No
             )
             if reply != QMessageBox.StandardButton.Yes:
-                log_info(f"F_2_1: Пропущена выборка {display_name} из {source_layer_name}")
+                log_info(f"Fsm_1_2_13_1: Пропущена выборка {display_name} из {source_layer_name}")
                 return
 
             # Удаляем существующий слой
             QgsProject.instance().removeMapLayer(existing_layer.id())
-            log_info(f"F_2_1: Удален существующий слой {target_layer_name}")
+            log_info(f"Fsm_1_2_13_1: Удален существующий слой {target_layer_name}")
 
         # Проверяем что движок выборки инициализирован
         if not self.selection_engine:
-            log_error("F_2_1: Selection engine не инициализирован")
+            log_error("Fsm_1_2_13_1: Selection engine не инициализирован")
             return
 
         # Выполняем generic выборку через движок
-        log_info(f"F_2_1: Запуск выборки {display_name} из {source_layer_name}")
+        log_info(f"Fsm_1_2_13_1: Запуск выборки {display_name} из {source_layer_name}")
         final_layer = self.selection_engine.perform_selection_generic(
             boundaries_layer_exact, source_layer, target_layer_name,
             progress_callback=progress_callback
         )
 
         if not final_layer:
-            log_info(f"F_2_1: Слой {display_name} пуст - нет объектов для добавления")
+            log_info(f"Fsm_1_2_13_1: Слой {display_name} пуст - нет объектов для добавления")
             return
 
         # Добавляем слой через layer_manager
@@ -675,17 +675,17 @@ class F_2_1_LandSelection(BaseTool):
             raise ValueError("layer_manager не инициализирован")
 
         self.layer_manager.add_layer(final_layer, make_readonly=False, auto_number=False, check_precision=False)
-        log_info(f"F_2_1: Слой {display_name} добавлен через layer_manager")
+        log_info(f"Fsm_1_2_13_1: Слой {display_name} добавлен через layer_manager")
 
         # Сортируем все слои
-        log_info("F_2_1: Сортировка всех слоёв по order_layers из Base_layers.json")
+        log_info("Fsm_1_2_13_1: Сортировка всех слоёв по order_layers из Base_layers.json")
         self.layer_manager.sort_all_layers()
-        log_info("F_2_1: Слои отсортированы по order_layers")
+        log_info("Fsm_1_2_13_1: Слои отсортированы по order_layers")
 
         # Показываем результат
         count = final_layer.featureCount()
-        log_info(f"F_2_1: ИТОГОВЫЕ РЕЗУЛЬТАТЫ ВЫБОРКИ {display_name} из {source_layer_name}:")
-        log_info(f"F_2_1:   {target_layer_name}: {count} объектов")
+        log_info(f"Fsm_1_2_13_1: ИТОГОВЫЕ РЕЗУЛЬТАТЫ ВЫБОРКИ {display_name} из {source_layer_name}:")
+        log_info(f"Fsm_1_2_13_1:   {target_layer_name}: {count} объектов")
 
         # Результат логируется, но НЕ показывается в messageBar —
         # чтобы не перебивать общий прогресс-бар из _perform_selection_workflow_all()
@@ -709,34 +709,34 @@ class F_2_1_LandSelection(BaseTool):
                 QMessageBox.StandardButton.No
             )
             if reply != QMessageBox.StandardButton.Yes:
-                log_info("F_2_1: Пропущена выборка ЗОУИТ (отмена пользователем)")
+                log_info("Fsm_1_2_13_1: Пропущена выборка ЗОУИТ (отмена пользователем)")
                 return
 
             QgsProject.instance().removeMapLayer(existing_layer.id())
-            log_info(f"F_2_1: Удален существующий слой {LAYER_SELECTION_ZOUIT}")
+            log_info(f"Fsm_1_2_13_1: Удален существующий слой {LAYER_SELECTION_ZOUIT}")
 
         # Инициализируем модуль выборки ЗОУИТ
         gpkg_path = self._get_gpkg_path()
         if not gpkg_path:
-            log_error("F_2_1: Не удалось получить путь к GeoPackage для выборки ЗОУИТ")
+            log_error("Fsm_1_2_13_1: Не удалось получить путь к GeoPackage для выборки ЗОУИТ")
             return
 
-        zouit_selection = Fsm_2_1_10_ZouitSelection(self.iface, self.plugin_dir, gpkg_path)
+        zouit_selection = Fsm_1_2_13_6_ZouitSelection(self.iface, self.plugin_dir, gpkg_path)
 
-        log_info("F_2_1: Запуск выборки ЗОУИТ")
+        log_info("Fsm_1_2_13_1: Запуск выборки ЗОУИТ")
         final_layer = zouit_selection.perform(
             boundaries_layer_exact, progress_callback=progress_callback
         )
 
         if not final_layer:
-            log_info("F_2_1: Слой ЗОУИТ пуст - нет объектов в границах работ")
+            log_info("Fsm_1_2_13_1: Слой ЗОУИТ пуст - нет объектов в границах работ")
             return
 
         if not self.layer_manager:
             raise ValueError("layer_manager не инициализирован")
 
         self.layer_manager.add_layer(final_layer, make_readonly=False, auto_number=False, check_precision=False)
-        log_info(f"F_2_1: Слой ЗОУИТ добавлен: {final_layer.featureCount()} объектов")
+        log_info(f"Fsm_1_2_13_1: Слой ЗОУИТ добавлен: {final_layer.featureCount()} объектов")
 
         self.layer_manager.sort_all_layers()
 
@@ -756,19 +756,19 @@ class F_2_1_LandSelection(BaseTool):
             if result.get('geometry_filled'):
                 oks_count = result.get('oks_updated', 0)
                 zu_count = result.get('zu_updated', 0)
-                log_success(f"F_2_1: Заполнено ОКС_на_ЗУ_факт ({oks_count} ОКС, {zu_count} ЗУ)")
+                log_success(f"Fsm_1_2_13_1: Заполнено ОКС_на_ЗУ_факт ({oks_count} ОКС, {zu_count} ЗУ)")
 
             if result.get('vypiska_filled'):
-                log_success("F_2_1: Заполнено ОКС_на_ЗУ_выписка (из выписок ОКС)")
+                log_success("Fsm_1_2_13_1: Заполнено ОКС_на_ЗУ_выписка (из выписок ОКС)")
 
             if result.get('zu_vypiska_filled'):
-                log_success("F_2_1: Заполнено ОКС_на_ЗУ_выписка (из выписок ЗУ)")
+                log_success("Fsm_1_2_13_1: Заполнено ОКС_на_ЗУ_выписка (из выписок ЗУ)")
 
             if result.get('cutting_synced', 0) > 0:
-                log_info(f"F_2_1: Синхронизировано {result['cutting_synced']} слоёв нарезки")
+                log_info(f"Fsm_1_2_13_1: Синхронизировано {result['cutting_synced']} слоёв нарезки")
 
         except Exception as e:
-            log_warning(f"F_2_1: Ошибка автоматического анализа ОКС-ЗУ: {e}")
+            log_warning(f"Fsm_1_2_13_1: Ошибка автоматического анализа ОКС-ЗУ: {e}")
 
     def _run_sync_with_vypiski(self) -> None:
         """Синхронизация выборки с данными из выписок через M_24
@@ -790,11 +790,11 @@ class F_2_1_LandSelection(BaseTool):
             availability = sync_manager.check_data_availability()
 
             if not availability.get('has_vypiski'):
-                log_info("F_2_1: Выписки не загружены - синхронизация пропущена")
+                log_info("Fsm_1_2_13_1: Выписки не загружены - синхронизация пропущена")
                 return
 
             if not availability.get('can_sync'):
-                log_info("F_2_1: Нет данных для синхронизации")
+                log_info("Fsm_1_2_13_1: Нет данных для синхронизации")
                 return
 
             # Выполняем синхронизацию
@@ -807,15 +807,15 @@ class F_2_1_LandSelection(BaseTool):
 
                 if updated > 0:
                     log_success(
-                        f"F_2_1: Синхронизация с выписками - обновлено {updated} объектов, "
+                        f"Fsm_1_2_13_1: Синхронизация с выписками - обновлено {updated} объектов, "
                         f"заменено {fields_replaced} полей"
                     )
 
                 if ez_children > 0:
-                    log_info(f"F_2_1: Обработано {ez_children} дочерних участков ЕЗ")
+                    log_info(f"Fsm_1_2_13_1: Обработано {ez_children} дочерних участков ЕЗ")
 
         except Exception as e:
-            log_warning(f"F_2_1: Ошибка синхронизации с выписками: {e}")
+            log_warning(f"Fsm_1_2_13_1: Ошибка синхронизации с выписками: {e}")
 
     def _run_fills(self) -> None:
         """Автоматическое распределение по категориям и правам через M_25
@@ -836,12 +836,12 @@ class F_2_1_LandSelection(BaseTool):
 
                 if cat_layers > 0 or rights_layers > 0:
                     log_success(
-                        f"F_2_1: Распределение завершено - "
+                        f"Fsm_1_2_13_1: Распределение завершено - "
                         f"категории: {cat_layers} слоёв, права: {rights_layers} слоёв"
                     )
 
         except Exception as e:
-            log_warning(f"F_2_1: Ошибка распределения по категориям/правам: {e}")
+            log_warning(f"Fsm_1_2_13_1: Ошибка распределения по категориям/правам: {e}")
 
     def _finalize_selection_layers(self) -> None:
         """Санитизация слоёв выборки перед распределением.
@@ -873,11 +873,14 @@ class F_2_1_LandSelection(BaseTool):
             for layer_name in selection_layers:
                 layer = self._get_layer_by_name(layer_name)
                 if layer and layer.featureCount() > 0:
-                    cleanup_manager.finalize_layer(layer, layer_name)
+                    # Транзитное __Форма_тех исключаем из финализации (INST-2, §5.5)
+                    cleanup_manager.finalize_layer(
+                        layer, layer_name, exclude_fields=['__Форма_тех']
+                    )
                     sanitized_count += 1
 
             if sanitized_count > 0:
-                log_success(f"F_2_1: Финальная санитизация завершена ({sanitized_count} слоёв)")
+                log_success(f"Fsm_1_2_13_1: Финальная санитизация завершена ({sanitized_count} слоёв)")
 
         except Exception as e:
-            log_warning(f"F_2_1: Ошибка финальной санитизации: {e}")
+            log_warning(f"Fsm_1_2_13_1: Ошибка финальной санитизации: {e}")

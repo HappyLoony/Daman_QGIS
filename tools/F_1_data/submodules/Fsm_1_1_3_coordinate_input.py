@@ -35,7 +35,7 @@ from qgis.utils import iface
 from Daman_QGIS.utils import log_info, log_error, log_warning
 
 
-class VertexHighlighter:
+class Fsm_1_1_3_VertexHighlighter:
     """
     Подсветка вершин геометрии на карте.
 
@@ -160,7 +160,7 @@ class VertexHighlighter:
         return point
 
 
-class FeatureSelector(QgsMapToolEmitPoint):
+class Fsm_1_1_3_FeatureSelector(QgsMapToolEmitPoint):
     """
     Инструмент выбора объекта на карте для редактирования.
 
@@ -256,7 +256,7 @@ class Fsm_1_1_3_CoordinateInput:
         self.preview_layer = None
         self.current_geometries = []
         self.current_points: List[QgsPointXY] = []
-        self.vertex_highlighter: Optional[VertexHighlighter] = None
+        self.vertex_highlighter: Optional[Fsm_1_1_3_VertexHighlighter] = None
         self.edit_feature: Optional[QgsFeature] = None
         self.edit_layer: Optional[QgsVectorLayer] = None
 
@@ -270,7 +270,7 @@ class Fsm_1_1_3_CoordinateInput:
         Returns:
             True если данные сохранены, False если отменено
         """
-        dialog = CoordinateInputDialog(self.parent_dialog, self, edit_mode=edit_mode)
+        dialog = Fsm_1_1_3_CoordinateInputDialog(self.parent_dialog, self, edit_mode=edit_mode)
         result = dialog.exec()
 
         # Очищаем при закрытии
@@ -321,7 +321,7 @@ class Fsm_1_1_3_CoordinateInput:
             is_polygon: True для замыкания контура
         """
         if not self.vertex_highlighter:
-            self.vertex_highlighter = VertexHighlighter(
+            self.vertex_highlighter = Fsm_1_1_3_VertexHighlighter(
                 iface.mapCanvas(),
                 close_contour=is_polygon
             )
@@ -908,7 +908,7 @@ class Fsm_1_1_3_CoordinateInput:
             return False
 
 
-class CoordinateInputDialog(QDialog):
+class Fsm_1_1_3_CoordinateInputDialog(QDialog):
     """Диалог для ввода координат."""
 
     def __init__(self, parent, handler: Fsm_1_1_3_CoordinateInput, edit_mode: bool = False):
@@ -925,7 +925,7 @@ class CoordinateInputDialog(QDialog):
         self.parent_dialog = parent
         self.edit_mode = edit_mode
         self.current_parsed_points: List[QgsPointXY] = []
-        self.feature_selector: Optional[FeatureSelector] = None
+        self.feature_selector: Optional[Fsm_1_1_3_FeatureSelector] = None
         self.prev_map_tool = None
 
         title = "Редактирование координат" if edit_mode else "Импорт координат"
@@ -1428,7 +1428,7 @@ class CoordinateInputDialog(QDialog):
         """Активация инструмента выбора объекта на карте."""
         canvas = iface.mapCanvas()
         self.prev_map_tool = canvas.mapTool()
-        self.feature_selector = FeatureSelector(canvas, self._on_feature_selected)
+        self.feature_selector = Fsm_1_1_3_FeatureSelector(canvas, self._on_feature_selected)
         canvas.setMapTool(self.feature_selector)
 
     def _on_feature_selected(self, feature: QgsFeature, layer: QgsVectorLayer):

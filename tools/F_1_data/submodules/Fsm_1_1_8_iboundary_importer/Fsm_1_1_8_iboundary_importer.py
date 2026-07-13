@@ -15,6 +15,28 @@ MVP: обрабатывает только ветку public_easement (type_boun
 CRS: на MVP-уровне используется CRS проекта (из метаданных через
 BaseImporter.get_project_crs). sk_code из XML сохраняется в атрибуте
 для последующей ручной верификации - автоматический resolver не реализован.
+
+КОНТЕКСТ ФОРМАТА (interact_entry_boundaries v2.0.1 — ТРЕТИЙ класс XML Росреестра
+после КПТ и выписок; вступает в силу 01.07.2026): универсальный транспорт с choice
+из 8 веток information_boundary (state_boundary / inhabited_locality_boundary /
+surveying_project=ПМТ / coastline / zones_and_territories / public_easement /
+land_reserve / agricultural_land), типизированных через type_boundary (22 значения
+dBoundaryType v3). Геометрия = стандартный EntitySpatial v2.0.1 (тот же, что в
+КПТ/выписках) — `extract_geometry` из Fsm_1_1_4_3 переиспользуется как есть. 5 из 8
+типов уже есть как record types в Fsm_1_1_5_1.RECORD_TYPES_GEOMETRY (public_easement,
+surveying_project, zones_and_territories, inhabited_locality_boundary, coastline) —
+Росреестр выгружает те же сущности в КПТ.
+
+РАСШИРЕНИЕ на остальные 7 type_boundary: атрибутные схемы брать из Vault
+`02-areas/cadastral/xml-schema-egrn-boundaries/` (приказ П/0104/25 + 17 справочников
++ MOC). UI — отдельные слои per тип (kpt-like: отдельный слой на сущность), не один
+общий. Слой «Уведомление_сервитут» намеренно вне Base_layers.json (write-scope
+Daman_QGIS_dev). Нумерационная гоча: Fsm_1_1_6/7 заняты ZPR-семейством (zpr_attribute_
+dialog/validator) → импортёр на свободном слоте Fsm_1_1_8. Namespace fix в
+Fsm_1_1_xml_detector — работает с любым XML (с/без default xmlns), КПТ и выписки
+backward compatible.
+ФЛК-нюансы состава ПМТ — см. Vault howto-xml-reestr-granic-pmt.md / план F_5_5 (FROZEN);
+здесь НЕ дублируется.
 """
 
 import os

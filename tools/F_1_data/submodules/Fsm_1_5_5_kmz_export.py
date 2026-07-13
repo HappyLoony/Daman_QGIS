@@ -14,7 +14,7 @@ from ..ui.export_dialog import ExportDialog
 from ..core.kmz_exporter import KMZExporter
 
 
-class KMZExportSubmodule:
+class Fsm_1_5_5_KMZExportSubmodule:
     """Сабмодуль для экспорта в KMZ формат"""
     
     def __init__(self, iface):

@@ -17,7 +17,7 @@ from typing import Optional, List, Set, Tuple, Dict, Any
 
 from qgis.PyQt.QtWidgets import QWidget
 from qgis.PyQt.QtCore import QDate, pyqtSignal, QObject
-from qgis.core import QgsTask, QgsApplication
+from qgis.core import QgsTask, QgsApplication, Qgis
 
 from Daman_QGIS.utils import log_info, log_error, log_warning, path_for_display
 from Daman_QGIS.core.base_tool import BaseTool
@@ -81,6 +81,11 @@ class TimesheetProcessingTask(QgsTask):
         self.output_files: List[str] = []
         self.error_message: Optional[str] = None
         self.employee_rates: Dict[str, float] = {}
+        # G1/FIX-9: флаг недоступности производственного календаря при генерации
+        # сводного табеля (в т.ч. mid-run). generate() возвращает его как часть
+        # контракта; плашку в GUI эмитит оркестратор в finished() (главный поток,
+        # прямой iface из QgsTask.run() запрещён Qt).
+        self.summary_calendar_unavailable: bool = False
 
     def run(self) -> bool:
         """
@@ -134,26 +139,25 @@ class TimesheetProcessingTask(QgsTask):
             # Фаза 2: Валидация (30-50%)
             self.signals.log_message.emit("=== Фаза 2: Валидация ===\n")
 
-            # Валидатор с учётом end_day (день из GUI)
+            # Валидатор с учётом end_day (день из GUI). target_year обязателен
+            # (D2/FIX-4): пробрасываем GUI-год -> validate_month сверяет год+месяц.
+            # end_day ОБЯЗАН остаться -- иначе неполный период посчитается как
+            # полный (ложные незаполненные дни/переработки).
             validator = TimesheetValidator(
                 target_month=self.target_month,
+                target_year=self.target_year,
                 end_day=self.end_date.day
             )
             validation_results = validator.validate_all(self.timesheets)
 
-            # Получаем норму часов для расчёта отклонения
-            norm_hours = None
-            try:
-                calendar_manager = ProductionCalendarManager()
-                # Норма от начала месяца до выбранной даты включительно
-                period_start = date(self.target_year, self.target_month, 1)
-                period_end = date(self.target_year, self.target_month, self.end_date.day)
-                norm_hours = calendar_manager.get_work_hours_for_period(
-                    period_start, period_end
-                )
-            except Exception as e:
-                log_warning(f"F_6_1: Не удалось получить производственный календарь: {e}")
-                # Если не удалось получить норму - отклонение не показываем
+            # Производственный календарь для расчёта индивидуальной нормы.
+            # calendar_manager пробрасывается в validator (у него своего нет) и
+            # в summary. Норма считается по календарю внутри compute_employee_norm
+            # (рабочие дни с предпраздничным сокращением); при недоступности сети
+            # helper возвращает None -> отклонение пустое (D1/F-07). Eager-проба
+            # сети здесь не нужна -- graceful degradation в самом helper.
+            calendar_manager = ProductionCalendarManager()
+            calendar_unavailable = False
 
             # Собираем ставки сотрудников для расчёта индивидуальных норм
             self.employee_rates = {}
@@ -164,10 +168,13 @@ class TimesheetProcessingTask(QgsTask):
 
             self.validation_report = format_validation_report(
                 validation_results,
+                target_year=self.target_year,
+                target_month=self.target_month,
                 use_html=True,
-                norm_hours=norm_hours,
                 end_day=self.end_date.day,
-                employee_rates=self.employee_rates
+                employee_rates=self.employee_rates,
+                calendar_manager=calendar_manager,
+                calendar_unavailable=calendar_unavailable
             )
             self.signals.log_message.emit(self.validation_report)
             self.signals.log_message.emit("")
@@ -207,9 +214,13 @@ class TimesheetProcessingTask(QgsTask):
             self.signals.log_message.emit("=== Фаза 4: Генерация Сводного табеля ===\n")
 
             summary_generator = SummaryTimesheetGenerator()
-            summary_path = summary_generator.generate(
+            # G1/FIX-9: generate() возвращает (path, calendar_unavailable).
+            # Флаг сохраняем для эмиссии плашки в finished() (главный поток).
+            summary_path, self.summary_calendar_unavailable = summary_generator.generate(
                 self.valid_timesheets, self.dest_folder, self.end_date,
-                self.employee_rates
+                self.employee_rates,
+                calendar_manager=calendar_manager,
+                calendar_unavailable=calendar_unavailable
             )
 
             if summary_path:
@@ -236,6 +247,14 @@ class TimesheetProcessingTask(QgsTask):
         if self.isCanceled():
             self.signals.task_canceled.emit()
         elif result:
+            # G1/FIX-9: производственный календарь оказался недоступен (в т.ч.
+            # mid-run) -> "Отклонение" пусто у всех. Сигналим оркестратору
+            # эмитить плашку (главный поток -> iface доступен там).
+            if self.summary_calendar_unavailable:
+                self.signals.calendar_unavailable_warning.emit(
+                    "Норма недоступна -- производственный календарь не отвечает; "
+                    "столбец \"Отклонение\" пуст, повторите позже"
+                )
             self.signals.task_completed.emit(
                 len(self.valid_timesheets),
                 len(self.timesheets),
@@ -259,6 +278,10 @@ class TaskSignals(QObject):
 
     # Сигнал отмены
     task_canceled = pyqtSignal()
+
+    # Сигнал недоступности производственного календаря (G1/FIX-9): плашка
+    # предупреждения в messageBar (эмитится из finished(), главный поток)
+    calendar_unavailable_warning = pyqtSignal(str)
 
 
 class F_6_1_Timesheet(BaseTool):
@@ -336,6 +359,9 @@ class F_6_1_Timesheet(BaseTool):
         self._task_signals.task_completed.connect(self._on_task_completed)
         self._task_signals.task_failed.connect(self._on_task_failed)
         self._task_signals.task_canceled.connect(self._on_task_canceled)
+        self._task_signals.calendar_unavailable_warning.connect(
+            self._on_calendar_unavailable
+        )
 
         # Создаем и запускаем фоновую задачу
         self._task = TimesheetProcessingTask(
@@ -392,6 +418,22 @@ class F_6_1_Timesheet(BaseTool):
         if self.dialog:
             self.dialog.append_log("\nОбработка отменена пользователем.")
         self._finish_processing(0, 0, [])
+
+    def _on_calendar_unavailable(self, message: str) -> None:
+        """Обработчик недоступности производственного календаря (G1/FIX-9).
+
+        Вызывается в главном потоке (сигнал из finished()). Показывает плашку
+        предупреждения в messageBar -- прямой iface из QgsTask.run() запрещён Qt.
+        """
+        log_warning(f"F_6_1: {message}")
+        self.iface.messageBar().pushMessage(
+            "Табель",
+            message,
+            level=Qgis.Warning,
+            duration=10
+        )
+        if self.dialog:
+            self.dialog.append_log(f"\n{message}")
 
     def _finish_processing(
         self,

@@ -16,11 +16,11 @@ from Daman_QGIS.constants import LAYER_WFS_NP
 from Daman_QGIS.utils import log_info, log_error, log_warning
 
 if TYPE_CHECKING:
-    from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_3_1_boundaries_processor import BoundariesProcessor
-    from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_3_2_vector_loader import VectorLoader
-    from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_3_3_forest_loader import ForestLoader
-    from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_3_4_spatial_analyzer import SpatialAnalyzer
-    from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_3_7_intersections_calculator import IntersectionsCalculator
+    from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_3_1_boundaries_processor import Fsm_1_3_1_BoundariesProcessor
+    from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_3_2_vector_loader import Fsm_1_3_2_VectorLoader
+    from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_3_3_forest_loader import Fsm_1_3_3_ForestLoader
+    from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_3_4_spatial_analyzer import Fsm_1_3_4_SpatialAnalyzer
+    from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_3_7_intersections_calculator import Fsm_1_3_7_IntersectionsCalculator
 
 
 class Fsm_1_3_0_BudgetTask(BaseAsyncTask):
@@ -28,14 +28,14 @@ class Fsm_1_3_0_BudgetTask(BaseAsyncTask):
     Task для асинхронного расчёта бюджета.
 
     Выполняет последовательно:
-    1. Обработка границ (BoundariesProcessor)
-    2. Проверка кадастровых кварталов (VectorLoader)
-    3. Проверка ОКС (VectorLoader)
-    4. Проверка населенных пунктов (VectorLoader)
-    5. Проверка лесных кварталов (ForestLoader)
-    6. Проверка лесоустроительных выделов (ForestLoader)
-    7. Пространственный анализ (SpatialAnalyzer)
-    8. Подсчёт пересечений линий (IntersectionsCalculator)
+    1. Обработка границ (Fsm_1_3_1_BoundariesProcessor)
+    2. Проверка кадастровых кварталов (Fsm_1_3_2_VectorLoader)
+    3. Проверка ОКС (Fsm_1_3_2_VectorLoader)
+    4. Проверка населенных пунктов (Fsm_1_3_2_VectorLoader)
+    5. Проверка лесных кварталов (Fsm_1_3_3_ForestLoader)
+    6. Проверка лесоустроительных выделов (Fsm_1_3_3_ForestLoader)
+    7. Пространственный анализ (Fsm_1_3_4_SpatialAnalyzer)
+    8. Подсчёт пересечений линий (Fsm_1_3_7_IntersectionsCalculator)
 
     ВАЖНО: Показ диалога результатов выполняется в main thread через on_completed callback.
 
@@ -78,11 +78,11 @@ class Fsm_1_3_0_BudgetTask(BaseAsyncTask):
         self.is_linear = is_linear
 
         # Субмодули инициализируются в execute() (типизированы для Pylance)
-        self.boundaries_processor: Optional['BoundariesProcessor'] = None
-        self.vector_loader: Optional['VectorLoader'] = None
-        self.forest_loader: Optional['ForestLoader'] = None
-        self.spatial_analyzer: Optional['SpatialAnalyzer'] = None
-        self.intersections_calculator: Optional['IntersectionsCalculator'] = None
+        self.boundaries_processor: Optional['Fsm_1_3_1_BoundariesProcessor'] = None
+        self.vector_loader: Optional['Fsm_1_3_2_VectorLoader'] = None
+        self.forest_loader: Optional['Fsm_1_3_3_ForestLoader'] = None
+        self.spatial_analyzer: Optional['Fsm_1_3_4_SpatialAnalyzer'] = None
+        self.intersections_calculator: Optional['Fsm_1_3_7_IntersectionsCalculator'] = None
 
     def execute(self) -> Dict[str, Any]:
         """
@@ -215,14 +215,14 @@ class Fsm_1_3_0_BudgetTask(BaseAsyncTask):
 
     def _init_submodules(self):
         """Инициализация субмодулей (lazy import внутри execute)"""
-        from .Fsm_1_3_1_boundaries_processor import BoundariesProcessor
-        from .Fsm_1_3_2_vector_loader import VectorLoader
-        from .Fsm_1_3_3_forest_loader import ForestLoader
-        from .Fsm_1_3_4_spatial_analyzer import SpatialAnalyzer
-        from .Fsm_1_3_7_intersections_calculator import IntersectionsCalculator
+        from .Fsm_1_3_1_boundaries_processor import Fsm_1_3_1_BoundariesProcessor
+        from .Fsm_1_3_2_vector_loader import Fsm_1_3_2_VectorLoader
+        from .Fsm_1_3_3_forest_loader import Fsm_1_3_3_ForestLoader
+        from .Fsm_1_3_4_spatial_analyzer import Fsm_1_3_4_SpatialAnalyzer
+        from .Fsm_1_3_7_intersections_calculator import Fsm_1_3_7_IntersectionsCalculator
 
-        self.boundaries_processor = BoundariesProcessor(self.iface, self.project_manager, self.layer_manager)
-        self.vector_loader = VectorLoader(self.iface, self.project_manager, self.layer_manager)
-        self.forest_loader = ForestLoader(self.iface, self.project_manager, self.layer_manager)
-        self.spatial_analyzer = SpatialAnalyzer(self.iface)
-        self.intersections_calculator = IntersectionsCalculator(self.iface)
+        self.boundaries_processor = Fsm_1_3_1_BoundariesProcessor(self.iface, self.project_manager, self.layer_manager)
+        self.vector_loader = Fsm_1_3_2_VectorLoader(self.iface, self.project_manager, self.layer_manager)
+        self.forest_loader = Fsm_1_3_3_ForestLoader(self.iface, self.project_manager, self.layer_manager)
+        self.spatial_analyzer = Fsm_1_3_4_SpatialAnalyzer(self.iface)
+        self.intersections_calculator = Fsm_1_3_7_IntersectionsCalculator(self.iface)

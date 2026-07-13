@@ -16,7 +16,7 @@ from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 from Daman_QGIS.utils import path_for_display
 
 
-class BudgetSelectionResultsDialog(BaseResponsiveDialog):
+class Fsm_1_3_5_BudgetSelectionResultsDialog(BaseResponsiveDialog):
     """Диалог с результатами выборки"""
 
     WIDTH_RATIO = 0.40

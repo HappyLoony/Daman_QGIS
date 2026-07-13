@@ -2,17 +2,17 @@
 """
 Сабмодуль экспорта в Shapefile
 
-Рефакторинг: Использует BaseExportSubmodule для устранения дублирования.
+Рефакторинг: Использует Fsm_1_5_0_BaseExportSubmodule для устранения дублирования.
 """
 
 from typing import Dict, Any, List
 from qgis.PyQt.QtWidgets import QMessageBox
 
-from .Fsm_1_5_0_base_export_submodule import BaseExportSubmodule
+from .Fsm_1_5_0_base_export_submodule import Fsm_1_5_0_BaseExportSubmodule
 from ..core.shapefile_exporter import ShapefileExporter
 
 
-class ShapefileExportSubmodule(BaseExportSubmodule):
+class Fsm_1_5_6_ShapefileExportSubmodule(Fsm_1_5_0_BaseExportSubmodule):
     """Сабмодуль для экспорта в Shapefile формат"""
 
     FORMAT_NAME = "Shapefile"

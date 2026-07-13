@@ -21,7 +21,7 @@ from Daman_QGIS.utils import log_info, log_warning, log_error
 SPATIAL_INDEX_THRESHOLD = 50
 
 
-class PolygonBuilder:
+class Fsm_1_1_12_PolygonBuilder:
     """
     Построитель полигонов с внутренними контурами из замкнутых полилиний.
     
@@ -631,7 +631,7 @@ class PolygonBuilder:
             return None
 
         # Создаем построитель и обрабатываем
-        builder = PolygonBuilder()
+        builder = Fsm_1_1_12_PolygonBuilder()
         polygons = builder.build_polygons_with_holes(
             polylines,
             min_area=min_area,

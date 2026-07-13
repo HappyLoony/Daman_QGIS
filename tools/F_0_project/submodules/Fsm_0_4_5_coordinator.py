@@ -71,8 +71,12 @@ class Fsm_0_4_5_TopologyCoordinator:
         'cross_layer_overlap': 'Наложение между слоями',
         # Покрытие (зазоры)
         'coverage_invalid_edge': 'Несовпадение границ покрытия',
-        'gap': 'Зазор покрытия',
-        'gap_spike': 'Пиковый узел покрытия'
+        'gap_spike': 'Пиковый узел покрытия',
+        # Whole-project классы C/D/E (Fsm_0_4_16 / Fsm_0_4_17) — индикаторы,
+        # НЕ добавлять в FIXABLE_ERROR_TYPES.
+        'coverage_gap': 'Зазор покрытия нарезки',
+        'point_outside_workarea': 'Точка нарезки вне границ работ',
+        'multipart_geometry': 'Многоконтурный образуемый ЗУ'
     }
 
     # Типы ошибок, которые могут быть автоматически исправлены
@@ -345,11 +349,12 @@ class Fsm_0_4_5_TopologyCoordinator:
             try:
                 gap_errors = self.gap_checker.check(layer)
 
-                # Три типа ошибок из гибридного gap-checker'а:
-                # coverage_invalid_edge — GEOS CoverageValidator (primary)
-                # gap — envelope-diff internal holes (после дедупа)
-                # gap_spike — spike-узлы union boundary (после дедупа)
-                for err_type in ('coverage_invalid_edge', 'gap', 'gap_spike'):
+                # Два типа ошибок из гибридного gap-checker'а (INV-1):
+                # coverage_invalid_edge — GEOS CoverageValidator (primary), per-layer
+                # gap_spike — spike-узлы union boundary (после дедупа), per-layer
+                # Тип 'gap' (envelope-diff) ВЫНЕСЕН в whole-project класс C
+                # (Fsm_0_4_16, тип 'coverage_gap') — межслойный феномен.
+                for err_type in ('coverage_invalid_edge', 'gap_spike'):
                     filtered = [e for e in gap_errors if e['type'] == err_type]
                     if filtered:
                         errors_by_type[err_type] = filtered
@@ -560,15 +565,26 @@ class Fsm_0_4_5_TopologyCoordinator:
         error_layer.updateFields()
 
         # Добавляем объекты
+        from Daman_QGIS.managers.geometry import AnchorPointManager
+
         features = []
         for error in errors:
             feat = QgsFeature()
 
             geom = error['geometry']
 
-            # Преобразуем в точку если нужно
+            # Преобразуем в точку-внутри если нужно (M_9 — единая точка привязки).
             if geom.type() != Qgis.GeometryType.Point:
-                geom = geom.centroid()
+                pt = AnchorPointManager.anchor_point(geom, "surface")
+                if pt is None:
+                    # Нет валидной точки привязки (вырожден/невалид) —
+                    # пропускаем, не строим feature с битой точкой.
+                    log_warning(
+                        "Fsm_0_4_5 (_create_error_layer): точка привязки не "
+                        f"получена (тип ошибки {error.get('type', '?')}), маркер пропущен"
+                    )
+                    continue
+                geom = QgsGeometry.fromPointXY(pt)
 
             feat.setGeometry(geom)
             error_type_ru = self.ERROR_TYPES.get(error['type'], error['type'])

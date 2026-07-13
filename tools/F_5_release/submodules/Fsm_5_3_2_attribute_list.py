@@ -14,7 +14,7 @@ from typing import Dict, Any, List, Optional
 
 from qgis.core import QgsVectorLayer
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, is_internal_field
 
 from .Fsm_5_3_4_format_manager import ExcelFormatManager
 from .Fsm_5_3_5_export_utils import ExportUtils
@@ -401,6 +401,11 @@ class Fsm_5_3_2_AttributeList:
                 if cutting_data:
                     names = ["№ п/п"]
                     for item in cutting_data:
+                        # Пропускаем транзитные __-поля (OPT-1, §5.1): 3-я точка
+                        # __-конвенции — ведомость берёт колонки из JSON-справочника
+                        # (в обход exportable_fields/SaveVectorOptions по полям слоя)
+                        if is_internal_field(item.get('working_name', '')):
+                            continue
                         names.append(item.get(field_name, item.get('working_name', '')))
                     return names
 
@@ -409,6 +414,10 @@ class Fsm_5_3_2_AttributeList:
                 if selection_data:
                     names = ["№ п/п"]
                     for item in selection_data:
+                        # Пропускаем транзитные __-поля (OPT-1, §5.1): иначе
+                        # __Форма_тех утечёт в .xlsx в обход фильтра слоя
+                        if is_internal_field(item.get('working_name', '')):
+                            continue
                         names.append(item.get(field_name, item.get('name', '')))
                     return names
 

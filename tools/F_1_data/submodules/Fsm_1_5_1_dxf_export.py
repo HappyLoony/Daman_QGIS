@@ -16,7 +16,7 @@ from ..ui.export_dialog import ExportDialog
 from ..core.dxf_exporter import DxfExporter
 
 
-class DxfExportSubmodule:
+class Fsm_1_5_1_DxfExportSubmodule:
     """Сабмодуль для экспорта в DXF формат"""
     
     def __init__(self, iface):

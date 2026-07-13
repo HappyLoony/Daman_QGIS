@@ -114,7 +114,13 @@ class Fsm_0_4_1_GeometryValidityChecker:
 
                 errors_field = self._safe_get_field(invalid_feat, '_errors', '')
 
-                # Безопасное получение точки для невалидной геометрии
+                # Fallback-ветка: невалидная геометрия БЕЗ точки ошибки от GEOS
+                # (основной путь выше берёт location дефекта из checkvalidity ERROR_OUTPUT).
+                # НЕ подключать сюда M_9 AnchorPointManager: по контракту он возвращает None
+                # на невалидной/вырожденной геометрии (а здесь именно такая) -> потеря маркера.
+                # Валидность относится к классу location-of-validity-error (точка ДЕФЕКТА,
+                # не центр объекта) — M_9 даёт точку-внутри и семантически неуместен.
+                # centroid здесь — намеренный последний fallback для редкого edge-case.
                 error_geom = geom.centroid()
                 if not error_geom or error_geom.isEmpty():
                     bbox = geom.boundingBox()

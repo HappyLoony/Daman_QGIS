@@ -12,13 +12,14 @@
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, date
+from datetime import date
 from typing import Dict, List, Optional, Set, Tuple
 
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.managers.reference import EmployeeReferenceManager
 from Daman_QGIS.managers.reference.submodules import ProductionCalendarManager
 from .Fsm_6_1_3_parser import TimesheetData, SPECIAL_CATEGORIES, load_valid_project_codes
+from .Fsm_6_1_6_norm import compute_employee_norm, absence_by_day
 
 
 @dataclass
@@ -67,16 +68,24 @@ class TimesheetValidator:
     # Паттерн имени файла: Фамилия_MM.xlsx или Фамилия_M.xlsx
     FILENAME_PATTERN = re.compile(r'^([А-Яа-яЁё]+)_(\d{1,2})\.xlsx$', re.UNICODE)
 
-    def __init__(self, target_month: Optional[int] = None, end_day: Optional[int] = None):
+    def __init__(self, target_month: int, target_year: int, end_day: Optional[int] = None):
         """
         Инициализация валидатора.
 
         Args:
-            target_month: Целевой месяц (1-12). Если None - текущий месяц.
+            target_month: Целевой месяц (1-12). ОБЯЗАТЕЛЬНЫЙ (GUI всегда даёт).
+            target_year: Целевой год. ОБЯЗАТЕЛЬНЫЙ (GUI всегда даёт).
             end_day: Последний день для расчётов (включительно).
                      Если None - последний день месяца.
+
+        Note:
+            target_month/target_year -- required (без дефолта на now(), FIX-4/
+            OPT-015): дефолт на now().year давал ложную отбраковку декабря в
+            январе; None-дефолт ломал бы missing_timesheet-путь (f"{None:02d}").
+            GUI всегда передаёт оба (F_6_1_timesheet:313) -> fail-closed симметрия.
         """
-        self._target_month = target_month if target_month is not None else datetime.now().month
+        self._target_month = target_month
+        self._target_year = target_year
         self._end_day = end_day  # None означает весь месяц
         self._employee_manager: Optional[EmployeeReferenceManager] = None
         self._valid_project_codes: Optional[Set[str]] = None
@@ -209,6 +218,15 @@ class TimesheetValidator:
             Номер целевого месяца (1-12)
         """
         return self._target_month
+
+    def get_target_year(self) -> int:
+        """
+        Получить целевой год для обработки табелей.
+
+        Returns:
+            Целевой год (из GUI, authoritative)
+        """
+        return self._target_year
 
     def get_end_day(self, year: int, month: int) -> int:
         """
@@ -344,25 +362,36 @@ class TimesheetValidator:
 
     def validate_month(self, timesheet: TimesheetData) -> ValidationResult:
         """
-        Валидация месяца табеля.
+        Валидация месяца табеля -- ОТБРАКОВКА невалидных (FIX-4/FIX-5).
+
+        Порядок гейта СТРОГО (R5-5/OPT-011):
+        1. month_start is None (B4 не распарсился) -> add_error (отбраковка).
+           ПЕРВОЙ: парсер на битом B4 даёт year/month=now() (не None), поэтому
+           без None-check-первым битый B4 в том же году ложно прошёл бы.
+        2. год+месяц B4 != target_year/target_month -> add_error (отбраковка).
+           Число (день) B4 НЕ сравнивается (B4 всегда 1 число).
 
         Args:
             timesheet: Данные табеля
 
         Returns:
-            Результат валидации
+            Результат валидации (add_error -> is_valid=False -> отбраковка)
         """
         result = ValidationResult(is_valid=True)
 
+        # (1) B4 не распарсился -> отбраковка (fail-closed, FIX-5)
         if timesheet.month_start is None:
-            result.add_warning("Не удалось определить месяц из ячейки B4")
+            result.add_error("Не удалось определить месяц из ячейки B4")
             return result
 
+        # (2) Несовпадение года+месяца B4 с целевыми (GUI) -> отбраковка (FIX-4)
         target_month = self.get_target_month()
+        target_year = self.get_target_year()
 
-        if not self.is_valid_month(timesheet.month):
-            result.add_warning(
-                f"Указан месяц {timesheet.month}, ожидается {target_month}"
+        if timesheet.year != target_year or timesheet.month != target_month:
+            result.add_error(
+                f"Табель за {timesheet.month:02d}.{timesheet.year} не совпадает "
+                f"с целевым периодом {target_month:02d}.{target_year}"
             )
 
         return result
@@ -428,10 +457,21 @@ class TimesheetValidator:
         # Используем end_day из настроек валидатора
         check_until_day = self.get_end_day(year, month)
 
-        # Получаем рабочие дни для проверки (до end_day включительно)
-        workdays = self.calendar_manager.get_workdays_until_date(
-            year, month, check_until_day + 1
-        )
+        # Получаем рабочие дни для проверки (до end_day включительно).
+        # Календарь сетевой: get_workdays_until_date бросает RuntimeError при
+        # недоступности. Проверка заполненности (warning-уровень) не должна
+        # ронять всю валидацию - при недоступном календаре пропускаем проверку,
+        # валидация продолжается, отчёт строится (F-07).
+        try:
+            workdays = self.calendar_manager.get_workdays_until_date(
+                year, month, check_until_day + 1
+            )
+        except RuntimeError as e:
+            log_warning(
+                f"Fsm_6_1_2: производственный календарь недоступен, проверка "
+                f"заполненности рабочих дней пропущена для {timesheet.fio}: {e}"
+            )
+            return result
 
         # Собираем заполненные дни до end_day
         filled_days = timesheet.get_filled_days_until(check_until_day)
@@ -461,7 +501,7 @@ class TimesheetValidator:
 
         Выявляет дни с превышением нормы с учётом ставки сотрудника:
         - Обычные рабочие дни: >8*ставка часов
-        - Предпраздничные дни: >7*ставка часов
+        - Предпраздничные дни: >(8*ставка-1) часов (ст. 95 ТК РФ)
         - Выходные/праздники: любые часы (>0)
 
         Args:
@@ -499,25 +539,37 @@ class TimesheetValidator:
         # Проверяем каждый день
         overtime_days = []  # (день, часов, тип_дня, норма)
 
-        for day, hours in sorted(hours_by_day.items()):
-            if hours <= 0:
-                continue
+        # Календарь сетевой: is_holiday/is_shortened_day бросают RuntimeError при
+        # недоступности. Проверка переработок (warning-уровень) не должна ронять
+        # всю валидацию - при недоступном календаре пропускаем детекцию
+        # переработок, валидация продолжается, отчёт строится (F-07).
+        try:
+            for day, hours in sorted(hours_by_day.items()):
+                if hours <= 0:
+                    continue
 
-            check_date = date(year, month, day)
+                check_date = date(year, month, day)
 
-            if self.calendar_manager.is_holiday(check_date):
-                # Выходной/праздник - любые часы = переработка
-                overtime_days.append((day, hours, "выходной", 0))
-            elif self.calendar_manager.is_shortened_day(check_date):
-                # Предпраздничный день - норма 7 * ставка
-                day_norm = 7 * rate
-                if hours > day_norm:
-                    overtime_days.append((day, hours, "предпраздничный", day_norm))
-            else:
-                # Обычный рабочий день - норма 8 * ставка
-                day_norm = 8 * rate
-                if hours > day_norm:
-                    overtime_days.append((day, hours, "рабочий", day_norm))
+                if self.calendar_manager.is_holiday(check_date):
+                    # Выходной/праздник - любые часы = переработка
+                    overtime_days.append((day, hours, "выходной", 0))
+                elif self.calendar_manager.is_shortened_day(check_date):
+                    # Предпраздничный день - норма 8 * ставка минус полный 1 час
+                    # (ст. 95 ТК РФ: сокращение на 1 час, без пропорции ставке)
+                    day_norm = max(8 * rate - 1, 0)
+                    if hours > day_norm:
+                        overtime_days.append((day, hours, "предпраздничный", day_norm))
+                else:
+                    # Обычный рабочий день - норма 8 * ставка
+                    day_norm = 8 * rate
+                    if hours > day_norm:
+                        overtime_days.append((day, hours, "рабочий", day_norm))
+        except RuntimeError as e:
+            log_warning(
+                f"Fsm_6_1_2: производственный календарь недоступен, проверка "
+                f"переработок пропущена для {timesheet.fio}: {e}"
+            )
+            return result
 
         # Формируем предупреждения
         for day, hours, day_type, norm in overtime_days[:10]:  # Ограничиваем количество
@@ -534,6 +586,58 @@ class TimesheetValidator:
         if len(overtime_days) > 10:
             result.add_warning(
                 f"... и ещё {len(overtime_days) - 10} дней с переработкой"
+            )
+
+        return result
+
+    def validate_total_consistency(self, timesheet: TimesheetData) -> ValidationResult:
+        """
+        Валидация согласованности итоговой ячейки часов с суммой подённых.
+
+        Доменный инвариант валидного табеля: итог часов (total_hours) равен
+        сумме ВСЕХ подённых ячеек (Σ по projects.daily_hours +
+        Σ по special_categories.daily_hours). В корректном табеле все ячейки
+        заполнены цифрами (кроме праздников/выходных), поэтому total == Σdaily.
+
+        Расхождение total != Σdaily означает невалидный вход (итоговая ячейка
+        содержит формулу/ручную правку без подённой детализации, либо
+        подённые ячейки неполны). При таком входе расчёт нормы через
+        подённый источник absence неверен -> fail-closed: помечаем нарушение
+        валидности, расчёт нормы не выполняется (закрывает класс дефекта
+        "total без daily" по построению).
+
+        Допуск 0.5 часа поглощает округления.
+
+        Args:
+            timesheet: Данные табеля
+
+        Returns:
+            Результат валидации
+        """
+        result = ValidationResult(is_valid=True)
+
+        # Допуск на округления (часы)
+        TOLERANCE = 0.5
+
+        # Σ всех подённых часов: проекты + специальные категории
+        sum_daily = 0.0
+        for project in timesheet.projects:
+            sum_daily += sum(project.daily_hours.values())
+        for category in timesheet.special_categories:
+            sum_daily += sum(category.daily_hours.values())
+
+        deviation = abs(timesheet.total_hours - sum_daily)
+
+        if deviation > TOLERANCE:
+            result.add_error(
+                f"Итог часов не сходится с суммой подённых: "
+                f"итог={timesheet.total_hours}, Σподённых={sum_daily}, "
+                f"расхождение={round(deviation, 2)} ч (допуск {TOLERANCE} ч)"
+            )
+            log_warning(
+                f"Fsm_6_1_2: рассинхрон total/daily для {timesheet.fio}: "
+                f"total={timesheet.total_hours}, Σdaily={sum_daily}, "
+                f"расхождение={round(deviation, 2)} ч"
             )
 
         return result
@@ -572,16 +676,43 @@ class TimesheetValidator:
         codes_result = self.validate_project_codes(timesheet)
         result.merge(codes_result)
 
-        # Валидация заполненности рабочих дней и переработок
-        # Для руководителя проверяем только сумму часов (без детализации по дням)
-        if not timesheet.is_manager:
-            workdays_result = self.validate_workdays(timesheet)
-            result.merge(workdays_result)
+        # Валидация согласованности итога с суммой подённых (fail-closed):
+        # рассинхрон total/daily -> ошибка валидности. Применяется КО ВСЕМ,
+        # включая руководителя: его табель парсится тем же parse_timesheet ->
+        # daily_hours заполняется идентично (отличие табеля руководителя --
+        # только расположение файла). Валидный табель имеет total == Σdaily,
+        # malformed (формула/ручной итог без подённого) -> отвергается.
+        consistency_result = self.validate_total_consistency(timesheet)
+        result.merge(consistency_result)
 
-            # Валидация переработок (только для валидных табелей)
-            if result.is_valid:
-                overtime_result = self.validate_overtime(timesheet)
-                result.merge(overtime_result)
+        # Гейт отбраковки (FIX-6, вариант б / OPT-005 / OPT-019): если табель
+        # уже невалиден (месяц-mismatch, битый B4, unknown-шифр, рассинхрон
+        # total/daily) -> НЕ выполнять validate_workdays/validate_overtime.
+        # Эти проверки на отбракованном табеле добавили бы warning-шум
+        # ("рабочий день не заполнен" по GUI-календарю на файле, который и так
+        # выкинут) -> вводят заказчика в заблуждение. Blast-radius (подавление
+        # вторичных warnings для ВСЕХ невалидных, не только месяц) осознан.
+        # ValueError-краша тут НЕТ: validate_workdays -> get_workdays_until_date
+        # без date(); date() только в validate_overtime, уже гейтится ниже.
+        if not result.is_valid:
+            log_warning(
+                f"Fsm_6_1_2: Файл {timesheet.filename} отбракован "
+                f"({result.errors_count} ошибок), проверки заполненности/"
+                f"переработок пропущены"
+            )
+            return result
+
+        # Валидация заполненности рабочих дней и переработок. Применяется
+        # КО ВСЕМ, включая руководителя: его табель структурно идентичен
+        # (тот же parse_timesheet, daily_hours заполнен) -- проверки работают
+        # на полях TimesheetData, не на расположении файла.
+        workdays_result = self.validate_workdays(timesheet)
+        result.merge(workdays_result)
+
+        # Валидация переработок (только для валидных табелей)
+        if result.is_valid:
+            overtime_result = self.validate_overtime(timesheet)
+            result.merge(overtime_result)
 
         # Итоговая информация
         if result.is_valid:
@@ -701,10 +832,13 @@ class TimesheetValidator:
 
 def format_validation_report(
     validation_results: List[Tuple[TimesheetData, ValidationResult]],
+    target_year: int,
+    target_month: int,
     use_html: bool = True,
-    norm_hours: Optional[float] = None,
     end_day: Optional[int] = None,
-    employee_rates: Optional[Dict[str, float]] = None
+    employee_rates: Optional[Dict[str, float]] = None,
+    calendar_manager: Optional[ProductionCalendarManager] = None,
+    calendar_unavailable: bool = False
 ) -> str:
     """
     Форматировать отчет валидации для GUI.
@@ -714,12 +848,16 @@ def format_validation_report(
 
     Args:
         validation_results: Результаты валидации
+        target_year: Год периода (из GUI, authoritative для расчёта нормы).
+        target_month: Месяц периода (из GUI, authoritative для расчёта нормы).
         use_html: Использовать HTML форматирование (красный цвет для ошибок)
-        norm_hours: Базовая норма часов за период (для полной ставки)
         end_day: Последний день для расчёта часов (включительно).
-                 Если None - используется total_hours из табеля (все дни).
+                 Если None - суммируются все подённые часы (Σdaily, D4).
         employee_rates: Словарь {ФИО: ставка} для расчёта индивидуальной нормы.
-                       Если None - используется норма для полной ставки.
+                       Если None - используется ставка 1.0.
+        calendar_manager: ProductionCalendarManager (источник статуса дня). Если None
+                          или calendar_unavailable - норма/отклонение не рассчитываются.
+        calendar_unavailable: флаг недоступности календаря.
 
     Returns:
         Текстовый или HTML отчет
@@ -732,33 +870,41 @@ def format_validation_report(
     END = '</span>'
 
     def get_hours(ts: TimesheetData) -> float:
-        """Получить часы с учётом end_day."""
+        """Получить ФАКТ часов из Σdaily (D4/R5-2), симметрично summary.
+
+        summary считает employee_total как Σ подённых ячеек. Validator-отчёт
+        обязан использовать ТУ ЖЕ формулу факта, а не ts.total_hours (COL_TOTAL):
+        при total_hours != Σdaily в допуске 0.5 ч иначе получилось бы разное
+        "Отклонение" одному сотруднику в отчёте и в файле. При end_day is None
+        суммируем все дни месяца (реальное число дней target_year/target_month,
+        а не хрупкий литерал 31 -- симметрично "все дни").
+        """
         if end_day is not None:
             return ts.get_hours_until_day(end_day)
-        return ts.total_hours
+        import calendar
+        last_day = calendar.monthrange(target_year, target_month)[1]
+        return ts.get_hours_until_day(last_day)
 
-    def get_vacation_hours(ts: TimesheetData) -> float:
-        """Получить часы отпуска с учётом end_day."""
-        if end_day is not None:
-            return ts.get_vacation_hours_until_day(end_day)
-        return ts.vacation_hours
+    def get_employee_norm(ts: TimesheetData) -> Optional[float]:
+        """Получить индивидуальную норму часов сотрудника через единый helper.
 
-    def get_employee_norm(fio: str, vacation_hours: float) -> float:
-        """Получить норму часов для сотрудника с учётом ставки.
-
-        Отпуск считается по полной ставке (1.0), остальное -- по ставке сотрудника.
-        Формула: (norm - vacation) * rate + vacation
+        Норма считается по производственному календарю (рабочие дни с учётом
+        предпраздничного сокращения), отсутствия (отпуск/больничный/отгул)
+        нейтрализуются. При недоступности календаря -> None (отклонение пустое).
         """
-        if norm_hours is None or norm_hours <= 0:
-            return 0.0
+        if calendar_manager is None or calendar_unavailable:
+            return None
         rate = 1.0
-        if employee_rates and fio in employee_rates:
-            rate = employee_rates[fio]
-        if rate == 1.0:
-            return norm_hours
-        # Отпуск по полной ставке, рабочие дни по ставке сотрудника
-        work_norm = norm_hours - vacation_hours
-        return work_norm * rate + vacation_hours
+        if employee_rates and ts.fio in employee_rates:
+            rate = employee_rates[ts.fio]
+        # per-day карта часов отсутствия (C2/FIX-2), согласованный с фактом
+        # отбор absence через normalize_for_classification (C3/R5-1).
+        absence_map = absence_by_day(ts, end_day)
+        return compute_employee_norm(
+            ts, absence_map, rate, end_day,
+            calendar_manager, target_year, target_month,
+            calendar_unavailable
+        )
 
     # Разделяем на проблемные и полностью OK
     perfect_timesheets = []  # Валидные без замечаний и без отклонения
@@ -766,8 +912,7 @@ def format_validation_report(
 
     for timesheet, result in validation_results:
         hours = get_hours(timesheet)
-        vacation = get_vacation_hours(timesheet)
-        emp_norm = get_employee_norm(timesheet.fio, vacation)
+        emp_norm = get_employee_norm(timesheet)
 
         if not result.is_valid:
             # Невалидный - проблемный
@@ -775,24 +920,23 @@ def format_validation_report(
         elif result.messages:
             # Валидный но есть сообщения (предупреждения) - проблемный
             problem_timesheets.append((timesheet, result))
-        elif emp_norm > 0:
-            # Проверяем отклонение от индивидуальной нормы
+        elif emp_norm is not None and emp_norm > 0:
+            # Проверяем отклонение от индивидуальной нормы (float-шум через round)
             deviation = hours - emp_norm
-            if deviation != 0:
+            if round(deviation, 2) != 0:
                 # Есть отклонение - проблемный
                 problem_timesheets.append((timesheet, result))
             else:
                 # Полностью OK
                 perfect_timesheets.append((timesheet, result))
         else:
-            # Норма не задана, валидный без сообщений - OK
+            # Норма не задана/недоступна, валидный без сообщений - OK
             perfect_timesheets.append((timesheet, result))
 
     # Выводим проблемные табели детально
     for timesheet, result in problem_timesheets:
         hours = get_hours(timesheet)
-        vacation = get_vacation_hours(timesheet)
-        emp_norm = get_employee_norm(timesheet.fio, vacation)
+        emp_norm = get_employee_norm(timesheet)
 
         if result.is_valid:
             status_line = f"[OK] {timesheet.filename}"
@@ -829,13 +973,14 @@ def format_validation_report(
 
             # Часы с отклонением от индивидуальной нормы
             hours_str = f"{hours}"
-            if emp_norm > 0:
+            if emp_norm is not None and emp_norm > 0:
                 deviation = hours - emp_norm
-                if deviation != 0:
+                if round(deviation, 2) != 0:
+                    deviation_disp = round(deviation, 2)
                     if use_html:
-                        hours_str = f"{hours} {YELLOW}({deviation}){END}"
+                        hours_str = f"{hours} {YELLOW}({deviation_disp}){END}"
                     else:
-                        hours_str = f"{hours} ({deviation})"
+                        hours_str = f"{hours} ({deviation_disp})"
             lines.append(f"  Часов: {hours_str}")
 
         lines.append("")

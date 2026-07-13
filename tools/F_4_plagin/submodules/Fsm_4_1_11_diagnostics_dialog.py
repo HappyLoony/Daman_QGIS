@@ -236,6 +236,18 @@ class DiagnosticsDialog(BaseResponsiveDialog):
         # Активируем кнопку копирования
         self.copy_button.setEnabled(True)
 
+        # Dev-валидация реестра менеджеров (main thread, best-effort).
+        # Сверяет registry/код/Base_managers, варнинги — в лог QGIS.
+        # НЕ в DependencyCheckTask.execute() (фоновый поток): сетевой+auth из фона
+        # нарушил бы CRITICAL RULES. try/except — не ломать диалог при сбое.
+        try:
+            from Daman_QGIS.managers.reference.submodules.Msm_4_14_data_validation_manager import (
+                DataValidationManager,
+            )
+            DataValidationManager.validate_manager_registry()
+        except Exception as e:
+            log_error(f"Fsm_4_1_11: Валидация реестра менеджеров прервана: {e}")
+
     def _on_copy_diagnostics(self) -> None:
         """Копирование полной диагностики в буфер обмена."""
         if not self._last_results:
@@ -272,6 +284,9 @@ class DiagnosticsDialog(BaseResponsiveDialog):
         else:
             missing = font_info.get('missing_fonts', [])
             lines.append(f"  ! Отсутствуют: {len(missing)} шрифтов")
+            # Разбивка по ролям канона M_49 (единая формулировка с Fsm_4_1_7)
+            for count, family, purpose in FontChecker.group_missing_by_role(missing):
+                lines.append(f"    - {count} {family} ({purpose})")
         lines.append("")
 
         # 4. Сертификаты

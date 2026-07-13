@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_2_1_5: Процессор геометрических операций для выборки
+Fsm_1_2_13_4: Процессор геометрических операций для выборки
 Обработка геометрий, трансформации СК, проверка пересечений
 """
 
@@ -14,7 +14,7 @@ from Daman_QGIS.utils import log_info, log_warning, log_debug
 from Daman_QGIS.managers import CoordinatePrecisionManager
 
 
-class Fsm_2_1_5_GeometryProcessor:
+class Fsm_1_2_13_4_GeometryProcessor:
     """Процессор геометрических операций для выборки"""
 
     @staticmethod
@@ -36,17 +36,17 @@ class Fsm_2_1_5_GeometryProcessor:
                     geometries.append(geom)
 
         if not geometries:
-            log_warning(f"Fsm_2_1_5: Слой '{boundaries_layer.name()}' не содержит валидных геометрий")
+            log_warning(f"Fsm_1_2_13_4: Слой '{boundaries_layer.name()}' не содержит валидных геометрий")
             return None
 
-        log_debug(f"Fsm_2_1_5: Слой '{boundaries_layer.name()}': найдено {len(geometries)} валидных геометрий")
+        log_debug(f"Fsm_1_2_13_4: Слой '{boundaries_layer.name()}': найдено {len(geometries)} валидных геометрий")
 
         # Объединяем все геометрии
         united = QgsGeometry.unaryUnion(geometries)
         if united and not united.isNull() and not united.isEmpty():
             return united
         else:
-            log_warning(f"Fsm_2_1_5: unaryUnion вернул пустую или невалидную геометрию для слоя '{boundaries_layer.name()}'")
+            log_warning(f"Fsm_1_2_13_4: unaryUnion вернул пустую или невалидную геометрию для слоя '{boundaries_layer.name()}'")
             return None
 
     @staticmethod
@@ -72,18 +72,18 @@ class Fsm_2_1_5_GeometryProcessor:
         boundaries_crs = boundaries_layer.crs()
 
         # Логируем CRS для диагностики
-        log_debug(f"Fsm_2_1_5: source_crs={source_crs.authid()}, boundaries_crs={boundaries_crs.authid()}, project_crs={project_crs.authid()}")
+        log_debug(f"Fsm_1_2_13_4: source_crs={source_crs.authid()}, boundaries_crs={boundaries_crs.authid()}, project_crs={project_crs.authid()}")
 
         # Предупреждение если boundaries_crs отличается от project_crs
         if boundaries_crs.authid() != project_crs.authid():
-            log_warning(f"Fsm_2_1_5: ВНИМАНИЕ! CRS слоя границ ({boundaries_crs.authid()}) отличается от CRS проекта ({project_crs.authid()}). "
+            log_warning(f"Fsm_1_2_13_4: ВНИМАНИЕ! CRS слоя границ ({boundaries_crs.authid()}) отличается от CRS проекта ({project_crs.authid()}). "
                        f"Используем project_crs как источник истины.")
 
         # Трансформация в СК проекта (для результирующего слоя)
         transform_to_project = None
         if source_crs != project_crs:
             transform_to_project = QgsCoordinateTransform(source_crs, project_crs, QgsProject.instance())
-            log_debug(f"Fsm_2_1_5: Создан трансформер для результата: {source_crs.authid()} → {project_crs.authid()}")
+            log_debug(f"Fsm_1_2_13_4: Создан трансформер для результата: {source_crs.authid()} → {project_crs.authid()}")
 
         # Трансформация для проверки пересечения - ТАКЖЕ в project_crs!
         # КРИТИЧНО: Используем project_crs, а НЕ boundaries_crs.
@@ -92,7 +92,7 @@ class Fsm_2_1_5_GeometryProcessor:
         transform_for_intersection = None
         if source_crs != project_crs:
             transform_for_intersection = QgsCoordinateTransform(source_crs, project_crs, QgsProject.instance())
-            log_debug(f"Fsm_2_1_5: Создан трансформер для проверки пересечения: {source_crs.authid()} → {project_crs.authid()}")
+            log_debug(f"Fsm_1_2_13_4: Создан трансформер для проверки пересечения: {source_crs.authid()} → {project_crs.authid()}")
 
         return transform_to_project, transform_for_intersection
 
@@ -110,13 +110,13 @@ class Fsm_2_1_5_GeometryProcessor:
         Returns:
             int: Количество удалённых объектов
         """
-        log_info("Fsm_2_1_5: ЭТАП 3: ПОВТОРНАЯ ПРОВЕРКА ПЕРЕСЕЧЕНИЙ (после округления)")
+        log_info("Fsm_1_2_13_4: ЭТАП 3: ПОВТОРНАЯ ПРОВЕРКА ПЕРЕСЕЧЕНИЙ (после округления)")
 
         total_features = layer.featureCount()
-        log_info(f"Fsm_2_1_5: Всего объектов до повторной проверки: {total_features}")
+        log_info(f"Fsm_1_2_13_4: Всего объектов до повторной проверки: {total_features}")
 
         if total_features == 0:
-            log_info("Fsm_2_1_5: Слой пуст - пропускаем повторную проверку")
+            log_info("Fsm_1_2_13_4: Слой пуст - пропускаем повторную проверку")
             return 0
 
         # Два независимых метода проверки
@@ -143,22 +143,22 @@ class Fsm_2_1_5_GeometryProcessor:
                     method_b_remove_ids.append(feature_id)
             except Exception as e:
                 # Ошибка при вычислении intersection - пропускаем
-                log_warning(f"Fsm_2_1_5: Ошибка при проверке пересечения для feature {feature_id}: {str(e)}")
+                log_warning(f"Fsm_1_2_13_4: Ошибка при проверке пересечения для feature {feature_id}: {str(e)}")
 
         # Логируем результаты обоих методов
-        log_debug(f"Fsm_2_1_5: Метод A (intersects AND NOT touches): {len(method_a_remove_ids)} участков для удаления")
-        log_debug(f"Fsm_2_1_5: Метод B (intersection.area > 0): {len(method_b_remove_ids)} участков для удаления")
+        log_debug(f"Fsm_1_2_13_4: Метод A (intersects AND NOT touches): {len(method_a_remove_ids)} участков для удаления")
+        log_debug(f"Fsm_1_2_13_4: Метод B (intersection.area > 0): {len(method_b_remove_ids)} участков для удаления")
 
         # Находим различия между методами
         only_in_a = set(method_a_remove_ids) - set(method_b_remove_ids)
         only_in_b = set(method_b_remove_ids) - set(method_a_remove_ids)
         in_both = set(method_a_remove_ids) & set(method_b_remove_ids)
 
-        log_debug(f"Fsm_2_1_5: Совпадение методов: {len(in_both)} участков")
+        log_debug(f"Fsm_1_2_13_4: Совпадение методов: {len(in_both)} участков")
         if only_in_a:
-            log_debug(f"Fsm_2_1_5: Только метод A: {len(only_in_a)} участков (IDs: {list(only_in_a)[:10]}...)")
+            log_debug(f"Fsm_1_2_13_4: Только метод A: {len(only_in_a)} участков (IDs: {list(only_in_a)[:10]}...)")
         if only_in_b:
-            log_debug(f"Fsm_2_1_5: Только метод B: {len(only_in_b)} участков (IDs: {list(only_in_b)[:10]}...)")
+            log_debug(f"Fsm_1_2_13_4: Только метод B: {len(only_in_b)} участков (IDs: {list(only_in_b)[:10]}...)")
 
         # ИСПОЛЬЗУЕМ ПЕРЕСЕЧЕНИЕ ОБОИХ МЕТОДОВ (удаляем только если ОБА метода согласны)
         # Консервативная стратегия: если методы расходятся - оставляем объект (безопаснее)
@@ -168,10 +168,10 @@ class Fsm_2_1_5_GeometryProcessor:
         if only_in_a or only_in_b:
             would_remove_with_or = len(set(method_a_remove_ids) | set(method_b_remove_ids))
             actually_removing = len(features_to_remove)
-            log_info(f"Fsm_2_1_5: Консервативная стратегия (AND): удаляем {actually_removing} участков (агрессивная OR удалила бы {would_remove_with_or})")
+            log_info(f"Fsm_1_2_13_4: Консервативная стратегия (AND): удаляем {actually_removing} участков (агрессивная OR удалила бы {would_remove_with_or})")
 
         if features_to_remove:
-            log_info(f"Fsm_2_1_5: ИТОГО к удалению: {len(features_to_remove)} участков из {total_features}")
+            log_info(f"Fsm_1_2_13_4: ИТОГО к удалению: {len(features_to_remove)} участков из {total_features}")
 
             # Удаляем участки
             layer.startEditing()
@@ -179,8 +179,8 @@ class Fsm_2_1_5_GeometryProcessor:
             layer.commitChanges()
 
             remaining = layer.featureCount()
-            log_info(f"Fsm_2_1_5: После повторной проверки: осталось {remaining} участков (удалено {len(features_to_remove)})")
+            log_info(f"Fsm_1_2_13_4: После повторной проверки: осталось {remaining} участков (удалено {len(features_to_remove)})")
             return len(features_to_remove)
         else:
-            log_info("Fsm_2_1_5: Все участки прошли повторную проверку - удалений не требуется")
+            log_info("Fsm_1_2_13_4: Все участки прошли повторную проверку - удалений не требуется")
             return 0

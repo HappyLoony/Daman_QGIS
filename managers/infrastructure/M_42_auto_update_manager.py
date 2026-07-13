@@ -300,6 +300,15 @@ class AutoUpdateManager:
     # Channel precedence: dev (0) < beta (1) < bare stable (2). Это
     # отклонение от строгой SemVer 2.0.0 §11.4.2 alphabetical ordering
     # (`beta` < `dev` ASCII), но соответствует промежуточной природе dev.
+    #
+    # CHICKEN-AND-EGG (forward-compat): изменение _SEMVER_RE / _is_newer /
+    # _install / _validate_zip / URL endpoint ломает автообновление на УЖЕ
+    # установленных плагинах (они не распарсят/не скачают новую версию) →
+    # нужен manual ZIP rollout. Новый формат версии (rc/alpha/build-metadata)
+    # использовать как latest ТОЛЬКО после ≥1 полностью раскатанного релиза
+    # с новой логикой парсинга. Прецедент 2026-05-13: наивный _is_newer в
+    # 0.9.960-beta.1 (int("963-beta")→ValueError→return False) — пользователи
+    # застряли, ручная установка ZIP. См. CLAUDE.md «Релизный pipeline».
     _SEMVER_RE = re.compile(
         r"^(\d+)\.(\d+)\.(\d+)(?:-(dev|beta)(?:\.(\d+))?)?$"
     )

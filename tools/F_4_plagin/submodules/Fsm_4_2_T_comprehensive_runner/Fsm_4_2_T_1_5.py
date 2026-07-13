@@ -159,13 +159,13 @@ class TestF15:
 
         # Примечание: ExcelExportSubmodule и ExcelListExportSubmodule перенесены в F_5_3
         submodules = [
-            'DxfExportSubmodule',
-            'GeoJSONExportSubmodule',
-            'KMLExportSubmodule',
-            'KMZExportSubmodule',
-            'ShapefileExportSubmodule',
-            'TabExportSubmodule',
-            'ExcelTableExportSubmodule'
+            'Fsm_1_5_1_DxfExportSubmodule',
+            'Fsm_1_5_3_GeoJSONExportSubmodule',
+            'Fsm_1_5_4_KMLExportSubmodule',
+            'Fsm_1_5_5_KMZExportSubmodule',
+            'Fsm_1_5_6_ShapefileExportSubmodule',
+            'Fsm_1_5_7_TabExportSubmodule',
+            'Fsm_1_5_9_ExcelTableExportSubmodule'
         ]
 
         for submodule_name in submodules:
@@ -174,9 +174,9 @@ class TestF15:
                 if hasattr(submodules, submodule_name):
                     self.logger.success(f"{submodule_name} доступен")
                 else:
-                    self.logger.warning(f"{submodule_name} недоступен")
+                    self.logger.fail(f"{submodule_name} недоступен")
             except Exception as e:
-                self.logger.warning(f"{submodule_name}: ошибка импорта - {str(e)[:50]}")
+                self.logger.fail(f"{submodule_name}: ошибка импорта - {str(e)[:50]}")
 
     def test_05_export_formats(self):
         """ТЕСТ 5: Тест каждого формата экспорта"""

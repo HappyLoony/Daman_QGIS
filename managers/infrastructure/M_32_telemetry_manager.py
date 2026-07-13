@@ -75,6 +75,23 @@ class TelemetryManager:
     # Максимум событий в памяти перед принудительной отправкой
     MAX_EVENTS_BUFFER = 50
 
+    # D6: операционные события security/integrity-класса — редкие по
+    # определению (единицы за сессию), семантически error-класс, не
+    # статистика. Пропускаются на ВСЕХ известных уровнях (включая CRITICAL),
+    # иначе на production TELEMETRY_LEVEL='SAMPLING' они молча отбрасывались
+    # до буфера и никогда не доставлялись. Массовые типы (function_start,
+    # startup) в whitelist НЕ входят.
+    OPERATIONAL_EVENT_TYPES = frozenset({
+        'auth_lockout',
+        'integrity_hash_skip',
+        'integrity_registry_unavailable',
+        'license_activated',
+    })
+
+    # Известные уровни телеметрии — на них действует OPERATIONAL whitelist.
+    # Неизвестный уровень (опечатка конфига) whitelist НЕ получает (глушит всё).
+    _KNOWN_TELEMETRY_LEVELS = frozenset({'ALL', 'CRITICAL', 'ERROR', 'SAMPLING'})
+
     # Retry параметры
     MAX_RETRIES = DEFAULT_MAX_RETRIES  # Используется из constants.py
     RETRY_DELAYS = [1, 2, 4]  # Exponential backoff: 1s, 2s, 4s
@@ -187,6 +204,12 @@ class TelemetryManager:
         """
         # Нормализуем уровень телеметрии к верхнему регистру (защита от опечаток)
         level = TELEMETRY_LEVEL.upper() if isinstance(TELEMETRY_LEVEL, str) else 'UNKNOWN'
+
+        # D6: операционные события (security/integrity-класс) доставляются на
+        # ВСЕХ известных уровнях, включая CRITICAL. Неизвестный уровень whitelist
+        # НЕ получает — падает в default-глушилку ниже с warning.
+        if event_type in self.OPERATIONAL_EVENT_TYPES and level in self._KNOWN_TELEMETRY_LEVELS:
+            return True
 
         if level == 'ALL':
             # Отправляем всё

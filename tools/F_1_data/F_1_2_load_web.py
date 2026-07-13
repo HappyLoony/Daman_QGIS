@@ -258,7 +258,7 @@ class F_1_2_LoadWeb(BaseTool):
         if self.layer_manager:
             self.layer_manager.sort_all_layers()
 
-        # Автоматическая выборка ЗУ/ОКС (F_2_1)
+        # Автоматическая выборка ЗУ/ОКС (Fsm_1_2_13_1)
         selection_stats = self._auto_run_selection()
 
         # Собираем финальную статистику
@@ -283,18 +283,18 @@ class F_1_2_LoadWeb(BaseTool):
     def _auto_run_selection(self) -> Optional[Dict[str, Any]]:
         """Автоматическая выборка ЗУ/ОКС после загрузки web карт (main thread)
 
-        Вызывает F_2_1_LandSelection для создания выборки по загруженным WFS слоям.
-        F_2_1 работает в main thread с QApplication.processEvents() - совместимо с callback.
+        Вызывает Fsm_1_2_13_1_LandSelection для создания выборки по загруженным WFS слоям.
+        Fsm_1_2_13_1 работает в main thread с QApplication.processEvents() - совместимо с callback.
 
         Returns:
             Dict со статистикой выборки или None при ошибке
         """
         try:
-            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_1_land_selection import F_2_1_LandSelection
+            from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_1_land_selection import Fsm_1_2_13_1_LandSelection
 
-            log_info("F_1_2: Запуск автоматической выборки объектов (F_2_1)")
+            log_info("F_1_2: Запуск автоматической выборки объектов (Fsm_1_2_13_1)")
 
-            selection_tool = F_2_1_LandSelection(self.iface)
+            selection_tool = Fsm_1_2_13_1_LandSelection(self.iface)
             selection_tool.set_project_manager(self.project_manager)
             selection_tool.set_layer_manager(self.layer_manager)
             plugin_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

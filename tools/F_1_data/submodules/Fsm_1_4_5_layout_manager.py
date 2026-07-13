@@ -22,7 +22,7 @@ from Daman_QGIS.managers.styling.submodules.Msm_46_5_utils import (
 )
 
 
-class LayoutManager:
+class Fsm_1_4_5_LayoutManager:
     """Менеджер макетов и компоновок"""
     
     def _get_layout(self):
@@ -544,7 +544,6 @@ class LayoutManager:
         # через LayerManager (единственный источник истины). Без сортировки
         # порядок records зависит от порядка project.mapLayers().items()
         # (порядок добавления в проект) — что неконсистентно.
-        from Daman_QGIS.managers import registry
         _layer_mgr = registry.get('M_2')
         if _layer_mgr is not None:
             ordered_layers = _layer_mgr.get_layers_in_render_order(

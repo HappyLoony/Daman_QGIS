@@ -911,12 +911,16 @@ class Msm_26_4_CuttingEngine:
             if geom.isEmpty():
                 continue
 
-            # pointOnSurface гарантирует точку внутри полигона (centroid может быть вне)
-            point_geom = geom.pointOnSurface()
-            if point_geom.isEmpty():
-                point_geom = geom.centroid()
-
-            point = point_geom.asPoint()
+            # Точка ВНУТРИ полигона (M_9); None = нет валидной геометрии — skip.
+            from Daman_QGIS.managers.geometry import AnchorPointManager
+            point = AnchorPointManager.anchor_point(geom, "surface")
+            if point is None:
+                log_warning(
+                    "Msm_26_4: точка привязки не получена для объекта НГС, "
+                    "геокодирование пропущено"
+                )
+                failed_count += 1
+                continue
 
             try:
                 wgs84_point = transform.transform(QgsPointXY(point.x(), point.y()))

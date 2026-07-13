@@ -386,7 +386,7 @@ class F_2_4_Staging(BaseTool):
         Когда схема будет ужесточена до Integer NOT NULL:
         - Удалить ветку фоллбэка на feature.id() ниже
         - В _analyze_zpr_matching удалить аналогичный fallback
-        - Обновить doc_functions/F_2_4_staging.md (раздел "Ожидания к данным")
+        - Обновить Vault/02-areas/plugin-arch/legacy/F_2_4.md (раздел "Ожидания к данным")
         """
         max_id = 0
         id_idx = zpr_layer.fields().indexFromName('ID')
@@ -456,7 +456,7 @@ class F_2_4_Staging(BaseTool):
         # 3. Формирование данных для 1 этапа
         stage1_data = self._prepare_stage1_data(
             source_layer, feature_zpr_mapping, matching_features,
-            next_id_base
+            merging_features, next_id_base
         )
 
         # 3.1. Присвоение Вид_Работ для 1 этапа
@@ -492,6 +492,18 @@ class F_2_4_Staging(BaseTool):
             lt = LayerType.RAZDEL if layer_type == 'RAZDEL' else LayerType.NGS
             stage2_data = self._work_type_manager.assign_work_type_stage2(
                 stage2_data, lt, zpr_layer
+            )
+
+        # 4.2. Присвоение План_ВРИ и Общая_земля для 2 этапа (самодостаточность
+        # слоя Этап-2). assign_work_type_stage2 заполняет только План_ВРИ (fallback
+        # из ЗПР), но НЕ Общая_земля — её ставит только assign_vri_to_features.
+        # Без этого вызова слой Этап-2 имел бы пустую Общая_земля у объединённых
+        # контуров (расхождение с прежним слоем Итог, где ВРИ присваивался всем).
+        # Вызывается ПОСЛЕ assign_work_type_stage2 и ДО создания слоя Этап-2 —
+        # последнее слово за полным присвоением План_ВРИ+Общая_земля.
+        if stage2_data and self._vri_manager:
+            stage2_data = self._vri_manager.assign_vri_to_features(
+                zpr_layer, stage2_data, zpr_id_key='zpr_id'
             )
 
         # 5. ЕДИНАЯ нумерация точек merged(stage1+stage2): единое пространство
@@ -597,14 +609,27 @@ class F_2_4_Staging(BaseTool):
             add_stage_field=True    # Добавляем поле Этап перед ID
         )
 
-        # 13. Создание итогового точечного слоя из точек 1 и 2 этапов
-        # Объединяем точки с полем "Этап" - дубли по ID нормальны (разные чертежи)
-        if stage1_points_name and stage2_points_name and final_points_name:
+        # 13. Создание итогового точечного слоя (§4.3): из отфильтрованного
+        # points_data, НЕ копированием фич слоёв по имени.
+        # Финальные точки = точки stage1 БЕЗ точек временных контуров + точки stage2.
+        # ИНВАРИАНТ ФИЛЬТРА (§7): удаляем точку СТРОГО по contour_id ∈ множество
+        # НАЗНАЧЕННЫХ ID временных (item['attributes']['ID'], НЕ сырой merging_features
+        # = feature.id() OGR fid — другое пространство). Координатный фильтр запрещён
+        # (выкинул бы граничные точки matching-контуров).
+        if final_points_name:
+            temp_ids = {
+                item['attributes']['ID']
+                for item in stage1_data
+                if item.get('is_temporary')
+            }
+            final_points = [
+                p for p in stage1_points if p.get('contour_id') not in temp_ids
+            ] + stage2_points
             self._create_final_points_layer(
-                stage1_points_name,
-                stage2_points_name,
+                final_points,
                 final_points_name,
-                source_layer.crs()
+                source_layer.crs(),
+                stage_by_contour
             )
 
         log_info(f"F_2_4: Этапность для {layer_type} завершена: "
@@ -701,6 +726,7 @@ class F_2_4_Staging(BaseTool):
         source_layer: QgsVectorLayer,
         feature_zpr_mapping: Dict[int, int],
         matching_features: set,
+        merging_features: set,
         next_id_base: int
     ) -> List[Dict[str, Any]]:
         """Подготовка данных для 1 этапа
@@ -708,6 +734,11 @@ class F_2_4_Staging(BaseTool):
         ID назначается:
         - Для соответствующих ЗПР: ID = ID контура ЗПР
         - Для несоответствующих: ID = next_id_base + счётчик
+
+        Флаг is_temporary помечает временные (объединяемые) контуры того же
+        снимка fid, что и merging_features: используется при формировании слоя
+        Итог (§4.2 — временные исключаются) и Т_Итог (§4.3 — точки временных
+        не попадают в итоговый точечный слой).
         """
         stage1_data = []
         non_matching_counter = 0
@@ -743,7 +774,10 @@ class F_2_4_Staging(BaseTool):
                 'geometry': QgsGeometry(geom),
                 'attributes': attrs,
                 'original_fid': feature_id,
-                'zpr_id': feature_zpr_mapping.get(feature_id)
+                'zpr_id': feature_zpr_mapping.get(feature_id),
+                # Временный (объединяемый) контур — из того же снимка fid, что и
+                # merging_features. Исключается из Итог и Т_Итог.
+                'is_temporary': feature_id in merging_features
             })
 
         # Сортировка по ID
@@ -754,7 +788,7 @@ class F_2_4_Staging(BaseTool):
     def _geocode_address(
         self, geom: QgsGeometry, crs: QgsCoordinateReferenceSystem
     ) -> str:
-        """Определение адреса по центроиду геометрии через M_39 DaData.
+        """Определение адреса по точке привязки (M_9) геометрии через M_39 DaData.
 
         Fallback: 'ЗАПОЛНИ!' если геокодер не настроен или адрес не найден.
         """
@@ -763,10 +797,12 @@ class F_2_4_Staging(BaseTool):
             return 'ЗАПОЛНИ!'
 
         try:
-            point_geom = geom.pointOnSurface()
-            if point_geom.isEmpty():
-                point_geom = geom.centroid()
-            point = point_geom.asPoint()
+            # Точка ВНУТРИ полигона (M_9); None = нет валидной геометрии.
+            from Daman_QGIS.managers.geometry import AnchorPointManager
+            point = AnchorPointManager.anchor_point(geom, "surface")
+            if point is None:
+                log_warning("F_2_4: точка привязки не получена, геокодирование пропущено")
+                return 'ЗАПОЛНИ!'
 
             transform = QgsCoordinateTransform(
                 crs, QgsCoordinateReferenceSystem("EPSG:4326"),
@@ -992,8 +1028,13 @@ class F_2_4_Staging(BaseTool):
         """
         final_data = []
 
-        # Добавляем ВСЕ контуры из 1 этапа (Этап=1)
+        # Добавляем контуры из 1 этапа (Этап=1), КРОМЕ временных (§4.2).
+        # Временные (объединяемые) контуры заменяются объединённым контуром
+        # 2 этапа → в слое Итог физически отсутствуют. Остаются: matching
+        # (соответствуют ЗПР) и одиночные-без-ЗПР.
         for item in stage1_data:
+            if item.get('is_temporary'):
+                continue
             zpr_id = item['attributes'].get('ID')
             final_data.append({
                 'geometry': QgsGeometry(item['geometry']),
@@ -1380,179 +1421,118 @@ class F_2_4_Staging(BaseTool):
 
     def _create_final_points_layer(
         self,
-        stage1_points_name: str,
-        stage2_points_name: str,
+        final_points: List[Dict[str, Any]],
         final_points_name: str,
-        crs: Any
+        crs: Any,
+        stage_by_contour: Dict[Any, int]
     ) -> None:
-        """Создание итогового точечного слоя из точек 1 и 2 этапов
+        """Создание итогового точечного слоя из отфильтрованного points_data (§4.3)
 
-        Объединяет точки из слоёв 1 и 2 этапов с добавлением поля "Этап".
-        Единое пространство номеров (нумерация merged stage1+stage2):
-        общая координата этапов представлена ДВУМЯ фичами (по одной на
-        контур каждого этапа) с ОДИНАКОВЫМ номером — инвариант
-        «дубль = та же точка, тот же номер». Конфликт «одна координата,
-        разные номера» невозможен by construction.
+        Строит Т_Итог напрямую из уже пронумерованных точек merged-пространства,
+        НЕ копированием фич слоёв Т_Этап по имени. Финальные точки формирует
+        caller: точки stage1 БЕЗ точек временных контуров + точки stage2.
+
+        Единое пространство номеров (нумерация merged stage1+stage2): общая
+        координата этапов представлена ДВУМЯ фичами (по одной на контур каждого
+        этапа) с ОДИНАКОВЫМ номером — инвариант «дубль = та же точка, тот же
+        номер». Конфликт «одна координата, разные номера» невозможен by
+        construction. Номера НЕ пересчитываются.
+
+        Поле «Этап» (вариант B, §4.3/NEW-A): базовая схема точечного слоя
+        (Fsm_2_1_6, 9 полей) поля «Этап» не содержит, points_data ключа `stage`
+        не несёт. Поэтому поле «Этап» добавляется ПОСЛЕ создания слоя через
+        dataProvider().addAttributes и заполняется по ID_Контура -> stage
+        (stage_by_contour). Общий Fsm_2_1_6 не трогаем (используется F_2_3/F_2_4/
+        Fsm_2_7_2). Поле сохраняется ради data-паритета с прежним поведением
+        (стили/подписи/экспорт его не читают).
 
         Args:
-            stage1_points_name: Имя точечного слоя 1 этапа
-            stage2_points_name: Имя точечного слоя 2 этапа
+            final_points: Отфильтрованные точки (merged points_data формата M_20)
             final_points_name: Имя итогового точечного слоя
             crs: Система координат
+            stage_by_contour: Маппинг contour_id -> номер этапа (1|2)
         """
         try:
-            from osgeo import ogr, osr
-
-            project = QgsProject.instance()
-
-            # Получаем слои точек этапов
-            stage1_points_layers = project.mapLayersByName(stage1_points_name)
-            stage2_points_layers = project.mapLayersByName(stage2_points_name)
-
-            stage1_points: Optional[QgsVectorLayer] = None
-            stage2_points: Optional[QgsVectorLayer] = None
-            if stage1_points_layers and isinstance(stage1_points_layers[0], QgsVectorLayer):
-                stage1_points = stage1_points_layers[0]
-            if stage2_points_layers and isinstance(stage2_points_layers[0], QgsVectorLayer):
-                stage2_points = stage2_points_layers[0]
-
-            if not stage1_points and not stage2_points:
-                log_warning(f"F_2_4: Не найдены точечные слои этапов для {final_points_name}")
-                return
-
-            # Удаляем существующий итоговый слой точек
-            old_layers = project.mapLayersByName(final_points_name)
-            for old_layer in old_layers:
-                project.removeMapLayer(old_layer.id())
-
-            # Открываем GPKG
-            ds = ogr.Open(self._gpkg_path, 1)
-            if not ds:
-                log_error(f"F_2_4: Не удалось открыть GPKG: {self._gpkg_path}")
-                return
-
-            # Удаляем существующий слой в GPKG если есть
-            for i in range(ds.GetLayerCount()):
-                lyr = ds.GetLayerByIndex(i)
-                if lyr and lyr.GetName() == final_points_name:
-                    ds.DeleteLayer(i)
-                    break
-
-            # Создаём SRS
-            srs = osr.SpatialReference()
-            srs.ImportFromWkt(crs.toWkt())
-
-            # Создаём слой точек
-            ogr_layer = ds.CreateLayer(final_points_name, srs, ogr.wkbPoint)
-            if not ogr_layer:
-                log_error(f"F_2_4: Не удалось создать слой {final_points_name}")
-                ds = None
-                return
-
-            # Добавляем поле "Этап" первым
-            ogr_layer.CreateField(ogr.FieldDefn("Этап", ogr.OFTInteger))
-
-            # Собираем поля из исходных слоёв (берём из первого доступного)
-            source_layer = stage1_points or stage2_points
-            for field in source_layer.fields():
-                field_name = field.name()
-                if field_name.lower() == 'fid':
-                    continue
-                field_type = ogr.OFTString
-                if field.type() == QMetaType.Type.Int:
-                    field_type = ogr.OFTInteger
-                elif field.type() == QMetaType.Type.Double:
-                    field_type = ogr.OFTReal
-                ogr_layer.CreateField(ogr.FieldDefn(field_name, field_type))
-
-            layer_defn = ogr_layer.GetLayerDefn()
-            points_count = 0
-
-            # Создаём маппинг имён полей на их типы OGR
-            field_types: Dict[str, int] = {}
-            for i in range(layer_defn.GetFieldCount()):
-                field_defn_item = layer_defn.GetFieldDefn(i)
-                field_types[field_defn_item.GetName()] = field_defn_item.GetType()
-
-            # Копируем точки из 1 этапа
-            if stage1_points:
-                for feature in stage1_points.getFeatures():
-                    geom = feature.geometry()
-                    if geom.isEmpty():
-                        continue
-
-                    ogr_feature = ogr.Feature(layer_defn)
-
-                    # Геометрия
-                    ogr_geom = ogr.CreateGeometryFromWkt(geom.asWkt())
-                    ogr_feature.SetGeometry(ogr_geom)
-
-                    # Этап = 1
-                    ogr_feature.SetField("Этап", 1)
-
-                    # Копируем атрибуты
-                    for field in stage1_points.fields():
-                        field_name = field.name()
-                        if field_name.lower() == 'fid':
-                            continue
-                        value = feature[field_name]
-                        if value is not None:
-                            ogr_field_type: int = field_types.get(field_name, ogr.OFTString)
-                            converted = self._convert_value_for_ogr(value, ogr_field_type)
-                            if converted is not None:
-                                ogr_feature.SetField(field_name, converted)
-
-                    ogr_layer.CreateFeature(ogr_feature)
-                    points_count += 1
-
-            # Копируем точки из 2 этапа
-            if stage2_points:
-                for feature in stage2_points.getFeatures():
-                    geom = feature.geometry()
-                    if geom.isEmpty():
-                        continue
-
-                    ogr_feature = ogr.Feature(layer_defn)
-
-                    # Геометрия
-                    ogr_geom = ogr.CreateGeometryFromWkt(geom.asWkt())
-                    ogr_feature.SetGeometry(ogr_geom)
-
-                    # Этап = 2
-                    ogr_feature.SetField("Этап", 2)
-
-                    # Копируем атрибуты
-                    for field in stage2_points.fields():
-                        field_name = field.name()
-                        if field_name.lower() == 'fid':
-                            continue
-                        value = feature[field_name]
-                        if value is not None:
-                            ogr_field_type: int = field_types.get(field_name, ogr.OFTString)
-                            converted = self._convert_value_for_ogr(value, ogr_field_type)
-                            if converted is not None:
-                                ogr_feature.SetField(field_name, converted)
-
-                    ogr_layer.CreateFeature(ogr_feature)
-                    points_count += 1
-
-            ds = None  # Закрываем
-
-            # Загружаем слой в QGIS
-            uri = f"{self._gpkg_path}|layername={final_points_name}"
-            qgs_layer = QgsVectorLayer(uri, final_points_name, "ogr")
-
-            if qgs_layer.isValid() and self.layer_manager:
-                self.layer_manager.add_layer(
-                    qgs_layer,
-                    make_readonly=False,
-                    auto_number=False,
-                    check_precision=False
+            if not final_points:
+                log_warning(
+                    f"F_2_4: Нет точек для итогового точечного слоя {final_points_name}"
                 )
-                log_info(f"F_2_4: Создан итоговый точечный слой {final_points_name} "
-                        f"({points_count} точек из этапов 1 и 2)")
-            else:
-                log_error(f"F_2_4: Слой {final_points_name} невалиден")
+                return
+
+            # 1. Создаём базовый точечный слой из отфильтрованных точек.
+            # _create_points_layer_from_data сам удаляет старый слой и добавляет
+            # новый в проект (схема Fsm_2_1_6, без поля «Этап»).
+            self._create_points_layer_from_data(
+                final_points, final_points_name, crs
+            )
+
+            # 2. Получаем созданный слой для добавления поля «Этап» (вариант B).
+            project = QgsProject.instance()
+            layers = project.mapLayersByName(final_points_name)
+            qgs_layer: Optional[QgsVectorLayer] = None
+            if layers and isinstance(layers[0], QgsVectorLayer):
+                qgs_layer = layers[0]
+
+            if qgs_layer is None or not qgs_layer.isValid():
+                log_error(
+                    f"F_2_4: Итоговый точечный слой {final_points_name} не найден "
+                    f"после создания — поле «Этап» не добавлено"
+                )
+                return
+
+            # 3. Добавляем поле «Этап» (если ещё нет — идемпотентность на реран).
+            if qgs_layer.fields().indexFromName("Этап") < 0:
+                provider = qgs_layer.dataProvider()
+                if not provider.addAttributes([QgsField("Этап", QMetaType.Type.Int)]):
+                    log_error(
+                        f"F_2_4: Не удалось добавить поле «Этап» в слой "
+                        f"{final_points_name}"
+                    )
+                    return
+                qgs_layer.updateFields()
+
+            # 4. Заполняем «Этап» по ID_Контура -> stage_by_contour.
+            stage_idx = qgs_layer.fields().indexFromName("Этап")
+            contour_idx = qgs_layer.fields().indexFromName("ID_Контура")
+            if stage_idx < 0 or contour_idx < 0:
+                log_error(
+                    f"F_2_4: В слое {final_points_name} нет полей «Этап»/«ID_Контура» "
+                    f"для заполнения этапа"
+                )
+                return
+
+            if not qgs_layer.startEditing():
+                log_error(
+                    f"F_2_4: Не удалось начать редактирование слоя {final_points_name} "
+                    f"для заполнения «Этап»"
+                )
+                return
+
+            filled = 0
+            for feature in qgs_layer.getFeatures():
+                contour_id = feature.attribute(contour_idx)
+                stage_value = stage_by_contour.get(contour_id)
+                if stage_value is None and contour_id is not None:
+                    # Возможен int/str-mismatch ключа: пробуем через int()
+                    try:
+                        stage_value = stage_by_contour.get(int(contour_id))
+                    except (TypeError, ValueError):
+                        stage_value = None
+                if stage_value is not None:
+                    qgs_layer.changeAttributeValue(feature.id(), stage_idx, stage_value)
+                    filled += 1
+
+            if not qgs_layer.commitChanges():
+                log_error(
+                    f"F_2_4: Не удалось сохранить поле «Этап» в слое "
+                    f"{final_points_name}"
+                )
+                return
+
+            log_info(
+                f"F_2_4: Создан итоговый точечный слой {final_points_name} "
+                f"({qgs_layer.featureCount()} точек, «Этап» заполнен у {filled})"
+            )
 
         except Exception as e:
             log_error(f"F_2_4: Ошибка создания итогового точечного слоя: {e}")

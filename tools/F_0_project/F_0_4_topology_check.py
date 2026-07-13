@@ -24,7 +24,7 @@ from typing import List, Dict, Optional
 
 from qgis.core import (
     Qgis, QgsProject, QgsVectorLayer,
-    QgsProcessingContext
+    QgsProcessingContext, QgsGeometry
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QMessageBox, QPushButton, QApplication, QProgressBar
@@ -36,6 +36,8 @@ from .submodules.Fsm_0_4_5_coordinator import Fsm_0_4_5_TopologyCoordinator
 from .submodules.Fsm_0_4_6_fixer import Fsm_0_4_6_TopologyFixer
 from .submodules.Fsm_0_4_7_dialog import Fsm_0_4_7_TopologyCheckDialog
 from .submodules.Fsm_0_4_15_async_task import Fsm_0_4_15_TopologyCheckTask
+from .submodules.Fsm_0_4_16_coverage_gap import Fsm_0_4_16_CoverageGapChecker
+from .submodules.Fsm_0_4_17_point_outside import Fsm_0_4_17_PointOutsideChecker
 from Daman_QGIS.constants import PLUGIN_NAME
 # registry already imported above
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
@@ -57,8 +59,9 @@ class F_0_4_TopologyCheck(BaseTool):
       * Fsm_0_4_8: Самопересечения, наложения, висячие концы
       Точки:
       * Fsm_0_4_9: Дубликаты, близость
-      Cross-layer:
-      * Fsm_0_4_11: Наложения между слоями
+      Whole-project (синхронная фаза, INV-2):
+      * Fsm_0_4_16: Зазоры покрытия нарезки (C) + многоконтурность (E)
+      * Fsm_0_4_17: Точки нарезки вне границ работ (D)
     - Создает единый слой ошибок для каждого исходного слоя
     - Слой ошибок содержит точки всех типов ошибок с атрибутами
     - Не изменяет исходные данные
@@ -368,6 +371,16 @@ class F_0_4_TopologyCheck(BaseTool):
                 if layer_errors:
                     errors_by_layer[layer_name] = layer_errors
 
+        # Whole-project фаза (INV-2): классы C (зазоры покрытия нарезки),
+        # D (точки вне границ работ), E (многоконтурные образуемые ЗУ).
+        # Синхронно в main thread ПОСЛЕ сбора per-layer результатов.
+        wp_errors = self._run_whole_project_phase()
+        if wp_errors:
+            total_errors += len(wp_errors)
+            wp_layer_summary = self._summarize_whole_project(wp_errors)
+            if wp_layer_summary:
+                errors_by_layer["Проверка нарезки (весь проект)"] = wp_layer_summary
+
         # Сохраняем результаты
         self.last_check_results = errors_by_layer
 
@@ -379,6 +392,216 @@ class F_0_4_TopologyCheck(BaseTool):
             self.dialog.on_check_completed(errors_by_layer, total_errors, fixable_errors)
 
         log_info(f"F_0_4: Async проверка завершена. Всего: {total_errors}, исправляемых: {fixable_errors}")
+
+    def _run_whole_project_phase(self) -> List[Dict]:
+        """Синхронная whole-project фаза (INV-2): классы C/D/E.
+
+        Собирает invalid_edges_global из per-layer класса A (INV-4), запускает
+        Fsm_0_4_16 (C+E) и Fsm_0_4_17 (D), создаёт отдельный слой ошибок через
+        replace_or_add_layer (НЕ keyed by layer_id).
+
+        Returns:
+            Список whole-project ошибок (для подсчёта total_errors).
+        """
+        wp_errors: List[Dict] = []
+
+        # INV-4: аккумулируем edge_geometry класса A по слоям нарезки.
+        # Изолированный try: сбой дедупа не должен обнулять сами проверки —
+        # продолжаем без дедупа (invalid_edges_global=None → дедуп A↔C не
+        # применяется, класс C покажет все зазоры).
+        try:
+            invalid_edges_global = self._accumulate_invalid_edges_global()
+        except Exception as e:
+            log_error(
+                f"F_0_4: сбой аккумуляции edges класса A (дедуп A↔C пропущен): {e}"
+            )
+            invalid_edges_global = None
+
+        # Классы C (зазоры) + E (многоконтурность). Изолированный try: падение
+        # Fsm_0_4_16 не должно терять класс D (точки вне границ, другой чекер).
+        try:
+            gap_checker = Fsm_0_4_16_CoverageGapChecker()
+            wp_errors.extend(gap_checker.check(invalid_edges_global))
+        except Exception as e:
+            log_error(f"F_0_4: Ошибка классов C/E (Fsm_0_4_16): {e}")
+
+        # Класс D (точки вне границ работ). Изолированный try: падение
+        # Fsm_0_4_17 не должно терять уже собранные ошибки C/E.
+        try:
+            point_checker = Fsm_0_4_17_PointOutsideChecker()
+            wp_errors.extend(point_checker.check())
+        except Exception as e:
+            log_error(f"F_0_4: Ошибка класса D (Fsm_0_4_17): {e}")
+
+        if not wp_errors:
+            log_info("F_0_4: Whole-project фаза — ошибок нарезки не найдено")
+            return []
+
+        # Создаём отдельный слой ошибок (НЕ keyed by layer_id).
+        try:
+            error_layer = self._create_whole_project_error_layer(wp_errors)
+            if error_layer is not None:
+                if error_layer.customProperty("NeedsStyle") == "true":
+                    self._apply_error_style_safe(error_layer)
+                    error_layer.removeCustomProperty("NeedsStyle")
+                error_layer = self.replacement_manager.replace_or_add_layer(
+                    error_layer,
+                    error_layer.name(),
+                    preserve_order=True
+                )
+                self.replacement_manager.move_layer_to_top(error_layer)
+        except Exception as e:
+            log_error(
+                f"F_0_4: не удалось создать whole-project слой ошибок: {e}"
+            )
+
+        log_info(
+            f"F_0_4: Whole-project фаза — найдено ошибок нарезки: {len(wp_errors)}"
+        )
+        return wp_errors
+
+    def _accumulate_invalid_edges_global(self) -> Optional[QgsGeometry]:
+        """INV-4: unaryUnion edge_geometry класса A (coverage_invalid_edge).
+
+        Источник — self.async_results (полные error-dict'ы). Аккумулирует
+        ТОЛЬКО слои section=='Нарезка', ИСКЛЮЧАЯ group=='Этапность' (edges
+        этапов подавили бы валидный зазор этапности по слою Итог, ISSUE-002).
+
+        Returns:
+            QgsGeometry union edges либо None если edges нет.
+        """
+        from Daman_QGIS.managers import get_reference_managers
+
+        # Метаданные слоёв: full_name -> (section, group).
+        layers_meta = {}
+        try:
+            for ld in get_reference_managers().layer.get_base_layers():
+                fn = ld.get('full_name')
+                if fn:
+                    layers_meta[fn] = ld
+        except Exception as e:
+            log_warning(f"F_0_4: не удалось загрузить Base_layers для дедупа: {e}")
+            return None
+
+        edge_geoms = []
+        for layer_id, result in self.async_results.items():
+            if not isinstance(result, dict):
+                continue
+            if 'error' in result or result.get('cancelled'):
+                continue
+
+            layer = QgsProject.instance().mapLayer(layer_id)
+            if not layer:
+                continue
+            meta = layers_meta.get(layer.name())
+            if meta is None:
+                continue
+            # Только нарезка, исключая этапность.
+            if meta.get('section') != 'Нарезка':
+                continue
+            if meta.get('group') == 'Этапность':
+                continue
+
+            edge_errors = result.get('errors_by_type', {}).get(
+                'coverage_invalid_edge', []
+            )
+            if not isinstance(edge_errors, list):
+                continue
+            for err in edge_errors:
+                edge = err.get('edge_geometry')
+                if edge is not None and not edge.isEmpty():
+                    edge_geoms.append(edge)
+
+        if not edge_geoms:
+            return None
+        union = QgsGeometry.unaryUnion(edge_geoms)
+        if union is None or union.isEmpty():
+            return None
+        return union
+
+    def _create_whole_project_error_layer(
+        self, errors: List[Dict]
+    ) -> Optional[QgsVectorLayer]:
+        """Создаёт memory-слой ошибок для whole-project классов C/D/E.
+
+        Геометрии всех whole-project ошибок — уже точки (маркеры через M_9 /
+        сама точка Т_), поэтому AnchorPointManager здесь не нужен.
+
+        Returns:
+            QgsVectorLayer (memory) либо None если нет валидных ошибок.
+        """
+        from qgis.core import (
+            QgsVectorLayer, QgsFeature, QgsField, QgsGeometry
+        )
+        from qgis.PyQt.QtCore import QMetaType
+
+        crs = QgsProject.instance().crs()
+        layer_name = f"{self.coordinator.PREFIX_ERRORS}_Нарезка"
+        error_layer = QgsVectorLayer(
+            f"Point?crs={crs.authid()}", layer_name, "memory"
+        )
+        provider = error_layer.dataProvider()
+        provider.addAttributes([
+            QgsField("Тип_ошибки", QMetaType.Type.QString),
+            QgsField("ID_объекта", QMetaType.Type.Int),
+            QgsField("Описание", QMetaType.Type.QString),
+            QgsField("Название_типа", QMetaType.Type.QString)
+        ])
+        error_layer.updateFields()
+
+        features = []
+        for error in errors:
+            geom = error.get('geometry')
+            if geom is None or geom.isNull() or geom.isEmpty():
+                continue
+            feat = QgsFeature()
+            feat.setGeometry(geom)
+            type_ru = self.coordinator.ERROR_TYPES.get(
+                error['type'], error['type']
+            )
+            feat.setAttributes([
+                type_ru,
+                error.get('feature_id', -1),
+                error.get('description', ''),
+                type_ru
+            ])
+            features.append(feat)
+
+        if not features:
+            return None
+
+        provider.addFeatures(features)
+        error_layer.updateExtents()
+        error_layer.setCustomProperty("TopologyCheck", "temporary")
+        error_layer.setCustomProperty("NeedsStyle", "true")
+        error_layer.setCustomProperty("skipMemoryLayersCheck", "true")
+        log_info(
+            f"F_0_4: Создан whole-project слой ошибок: {layer_name} "
+            f"({len(features)} объектов)"
+        )
+        return error_layer
+
+    def _summarize_whole_project(self, wp_errors: List[Dict]) -> List[Dict]:
+        """Сводка whole-project ошибок по типам для диалога.
+
+        Returns:
+            Список error_info dict'ов (error_type / error_count / can_auto_fix).
+        """
+        by_type: Dict[str, int] = {}
+        for err in wp_errors:
+            et = err.get('type', 'unknown')
+            by_type[et] = by_type.get(et, 0) + 1
+
+        summary = []
+        for error_type, count in by_type.items():
+            info = {
+                'error_type': error_type,
+                'error_count': count,
+                'can_auto_fix': error_type in self.coordinator.FIXABLE_ERROR_TYPES
+            }
+            summary.append(info)
+            self.check_context.append(info)
+        return summary
 
     def _run_stage2(self):
         """Stage 2: Исправление ошибок"""

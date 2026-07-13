@@ -2,16 +2,16 @@
 """
 Сабмодуль экспорта в KML
 
-Рефакторинг: Использует BaseExportSubmodule для устранения дублирования.
+Рефакторинг: Использует Fsm_1_5_0_BaseExportSubmodule для устранения дублирования.
 """
 
 from typing import Dict, Any, List
 
-from .Fsm_1_5_0_base_export_submodule import BaseExportSubmodule
+from .Fsm_1_5_0_base_export_submodule import Fsm_1_5_0_BaseExportSubmodule
 from ..core.kml_exporter import KMLExporter
 
 
-class KMLExportSubmodule(BaseExportSubmodule):
+class Fsm_1_5_4_KMLExportSubmodule(Fsm_1_5_0_BaseExportSubmodule):
     """Сабмодуль для экспорта в KML формат"""
 
     FORMAT_NAME = "KML"

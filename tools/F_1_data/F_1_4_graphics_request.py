@@ -18,18 +18,18 @@ from Daman_QGIS.constants import (
 )
 from Daman_QGIS.utils import log_info, log_warning, log_error, path_for_display
 from Daman_QGIS.managers import get_reference_managers, registry, FolderType
-from .submodules.Fsm_1_4_8_graphics_request_dialog import GraphicsRequestDialog
-from .submodules.Fsm_1_4_9_graphics_progress_dialog import GraphicsProgressDialog
-from .submodules.Fsm_1_4_10_overview_preview_dialog import OverviewPreviewDialog
-from .submodules.Fsm_1_4_11_main_preview_dialog import MainPreviewDialog
+from .submodules.Fsm_1_4_8_graphics_request_dialog import Fsm_1_4_8_GraphicsRequestDialog
+from .submodules.Fsm_1_4_9_graphics_progress_dialog import Fsm_1_4_9_GraphicsProgressDialog
+from .submodules.Fsm_1_4_10_overview_preview_dialog import Fsm_1_4_10_OverviewPreviewDialog
+from .submodules.Fsm_1_4_11_main_preview_dialog import Fsm_1_4_11_MainPreviewDialog
 
 # Импортируем все подмодули
-from .submodules.Fsm_1_4_2_excel_export import ExcelExporter
-from .submodules.Fsm_1_4_3_dxf_export import DxfExportWrapper
-from .submodules.Fsm_1_4_4_tab_export import TabExporter
-from .submodules.Fsm_1_4_5_layout_manager import LayoutManager
-from .submodules.Fsm_1_4_6_legend_layers import LegendLayersCreator
-from .submodules.Fsm_1_4_7_style_manager import StyleManager
+from .submodules.Fsm_1_4_2_excel_export import Fsm_1_4_2_ExcelExporter
+from .submodules.Fsm_1_4_3_dxf_export import Fsm_1_4_3_DxfExportWrapper
+from .submodules.Fsm_1_4_4_tab_export import Fsm_1_4_4_TabExporter
+from .submodules.Fsm_1_4_5_layout_manager import Fsm_1_4_5_LayoutManager
+from .submodules.Fsm_1_4_6_legend_layers import Fsm_1_4_6_LegendLayersCreator
+from .submodules.Fsm_1_4_7_style_manager import Fsm_1_4_7_StyleManager
 
 
 class F_1_4_GraphicsRequest(BaseTool):
@@ -40,12 +40,12 @@ class F_1_4_GraphicsRequest(BaseTool):
         super().__init__(iface)
 
         # Инициализируем все модули
-        self.excel_exporter = ExcelExporter(iface)
-        self.dxf_exporter = DxfExportWrapper(iface)
-        self.tab_exporter = TabExporter(iface)
-        self.layout_manager = LayoutManager(iface)
-        self.legend_creator = LegendLayersCreator(iface)
-        self.style_manager = StyleManager(iface)
+        self.excel_exporter = Fsm_1_4_2_ExcelExporter(iface)
+        self.dxf_exporter = Fsm_1_4_3_DxfExportWrapper(iface)
+        self.tab_exporter = Fsm_1_4_4_TabExporter(iface)
+        self.layout_manager = Fsm_1_4_5_LayoutManager(iface)
+        self.legend_creator = Fsm_1_4_6_LegendLayersCreator(iface)
+        self.style_manager = Fsm_1_4_7_StyleManager(iface)
         
     def get_name(self) -> str:
         """Получить имя инструмента"""
@@ -67,7 +67,7 @@ class F_1_4_GraphicsRequest(BaseTool):
         # F_1_2 загружает только слои с данными в области, остальные пропускает - это нормально
 
         # Показываем диалог выбора слоев
-        dialog = GraphicsRequestDialog(self.iface.mainWindow())
+        dialog = Fsm_1_4_8_GraphicsRequestDialog(self.iface.mainWindow())
         if dialog.exec() != 1:
             return
 
@@ -91,7 +91,7 @@ class F_1_4_GraphicsRequest(BaseTool):
         """
         
         # Создаем и показываем диалог прогресса
-        progress_dialog = GraphicsProgressDialog(self.iface.mainWindow())
+        progress_dialog = Fsm_1_4_9_GraphicsProgressDialog(self.iface.mainWindow())
         progress_dialog.show()
         QApplication.processEvents()  # Обновляем GUI
         
@@ -335,7 +335,7 @@ class F_1_4_GraphicsRequest(BaseTool):
             main_scale = self.layout_manager.get_main_map_scale()
             if main_scale and layout:
                 progress_dialog.hide()
-                main_dialog = MainPreviewDialog(
+                main_dialog = Fsm_1_4_11_MainPreviewDialog(
                     layout, main_scale, self.iface.mainWindow()
                 )
                 if main_dialog.exec() == 1:
@@ -352,7 +352,7 @@ class F_1_4_GraphicsRequest(BaseTool):
             current_scale = self.layout_manager.get_overview_map_scale()
             if current_scale and layout:
                 progress_dialog.hide()
-                preview_dialog = OverviewPreviewDialog(
+                preview_dialog = Fsm_1_4_10_OverviewPreviewDialog(
                     layout, current_scale, self.iface.mainWindow()
                 )
                 if preview_dialog.exec() == 1:

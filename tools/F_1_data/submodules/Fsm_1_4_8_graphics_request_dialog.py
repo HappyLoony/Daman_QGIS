@@ -18,7 +18,7 @@ from Daman_QGIS.managers import get_reference_managers
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class GraphicsRequestDialog(BaseResponsiveDialog):
+class Fsm_1_4_8_GraphicsRequestDialog(BaseResponsiveDialog):
     """Диалог выбора слоев для включения в схему"""
 
     WIDTH_RATIO = 0.35

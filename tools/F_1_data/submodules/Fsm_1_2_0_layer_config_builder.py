@@ -93,7 +93,7 @@ class Fsm_1_2_0_LayerConfigBuilder:
             if not endpoint:
                 # Слой не имеет endpoint в Base_api_endpoints.json - пропускаем.
                 # Это нормально для derived-слоёв (distribution от Fsm_1_2_17/18/19,
-                # выборки F_2_1, права M_25, ЗОУИТ-подкатегории Fsm_1_2_9 и т.д.),
+                # выборки Fsm_1_2_13_1, права M_25, ЗОУИТ-подкатегории Fsm_1_2_9 и т.д.),
                 # которые создаются как результат запуска F_1_2 без прямого API-вызова.
                 continue
 

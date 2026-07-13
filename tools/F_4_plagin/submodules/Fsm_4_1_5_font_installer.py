@@ -2,8 +2,10 @@
 """
 Fsm_4_1_5_FontInstaller - Установка шрифтов в Windows
 
-Устанавливает шрифты GOST и OpenSans в систему Windows
-без требования прав администратора
+Устанавливает шрифты канона M_49 (GOST 2.304, Avenir Next W1G,
+IBM Plex Sans) в систему Windows без требования прав администратора.
+Список файлов приходит извне (checker Fsm_4_1_2 по
+_font_canon.required_font_files())
 """
 
 import sys
@@ -68,7 +70,7 @@ class FontInstaller:
         result = gdi32.AddFontResourceW(dest_path)
 
         if result > 0:
-            self.emit_progress(f"✓ Шрифт {font_file} установлен (пользовательская папка)")
+            self.emit_progress(f"OK Шрифт {font_file} установлен (пользовательская папка)")
             return True
 
         return False
@@ -97,7 +99,7 @@ class FontInstaller:
         result = gdi32.AddFontResourceW(dest_path)
 
         if result > 0:
-            self.emit_progress(f"✓ Шрифт {font_file} установлен (системная папка)")
+            self.emit_progress(f"OK Шрифт {font_file} установлен (системная папка)")
             return True
 
         return False
@@ -119,11 +121,11 @@ class FontInstaller:
         result = gdi32.AddFontResourceW(source_path)
 
         if result > 0:
-            self.emit_progress(f"✓ Шрифт {font_file} временно зарегистрирован для текущей сессии")
+            self.emit_progress(f"OK Шрифт {font_file} временно зарегистрирован для текущей сессии")
             self.emit_progress(f"  (потребуется установка после перезагрузки QGIS)")
             return True
         else:
-            self.emit_progress(f"✗ Не удалось установить {font_file}")
+            self.emit_progress(f"X Не удалось установить {font_file}")
             self.emit_progress(f"  Установите вручную с правами администратора")
             return False
 
@@ -141,7 +143,7 @@ class FontInstaller:
 
         if not os.path.exists(source_path):
             error_msg = f"Файл шрифта не найден: {source_path}"
-            self.emit_progress(f"✗ {error_msg}")
+            self.emit_progress(f"X {error_msg}")
             return False, error_msg
 
         # Вариант 1: Пробуем пользовательскую папку шрифтов (без прав админа)
@@ -166,7 +168,7 @@ class FontInstaller:
             tuple: (количество_установленных, список_ошибок)
         """
         if sys.platform != 'win32':
-            self.emit_progress("⚠ Установка шрифтов доступна только для Windows")
+            self.emit_progress("! Установка шрифтов доступна только для Windows")
             self.emit_progress("Установите шрифты вручную из папки data/fonts")
             return 0, ["Установка шрифтов доступна только для Windows"]
 

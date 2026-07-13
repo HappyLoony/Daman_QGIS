@@ -15,7 +15,7 @@ from ..ui.export_dialog import ExportDialog
 from ..core.base_exporter import BaseExporter
 
 
-class BaseExportSubmodule:
+class Fsm_1_5_0_BaseExportSubmodule:
     """
     Базовый класс для сабмодулей экспорта.
 

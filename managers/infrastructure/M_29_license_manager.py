@@ -513,6 +513,13 @@ class LicenseManager(QObject):
         except Exception as e:
             log_warning(f"M_29: Silent re-verify raised: {e}")
 
+        # D3: silent HMAC re-validate провалился. Диагностика — изменилось ли
+        # дерево плагина на диске относительно загруженного при старте QGIS
+        # (deploy/обновление при открытой сессии). Пересчёт хеша в ЛОКАЛЬНУЮ
+        # переменную — кэш НЕ мутируем (отравление кэша свежим диск-хешем =
+        # обход integrity на dev-канале + самоснятие D2).
+        self._diagnose_tree_drift()
+
         log_warning(
             "M_29: Silent re-verify failed, falling back to activation dialog"
         )
@@ -525,9 +532,21 @@ class LicenseManager(QObject):
         self._auth_failure_dialog_last_ts = now
 
         try:
-            from qgis.PyQt.QtWidgets import QMessageBox
+            from qgis.PyQt.QtWidgets import QMessageBox, QApplication
+            from qgis.PyQt.QtCore import QThread
             from qgis.utils import iface  # type: ignore[import-untyped]
             from Daman_QGIS.constants import PLUGIN_NAME
+
+            # Qt: создание/показ QWidget вне GUI-потока = undefined behavior.
+            # Достижимо из worker-потока (Fsm_1_2_10 web-map QgsTask через
+            # guard-recovery). Пропускаем GUI-фазу → False → D2-lockout.
+            app = QApplication.instance()
+            if app is not None and QThread.currentThread() != app.thread():
+                log_warning(
+                    "M_29: auth-failure dialog skipped (not GUI thread) — "
+                    "deferring to D2-lockout; повтор при следующем обращении из main"
+                )
+                return False
 
             parent = iface.mainWindow() if iface else None
             answer = QMessageBox.warning(
@@ -560,6 +579,38 @@ class LicenseManager(QObject):
         except Exception as e:
             log_warning(f"M_29: show_auth_failure_dialog failed: {e}")
             return False
+
+    def _diagnose_tree_drift(self) -> None:
+        """D3: тихая детекция «дерево плагина на диске изменилось».
+
+        Пересчитывает свежий хеш дерева в ЛОКАЛЬНУЮ переменную и сравнивает
+        с ЗАМОРОЖЕННЫМ (закэшированным при старте QGIS) хешем. Кэш НЕ
+        мутируется (invalidate_cache/get_cached_or_compute — эксклюзив
+        M_42._install; отравление кэша свежим диск-хешем на dev-канале
+        обошло бы integrity и самосняло бы D2-lockout).
+
+        Если свежий хеш != закэшированного — log_warning с НЕЙТРАЛЬНЫМ текстом:
+        причину (deploy / user-edit / AV-lock дают то же неравенство) НЕ
+        утверждать как факт. Стоимость recompute ~200мс — только в этой
+        редкой ветке провала recovery. БЕЗ GUI-диалогов (решение владельца).
+        """
+        try:
+            from Daman_QGIS import integrity_hash as _ih
+            cached_hash = _ih._cached_hash
+            cached_dir = _ih._cached_dir
+            if not cached_hash or not cached_dir:
+                # Кэш ещё не прогрет (startup не завершился) — нечего сравнивать.
+                return
+            # Свежий пересчёт в ЛОКАЛЬНУЮ переменную — кэш не трогаем.
+            fresh_hash = _ih.compute_plugin_hash(cached_dir)
+            if fresh_hash != cached_hash:
+                log_warning(
+                    "M_29: дерево плагина на диске отличается от загруженного "
+                    "при старте QGIS; вероятная причина — deploy/обновление; "
+                    "требуется перезапуск QGIS"
+                )
+        except Exception as e:
+            log_warning(f"M_29: tree drift diagnostic failed: {e}")
 
     def _on_jwt_auth_failure(self) -> None:
         """

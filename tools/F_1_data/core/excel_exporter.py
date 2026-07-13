@@ -19,6 +19,7 @@ from .base_exporter import BaseExporter
 from Daman_QGIS.constants import PLUGIN_NAME, PRECISION_DECIMALS, PRECISION_DECIMALS_WGS84
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.managers import CoordinatePrecisionManager as CPM
+from Daman_QGIS.managers.styling import _font_canon
 
 try:
     import xlsxwriter
@@ -230,10 +231,10 @@ class ExcelExporter(BaseExporter):
         else:
             crs_display_name = "WGS 84" if is_wgs84 else target_crs.description()
 
-        # Форматы точно как в 0_5 (Times New Roman 14pt)
+        # Форматы точно как в 0_5 (канон DOCUMENT из _font_canon, 14pt)
         header_format = workbook.add_format({
             'bold': True,
-            'font_name': 'Times New Roman',
+            'font_name': _font_canon.excel_font_name(),
             'font_size': 14,
             'align': 'center',
             'valign': 'vcenter',
@@ -242,7 +243,7 @@ class ExcelExporter(BaseExporter):
 
         col_header_format = workbook.add_format({
             'bold': True,
-            'font_name': 'Times New Roman',
+            'font_name': _font_canon.excel_font_name(),
             'font_size': 14,
             'align': 'center',
             'valign': 'vcenter',
@@ -250,7 +251,7 @@ class ExcelExporter(BaseExporter):
         })
 
         data_format = workbook.add_format({
-            'font_name': 'Times New Roman',
+            'font_name': _font_canon.excel_font_name(),
             'font_size': 14,
             'align': 'center',
             'valign': 'vcenter',
@@ -258,7 +259,7 @@ class ExcelExporter(BaseExporter):
         })
 
         number_format = workbook.add_format({
-            'font_name': 'Times New Roman',
+            'font_name': _font_canon.excel_font_name(),
             'font_size': 14,
             'align': 'center',
             'valign': 'vcenter',
@@ -423,7 +424,10 @@ class ExcelExporter(BaseExporter):
                 contour_points, point_number = self._process_points_list(
                     normalized_points, unique_points, point_number, precision
                 )
-                contour_type = 'exterior' if is_exterior else 'hole'
+                # exterior = первое кольцо полигона (QGIS API: polygon[0]),
+                # остальные — holes. Фикс NameError после Task 4.8/FIX-3
+                # (переменная is_exterior была удалена, использование осталось)
+                contour_type = 'exterior' if ring_idx == 0 else 'hole'
                 if contour_points:
                     # Замыкание: добавляем первую точку в конец (П/0592 п.43)
                     contour_points.append(contour_points[0])

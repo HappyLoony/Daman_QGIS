@@ -456,7 +456,10 @@ class F_5_4_MasterPlan(BaseTool):
             da.setEllipsoid(QgsProject.instance().ellipsoid())
             area_m2 = da.measureArea(feature.geometry())
             area_ha = area_m2 / 10000.0
-            centroid = feature.geometry().centroid().asPoint()
+            # Первое звено геокодера — точка ВНУТРИ границ (M_9), не centroid
+            # (Г-образная граница → centroid вне фигуры → промах ФИАС).
+            from Daman_QGIS.managers.geometry import AnchorPointManager
+            anchor_pt = AnchorPointManager.anchor_point(feature.geometry(), "surface")
 
             transform = QgsCoordinateTransform(
                 boundaries_layer.crs(),
@@ -476,7 +479,8 @@ class F_5_4_MasterPlan(BaseTool):
                 QgsPointXY(bbox.xMinimum(), bbox.yMinimum()),  # SW
                 QgsPointXY(bbox.xMaximum(), bbox.yMinimum()),  # SE
             ]
-            points = [centroid] + corners  # центроид первым (приоритет)
+            # Точка-внутри первой (приоритет); на None — только углы bbox.
+            points = ([anchor_pt] if anchor_pt else []) + corners
 
             # Запрос к DaData
             geocoder = registry.get('M_39')
@@ -548,7 +552,7 @@ class F_5_4_MasterPlan(BaseTool):
         Аналог Fsm_1_4_10, но без привязки к конкретному layout.
 
         Создаёт временный layout для получения overview_map,
-        показывает OverviewPreviewDialog, возвращает scale_factor.
+        показывает Fsm_1_4_10_OverviewPreviewDialog, возвращает scale_factor.
 
         Args:
             first_drawing: Первая выбранная схема (для заполнения легенды
@@ -629,9 +633,9 @@ class F_5_4_MasterPlan(BaseTool):
             self._set_overview_extent(overview_map)
 
             from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_4_10_overview_preview_dialog import (
-                OverviewPreviewDialog
+                Fsm_1_4_10_OverviewPreviewDialog
             )
-            preview_dialog = OverviewPreviewDialog(
+            preview_dialog = Fsm_1_4_10_OverviewPreviewDialog(
                 temp_layout, overview_base_scale, self.iface.mainWindow()
             )
 
@@ -659,7 +663,7 @@ class F_5_4_MasterPlan(BaseTool):
 
         Симметричен _get_overview_scale_factor, но для main_map. Создаёт
         временный layout с темой первой выбранной схемы (как референс
-        для подбора масштаба), показывает MainPreviewDialog, возвращает
+        для подбора масштаба), показывает Fsm_1_4_11_MainPreviewDialog, возвращает
         scale_factor. Этот factor затем применяется ко ВСЕМ схемам
         (умножается на main_map.scale() в _generate_single_scheme).
 
@@ -672,7 +676,7 @@ class F_5_4_MasterPlan(BaseTool):
             генерацию (пока не используется — fallback на 1.0).
         """
         from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_4_11_main_preview_dialog import (
-            MainPreviewDialog
+            Fsm_1_4_11_MainPreviewDialog
         )
 
         # Развернуть тему первой схемы
@@ -750,7 +754,7 @@ class F_5_4_MasterPlan(BaseTool):
                 f"базовый масштаб 1:{int(current_scale)}"
             )
 
-            preview_dialog = MainPreviewDialog(
+            preview_dialog = Fsm_1_4_11_MainPreviewDialog(
                 temp_layout, current_scale, self.iface.mainWindow()
             )
 
@@ -851,7 +855,7 @@ class F_5_4_MasterPlan(BaseTool):
             layout_mgr: Менеджер макетов
             overview_scale_factor: Множитель масштаба обзорной карты
             main_scale_factor: Множитель масштаба основной карты (глобально
-                из MainPreviewDialog по первой схеме). 1.0 = базовый.
+                из Fsm_1_4_11_MainPreviewDialog по первой схеме). 1.0 = базовый.
             location_text: Адрес территории для title_label
 
         Returns:
@@ -946,7 +950,7 @@ class F_5_4_MasterPlan(BaseTool):
             layout_mgr_m34.adapt_legend(layout)
 
             # j3. Применить глобальный множитель main_scale_factor
-            # (выбран пользователем в MainPreviewDialog по первой схеме)
+            # (выбран пользователем в Fsm_1_4_11_MainPreviewDialog по первой схеме)
             if main_scale_factor and main_scale_factor != 1.0:
                 for item in layout.items():
                     if isinstance(item, QgsLayoutItemMap) and item.id() == 'main_map':

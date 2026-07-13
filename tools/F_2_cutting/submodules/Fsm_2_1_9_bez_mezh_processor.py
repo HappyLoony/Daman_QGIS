@@ -237,8 +237,8 @@ class Fsm_2_1_9_BezMezhProcessor:
             vri_value: Значение ВРИ из исходного ЗУ (может быть множественным)
 
         Returns:
-            "Отнесен" если хотя бы один ВРИ относится к территории общего пользования,
-            "Не отнесен" в противном случае
+            "Отнесен" только если ВСЕ распознанные ВРИ относятся к территории
+            общего пользования, "Не отнесен" в противном случае
         """
         if not vri_value or vri_value == '-':
             log_info(f"Fsm_2_1_9: ВРИ пустой или '-', Общая_земля = 'Не отнесен'")
@@ -253,19 +253,25 @@ class Fsm_2_1_9_BezMezhProcessor:
             vri_parts = [v.strip() for v in vri_value.split(',') if v.strip()]
             log_info(f"Fsm_2_1_9: Проверка Общая_земля для ВРИ '{vri_value}' (частей: {len(vri_parts)})")
 
+            # Собираем флаги is_public_territory по всем распознанным ВРИ.
+            # ЗУ относится к общим землям только если ВСЕ его ВРИ относятся;
+            # любой ВРИ не общий -> весь ЗУ не общий.
+            recognized_public = []
             for vri_str in vri_parts:
                 # Используем метод менеджера для получения данных ВРИ
                 vri_data = vri_manager._get_vri_data_for_single(vri_str)
                 if vri_data:
                     is_public = vri_data.get('is_public_territory', False)
                     log_info(f"Fsm_2_1_9: ВРИ '{vri_str}' найден, is_public_territory={is_public}")
-                    if is_public:
-                        log_info(f"Fsm_2_1_9: ВРИ '{vri_str}' относится к территории общего пользования -> 'Отнесен'")
-                        return VRIAssignmentManager.PUBLIC_TERRITORY_YES
+                    recognized_public.append(is_public)
                 else:
                     log_warning(f"Fsm_2_1_9: ВРИ '{vri_str}' НЕ найден в базе VRI.json")
 
-            log_info(f"Fsm_2_1_9: Ни один ВРИ не относится к территории общего пользования -> 'Не отнесен'")
+            if recognized_public and all(recognized_public):
+                log_info(f"Fsm_2_1_9: ВСЕ ВРИ относятся к территории общего пользования -> 'Отнесен'")
+                return VRIAssignmentManager.PUBLIC_TERRITORY_YES
+
+            log_info(f"Fsm_2_1_9: Не все ВРИ относятся к территории общего пользования -> 'Не отнесен'")
             return VRIAssignmentManager.PUBLIC_TERRITORY_NO
 
         except Exception as e:

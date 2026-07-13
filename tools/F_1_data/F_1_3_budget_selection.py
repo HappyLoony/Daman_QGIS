@@ -22,13 +22,13 @@ from Daman_QGIS.utils import log_info, log_warning, log_error
 
 # Async Task для M_17 (новая реализация)
 from .submodules.Fsm_1_3_0_budget_task import Fsm_1_3_0_BudgetTask
-from .submodules.Fsm_1_3_1_boundaries_processor import BoundariesProcessor
-from .submodules.Fsm_1_3_2_vector_loader import VectorLoader
-from .submodules.Fsm_1_3_3_forest_loader import ForestLoader
-from .submodules.Fsm_1_3_4_spatial_analyzer import SpatialAnalyzer
-from .submodules.Fsm_1_3_5_results_dialog import BudgetSelectionResultsDialog
-from .submodules.Fsm_1_3_7_intersections_calculator import IntersectionsCalculator
-from .submodules.Fsm_1_3_8_cadnum_list_export import CadnumListExporter
+from .submodules.Fsm_1_3_1_boundaries_processor import Fsm_1_3_1_BoundariesProcessor
+from .submodules.Fsm_1_3_2_vector_loader import Fsm_1_3_2_VectorLoader
+from .submodules.Fsm_1_3_3_forest_loader import Fsm_1_3_3_ForestLoader
+from .submodules.Fsm_1_3_4_spatial_analyzer import Fsm_1_3_4_SpatialAnalyzer
+from .submodules.Fsm_1_3_5_results_dialog import Fsm_1_3_5_BudgetSelectionResultsDialog
+from .submodules.Fsm_1_3_7_intersections_calculator import Fsm_1_3_7_IntersectionsCalculator
+from .submodules.Fsm_1_3_8_cadnum_list_export import Fsm_1_3_8_CadnumListExporter
 
 
 class F_1_3_BudgetSelection(BaseTool):
@@ -42,11 +42,11 @@ class F_1_3_BudgetSelection(BaseTool):
         super().__init__(iface)
         self.project_manager: Optional[Any] = None
         self.layer_manager: Optional[Any] = None
-        self.boundaries_processor: Optional[BoundariesProcessor] = None
-        self.vector_loader: Optional[VectorLoader] = None
-        self.forest_loader: Optional[ForestLoader] = None
-        self.spatial_analyzer: Optional[SpatialAnalyzer] = None
-        self.intersections_calculator: Optional[IntersectionsCalculator] = None
+        self.boundaries_processor: Optional[Fsm_1_3_1_BoundariesProcessor] = None
+        self.vector_loader: Optional[Fsm_1_3_2_VectorLoader] = None
+        self.forest_loader: Optional[Fsm_1_3_3_ForestLoader] = None
+        self.spatial_analyzer: Optional[Fsm_1_3_4_SpatialAnalyzer] = None
+        self.intersections_calculator: Optional[Fsm_1_3_7_IntersectionsCalculator] = None
 
         # Async manager (M_17)
         self.async_manager = None
@@ -63,17 +63,17 @@ class F_1_3_BudgetSelection(BaseTool):
 
         # Инициализируем субмодули с менеджерами
         if self.project_manager and self.layer_manager:
-            self.boundaries_processor = BoundariesProcessor(self.iface, self.project_manager, self.layer_manager)
-            self.vector_loader = VectorLoader(self.iface, self.project_manager, self.layer_manager)
-            self.forest_loader = ForestLoader(self.iface, self.project_manager, self.layer_manager)
-            self.spatial_analyzer = SpatialAnalyzer(self.iface)
-            self.intersections_calculator = IntersectionsCalculator(self.iface)
+            self.boundaries_processor = Fsm_1_3_1_BoundariesProcessor(self.iface, self.project_manager, self.layer_manager)
+            self.vector_loader = Fsm_1_3_2_VectorLoader(self.iface, self.project_manager, self.layer_manager)
+            self.forest_loader = Fsm_1_3_3_ForestLoader(self.iface, self.project_manager, self.layer_manager)
+            self.spatial_analyzer = Fsm_1_3_4_SpatialAnalyzer(self.iface)
+            self.intersections_calculator = Fsm_1_3_7_IntersectionsCalculator(self.iface)
 
     def _get_required_layers_from_database(self) -> Dict[str, str]:
         """УСТАРЕВШИЙ МЕТОД: Получение списка required слоёв из Base_layers.json
 
         ВАЖНО: Этот метод не используется в текущей реализации.
-        Для земельных участков используется округленный слой Le_1_9_1_1_Выборка_ЗУ из F_2_1.
+        Для земельных участков используется округленный слой Le_1_9_1_1_Выборка_ЗУ из Fsm_1_2_13_1.
 
         Returns:
             Dict[str, str]: Словарь {описание: имя_слоя} для слоёв групп L_1_2 и Le_1_2
@@ -259,7 +259,7 @@ class F_1_3_BudgetSelection(BaseTool):
         self._save_results_to_txt(results, temp_folder, is_linear)
 
         # Экспорт перечней кадастровых номеров (постоянный, без участия пользователя)
-        exporter = CadnumListExporter(self.iface)
+        exporter = Fsm_1_3_8_CadnumListExporter(self.iface)
         success, filepath = exporter.export_cadnum_lists(temp_folder)
         if success:
             log_info(f"F_1_3_Бюджет: Перечень сохранён - {filepath}")
@@ -270,7 +270,7 @@ class F_1_3_BudgetSelection(BaseTool):
         self._organize_layers_in_groups()
 
         # Показываем диалог с результатами (только в main thread!)
-        results_dialog = BudgetSelectionResultsDialog(
+        results_dialog = Fsm_1_3_5_BudgetSelectionResultsDialog(
             self.iface.mainWindow(),
             results,
             temp_folder,

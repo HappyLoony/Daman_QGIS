@@ -18,6 +18,33 @@ Cookies хранятся только в памяти (сбрасываются 
 - Msm_40_1_AuthBrowserDialog - QDialog со встроенным браузером (Qt6 fallback)
 - Msm_40_2_CookieStore - Потокобезопасное хранилище cookies
 - Msm_40_3_EdgeAuthDialog - Авторизация через Edge CDP (Windows primary)
+
+СЕМАНТИКА AUTH-ОТВЕТОВ НСПД (не классическая RFC 7235):
+- 401 Unauthorized (`{"code":401}`) = «cookies есть, но истёкшие/невалидные»
+  (протухли за время простоя).
+- 403 Forbidden (`{"code":400104,"failed to relation intersect ids"}`) = «ресурс
+  закрытый, нужен ESIA-токен» (анонимный запрос к закрытой группе).
+  ВАЖНО: в loader (Fsm_1_2_1_egrn_loader) 403 трактуется как IP-блок — это
+  КОРРЕКТНО только там (всегда session с cookies → 403 = реальный IP-блок), но
+  НЕВЕРНО для anonymous-разведки (там 403 = «нужен токен»). Не путать контексты.
+- Закрытые группы EGRN_WFS (требуют ESIA): МИНСТРОЙ (Красные линии, отступы от КЛ),
+  ФГИС ТП (функциональные зоны), Санохрана, СКДФ (дороги/категории/класс/покрытие),
+  Минэк (ООПТ). ЕГРН-основа (ЗУ/КК/Здания/Сооружения/ОНС) и АТД — публичны.
+
+ЖИВОСТЬ COOKIES: ESIA-cookies живут ~30-60 мин server-side; `is_authenticated()`
+проверяет ТОЛЬКО НАЛИЧИЕ cookies, НЕ их живость на сервере (M_40 этого не замечает).
+Все cookies session-level (`expires=None`), критичный — `authAccessToken`. Клиент не
+может pre-empt истечение.
+
+ПАТТЕРН ОБРАБОТКИ — симметричный reactive retry (НЕ live-probe, НЕ pre-emptive):
+- Loader (production): session с cookies → 401 → `M_40.invalidate()` +
+  `session.cookies.clear()` → retry анонимно (дегрейд auth→anon).
+- Test (Fsm_4_2_T_nspd): anonymous-first → 401 ИЛИ 403 → retry с session
+  (подъём anon→auth, не знает наперёд требует ли endpoint auth).
+АНТИ-ПАТТЕРНЫ (проверены, отвергнуты): live-probe в is_authenticated (race + дорого);
+pre-emptive refresh by expiry (НСПД не отдаёт expires_in); auto-relogin Edge при 401
+(intrusive — пользователь сам запускает M_40.login()).
+ТЕСТ без ожидания 1.5ч: подменить authAccessToken на мусор в session → сервер 401.
 """
 
 import platform

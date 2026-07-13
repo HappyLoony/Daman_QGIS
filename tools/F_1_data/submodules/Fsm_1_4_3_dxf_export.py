@@ -13,7 +13,7 @@ from ..core.dxf_exporter import DxfExporter as BaseDxfExporter
 
 
 
-class DxfExportWrapper:
+class Fsm_1_4_3_DxfExportWrapper:
     """Обертка для экспорта в DXF"""
     
     def __init__(self, iface):

@@ -6,6 +6,7 @@
 from typing import List, Optional
 from qgis.core import QgsProject, QgsVectorLayer
 from Daman_QGIS.utils import log_info, log_warning
+from Daman_QGIS.constants import CLEANUP_NOOP_WHITELIST
 
 __all__ = ['LayerCleanupManager']
 
@@ -97,7 +98,10 @@ class LayerCleanupManager:
                     layers_to_remove.append(full_name)
 
         if not layers_to_remove:
-            log_info(f"M_10_LayerCleanupManager: Функция '{function_name}' не создает слоев согласно Base_layers.json")
+            if function_name in CLEANUP_NOOP_WHITELIST:
+                log_info(f"M_10_LayerCleanupManager: Функция '{function_name}' не создает слоев согласно Base_layers.json")
+            else:
+                log_warning(f"M_10_LayerCleanupManager: Функция '{function_name}' не найдена в Base_layers.json как создающая слои - возможен рассинхрон get_name() и creating_function (либо функцию нужно добавить в CLEANUP_NOOP_WHITELIST)")
             return 0
 
         # Удаляем слои из проекта (только векторные, растровые WMS обновляются динамически)

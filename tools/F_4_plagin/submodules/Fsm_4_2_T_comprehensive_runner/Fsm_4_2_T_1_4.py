@@ -63,8 +63,8 @@ class TestF14:
 
             self.logger.check(
                 hasattr(self.module, 'excel_exporter'),
-                "ExcelExporter инициализирован",
-                "ExcelExporter не инициализирован!"
+                "Fsm_1_4_2_ExcelExporter инициализирован",
+                "Fsm_1_4_2_ExcelExporter не инициализирован!"
             )
 
             self.logger.check(
@@ -75,14 +75,14 @@ class TestF14:
 
             self.logger.check(
                 hasattr(self.module, 'tab_exporter'),
-                "TabExporter инициализирован",
-                "TabExporter не инициализирован!"
+                "Fsm_1_4_4_TabExporter инициализирован",
+                "Fsm_1_4_4_TabExporter не инициализирован!"
             )
 
             self.logger.check(
                 hasattr(self.module, 'layout_manager'),
-                "LayoutManager инициализирован",
-                "LayoutManager не инициализирован!"
+                "Fsm_1_4_5_LayoutManager инициализирован",
+                "Fsm_1_4_5_LayoutManager не инициализирован!"
             )
 
             self.logger.check(
@@ -93,8 +93,8 @@ class TestF14:
 
             self.logger.check(
                 hasattr(self.module, 'style_manager'),
-                "StyleManager инициализирован",
-                "StyleManager не инициализирован!"
+                "Fsm_1_4_7_StyleManager инициализирован",
+                "Fsm_1_4_7_StyleManager не инициализирован!"
             )
 
         except Exception as e:
@@ -112,12 +112,12 @@ class TestF14:
             return
 
         submodules = [
-            ('excel_exporter', 'ExcelExporter'),
-            ('dxf_exporter', 'DxfExportWrapper'),
-            ('tab_exporter', 'TabExporter'),
-            ('layout_manager', 'LayoutManager'),
-            ('legend_creator', 'LegendLayersCreator'),
-            ('style_manager', 'StyleManager')
+            ('excel_exporter', 'Fsm_1_4_2_ExcelExporter'),
+            ('dxf_exporter', 'Fsm_1_4_3_DxfExportWrapper'),
+            ('tab_exporter', 'Fsm_1_4_4_TabExporter'),
+            ('layout_manager', 'Fsm_1_4_5_LayoutManager'),
+            ('legend_creator', 'Fsm_1_4_6_LegendLayersCreator'),
+            ('style_manager', 'Fsm_1_4_7_StyleManager')
         ]
 
         for attr_name, class_name in submodules:
@@ -131,11 +131,11 @@ class TestF14:
                 self.logger.fail(f"{class_name} отсутствует!")
 
     def test_03_excel_exporter(self):
-        """ТЕСТ 3: Тест ExcelExporter"""
-        self.logger.section("3. Тест ExcelExporter")
+        """ТЕСТ 3: Тест Fsm_1_4_2_ExcelExporter"""
+        self.logger.section("3. Тест Fsm_1_4_2_ExcelExporter")
 
         if not self.module or not hasattr(self.module, 'excel_exporter'):
-            self.logger.fail("ExcelExporter недоступен")
+            self.logger.fail("Fsm_1_4_2_ExcelExporter недоступен")
             return
 
         try:
@@ -149,13 +149,13 @@ class TestF14:
                     self.logger.warning(f"Метод {method} отсутствует")
 
         except Exception as e:
-            self.logger.error(f"Ошибка теста ExcelExporter: {str(e)}")
+            self.logger.error(f"Ошибка теста Fsm_1_4_2_ExcelExporter: {str(e)}")
             import traceback
             self.logger.data("Traceback", traceback.format_exc())
 
     def test_04_dxf_exporter(self):
         """ТЕСТ 4: Тест DXF экспорта"""
-        self.logger.section("4. Тест DxfExportWrapper")
+        self.logger.section("4. Тест Fsm_1_4_3_DxfExportWrapper")
 
         if not self.module or not hasattr(self.module, 'dxf_exporter'):
             self.logger.fail("DxfExporter недоступен")
@@ -178,10 +178,10 @@ class TestF14:
 
     def test_05_tab_exporter(self):
         """ТЕСТ 5: Тест TAB экспорта"""
-        self.logger.section("5. Тест TabExporter")
+        self.logger.section("5. Тест Fsm_1_4_4_TabExporter")
 
         if not self.module or not hasattr(self.module, 'tab_exporter'):
-            self.logger.fail("TabExporter недоступен")
+            self.logger.fail("Fsm_1_4_4_TabExporter недоступен")
             return
 
         try:
@@ -200,11 +200,11 @@ class TestF14:
             self.logger.data("Traceback", traceback.format_exc())
 
     def test_06_layout_manager(self):
-        """ТЕСТ 6: Тест LayoutManager"""
-        self.logger.section("6. Тест LayoutManager")
+        """ТЕСТ 6: Тест Fsm_1_4_5_LayoutManager"""
+        self.logger.section("6. Тест Fsm_1_4_5_LayoutManager")
 
         if not self.module or not hasattr(self.module, 'layout_manager'):
-            self.logger.fail("LayoutManager недоступен")
+            self.logger.fail("Fsm_1_4_5_LayoutManager недоступен")
             return
 
         try:
@@ -218,7 +218,7 @@ class TestF14:
                     self.logger.warning(f"Метод {method} отсутствует")
 
         except Exception as e:
-            self.logger.error(f"Ошибка теста LayoutManager: {str(e)}")
+            self.logger.error(f"Ошибка теста Fsm_1_4_5_LayoutManager: {str(e)}")
             import traceback
             self.logger.data("Traceback", traceback.format_exc())
 

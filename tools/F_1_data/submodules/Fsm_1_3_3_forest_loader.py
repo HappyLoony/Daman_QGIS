@@ -9,7 +9,7 @@ from qgis.core import QgsProject, QgsVectorLayer
 from Daman_QGIS.utils import log_info, log_warning
 
 
-class ForestLoader:
+class Fsm_1_3_3_ForestLoader:
     """Проверяльщик наличия лесных кварталов (БЕЗ загрузки)"""
 
     def __init__(self, iface, project_manager, layer_manager):

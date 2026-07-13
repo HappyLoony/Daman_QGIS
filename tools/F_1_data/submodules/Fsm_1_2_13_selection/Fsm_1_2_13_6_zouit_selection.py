@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_2_1_10: Выборка ЗОУИТ в границах работ
+Fsm_1_2_13_6: Выборка ЗОУИТ в границах работ
 
 Собирает объекты из ВСЕХ загруженных слоёв ЗОУИТ (Le_1_2_5_*)
 в один итоговый слой Le_1_9_5_1_ЕГРН_ЗОУИТ_Перечень.
@@ -24,8 +24,8 @@ from Daman_QGIS.constants import (
     MAX_FIELD_LEN, BOUNDARY_INNER_BUFFER_M, BUFFER_SEGMENTS
 )
 from Daman_QGIS.utils import log_info, log_error
-from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_4_geometry_processor import Fsm_2_1_5_GeometryProcessor
-from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_2_layer_builder import Fsm_2_1_6_LayerBuilder
+from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_4_geometry_processor import Fsm_1_2_13_4_GeometryProcessor
+from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_2_layer_builder import Fsm_1_2_13_2_LayerBuilder
 from Daman_QGIS.managers import CoordinatePrecisionManager
 
 
@@ -38,7 +38,7 @@ ZOUIT_RESULT_FIELDS = [
 ]
 
 
-class Fsm_2_1_10_ZouitSelection:
+class Fsm_1_2_13_6_ZouitSelection:
     """Выборка ЗОУИТ из всех загруженных слоёв в один перечень"""
 
     def __init__(self, iface, plugin_dir: str, gpkg_path: str):
@@ -50,8 +50,8 @@ class Fsm_2_1_10_ZouitSelection:
         """
         self.iface = iface
         self.gpkg_path = gpkg_path
-        self.geo_processor = Fsm_2_1_5_GeometryProcessor()
-        self.layer_builder = Fsm_2_1_6_LayerBuilder(plugin_dir)
+        self.geo_processor = Fsm_1_2_13_4_GeometryProcessor()
+        self.layer_builder = Fsm_1_2_13_2_LayerBuilder(plugin_dir)
 
     def find_zouit_layers(self) -> List[QgsVectorLayer]:
         """Найти все загруженные слои ЗОУИТ (Le_1_2_5_*) в проекте
@@ -79,15 +79,15 @@ class Fsm_2_1_10_ZouitSelection:
             QgsVectorLayer сохранённый в GeoPackage, или None если нет объектов
         """
         try:
-            log_info("Fsm_2_1_10: Запуск выборки ЗОУИТ")
+            log_info("Fsm_1_2_13_6: Запуск выборки ЗОУИТ")
 
             # Находим все ЗОУИТ слои
             zouit_layers = self.find_zouit_layers()
             if not zouit_layers:
-                log_info("Fsm_2_1_10: Слои ЗОУИТ (Le_1_2_5_*) не найдены в проекте")
+                log_info("Fsm_1_2_13_6: Слои ЗОУИТ (Le_1_2_5_*) не найдены в проекте")
                 return None
 
-            log_info(f"Fsm_2_1_10: Найдено {len(zouit_layers)} слоёв ЗОУИТ")
+            log_info(f"Fsm_1_2_13_6: Найдено {len(zouit_layers)} слоёв ЗОУИТ")
 
             # Получаем геометрию границ
             boundaries_geom = self.geo_processor.get_boundaries_geometry(boundaries_exact)
@@ -131,7 +131,7 @@ class Fsm_2_1_10_ZouitSelection:
                 ]
                 if missing_fields:
                     log_info(
-                        f"Fsm_2_1_10: слой {source_name} — обрезанная NSPD-схема, "
+                        f"Fsm_1_2_13_6: слой {source_name} — обрезанная NSPD-схема, "
                         f"отсутствуют {missing_fields}, в перечне будут NULL"
                     )
 
@@ -171,12 +171,12 @@ class Fsm_2_1_10_ZouitSelection:
             result_layer.commitChanges()
 
             log_info(
-                f"Fsm_2_1_10: Проверено {checked_count} объектов из {len(zouit_layers)} слоёв, "
+                f"Fsm_1_2_13_6: Проверено {checked_count} объектов из {len(zouit_layers)} слоёв, "
                 f"отобрано {selected_count}"
             )
 
             if selected_count == 0:
-                log_info("Fsm_2_1_10: Нет ЗОУИТ объектов в границах работ")
+                log_info("Fsm_1_2_13_6: Нет ЗОУИТ объектов в границах работ")
                 return None
 
             # Повторная проверка после округления (-2см буфер)
@@ -187,10 +187,10 @@ class Fsm_2_1_10_ZouitSelection:
                     result_layer, boundaries_geom_minus2cm
                 )
                 selected_count = result_layer.featureCount()
-                log_info(f"Fsm_2_1_10: После повторной проверки: {selected_count} объектов (удалено {removed})")
+                log_info(f"Fsm_1_2_13_6: После повторной проверки: {selected_count} объектов (удалено {removed})")
 
             if result_layer.featureCount() == 0:
-                log_info("Fsm_2_1_10: Слой пуст после повторной проверки")
+                log_info("Fsm_1_2_13_6: Слой пуст после повторной проверки")
                 return None
 
             # Сохраняем в GeoPackage
@@ -199,12 +199,12 @@ class Fsm_2_1_10_ZouitSelection:
             )
 
             if final_layer:
-                log_info(f"Fsm_2_1_10: Итого: {final_layer.featureCount()} ЗОУИТ объектов в перечне")
+                log_info(f"Fsm_1_2_13_6: Итого: {final_layer.featureCount()} ЗОУИТ объектов в перечне")
 
             return final_layer
 
         except Exception as e:
-            log_error(f"Fsm_2_1_10: Ошибка выборки ЗОУИТ: {str(e)}")
+            log_error(f"Fsm_1_2_13_6: Ошибка выборки ЗОУИТ: {str(e)}")
             return None
 
     @staticmethod

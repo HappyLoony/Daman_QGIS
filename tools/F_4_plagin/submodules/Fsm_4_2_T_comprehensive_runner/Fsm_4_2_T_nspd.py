@@ -15,8 +15,14 @@ NETWORK_DEPENDENT: требуется интернет-соединение к n
 - Конфигурация невалидна -> FAIL с деталями
 - Ответ OK + поля совпали -> logger.success (молчит)
 - Ответ OK + поля различаются -> FAIL с удалёнными/новыми полями + актуальный состав для Excel
-- Нет ответа (timeout/ошибка) -> FAIL "проверить сеть или category_id"
+- Нет ответа -> FAIL с конкретной причиной (timeout N s / HTTP код / нужна ESIA)
 - expected_fields не задан -> FAIL с обнаруженными полями (discovery mode)
+
+Устойчивость к флакам НСПД (2026-07-10):
+- Транзиентные сбои (timeout, 5xx, обрыв тела) ретраятся 1 раз через RETRY_DELAY_SECONDS
+- REQUEST_TIMEOUT 120s: холодный intersects тяжёлых категорий считается дольше 30s
+- Плотные категории Москвы (ЗУ/Здания/Сооружения) опрашиваются с буфером
+  CATEGORY_BUFFER_KM=1.0 км вместо 5 км (при 5 км ответ 60-80+ МБ)
 """
 
 import math
@@ -41,15 +47,30 @@ class TestNSPD:
         "Sec-Fetch-Site": "same-origin",
     }
 
-    REQUEST_TIMEOUT = 30
-    DELAY_BETWEEN_REQUESTS = 0.5
+    # 120с: холодный intersects тяжёлых категорий НСПД считается/скачивается дольше 30с
+    # (замер 2026-07-10: Сооружения при буфере 5 км -- 83 МБ / 81с).
+    # Тест дольше, но без ложных "Нет ответа".
+    REQUEST_TIMEOUT = 120
+    DELAY_BETWEEN_REQUESTS = 2.0  # Пауза между endpoint: не наваливаться на НСПД сериями
+    RETRY_DELAY_SECONDS = 5.0  # Пауза перед повтором при timeout/5xx (флаки сервера)
     BUFFER_KM = 5.0  # Буфер вокруг тестовой точки (км)
+
+    # Плотные категории (тестовая точка в Москве): при буфере 5 км ответ 60-80+ МБ
+    # и уходит за любой разумный timeout. Калибровка 2026-07-10 (буферы 0.3/0.5/1.0 км):
+    # при 1.0 км union полей == expected_fields у всех трёх категорий с запасом
+    # (0.3 км теряет редкие поля Сооружений object_previously_posted/right_type).
+    # ОНС (36384) НЕ сужать: при малом буфере в extent 0 объектов.
+    CATEGORY_BUFFER_KM = {
+        36368: 1.0,  # Земельные участки (5 км: 63 МБ; 1 км: 3.3 МБ)
+        36369: 1.0,  # Здания (1 км: 1.1 МБ)
+        36383: 1.0,  # Сооружения (5 км: 83 МБ; 1 км: 6.9 МБ)
+    }
 
     # Все известные группы endpoint'ов в Base_api_endpoints.json
     # OVERPASS_FALLBACK удалена: серверный пул теперь в constants.py (OVERPASS_SERVERS),
     # выбор сервера через M_14.ping_and_sort_overpass_servers()
     # GOOGLE удалена 2026-04-19: L_1_3_1 мигрирован с Google Satellite на ЕЭКО ортофото
-    # НСПД (EGRN_WMTS/category_id=36346). См. shared/decision-log.md.
+    # НСПД (EGRN_WMTS/category_id=36346). См. shared/decision-log-archive-2026H1.md.
     KNOWN_GROUPS = [
         'EGRN_WFS', 'EGRN_WMTS', 'OVERPASS', 'FGISLK',
     ]
@@ -383,12 +404,12 @@ class TestNSPD:
             return
 
         # Send request
-        response_data = self._send_request(cat_id, point)
+        response_data, fail_reason = self._send_request(cat_id, point)
 
         if response_data is None:
             self.logger.fail(
-                f"EP {ep_id} ({cat_name}): Нет ответа. "
-                f"Проверить сеть или category_id {cat_id}"
+                f"EP {ep_id} ({cat_name}): Нет ответа -- {fail_reason}. "
+                f"category_id {cat_id}"
             )
             return
 
@@ -430,12 +451,12 @@ class TestNSPD:
             if not point:
                 continue
 
-            response_data = self._send_request(cat_id, point)
+            response_data, fail_reason = self._send_request(cat_id, point)
 
             if response_data is None:
                 self.logger.fail(
-                    f"EP {ep_id} ({cat_name}): Нет ответа (cat_id={cat_id}). "
-                    f"Проверить сеть или category_id"
+                    f"EP {ep_id} ({cat_name}): Нет ответа -- {fail_reason} "
+                    f"(cat_id={cat_id})"
                 )
                 time.sleep(self.DELAY_BETWEEN_REQUESTS)
                 continue
@@ -474,8 +495,42 @@ class TestNSPD:
         self,
         category_id,
         point: Tuple[float, float]
-    ) -> Optional[Dict[str, Any]]:
-        """POST запрос к NSPD intersects API с adaptive auth.
+    ) -> Tuple[Optional[Dict[str, Any]], str]:
+        """POST запрос к NSPD intersects API: retry-петля поверх _send_request_once.
+
+        До 2 попыток при транзиентных сбоях (timeout, HTTP 5xx, обрыв тела) --
+        интермиттентные задержки НСПД давали ложные FAIL (диагностика 2026-07-10:
+        7 из 10 "Нет ответа" не воспроизвелись, категории живы).
+        Детерминированные отказы (4xx) не ретраятся.
+
+        Returns:
+            (data, "") при успехе; (None, причина) при отказе -- причина
+            уходит в текст FAIL, чтобы не диагностировать вслепую.
+        """
+        last_reason = "неизвестная ошибка"
+
+        for attempt in (1, 2):
+            data, reason, retryable = self._send_request_once(category_id, point)
+            if data is not None:
+                return data, ""
+            last_reason = reason
+            if not retryable:
+                break
+            if attempt == 1:
+                log_info(
+                    f"Fsm_4_2_T_nspd: cat_id={category_id} попытка 1 неудачна ({reason}), "
+                    f"повтор через {self.RETRY_DELAY_SECONDS}s"
+                )
+                time.sleep(self.RETRY_DELAY_SECONDS)
+
+        return None, last_reason
+
+    def _send_request_once(
+        self,
+        category_id,
+        point: Tuple[float, float]
+    ) -> Tuple[Optional[Dict[str, Any]], str, bool]:
+        """Одна попытка POST к NSPD intersects API с adaptive auth.
 
         Стратегия anonymous-first c 401/403-fallback на session:
         - Сначала пробуем БЕЗ session (анонимно). Публичные ЕГРН-категории
@@ -491,6 +546,11 @@ class TestNSPD:
         - Симметрия с reactive 401 в production loader (там наоборот:
           session -> 401 -> без session). Тест-разведка не знает наперёд
           требует ли endpoint auth, поэтому делает обе попытки.
+
+        Returns:
+            (data, "", False) при успехе;
+            (None, причина, retryable) при отказе. retryable=True только для
+            транзиентных сбоев (timeout, 5xx, обрыв тела ответа).
         """
         try:
             import requests
@@ -516,13 +576,24 @@ class TestNSPD:
 
             if response is None:
                 log_info("Fsm_4_2_T_nspd: _send_request timeout (anonymous, response is None)")
-                return None
+                return None, f"timeout {self.REQUEST_TIMEOUT}s (anonymous)", True
 
             # 401/403 -> fallback на session (если есть)
             # 401 = expired cookies, 403 = закрытый ресурс без cookies (НСПД API)
-            if response.status_code in (401, 403) and self.session is not None:
+            if response.status_code in (401, 403):
+                anon_status = response.status_code
+                if self.session is None:
+                    log_info(
+                        f"Fsm_4_2_T_nspd: HTTP {anon_status} anonymous for cat_id={category_id}, "
+                        f"session нет (M_40 не авторизован)"
+                    )
+                    return None, (
+                        f"HTTP {anon_status} без ESIA session -- категория закрытая, "
+                        f"M_40 не авторизован"
+                    ), False
+
                 log_info(
-                    f"Fsm_4_2_T_nspd: HTTP {response.status_code} anonymous for cat_id={category_id}, "
+                    f"Fsm_4_2_T_nspd: HTTP {anon_status} anonymous for cat_id={category_id}, "
                     f"retry с session (M_40 cookies)"
                 )
                 response = requests_post_with_timeout(
@@ -535,22 +606,44 @@ class TestNSPD:
                 )
                 if response is None:
                     log_info("Fsm_4_2_T_nspd: _send_request timeout (session retry, response is None)")
-                    return None
+                    return None, f"timeout {self.REQUEST_TIMEOUT}s (session)", True
+
+                if response.status_code in (401, 403):
+                    # Отказ и с ESIA cookies. НЕ обязательно смена прав категории:
+                    # НСПД может инвалидировать сессию раньше клиентского таймера
+                    # Msm_40_2 (прецедент 2026-07-10: локально remaining 93 мин,
+                    # сервер 401 на все закрытые категории; после re-login -- 200).
+                    log_info(
+                        f"Fsm_4_2_T_nspd: HTTP {response.status_code} с session for "
+                        f"cat_id={category_id}: {response.text[:200]}"
+                    )
+                    return None, (
+                        f"HTTP {response.status_code} даже с ESIA session -- "
+                        f"сессия инвалидирована сервером (re-login M_40) "
+                        f"или права категории"
+                    ), False
 
             if response.status_code != 200:
                 log_info(f"Fsm_4_2_T_nspd: HTTP {response.status_code} for cat_id={category_id}: {response.text[:200]}")
-                return None
+                is_server_error = response.status_code >= 500
+                return None, f"HTTP {response.status_code}", is_server_error
 
-            return response.json()
+            try:
+                return response.json(), "", False
+            except ValueError as e:
+                # Оборванное/битое тело при 200 -- транзиентный сбой
+                log_info(f"Fsm_4_2_T_nspd: невалидный JSON for cat_id={category_id}: {e}")
+                return None, "HTTP 200, но невалидный JSON (обрыв тела?)", True
 
         except Exception as e:
             log_info(f"Fsm_4_2_T_nspd: Exception for cat_id={category_id}: {e}")
-            return None
+            return None, f"исключение {type(e).__name__}", True
 
     def _build_payload(self, category_id, point: Tuple[float, float]) -> Dict[str, Any]:
-        """Построить GeoJSON payload: bbox = точка + буфер BUFFER_KM"""
+        """Построить GeoJSON payload: bbox = точка + буфер (CATEGORY_BUFFER_KM или BUFFER_KM)"""
         lon, lat = point
-        bbox = self._point_to_bbox(lon, lat, self.BUFFER_KM)
+        buffer_km = self.CATEGORY_BUFFER_KM.get(category_id, self.BUFFER_KM)
+        bbox = self._point_to_bbox(lon, lat, buffer_km)
         min_lon, min_lat, max_lon, max_lat = bbox
         return {
             "categories": [{"id": category_id}],

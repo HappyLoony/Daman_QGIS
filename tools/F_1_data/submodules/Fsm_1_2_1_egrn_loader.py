@@ -90,7 +90,7 @@ def requests_post_with_timeout(url, session=None, **kwargs):
     return result['response']
 
 
-class RateLimiter:
+class Fsm_1_2_1_RateLimiter:
     """
     Ограничитель частоты запросов (не более N запросов в секунду)
 
@@ -158,7 +158,7 @@ class Fsm_1_2_1_EgrnLoader:
 
         # ОПТИМИЗАЦИЯ: Rate Limiting для защиты от перегрузки API
         # Гарантирует не более DEFAULT_RATE_LIMIT запросов в секунду, предотвращает 429 ошибки
-        self.rate_limiter = RateLimiter(max_per_second=DEFAULT_RATE_LIMIT)
+        self.rate_limiter = Fsm_1_2_1_RateLimiter(max_per_second=DEFAULT_RATE_LIMIT)
 
         # ОПТИМИЗАЦИЯ: Connection Pooling через requests.Session + HTTPAdapter
         # Keep-alive соединения - меньше SSL handshakes, быстрее повторные запросы
@@ -497,6 +497,7 @@ class Fsm_1_2_1_EgrnLoader:
                     # Категории с временем ответа > 5 сек (например cat=36945 Лесничества на крупных
                     # территориях, X-Request-Time ~6 сек) обрезались на 5 сек → каскад дробления →
                     # сотни запросов и итоговые 0 объектов вместо корректного ответа сервера.
+                    # НЕ откатывать на `min(max_retries - 1, 1)` (корневой баг, фикс v0.9.908 2026-05-04).
                     if attempt < max_retries - 1:
                         next_timeout = timeouts[min(attempt + 1, len(timeouts) - 1)] if isinstance(timeouts, list) else timeouts
                         log_warning(
@@ -1554,7 +1555,7 @@ class Fsm_1_2_1_EgrnLoader:
             ValueError: Если endpoint не найден или некорректен
         """
         from Daman_QGIS.managers import get_reference_managers
-        from .Fsm_1_2_15_zouit_classifier_dialog import ZouitClassifierDialog
+        from .Fsm_1_2_15_zouit_classifier_dialog import Fsm_1_2_15_ZouitClassifierDialog
 
         assert self.api_manager is not None  # Type narrowing для Pylance
 
@@ -1673,7 +1674,7 @@ class Fsm_1_2_1_EgrnLoader:
                     target_layer = "Le_1_2_5_45_WFS_ЗОУИТ_ИНАЯ_ЗОНА"
                 else:
                     # Показываем GUI для классификации
-                    dialog = ZouitClassifierDialog(
+                    dialog = Fsm_1_2_15_ZouitClassifierDialog(
                         parent=self.iface.mainWindow(),
                         feature_data=feature_data,
                         zouit_layers=zouit_data,

@@ -11,10 +11,35 @@
 
 Принцип: всё в коде. Правки штампа — через диалог Claude, не через Word.
 См. feedback_docx_generation.md.
+
+ОБРАЗЕЦ для будущих DOCX-генераторов по ГОСТ 21.101 (best practices, verified 2026-05-07).
+Готовых OSS-библиотек для ГОСТ 21.101 DOCX НЕТ (typst-gost — движок Typst, не DOCX;
+dell4valt/gost_template — статичные SVG/PNG). Подход = Approach D (research compass_artifact
+в documentation/plans/compass_artifact_wf-8011e7fe...md — 5 механизмов несовпадения pgBorders
+с positioned tables):
+- Рамка ГОСТ = DrawingML rectangle `behindDoc="1"` в header (НЕ pgBorders, НЕ positioned table).
+  pgBorders + positioned tables не дают pixel-perfect (legacy ~1.9 мм/side); positioned outer
+  table в header блокирует body content. DrawingML behindDoc=1 → body рендерится ПОВЕРХ рамки.
+- Штампы форм 5/6 = INLINE tables (НЕ positioned): positioned в footer → body wrap-around → gap
+  на стр 2+. Side stamp в header — единственный допустимый positioned (anchor=page, вне рамки).
+- compatibilityMode=15: python-docx пишет val=14 → Word legacy mode сдвигает positioned tables
+  на 108 twips. REMOVE existing entries → append val=15 (Word берёт ПЕРВУЮ запись).
+- Two-table pattern для tblHeader (OOXML §17.4.42: tblHeader работает только для contiguous
+  rows from start) — отдельная header_table (column headers, без tblHeader) + невидимый
+  paragraph-разделитель `line=1 lineRule=exact` (иначе Word merges) + body_table (numbering
+  row tblHeader=true, повторяется на стр 2+).
+- PAGE/NUMPAGES = ТОЛЬКО nested fldChar (внешний `= PAGE + N`, внутренний `PAGE`), БЕЗ
+  `w:dirty`/`<w:updateFields>` (иначе Word-диалог «ссылки на другие файлы»).
+- Все координаты в integer twips через mm_twips (TWIPS_PER_MM=56.6929); FRAME_*_TWIPS — все
+  positioned tables рассчитываются ОТ них by construction (identical edges, не arithmetic).
 """
 from typing import Optional, Dict, Any
 
 from Daman_QGIS.utils import log_info, log_warning
+
+# Шрифт штампа формы 78 (ГОСТ 21.101) — локальная специфика, вне канона M_49
+# (решение Q1 плана)
+STAMP_FONT_NAME = 'Arial'
 
 
 class ExplanatoryNoteStamp:
@@ -230,7 +255,7 @@ class ExplanatoryNoteStamp:
         # Лейблы в col0 с вертикальным текстом btLr
         for ri, label in enumerate(labels):
             cell = table.rows[ri].cells[0]
-            self._set_cell_vertical_text(cell, label, size=8, font='Arial')
+            self._set_cell_vertical_text(cell, label, size=8, font=STAMP_FONT_NAME)
 
         # col1 — пустые ячейки для подписей (тоже btLr чтобы место было таким же)
         for ri in range(3):
@@ -295,7 +320,7 @@ class ExplanatoryNoteStamp:
         tcPr.append(textDir)
 
     def _set_cell_vertical_text(self, cell, text: str, size: int = 8,
-                                font: str = 'Arial', bold: bool = False) -> None:
+                                font: str = STAMP_FONT_NAME, bold: bool = False) -> None:
         """Записать вертикальный текст (btLr) в ячейку."""
         from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 

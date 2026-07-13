@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Fsm_2_1_8: Движок выборки земельных участков и ОКС
+Fsm_1_2_13_3: Движок выборки земельных участков и ОКС
 Основная логика выборки объектов по пересечению с границами
 """
 
@@ -20,12 +20,12 @@ from Daman_QGIS.utils import log_info, log_warning, log_error, log_debug
 from Daman_QGIS.managers import CoordinatePrecisionManager
 from Daman_QGIS.managers import AttributeProcessor
 from Daman_QGIS.managers import AttributeMapper
-from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_4_geometry_processor import Fsm_2_1_5_GeometryProcessor
-from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_2_layer_builder import Fsm_2_1_6_LayerBuilder
-from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_5_oks_characteristic_mapper import Fsm_2_1_9_OKSCharacteristicMapper
+from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_4_geometry_processor import Fsm_1_2_13_4_GeometryProcessor
+from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_2_layer_builder import Fsm_1_2_13_2_LayerBuilder
+from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_13_selection.Fsm_1_2_13_5_oks_characteristic_mapper import Fsm_1_2_13_5_OKSCharacteristicMapper
 
 
-class Fsm_2_1_8_SelectionEngine:
+class Fsm_1_2_13_3_SelectionEngine:
     """Движок выборки земельных участков и ОКС"""
 
     def __init__(self, iface, plugin_dir: str, gpkg_path: str):
@@ -41,8 +41,8 @@ class Fsm_2_1_8_SelectionEngine:
         self.gpkg_path = gpkg_path
 
         # Инициализация субмодулей
-        self.geo_processor = Fsm_2_1_5_GeometryProcessor()
-        self.layer_builder = Fsm_2_1_6_LayerBuilder(plugin_dir)
+        self.geo_processor = Fsm_1_2_13_4_GeometryProcessor()
+        self.layer_builder = Fsm_1_2_13_2_LayerBuilder(plugin_dir)
         self.attr_mapper = AttributeMapper()
         self.attribute_processor = AttributeProcessor()
 
@@ -97,7 +97,7 @@ class Fsm_2_1_8_SelectionEngine:
                 raise ValueError(f"Не удалось получить валидную геометрию из слоя '{boundaries_500m.name()}'")
             boundaries_geom_500m_minus2cm = self._create_minus2cm_buffer(boundaries_geom_500m)
 
-            log_info(f"Fsm_2_1_8: Начало выборки. Всего объектов: {source_layer.featureCount()}")
+            log_info(f"Fsm_1_2_13_3: Начало выборки. Всего объектов: {source_layer.featureCount()}")
 
             # Создаем СК трансформации
             transform_to_project, transform_for_intersection = self.geo_processor.create_coordinate_transforms(
@@ -105,7 +105,7 @@ class Fsm_2_1_8_SelectionEngine:
             )
 
             # ========== ЭТАП 1: Создаём слои и выполняем первичную выборку ==========
-            log_info("Fsm_2_1_8: ЭТАП 1: ПЕРВИЧНАЯ ВЫБОРКА")
+            log_info("Fsm_1_2_13_3: ЭТАП 1: ПЕРВИЧНАЯ ВЫБОРКА")
             # КРИТИЧНО: Используем СК проекта как единственный источник истины
             # НЕ доверяем boundaries_layer.crs() - он может быть неправильно импортирован
             target_crs = QgsProject.instance().crs()
@@ -200,14 +200,14 @@ class Fsm_2_1_8_SelectionEngine:
             result_layer_2.commitChanges()
             result_layer_3.commitChanges()
 
-            log_info(f"Fsm_2_1_8: Первичная выборка завершена:")
-            log_info(f"Fsm_2_1_8:   {LAYER_SELECTION_ZU} (точная): {selected_count_1} объектов")
-            log_info(f"Fsm_2_1_8:   {LAYER_SELECTION_ZU_10M}: {selected_count_2} объектов")
-            log_info(f"Fsm_2_1_8:   {LAYER_SELECTION_ZU_500M}: {selected_count_3} объектов")
+            log_info(f"Fsm_1_2_13_3: Первичная выборка завершена:")
+            log_info(f"Fsm_1_2_13_3:   {LAYER_SELECTION_ZU} (точная): {selected_count_1} объектов")
+            log_info(f"Fsm_1_2_13_3:   {LAYER_SELECTION_ZU_10M}: {selected_count_2} объектов")
+            log_info(f"Fsm_1_2_13_3:   {LAYER_SELECTION_ZU_500M}: {selected_count_3} объектов")
 
             # ========== ЭТАП 2: ЭТАП ПОВТОРНОЙ ПРОВЕРКИ ПОСЛЕ ОКРУГЛЕНИЯ ==========
             # Проверяем слои с границами -2см
-            log_info("Fsm_2_1_8: ЭТАП 2: ПОВТОРНАЯ ПРОВЕРКА ПОСЛЕ ОКРУГЛЕНИЯ")
+            log_info("Fsm_1_2_13_3: ЭТАП 2: ПОВТОРНАЯ ПРОВЕРКА ПОСЛЕ ОКРУГЛЕНИЯ")
 
             count_after_recheck_1 = selected_count_1
             count_after_recheck_2 = selected_count_2
@@ -216,25 +216,25 @@ class Fsm_2_1_8_SelectionEngine:
             if selected_count_1 > 0:
                 removed_1 = self.geo_processor.recheck_intersection_after_rounding(result_layer_1, boundaries_geom_minus2cm)
                 count_after_recheck_1 = result_layer_1.featureCount()
-                log_info(f"Fsm_2_1_8: {LAYER_SELECTION_ZU}: после повторной проверки осталось {count_after_recheck_1} (удалено {removed_1})")
+                log_info(f"Fsm_1_2_13_3: {LAYER_SELECTION_ZU}: после повторной проверки осталось {count_after_recheck_1} (удалено {removed_1})")
 
             if selected_count_2 > 0:
                 # Для слоя 10м используем границы 10м с буфером -2см
                 removed_2 = self.geo_processor.recheck_intersection_after_rounding(result_layer_2, boundaries_geom_10m_minus2cm)
                 count_after_recheck_2 = result_layer_2.featureCount()
-                log_info(f"Fsm_2_1_8: {LAYER_SELECTION_ZU_10M}: после повторной проверки осталось {count_after_recheck_2} (удалено {removed_2})")
+                log_info(f"Fsm_1_2_13_3: {LAYER_SELECTION_ZU_10M}: после повторной проверки осталось {count_after_recheck_2} (удалено {removed_2})")
 
             if selected_count_3 > 0:
                 removed_3 = self.geo_processor.recheck_intersection_after_rounding(result_layer_3, boundaries_geom_500m_minus2cm)
                 count_after_recheck_3 = result_layer_3.featureCount()
-                log_info(f"Fsm_2_1_8: {LAYER_SELECTION_ZU_500M}: после повторной проверки осталось {count_after_recheck_3} (удалено {removed_3})")
+                log_info(f"Fsm_1_2_13_3: {LAYER_SELECTION_ZU_500M}: после повторной проверки осталось {count_after_recheck_3} (удалено {removed_3})")
 
             # Этап 2.5 удалён - нумерация "№ п/п" больше не используется
 
             # ========== ЭТАП 2.6: Дополнение поля ЕЗ из выписок ==========
             # FIX (2025-12-17): Поле "ЕЗ" не приходит из WFS (wfs_zu_field="-")
             # Дополняем из слоёв выписок (Le_1_6_3_2_Выписки_ЕЗ_poly)
-            log_info("Fsm_2_1_8: ЭТАП 2.6: ДОПОЛНЕНИЕ ПОЛЯ ЕЗ ИЗ ВЫПИСОК")
+            log_info("Fsm_1_2_13_3: ЭТАП 2.6: ДОПОЛНЕНИЕ ПОЛЯ ЕЗ ИЗ ВЫПИСОК")
 
             if count_after_recheck_1 > 0:
                 self._supplement_ez_field_from_extracts(result_layer_1)
@@ -246,7 +246,7 @@ class Fsm_2_1_8_SelectionEngine:
             # ========== ЭТАП 2.7: Дополнение атрибутов из выписок ==========
             # FIX (2025-12-18): WFS содержит ограниченные данные, выписки - полные
             # Дополняем: Категория, ВРИ, Права, Обременения, Собственники, Арендаторы
-            log_info("Fsm_2_1_8: ЭТАП 2.7: ДОПОЛНЕНИЕ АТРИБУТОВ ИЗ ВЫПИСОК")
+            log_info("Fsm_1_2_13_3: ЭТАП 2.7: ДОПОЛНЕНИЕ АТРИБУТОВ ИЗ ВЫПИСОК")
 
             if count_after_recheck_1 > 0:
                 self._supplement_attributes_from_extracts(result_layer_1)
@@ -256,7 +256,7 @@ class Fsm_2_1_8_SelectionEngine:
                 self._supplement_attributes_from_extracts(result_layer_3)
 
             # ========== ЭТАП 3: Финальная обработка NULL значений (ДО сохранения) ==========
-            log_info("Fsm_2_1_8: ЭТАП 3: ФИНАЛЬНАЯ ОБРАБОТКА NULL ЗНАЧЕНИЙ")
+            log_info("Fsm_1_2_13_3: ЭТАП 3: ФИНАЛЬНАЯ ОБРАБОТКА NULL ЗНАЧЕНИЙ")
 
             if count_after_recheck_1 > 0:
                 self.attr_mapper.finalize_layer_null_values(result_layer_1, LAYER_SELECTION_ZU)
@@ -266,7 +266,7 @@ class Fsm_2_1_8_SelectionEngine:
                 self.attr_mapper.finalize_layer_null_values(result_layer_3, LAYER_SELECTION_ZU_500M)
 
             # ========== ЭТАП 4: Сохранение в GeoPackage (ПОСЛЕ обработки NULL) ==========
-            log_info("Fsm_2_1_8: ЭТАП 4: СОХРАНЕНИЕ В GEOPACKAGE")
+            log_info("Fsm_1_2_13_3: ЭТАП 4: СОХРАНЕНИЕ В GEOPACKAGE")
 
             final_layer_1 = None
             final_layer_2 = None
@@ -275,22 +275,22 @@ class Fsm_2_1_8_SelectionEngine:
             if count_after_recheck_1 > 0:
                 final_layer_1 = self.layer_builder.save_layer_to_gpkg(result_layer_1, LAYER_SELECTION_ZU, self.gpkg_path)
             else:
-                log_info(f"Fsm_2_1_8: Слой {LAYER_SELECTION_ZU} пуст после проверки - пропускаем сохранение")
+                log_info(f"Fsm_1_2_13_3: Слой {LAYER_SELECTION_ZU} пуст после проверки - пропускаем сохранение")
 
             if count_after_recheck_2 > 0:
                 final_layer_2 = self.layer_builder.save_layer_to_gpkg(result_layer_2, LAYER_SELECTION_ZU_10M, self.gpkg_path)
             else:
-                log_info(f"Fsm_2_1_8: Слой {LAYER_SELECTION_ZU_10M} пуст после проверки - пропускаем сохранение")
+                log_info(f"Fsm_1_2_13_3: Слой {LAYER_SELECTION_ZU_10M} пуст после проверки - пропускаем сохранение")
 
             if count_after_recheck_3 > 0:
                 final_layer_3 = self.layer_builder.save_layer_to_gpkg(result_layer_3, LAYER_SELECTION_ZU_500M, self.gpkg_path)
             else:
-                log_info(f"Fsm_2_1_8: Слой {LAYER_SELECTION_ZU_500M} пуст после проверки - пропускаем сохранение")
+                log_info(f"Fsm_1_2_13_3: Слой {LAYER_SELECTION_ZU_500M} пуст после проверки - пропускаем сохранение")
 
             return final_layer_1, final_layer_2, final_layer_3
 
         except Exception as e:
-            log_error(f"Fsm_2_1_8: Ошибка при выполнении выборки ЗУ: {str(e)}")
+            log_error(f"Fsm_1_2_13_3: Ошибка при выполнении выборки ЗУ: {str(e)}")
             return None, None, None
 
     def perform_selection_oks(self, boundaries_exact: QgsVectorLayer,
@@ -306,11 +306,11 @@ class Fsm_2_1_8_SelectionEngine:
             QgsVectorLayer: Финальный слой или None при ошибке
         """
         try:
-            log_info("Fsm_2_1_8: ВЫПОЛНЕНИЕ ВЫБОРКИ ОКС")
+            log_info("Fsm_1_2_13_3: ВЫПОЛНЕНИЕ ВЫБОРКИ ОКС")
 
             # Проверяем что слой границ не пустой
             feature_count = boundaries_exact.featureCount()
-            log_info(f"Fsm_2_1_8: Слой границ '{boundaries_exact.name()}': {feature_count} объектов")
+            log_info(f"Fsm_1_2_13_3: Слой границ '{boundaries_exact.name()}': {feature_count} объектов")
             if feature_count == 0:
                 raise ValueError(f"Слой '{boundaries_exact.name()}' не содержит объектов. Сначала импортируйте границы через F_1_1.")
 
@@ -325,11 +325,11 @@ class Fsm_2_1_8_SelectionEngine:
             )
 
             # ========== ЭТАП 1: СОЗДАНИЕ СЛОЯ И ВЫБОРКА ==========
-            log_info("Fsm_2_1_8: ЭТАП 1: ВЫБОРКА ОКС")
+            log_info("Fsm_1_2_13_3: ЭТАП 1: ВЫБОРКА ОКС")
 
             source_field_names = [field.name() for field in source_layer.fields()]
             project_crs = QgsProject.instance().crs()
-            log_info(f"Fsm_2_1_8: ОКС: СК проекта: {project_crs.authid()}")
+            log_info(f"Fsm_1_2_13_3: ОКС: СК проекта: {project_crs.authid()}")
 
             # КРИТИЧНО: Используем СК проекта как единственный источник истины
             # НЕ доверяем boundaries_layer.crs() - он может быть неправильно импортирован
@@ -365,7 +365,7 @@ class Fsm_2_1_8_SelectionEngine:
                     self.attr_mapper.map_attributes(feature, new_feature, source_layer.fields(), object_type='OKS')
 
                     # Специальная обработка полей "Значение" и "Характеристика" для ОКС
-                    Fsm_2_1_9_OKSCharacteristicMapper.map_characteristic_and_value(
+                    Fsm_1_2_13_5_OKSCharacteristicMapper.map_characteristic_and_value(
                         feature, new_feature, source_layer.fields()
                     )
 
@@ -377,13 +377,13 @@ class Fsm_2_1_8_SelectionEngine:
 
             result_layer.commitChanges()
 
-            log_info(f"Fsm_2_1_8: ОКС: Проверено объектов: {checked_count}, найдено пересечений: {selected_count}")
-            log_info(f"Fsm_2_1_8: Первичная выборка завершена: {selected_count} объектов ОКС")
+            log_info(f"Fsm_1_2_13_3: ОКС: Проверено объектов: {checked_count}, найдено пересечений: {selected_count}")
+            log_info(f"Fsm_1_2_13_3: Первичная выборка завершена: {selected_count} объектов ОКС")
 
             # Этап 1.5 удалён - нумерация "№ п/п" больше не используется
 
             # ========== ЭТАП 2: ПОВТОРНАЯ ПРОВЕРКА ПОСЛЕ ОКРУГЛЕНИЯ ==========
-            log_info("Fsm_2_1_8: ЭТАП 2: ПОВТОРНАЯ ПРОВЕРКА ПОСЛЕ ОКРУГЛЕНИЯ")
+            log_info("Fsm_1_2_13_3: ЭТАП 2: ПОВТОРНАЯ ПРОВЕРКА ПОСЛЕ ОКРУГЛЕНИЯ")
 
             if selected_count > 0:
                 # Создаём boundaries_geom_exact с буфером -2см для повторной проверки
@@ -393,26 +393,26 @@ class Fsm_2_1_8_SelectionEngine:
                     result_layer, boundaries_geom_minus2cm
                 )
                 selected_count = result_layer.featureCount()
-                log_info(f"Fsm_2_1_8: ОКС: после повторной проверки осталось {selected_count} (удалено {removed})")
+                log_info(f"Fsm_1_2_13_3: ОКС: после повторной проверки осталось {selected_count} (удалено {removed})")
             else:
-                log_info("Fsm_2_1_8: Слой ОКС пуст - пропускаем повторную проверку")
+                log_info("Fsm_1_2_13_3: Слой ОКС пуст - пропускаем повторную проверку")
 
             # ========== ЭТАП 3: Финальная обработка NULL значений (ДО сохранения) ==========
-            log_info("Fsm_2_1_8: ЭТАП 3: ФИНАЛЬНАЯ ОБРАБОТКА NULL ЗНАЧЕНИЙ")
+            log_info("Fsm_1_2_13_3: ЭТАП 3: ФИНАЛЬНАЯ ОБРАБОТКА NULL ЗНАЧЕНИЙ")
             if selected_count == 0:
-                log_info(f"Fsm_2_1_8: Слой {LAYER_SELECTION_OKS} пуст после проверки - пропускаем обработку")
+                log_info(f"Fsm_1_2_13_3: Слой {LAYER_SELECTION_OKS} пуст после проверки - пропускаем обработку")
                 return None
 
             self.attr_mapper.finalize_layer_null_values(result_layer, LAYER_SELECTION_OKS)
 
             # ========== ЭТАП 4: Сохранение в GeoPackage (ПОСЛЕ обработки NULL) ==========
-            log_info("Fsm_2_1_8: ЭТАП 4: СОХРАНЕНИЕ В GEOPACKAGE")
+            log_info("Fsm_1_2_13_3: ЭТАП 4: СОХРАНЕНИЕ В GEOPACKAGE")
             final_layer = self.layer_builder.save_layer_to_gpkg(result_layer, LAYER_SELECTION_OKS, self.gpkg_path)
 
             return final_layer
 
         except Exception as e:
-            log_error(f"Fsm_2_1_8: Ошибка при выполнении выборки ОКС: {str(e)}")
+            log_error(f"Fsm_1_2_13_3: Ошибка при выполнении выборки ОКС: {str(e)}")
             return None
 
     def perform_selection_generic(self, boundaries_exact: QgsVectorLayer,
@@ -436,11 +436,11 @@ class Fsm_2_1_8_SelectionEngine:
             QgsVectorLayer: Финальный слой или None при ошибке
         """
         try:
-            log_info(f"Fsm_2_1_8: ВЫПОЛНЕНИЕ GENERIC ВЫБОРКИ для {target_layer_name}")
+            log_info(f"Fsm_1_2_13_3: ВЫПОЛНЕНИЕ GENERIC ВЫБОРКИ для {target_layer_name}")
 
             # Проверяем что слой границ не пустой
             feature_count = boundaries_exact.featureCount()
-            log_info(f"Fsm_2_1_8: Слой границ '{boundaries_exact.name()}': {feature_count} объектов")
+            log_info(f"Fsm_1_2_13_3: Слой границ '{boundaries_exact.name()}': {feature_count} объектов")
             if feature_count == 0:
                 raise ValueError(f"Слой '{boundaries_exact.name()}' не содержит объектов. Сначала импортируйте границы через F_1_1.")
 
@@ -455,7 +455,7 @@ class Fsm_2_1_8_SelectionEngine:
             )
 
             # ========== ЭТАП 1: СОЗДАНИЕ СЛОЯ И ВЫБОРКА ==========
-            log_info(f"Fsm_2_1_8: ЭТАП 1: ВЫБОРКА {target_layer_name}")
+            log_info(f"Fsm_1_2_13_3: ЭТАП 1: ВЫБОРКА {target_layer_name}")
 
             source_field_names = [field.name() for field in source_layer.fields()]
             project_crs = QgsProject.instance().crs()
@@ -506,11 +506,11 @@ class Fsm_2_1_8_SelectionEngine:
 
             result_layer.commitChanges()
 
-            log_info(f"Fsm_2_1_8: {target_layer_name}: Проверено объектов: {checked_count}, найдено пересечений: {selected_count}")
-            log_info(f"Fsm_2_1_8: Первичная выборка завершена: {selected_count} объектов")
+            log_info(f"Fsm_1_2_13_3: {target_layer_name}: Проверено объектов: {checked_count}, найдено пересечений: {selected_count}")
+            log_info(f"Fsm_1_2_13_3: Первичная выборка завершена: {selected_count} объектов")
 
             # ========== ЭТАП 2: ПОВТОРНАЯ ПРОВЕРКА ПОСЛЕ ОКРУГЛЕНИЯ ==========
-            log_info(f"Fsm_2_1_8: ЭТАП 2: ПОВТОРНАЯ ПРОВЕРКА ПОСЛЕ ОКРУГЛЕНИЯ")
+            log_info(f"Fsm_1_2_13_3: ЭТАП 2: ПОВТОРНАЯ ПРОВЕРКА ПОСЛЕ ОКРУГЛЕНИЯ")
 
             if selected_count > 0:
                 # Создаём boundaries_geom_exact с буфером -2см для повторной проверки
@@ -520,14 +520,14 @@ class Fsm_2_1_8_SelectionEngine:
                     result_layer, boundaries_geom_minus2cm
                 )
                 selected_count = result_layer.featureCount()
-                log_info(f"Fsm_2_1_8: {target_layer_name}: после повторной проверки осталось {selected_count} (удалено {removed})")
+                log_info(f"Fsm_1_2_13_3: {target_layer_name}: после повторной проверки осталось {selected_count} (удалено {removed})")
             else:
-                log_info(f"Fsm_2_1_8: Слой {target_layer_name} пуст - пропускаем повторную проверку")
+                log_info(f"Fsm_1_2_13_3: Слой {target_layer_name} пуст - пропускаем повторную проверку")
 
             # ========== ЭТАП 3: СОХРАНЕНИЕ В GEOPACKAGE ==========
-            log_info(f"Fsm_2_1_8: ЭТАП 3: СОХРАНЕНИЕ В GEOPACKAGE")
+            log_info(f"Fsm_1_2_13_3: ЭТАП 3: СОХРАНЕНИЕ В GEOPACKAGE")
             if selected_count == 0:
-                log_info(f"Fsm_2_1_8: Слой {target_layer_name} пуст после проверки - пропускаем сохранение")
+                log_info(f"Fsm_1_2_13_3: Слой {target_layer_name} пуст после проверки - пропускаем сохранение")
                 return None
 
             final_layer = self.layer_builder.save_layer_to_gpkg(result_layer, target_layer_name, self.gpkg_path)
@@ -535,7 +535,7 @@ class Fsm_2_1_8_SelectionEngine:
             return final_layer
 
         except Exception as e:
-            log_error(f"Fsm_2_1_8: Ошибка при выполнении generic выборки {target_layer_name}: {str(e)}")
+            log_error(f"Fsm_1_2_13_3: Ошибка при выполнении generic выборки {target_layer_name}: {str(e)}")
             return None
 
     def _copy_attributes_direct(self, source_feature: QgsFeature, target_feature: QgsFeature,
@@ -666,12 +666,12 @@ class Fsm_2_1_8_SelectionEngine:
         # Проверяем наличие поля "ЕЗ" в целевом слое
         ez_field_idx = layer.fields().indexOf('ЕЗ')
         if ez_field_idx == -1:
-            log_warning("Fsm_2_1_8: Поле 'ЕЗ' не найдено в слое выборки")
+            log_warning("Fsm_1_2_13_3: Поле 'ЕЗ' не найдено в слое выборки")
             return 0
 
         kn_field_idx = layer.fields().indexOf('КН')
         if kn_field_idx == -1:
-            log_warning("Fsm_2_1_8: Поле 'КН' не найдено в слое выборки")
+            log_warning("Fsm_1_2_13_3: Поле 'КН' не найдено в слое выборки")
             return 0
 
         # Слои выписок с полем "ЕЗ" (КН родительского ЕЗ)
@@ -702,7 +702,7 @@ class Fsm_2_1_8_SelectionEngine:
             if extract_ez_idx == -1:
                 extract_ez_idx = extract_layer.fields().indexOf('КН_родителя')
             if extract_ez_idx == -1:
-                log_debug(f"Fsm_2_1_8: Слой {extract_layer_name} не содержит поля 'ЕЗ' или 'КН_родителя'")
+                log_debug(f"Fsm_1_2_13_3: Слой {extract_layer_name} не содержит поля 'ЕЗ' или 'КН_родителя'")
                 continue
 
             extract_kn_idx = extract_layer.fields().indexOf('КН')
@@ -720,10 +720,10 @@ class Fsm_2_1_8_SelectionEngine:
                     if kn not in ez_cache:
                         ez_cache[kn] = ez
 
-            log_debug(f"Fsm_2_1_8: Из {extract_layer_name} загружено {len(ez_cache)} записей в кэш ЕЗ")
+            log_debug(f"Fsm_1_2_13_3: Из {extract_layer_name} загружено {len(ez_cache)} записей в кэш ЕЗ")
 
         if not ez_cache:
-            log_debug("Fsm_2_1_8: Кэш ЕЗ пуст - нет данных в слоях выписок")
+            log_debug("Fsm_1_2_13_3: Кэш ЕЗ пуст - нет данных в слоях выписок")
             return 0
 
         # Дополнить поле "ЕЗ" в слое выборки
@@ -742,9 +742,9 @@ class Fsm_2_1_8_SelectionEngine:
         layer.commitChanges()
 
         if supplemented_count > 0:
-            log_info(f"Fsm_2_1_8: Дополнено поле 'ЕЗ' для {supplemented_count} объектов из выписок")
+            log_info(f"Fsm_1_2_13_3: Дополнено поле 'ЕЗ' для {supplemented_count} объектов из выписок")
         else:
-            log_debug("Fsm_2_1_8: Нет объектов для дополнения поля 'ЕЗ'")
+            log_debug("Fsm_1_2_13_3: Нет объектов для дополнения поля 'ЕЗ'")
 
         return supplemented_count
 
@@ -784,12 +784,15 @@ class Fsm_2_1_8_SelectionEngine:
             'Обременения',
             'Собственники',
             'Арендаторы',
+            '__Форма_тех',  # Транзитная форма (ЭТАП 2.7, §5.4): fill-only,
+                            # доминирование через M_24. НСПД-заполнение формы из
+                            # ownership_type идёт data-driven через Base_selection_ZU
         ]
 
         # Проверяем наличие поля "КН" в целевом слое
         kn_field_idx = layer.fields().indexOf('КН')
         if kn_field_idx == -1:
-            log_warning("Fsm_2_1_8: Поле 'КН' не найдено в слое выборки")
+            log_warning("Fsm_1_2_13_3: Поле 'КН' не найдено в слое выборки")
             return 0
 
         # Слои выписок с атрибутами
@@ -839,10 +842,10 @@ class Fsm_2_1_8_SelectionEngine:
                         if value is not None and str(value).strip() not in ['', '-', 'NULL']:
                             attr_cache[kn][field_name] = value
 
-            log_debug(f"Fsm_2_1_8: Из {extract_layer_name} загружено {len(attr_cache)} записей в кэш атрибутов")
+            log_debug(f"Fsm_1_2_13_3: Из {extract_layer_name} загружено {len(attr_cache)} записей в кэш атрибутов")
 
         if not attr_cache:
-            log_debug("Fsm_2_1_8: Кэш атрибутов пуст - нет данных в слоях выписок")
+            log_debug("Fsm_1_2_13_3: Кэш атрибутов пуст - нет данных в слоях выписок")
             return 0
 
         # Определяем индексы полей в целевом слое
@@ -853,7 +856,7 @@ class Fsm_2_1_8_SelectionEngine:
                 target_field_indices[field_name] = idx
 
         if not target_field_indices:
-            log_debug("Fsm_2_1_8: Нет полей для дополнения в слое выборки")
+            log_debug("Fsm_1_2_13_3: Нет полей для дополнения в слое выборки")
             return 0
 
         # Дополнить атрибуты в слое выборки
@@ -884,9 +887,9 @@ class Fsm_2_1_8_SelectionEngine:
         layer.commitChanges()
 
         if supplemented_count > 0:
-            log_info(f"Fsm_2_1_8: Дополнены атрибуты для {supplemented_count} объектов из выписок")
+            log_info(f"Fsm_1_2_13_3: Дополнены атрибуты для {supplemented_count} объектов из выписок")
         else:
-            log_debug("Fsm_2_1_8: Нет объектов для дополнения атрибутов")
+            log_debug("Fsm_1_2_13_3: Нет объектов для дополнения атрибутов")
 
         return supplemented_count
 
@@ -911,7 +914,7 @@ class Fsm_2_1_8_SelectionEngine:
                 break
 
         if not cadnum_field:
-            log_warning(f"Fsm_2_1_8: Поле кадастрового номера не найдено в слое {layer.name()}, дедупликация пропущена")
+            log_warning(f"Fsm_1_2_13_3: Поле кадастрового номера не найдено в слое {layer.name()}, дедупликация пропущена")
             return 0
 
         # Собираем уникальные кадастровые номера и ID дублей
@@ -937,9 +940,9 @@ class Fsm_2_1_8_SelectionEngine:
             layer.deleteFeatures(duplicate_ids)
             layer.commitChanges()
 
-            log_info(f"Fsm_2_1_8: Удалено дублей из {layer.name()}: {len(duplicate_ids)} (уникальных КН: {len(seen_cadnums)})")
+            log_info(f"Fsm_1_2_13_3: Удалено дублей из {layer.name()}: {len(duplicate_ids)} (уникальных КН: {len(seen_cadnums)})")
             return len(duplicate_ids)
         else:
-            log_info(f"Fsm_2_1_8: Дублей не найдено в {layer.name()} (всего объектов: {layer.featureCount()})")
+            log_info(f"Fsm_1_2_13_3: Дублей не найдено в {layer.name()} (всего объектов: {layer.featureCount()})")
             return 0
 

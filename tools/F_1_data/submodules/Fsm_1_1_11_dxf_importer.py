@@ -28,9 +28,9 @@ from Daman_QGIS.database.schemas import ImportSettings
 from Daman_QGIS.constants import PLUGIN_NAME, MIN_POLYGON_AREA, COORDINATE_PRECISION
 from Daman_QGIS.managers import CoordinatePrecisionManager
 from Daman_QGIS.utils import log_info, log_warning, log_error
-from .Fsm_1_1_12_polygon_builder import PolygonBuilder
+from .Fsm_1_1_12_polygon_builder import Fsm_1_1_12_PolygonBuilder
 
-class DxfImporter(BaseImporter):
+class Fsm_1_1_11_DxfImporter(BaseImporter):
     """
     Импортер DXF файлов через ezdxf.
 
@@ -305,7 +305,7 @@ class DxfImporter(BaseImporter):
         Алгоритм:
         1. Открываем DXF через ezdxf
         2. Извлекаем все полилинии (включая из блоков INSERT)
-        3. Строим полигоны с внутренними контурами через PolygonBuilder
+        3. Строим полигоны с внутренними контурами через Fsm_1_1_12_PolygonBuilder
         4. Создаём QGIS слой и сохраняем в GPKG
 
         Args:
@@ -762,7 +762,7 @@ class DxfImporter(BaseImporter):
         Returns:
             QgsVectorLayer или None
         """
-        builder = PolygonBuilder()
+        builder = Fsm_1_1_12_PolygonBuilder()
 
         polygons = builder.build_polygons_with_holes(
             polylines,
@@ -808,7 +808,7 @@ class DxfImporter(BaseImporter):
         polygons_with_attrs = []  # List[Tuple[QgsGeometry, Dict[str, str]]]
         total_holes = 0
 
-        builder = PolygonBuilder()
+        builder = Fsm_1_1_12_PolygonBuilder()
 
         for group in block_groups:
             group_polylines = group.get('polylines', [])
@@ -1118,7 +1118,7 @@ class DxfImporter(BaseImporter):
         """
         Построение Mixed слоя из полилиний.
 
-        Замкнутые полилинии → PolygonBuilder (containment, holes).
+        Замкнутые полилинии → Fsm_1_1_12_PolygonBuilder (containment, holes).
         Открытые полилинии остаются LineString.
 
         QGIS memory provider НЕ поддерживает mixed geometries —
@@ -1155,10 +1155,10 @@ class DxfImporter(BaseImporter):
             f"{len(open_polylines)} открытых полилиний"
         )
 
-        # 2. Closed -> PolygonBuilder (containment, holes, ring orientation)
+        # 2. Closed -> Fsm_1_1_12_PolygonBuilder (containment, holes, ring orientation)
         polygons = []
         if closed_polylines:
-            builder = PolygonBuilder()
+            builder = Fsm_1_1_12_PolygonBuilder()
             polygons = builder.build_polygons_with_holes(
                 closed_polylines,
                 min_area=MIN_POLYGON_AREA,
@@ -1166,7 +1166,7 @@ class DxfImporter(BaseImporter):
             )
             stats = builder.statistics
             self.log_message(
-                f"Fsm_1_1_11: PolygonBuilder (Mixed): {stats['polygons_created']} полигонов, "
+                f"Fsm_1_1_11: Fsm_1_1_12_PolygonBuilder (Mixed): {stats['polygons_created']} полигонов, "
                 f"{stats['holes_created']} holes"
             )
 
@@ -1214,7 +1214,7 @@ class DxfImporter(BaseImporter):
 
         feat_id = 0
 
-        # Полигоны (из PolygonBuilder, с holes)
+        # Полигоны (из Fsm_1_1_12_PolygonBuilder, с holes)
         for polygon_geom in polygons:
             feat_id += 1
             feat = ogr.Feature(ogr_layer.GetLayerDefn())

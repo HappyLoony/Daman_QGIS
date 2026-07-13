@@ -18,7 +18,7 @@ from Daman_QGIS.constants import PLUGIN_NAME
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
-class TabExporter:
+class Fsm_1_4_4_TabExporter:
     """Обертка для TabExporter из Tool_8 с добавлением ID атрибута для Tool_0_5"""
     
     def __init__(self, iface):

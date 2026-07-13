@@ -13,7 +13,7 @@ Fsm_4_2_T_1_2_4_qt - Тест thread-safety архитектуры в Fsm_1_2_4_
   1. Использование requests (не Qt) для HTTP
   2. ThreadPoolExecutor для параллельной загрузки
   3. Декоратор @retry для отказоустойчивости
-  4. Двухуровневый кэш (TileCache)
+  4. Двухуровневый кэш (Fsm_1_2_4_TileCache)
 """
 
 from unittest.mock import MagicMock, patch
@@ -44,7 +44,7 @@ class TestFgislkLoaderRuntimeError:
         try:
             from Daman_QGIS.tools.F_1_data.submodules.Fsm_1_2_4_fgislk_loader import (
                 Fsm_1_2_4_FgislkLoader,
-                TileCache
+                Fsm_1_2_4_TileCache
             )
             self.logger.success("Импорт OK")
         except ImportError as e:
@@ -66,7 +66,7 @@ class TestFgislkLoaderRuntimeError:
                 'import requests': 'Использование requests (thread-safe HTTP)',
                 'ThreadPoolExecutor': 'Параллельная загрузка через ThreadPoolExecutor',
                 'Retry(': 'Retry-стратегия для отказоустойчивости (urllib3)',
-                'class TileCache': 'Двухуровневый кэш TileCache'
+                'class Fsm_1_2_4_TileCache': 'Двухуровневый кэш Fsm_1_2_4_TileCache'
             }
 
             all_passed = True

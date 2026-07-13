@@ -14,7 +14,7 @@ Msm_25_3 - Распределитель объектов по целевым с�
 """
 
 import os
-from typing import Dict, List, Optional, Tuple, Any, Callable
+from typing import Dict, List, Optional, Tuple, Any
 
 from qgis.core import (
     QgsProject, QgsVectorLayer, QgsFeature,
@@ -123,17 +123,19 @@ class Msm_25_3_LayerDistributor:
 
     def distribute_by_rights(
         self,
-        source_layer: QgsVectorLayer,
-        unknown_handler: Optional[Callable[[QgsFeature, int, int], Optional[str]]] = None
+        source_layer: QgsVectorLayer
     ) -> Dict[str, Any]:
         """
         Распределение объектов по правам на землю
 
+        Непознанное (промах формы ИЛИ права) уходит ТИХО в L_1_11_6_Свед_нет,
+        без интерактивного диалога (решение владельца 2026-07-12, §5.5): маппинг
+        стабилен, логика простая «не распозналось -> Свед_нет»; ручной разбор
+        маппинга — по ревью слоя Свед_нет владельцем. Диалог Msm_25_4 выведен из
+        потока. classify_feature -> None -> UNKNOWN_LAYER.
+
         Args:
             source_layer: Исходный слой с объектами
-            unknown_handler: Callback для обработки неопознанных объектов
-                            Сигнатура: (feature, index, total) -> Optional[layer_name]
-                            Возвращает None для пропуска (в слой "Свед_нет")
 
         Returns:
             Dict с результатами:
@@ -213,34 +215,21 @@ class Msm_25_3_LayerDistributor:
             # Сводка по неклассифицированным
             self.rights_classifier.log_unclassified_summary()
 
-            # Обработка неопознанных объектов
+            # Обработка неопознанных объектов: ВСЁ непознанное -> тихо в Свед_нет
+            # (§5.5, решение владельца 2026-07-12). Без интерактивного диалога.
             result["unknown_count"] = len(unknown_features)
 
             if unknown_features:
-                log_info(f"Msm_25_3: Обнаружено {len(unknown_features)} неопознанных объектов")
+                log_info(
+                    f"Msm_25_3: {len(unknown_features)} неопознанных объектов "
+                    f"-> {self.rights_classifier.UNKNOWN_LAYER} (разбор по ревью слоя владельцем)"
+                )
 
-                skip_all = False
-                for idx, feature in enumerate(unknown_features, start=1):
-                    target_layer_name = None
-
-                    if not skip_all and unknown_handler:
-                        # Вызываем handler для определения слоя
-                        handler_result = unknown_handler(feature, idx, len(unknown_features))
-
-                        if handler_result == "__SKIP_ALL__":
-                            skip_all = True
-                            target_layer_name = self.rights_classifier.UNKNOWN_LAYER
-                        elif handler_result:
-                            target_layer_name = handler_result
-                        else:
-                            target_layer_name = self.rights_classifier.UNKNOWN_LAYER
-                    else:
-                        target_layer_name = self.rights_classifier.UNKNOWN_LAYER
-
+                for feature in unknown_features:
                     self._add_feature_to_layer(
                         source_layer=source_layer,
                         feature=feature,
-                        target_layer_name=target_layer_name,
+                        target_layer_name=self.rights_classifier.UNKNOWN_LAYER,
                         target_layers=target_layers,
                         feature_counts=feature_counts
                     )

@@ -14,7 +14,7 @@ from qgis.PyQt.QtWidgets import (
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class ZouitClassifierDialog(BaseResponsiveDialog):
+class Fsm_1_2_15_ZouitClassifierDialog(BaseResponsiveDialog):
     """Диалог для классификации одного неопознанного объекта ЗОУИТ"""
 
     WIDTH_RATIO = 0.85

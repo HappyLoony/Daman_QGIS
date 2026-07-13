@@ -55,7 +55,9 @@ from qgis.core import (
 from .base_exporter import BaseExporter
 from Daman_QGIS.managers import get_reference_managers
 from Daman_QGIS.constants import PLUGIN_NAME, PRECISION_DECIMALS
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import (
+    log_info, log_warning, log_error, is_internal_field, exportable_field_indices
+)
 
 
 class TabExporter(BaseExporter):
@@ -256,6 +258,10 @@ class TabExporter(BaseExporter):
         options = QgsVectorFileWriter.SaveVectorOptions()
         options.driverName = "MapInfo File"
         options.fileEncoding = "cp1251"
+
+        # Исключаем транзитные __-поля из выгрузки (K6/§5.1). Ставим индексы
+        # безусловно (если __-полей нет — это все поля явно).
+        options.attributes = exportable_field_indices(layer)
 
         # Добавляем трансформацию если нужно
         if layer.crs() != target_crs:
@@ -473,7 +479,8 @@ class TabExporter(BaseExporter):
         if not lyr:
             raise RuntimeError("Не удалось создать слой в TAB файле")
 
-        # Добавляем поля из исходного слоя (fid — внутреннее поле GPKG, пропускаем)
+        # Добавляем поля из исходного слоя (fid — внутреннее поле GPKG, пропускаем;
+        # транзитные __-поля исключаем из экспорта — K6/§5.1)
         export_field_indices = []
         for idx, field in enumerate(layer.fields()):
             field_name = field.name()
@@ -481,6 +488,10 @@ class TabExporter(BaseExporter):
 
             if field_name == 'fid' and 'INT' in field_type:
                 log_info(f"TAB export: поле '{field_name}' пропущено (GPKG internal)")
+                continue
+
+            if is_internal_field(field_name):
+                log_info(f"TAB export: поле '{field_name}' пропущено (транзитное __-поле)")
                 continue
 
             export_field_indices.append(idx)

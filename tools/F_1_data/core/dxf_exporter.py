@@ -41,11 +41,12 @@ from .base_exporter import BaseExporter
 from Daman_QGIS.constants import PLUGIN_NAME, PRECISION_DECIMALS, PRECISION_DECIMALS_WGS84
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_debug
 from Daman_QGIS.database.project_db import ProjectDB
+from Daman_QGIS.managers.styling import _font_canon
 
 # Импортируем субмодули
 from .dxf.Fsm_dxf_5_layer_utils import DxfLayerUtils
 from .dxf.Fsm_dxf_4_hatch_manager import DxfHatchManager
-from .dxf.Fsm_dxf_3_label_exporter import DxfLabelExporter, GOST_MLEADER_TEXT_STYLE
+from .dxf.Fsm_dxf_3_label_exporter import DxfLabelExporter
 from .dxf.Fsm_dxf_2_geometry_exporter import DxfGeometryExporter
 from .dxf.Fsm_dxf_1_block_exporter import DxfBlockExporter
 
@@ -141,21 +142,15 @@ class DxfExporter(BaseExporter):
         # Очищаем кэш экспортированных точек (для дедупликации)
         self.geometry_exporter.clear_point_cache()
 
-        # Добавляем текстовый стиль выносок MULTILEADER (имя - честное
-        # "GOST 2.304 Type B italic": имя "GOST 2.304" НЕ занимаем, оно
-        # остаётся свободным для прямого начертания на чертеже).
-        # Шрифт один и тот же на всех машинах (family "GOST 2.304", Bold Italic),
-        # но имя ФАЙЛА различается: на целевых ПК с полным семейством -
-        # GOST-2.304_Type-B_italic.ttf, локально (установка F_4_1) -
-        # gost_2.304_Bold_Italic.ttf. Поэтому привязка двойная:
-        # - font file: имя с целевых ПК (прямое попадание там)
-        # - extended font data (family + bold/italic): AutoCAD матчит TTF
-        #   в первую очередь по family из name-таблицы установленных шрифтов -
-        #   работает на любой машине независимо от имени файла.
-        # Ранее был gost.shx - прямой, без жирности и курсива
+        # Добавляем текстовый стиль выносок MULTILEADER. Все параметры —
+        # из канона M_49: история имени стиля, двойная привязка шрифта
+        # (font file целевых ПК + extended font data family/bold/italic)
+        # и замена gost.shx — в docstring _font_canon.py
+        label_style = _font_canon.dxf_label_text_style()
         self.layer_utils.add_text_style(
-            doc, GOST_MLEADER_TEXT_STYLE, 'GOST-2.304_Type-B_italic.ttf',
-            family='GOST 2.304', italic=True, bold=True
+            doc, label_style['name'], label_style['font_file'],
+            family=label_style['family'],
+            italic=label_style['italic'], bold=label_style['bold']
         )
 
         # Логируем системные слои, созданные автоматически

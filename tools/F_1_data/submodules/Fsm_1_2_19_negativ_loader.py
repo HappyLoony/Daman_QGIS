@@ -234,7 +234,7 @@ class Fsm_1_2_19_NegativLoader:
             grouped: Словарь target_name -> features (мутируется)
             ref_managers: Менеджеры справочников для получения списка слоёв
         """
-        from .Fsm_1_2_20_negativ_classifier_dialog import NegativClassifierDialog
+        from .Fsm_1_2_20_negativ_classifier_dialog import Fsm_1_2_20_NegativClassifierDialog
 
         # Получаем список всех слоёв для комбобокса
         all_layers = ref_managers.layer.get_base_layers()
@@ -243,7 +243,7 @@ class Fsm_1_2_19_NegativLoader:
         classified_count = 0
 
         for i, feat in enumerate(unknown_features):
-            dialog = NegativClassifierDialog(
+            dialog = Fsm_1_2_20_NegativClassifierDialog(
                 parent=self.iface.mainWindow(),
                 feature=feat,
                 target_layers=all_layers,

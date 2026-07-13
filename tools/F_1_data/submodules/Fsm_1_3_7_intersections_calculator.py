@@ -13,7 +13,7 @@ from qgis.core import (
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
-class IntersectionsCalculator:
+class Fsm_1_3_7_IntersectionsCalculator:
     """Калькулятор пересечений линий дорог и железных дорог"""
 
     def __init__(self, iface):

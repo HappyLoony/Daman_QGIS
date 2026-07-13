@@ -16,7 +16,7 @@ from qgis.core import (
 from .base_exporter import BaseExporter
 
 from Daman_QGIS.constants import PLUGIN_NAME
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, exportable_field_indices
 
 
 class GeoJSONExporter(BaseExporter):
@@ -134,6 +134,9 @@ class GeoJSONExporter(BaseExporter):
         options = QgsVectorFileWriter.SaveVectorOptions()
         options.driverName = "GeoJSON"
         options.fileEncoding = "UTF-8"  # Для поддержки кириллицы
+
+        # Исключаем транзитные __-поля из выгрузки (K6/§5.1)
+        options.attributes = exportable_field_indices(layer)
 
         # Настройка точности координат
         precision = params.get('precision', 8)

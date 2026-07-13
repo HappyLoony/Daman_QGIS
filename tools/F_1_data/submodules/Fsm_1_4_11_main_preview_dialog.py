@@ -26,7 +26,7 @@ from Daman_QGIS.constants import EXPORT_DPI_ROSREESTR
 from Daman_QGIS.core.base_responsive_dialog import BaseResponsiveDialog
 
 
-class MainPreviewDialog(BaseResponsiveDialog):
+class Fsm_1_4_11_MainPreviewDialog(BaseResponsiveDialog):
     """Диалог предпросмотра основной карты с вариантами отображения
 
     Показывает 16 вариантов масштаба основной карты в сетке 4x4.

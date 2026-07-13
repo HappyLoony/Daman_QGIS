@@ -199,14 +199,10 @@ class DependencyTabWidget(QWidget):
             )
 
             if font_info.get('missing_fonts'):
-                missing_fonts = font_info['missing_fonts']
-                gost_missing = sum(1 for f in missing_fonts if 'gost' in f.lower())
-                opensans_missing = sum(1 for f in missing_fonts if 'opensans' in f.lower())
-
-                if gost_missing > 0:
-                    report.append(f"<p>- {gost_missing} шрифтов GOST 2.304 (для DXF/AutoCAD)</p>")
-                if opensans_missing > 0:
-                    report.append(f"<p>- {opensans_missing} шрифтов OpenSans (для оформления)</p>")
+                # Разбивка по ролям канона M_49 (единая формулировка с Fsm_4_1_11)
+                for count, family, purpose in FontChecker.group_missing_by_role(
+                        font_info['missing_fonts']):
+                    report.append(f"<p>- {count} шрифтов {family} ({purpose})</p>")
 
             report.append("<p>Нажмите <b>'Установить стабильные'</b> для автоматической установки.</p>")
 

@@ -15,7 +15,9 @@ from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Any, TYPE_CHECKING, FrozenSet
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import (
+    log_info, log_warning, log_error, normalize_for_classification
+)
 
 # Подавляем предупреждения от openpyxl (совместимость с numpy 1.24+ и Python 3.12+)
 # - DeprecationWarning: datetime.utcfromtimestamp() deprecated в Python 3.12
@@ -326,12 +328,16 @@ def is_project_row(cell_value: Any) -> bool:
     if not cell_str:
         return False
 
-    cell_lower = cell_str.lower()
+    # C0/OPT-014: нормализация имени категории на ПАРСЕР-ГЕЙТЕ (classifier
+    # нормализует обе стороны, CLAUDE.md). Голый .lower() промахивается мимо
+    # SPECIAL_CATEGORIES при zero-width/nbsp/тире из Excel -> absence-строка
+    # ложно классифицируется как проект-шифр (Дефект C через невидимый символ).
+    cell_norm = normalize_for_classification(cell_str).lower()
 
     # Не проект если это специальная категория или итого
-    if cell_lower in SPECIAL_CATEGORIES:
+    if cell_norm in SPECIAL_CATEGORIES:
         return False
-    if "итого" in cell_lower:
+    if "итого" in cell_norm:
         return False
 
     return True
@@ -350,8 +356,9 @@ def is_special_category(cell_value: Any) -> bool:
     if not cell_value:
         return False
 
-    cell_str = str(cell_value).strip().lower()
-    return cell_str in SPECIAL_CATEGORIES
+    # C0/OPT-014: нормализация на парсер-гейте (nbsp/zero-width/тире из Excel).
+    cell_norm = normalize_for_classification(str(cell_value)).lower()
+    return cell_norm in SPECIAL_CATEGORIES
 
 
 def get_special_category_from_row(ws: 'Worksheet', row: int) -> Optional[str]:
@@ -572,7 +579,12 @@ def parse_timesheet(filepath: str) -> Optional[TimesheetData]:
         # Парсим все строки до Итого (проекты и специальные категории)
         for row in range(first_row, projects_end_row):
             code = ws.cell(row, COL_CODE).value
-            name = ws.cell(row, COL_NAME).value
+
+            # Спец.категория может быть в колонке C ИЛИ D (C0b/OPT-016):
+            # прежний elif смотрел только D -> absence-строка в колонке C молча
+            # терялась (не в факте, не в норме). get_special_category_from_row
+            # проверяет обе колонки (is_special_category нормализует -- C0).
+            special_category = get_special_category_from_row(ws, row)
 
             # Проверяем проект (шифр в колонке C)
             if is_project_row(code):
@@ -595,9 +607,9 @@ def parse_timesheet(filepath: str) -> Optional[TimesheetData]:
                     result.projects.append(project)
                     result.total_hours += total_hours
 
-            # Проверяем специальные категории (в колонке D, когда колонка C пустая)
-            elif name and is_special_category(name):
-                category_name = str(name).strip()
+            # Проверяем специальные категории (колонка C или D -- C0b)
+            elif special_category:
+                category_name = special_category
                 _, _, total_hours, daily_hours = _parse_row(ws, row, days_in_month)
 
                 # Сохраняем специальные категории с данными

@@ -314,16 +314,25 @@ class TestF042:
             if self.coordinator:
                 result = self.coordinator.check_layer(layer)
                 errors_by_type = result.get('errors_by_type', {})
-                # Gap checker не реализован в Checker 3
-                gap_errors = errors_by_type.get('gap', [])
+                # ARCH (план F_0_4 2026-06-16, INV-1/INV-2): зазоры покрытия
+                # (тип 'coverage_gap') вынесены в whole-project фазу
+                # (Fsm_0_4_16), запускаемую из F_0_4._run_whole_project_phase
+                # после per-layer цикла — per-layer check_layer их НЕ
+                # возвращает. Тип 'gap' удалён (INV-1). Эта per-layer ветка
+                # coverage_gap не даст; полноценная проверка зазоров — через
+                # whole-project фазу F_0_4, не через check_layer.
+                gap_errors = errors_by_type.get('coverage_gap', [])
             else:
-                # Checker 3 не проверяет gaps
+                # Checker 3 не проверяет зазоры покрытия (whole-project фаза).
                 gap_errors = []
 
             if gap_errors:
                 self.logger.success(f"Найдено зазоров: {len(gap_errors)}")
             else:
-                self.logger.warning("Зазоры не обнаружены (функция gaps не реализована в Checker 3)")
+                self.logger.warning(
+                    "Зазоры покрытия per-layer не обнаружены — они выявляются "
+                    "whole-project фазой F_0_4 (Fsm_0_4_16), не check_layer"
+                )
 
         except Exception as e:
             self.logger.error(f"Ошибка теста зазоров: {str(e)}")

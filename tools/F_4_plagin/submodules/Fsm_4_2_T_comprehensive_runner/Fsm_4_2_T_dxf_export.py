@@ -21,6 +21,8 @@ from qgis.core import (
     QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsPointXY
 )
 
+from Daman_QGIS.managers.styling import _font_canon
+
 
 class TestDxfExport:
     """Тесты для DXF экспорта (Fsm_dxf_1..5)"""
@@ -613,9 +615,19 @@ class TestDxfExport:
             doc.layers.add('TestLayer')
             label_layer = doc.layers.add('TestLayer_Номер')
 
-            # Создаём текстовый стиль GOST 2.304
-            if 'GOST 2.304' not in doc.styles:
-                doc.styles.add('GOST 2.304', font='gost.shx')
+            # Создаём текстовый стиль выносок по актуальной схеме канона M_49:
+            # TTF + extended font data (как production dxf_exporter/Fsm_dxf_5;
+            # прежняя схема 'GOST 2.304' + gost.shx устарела — Д2)
+            label_style = _font_canon.dxf_label_text_style()
+            if label_style['name'] not in doc.styles:
+                style = doc.styles.add(
+                    label_style['name'], font=label_style['font_file']
+                )
+                style.set_extended_font_data(
+                    label_style['family'],
+                    italic=label_style['italic'],
+                    bold=label_style['bold'],
+                )
 
             # Создаём слой QGIS с объектом
             layer = QgsVectorLayer(
@@ -634,7 +646,9 @@ class TestDxfExport:
             label_config = {
                 'label_field': 'cn',
                 'label_font_size': 4.0,
-                'label_font_family': 'GOST 2.304',
+                'label_font_family': _font_canon.get_family(
+                    _font_canon.FontRole.DRAWING
+                ),
                 'label_auto_wrap_length': 50,
                 'label_dogleg_length': 5.0,
                 'label_landing_gap': 2.0,

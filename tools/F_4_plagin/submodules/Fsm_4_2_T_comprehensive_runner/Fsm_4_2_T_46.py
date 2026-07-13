@@ -121,6 +121,8 @@ class TestFsm4246:
         путей. Для негативного теста unknown_config_key используется
         отдельный провайдер, возвращающий None.
         """
+        from Daman_QGIS.managers.styling import _font_canon
+
         synthetic = {
             'legend_x': 20,
             'legend_y': 205,
@@ -139,7 +141,7 @@ class TestFsm4246:
             'legend_min_symbol_width': 10,
             'legend_min_symbol_height': 3.5,
             'legend_min_wrap_length': 40,
-            'font_family': 'GOST 2.304',
+            'font_family': _font_canon.get_family(_font_canon.FontRole.DRAWING),
             'font_size_pt': 14,
             # legend_layout_modes refactoring (v0.4): M_46.facade._build_space
             # читает явные legend_dynamic_* по legend_layout_mode из Excel.

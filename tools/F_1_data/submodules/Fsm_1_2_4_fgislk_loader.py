@@ -41,7 +41,7 @@ from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
 from Daman_QGIS.constants import TILE_DOWNLOAD_TIMEOUT
 
 
-class TileCache:
+class Fsm_1_2_4_TileCache:
     """Двухуровневый кэш для тайлов (RAM + диск)"""
 
     def __init__(self):
@@ -205,7 +205,7 @@ class Fsm_1_2_4_FgislkLoader:
         """
         self.iface = iface
         self.api_manager = api_manager
-        self.tile_cache = TileCache()  # Двухуровневый кэш для тайлов
+        self.tile_cache = Fsm_1_2_4_TileCache()  # Двухуровневый кэш для тайлов
 
         # Получаем параметры ФГИС ЛК из api_manager (обязательно должен быть в Base_api_endpoints.json)
         assert self.api_manager is not None, "api_manager не инициализирован"

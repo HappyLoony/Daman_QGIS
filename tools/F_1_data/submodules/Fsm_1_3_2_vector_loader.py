@@ -10,7 +10,7 @@ from Daman_QGIS.constants import LAYER_WFS_NP, LAYER_SELECTION_OKS
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
-class VectorLoader:
+class Fsm_1_3_2_VectorLoader:
     """Проверяльщик наличия векторных слоев ЕГРН (БЕЗ загрузки)"""
     
     def __init__(self, iface, project_manager, layer_manager):
@@ -80,7 +80,7 @@ class VectorLoader:
         Returns:
             bool: True если слой выборки ОКС найден, False если отсутствует
         """
-        # Проверяем слой выборки ОКС (создаётся через F_2_1)
+        # Проверяем слой выборки ОКС (создаётся через Fsm_1_2_13_1)
         selection_oks_layer = LAYER_SELECTION_OKS
         if self._check_existing_layer(selection_oks_layer):
             log_info(f"Fsm_1_3_2: Слой выборки ОКС {selection_oks_layer} найден")

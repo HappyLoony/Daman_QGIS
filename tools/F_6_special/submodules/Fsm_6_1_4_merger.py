@@ -13,6 +13,7 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING
 
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from Daman_QGIS.managers.reference.submodules import ProductionCalendarManager
+from Daman_QGIS.managers.styling import _font_canon
 from .Fsm_6_1_3_parser import (
     TimesheetData, ProjectRow, SpecialCategoryRow,
     safe_read_excel, COL_CODE, COL_NAME, COL_TOTAL,
@@ -25,8 +26,8 @@ if TYPE_CHECKING:
     from openpyxl.worksheet.worksheet import Worksheet
     from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
-# Шрифт по умолчанию для генерируемых файлов
-DEFAULT_FONT_NAME = "Times New Roman"
+# Шрифт по умолчанию для генерируемых файлов (канон DOCUMENT из _font_canon)
+DEFAULT_FONT_NAME = _font_canon.excel_font_name()
 DEFAULT_FONT_SIZE = 11
 
 
@@ -450,7 +451,7 @@ class MergedTimesheetGenerator:
             from openpyxl.styles import Font as _Font
             wb = Workbook()
 
-            # Заменяем Font 0 (дефолтный Calibri) на Times New Roman.
+            # Заменяем Font 0 (дефолтный Calibri) на DEFAULT_FONT_NAME (канон M_49).
             # Именно Font 0 Excel использует для расчёта единиц ширины колонок.
             wb._fonts[0] = _Font(name=DEFAULT_FONT_NAME, size=DEFAULT_FONT_SIZE)
 

@@ -15,13 +15,13 @@ from Daman_QGIS.core.base_tool import BaseTool
 from Daman_QGIS.constants import PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION, MESSAGE_WARNING_DURATION, ZPR_PREFIXES, ZONE_PREFIXES
 from Daman_QGIS.utils import log_info, log_warning, log_error
 from .ui.universal_import_dialog import UniversalImportDialog
-from .submodules.Fsm_1_1_1_xml import XmlImportSubmodule
-from .submodules.Fsm_1_1_11_dxf_importer import DxfImporter
-from .submodules.Fsm_1_1_2_tab_importer import TabImporter
+from .submodules.Fsm_1_1_1_xml import Fsm_1_1_1_XmlImportSubmodule
+from .submodules.Fsm_1_1_11_dxf_importer import Fsm_1_1_11_DxfImporter
+from .submodules.Fsm_1_1_2_tab_importer import Fsm_1_1_2_TabImporter
 from .submodules.Fsm_1_1_4_vypiska_importer import Fsm_1_1_4_VypiskaImporter
-from .submodules.Fsm_1_1_14_shp_importer import ShpImporter
+from .submodules.Fsm_1_1_14_shp_importer import Fsm_1_1_14_ShpImporter
 from .submodules.Fsm_1_1_8_iboundary_importer import Fsm_1_1_8_IBoundaryImporter
-from .submodules.Fsm_1_1_10_xml_detector import XmlTypeDetector
+from .submodules.Fsm_1_1_10_xml_detector import Fsm_1_1_10_XmlTypeDetector
 
 
 class F_1_1_UniversalImport(BaseTool):
@@ -29,10 +29,10 @@ class F_1_1_UniversalImport(BaseTool):
 
     # Маппинг форматов на сабмодули
     FORMAT_SUBMODULES = {
-    'XML': XmlImportSubmodule,
-    'DXF': DxfImporter,
-    'TAB': TabImporter,
-    'SHP': ShpImporter
+    'XML': Fsm_1_1_1_XmlImportSubmodule,
+    'DXF': Fsm_1_1_11_DxfImporter,
+    'TAB': Fsm_1_1_2_TabImporter,
+    'SHP': Fsm_1_1_14_ShpImporter
     }
     
     def __init__(self, iface):
@@ -237,7 +237,7 @@ class F_1_1_UniversalImport(BaseTool):
         Импорт XML файлов с автоопределением типа (КПТ vs Выписки)
         """
         # Классифицируем файлы
-        classified = XmlTypeDetector.classify_files(files)
+        classified = Fsm_1_1_10_XmlTypeDetector.classify_files(files)
 
         kpt_files = classified.get('KPT', [])
         vypiska_files = classified.get('VYPISKA', [])
@@ -264,7 +264,7 @@ class F_1_1_UniversalImport(BaseTool):
 
         # Импортируем КПТ
         if kpt_files:
-            kpt_submodule = XmlImportSubmodule(self.iface)
+            kpt_submodule = Fsm_1_1_1_XmlImportSubmodule(self.iface)
             kpt_submodule.set_project_manager(self.project_manager)
             kpt_submodule.set_layer_manager(self.layer_manager)
 
@@ -543,7 +543,7 @@ class F_1_1_UniversalImport(BaseTool):
                 log_info("F_1_1: Заполнено ОКС_на_ЗУ_выписка (из выписок ЗУ)")
 
             # ШАГ 3: Финальная санитизация слоёв выборки
-            # ПОСЛЕ M_24/M_23, ДО M_25 - аналогично F_2_1._finalize_selection_layers()
+            # ПОСЛЕ M_24/M_23, ДО M_25 - аналогично Fsm_1_2_13_1._finalize_selection_layers()
             # Применяет simplify_rent_individuals, сокращения юрлиц, капитализацию
             self._finalize_selection_layers_after_sync()
 
@@ -569,7 +569,7 @@ class F_1_1_UniversalImport(BaseTool):
         """
         Финальная санитизация слоёв выборки после синхронизации M_24/M_23
 
-        Аналог F_2_1._finalize_selection_layers().
+        Аналог Fsm_1_2_13_1._finalize_selection_layers().
         Применяет simplify_rent_individuals, дедупликацию, капитализацию и т.д.
         Выполняется ПОСЛЕ M_24, M_23, но ДО M_25.
         """
@@ -586,7 +586,12 @@ class F_1_1_UniversalImport(BaseTool):
             for layer_name in selection_layers:
                 layers = QgsProject.instance().mapLayersByName(layer_name)
                 if layers and layers[0].featureCount() > 0:
-                    cleanup_manager.finalize_layer(layers[0], layer_name)
+                    # Транзитное __Форма_тех исключаем из финализации (INST-2, §5.5):
+                    # рабочее поле классификатора, не выходное. Пустое __Форма_тех =
+                    # легитимный маршрут в Свед_нет, не баг finalize.
+                    cleanup_manager.finalize_layer(
+                        layers[0], layer_name, exclude_fields=['__Форма_тех']
+                    )
                     sanitized_count += 1
 
             if sanitized_count > 0:
@@ -607,7 +612,7 @@ class F_1_1_UniversalImport(BaseTool):
             layers: список QgsVectorLayer из result.get('layers', [])
         """
         try:
-            from .submodules.Fsm_1_zone_id_helper import ensure_id_field
+            from .core.zone_id_helper import ensure_id_field
 
             for layer in layers:
                 if not layer or not layer.isValid():

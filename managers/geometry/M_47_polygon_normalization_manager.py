@@ -37,6 +37,30 @@ STATELESS:
 - Каждое кольцо после нормализации: CW в мат.СК (signed_area_2 < 0)
 - v0 = ближайшая к (min_x, max_y) точка
 - Замыкающая точка добавляется автоматически (QGIS требует замкнутости)
+
+ИСТОЧНИК ИНВАРИАНТА: `_ring_utils.py` (is_clockwise / find_nw_point_index /
+rotate_to_nw) — единственный canonical модуль, импортируют И M_20, И M_47
+(цикла нет). НЕ дублировать ring-логику; правка инварианта — только в _ring_utils.
+
+LEVEL-AWARE ТОЧКА ВРЕЗКИ (КЛЮЧЕВОЙ урок — метод по архитектуре consumer'а):
+- consumer строит «Точки» (M_20) из in-memory features_data → `normalize_geometry`
+  на geom ДО M_20 (иначе «Точки» рассогласуются с .gpkg). Это F_2_3, F_2_4,
+  Msm_26_4, Fsm_2_2_2.
+- consumer вызывает M_20 НА СЛОЕ или пишет .gpkg без M_20 → `normalize_layer`.
+  Это M_35, Fsm_2_5_2, Fsm_1_2_1, F_1_1.
+- builder отдаёт голую geom → `normalize_geometry` (Fsm_1_1_12, Fsm_1_2_4 memory).
+- read-only reader → M_47 не нужен (excel_exporter ре-нормализует сам).
+EDIT-SESSION ГОЧА (Fsm_2_7_2): strict isEditable guard ПРОПУСКАЕТ editable-слой
+(см. ПРИМЕНЯЕМОСТЬ) — если M_20 вызывается на слое В edit-сессии (addFeature без
+commit), normalize_layer там не сработает → нормализовать на geometry-уровне ДО
+setGeometry.
+F_1_1 ИМПОРТ — центральная точка @369 (решение пользователя): normalize_layer
+каждого импортированного слоя с commit-guard (SHP external editable). Покрывает
+DXF/TAB/SHP/XML/КПТ/выписку/iboundary разом; Росреестр-импорт нормализуется
+(unified_cw важнее authoritative — идёт в координатный экспорт).
+EXCLUDED: Fsm_3_1_1 (F_3 ХЛУ — нет координатного перечня, downstream Word).
+Fsm_0_6_3 (F_0 МСК-репроекция) — INCLUDE как safety (tab_exporter пассивный
+потребитель физ. порядка).
 """
 
 from typing import Optional

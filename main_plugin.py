@@ -558,6 +558,18 @@ class DamanQGIS:
         # Workaround: подменяем URL до отправки запроса, минуя 302.
         # Прецедент 2026-05-21: ortho был полностью чёрный, прямой URL → работает.
         # Cat=235/849241 не редиректят, в маппинге не нужны.
+        #
+        # НЕ ВОЗВРАЩАТЬ блокировку /cgk/map/: ранее тут была защита «блокировать
+        # ghost-запросы к /cgk/map/» (как «старый формат от удалённых макетов») —
+        # это была ОШИБКА: /cgk/map/{id}/tms/ = production backend ortho-тайлов NSPD.
+        # Та «защита» усугубляла баг (подмена на пустой PNG → render чёрный даже
+        # когда Qt NAM сам следовал за 302).
+        # Когда проявится снова: (а) новый ortho-cat с redirect → дополнить маппинг;
+        # (б) смена target layer_id (/cgk/map/39/ → /cgk/map/N/) — проверить ручным
+        #     requests.get(URL, allow_redirects=False) + Location header, обновить;
+        # (в) Qt6/новые QGIS могут починить native redirect → маппинг станет лишним,
+        #     но не вредным. Источник формулировки расширения карты — общий с мини-
+        #     CLAUDE.md data_reference (процедура нового WMTS-слоя).
         NSPD_REDIRECT_MAP = (
             (b'/api/aeggis/v2/36346/wmts/', b'/cgk/map/39/tms/'),
         )
@@ -1576,6 +1588,11 @@ class DamanQGIS:
         # Сигнал открытия проекта (вызывается после загрузки проекта)
         self._register_signal(QgsProject.instance().readProject, self._on_project_read)
 
+        # Сигнал добавления слоя — устанавливаем digitizing-точность 0.01 м.
+        # Покрывает все пути добавления (M_2.add_layer и прямой addMapLayer в
+        # импортерах), т.к. layerWasAdded срабатывает на любой addMapLayer.
+        self._register_signal(QgsProject.instance().layerWasAdded, self._on_layer_added)
+
         # Сигнал закрытия QGIS
         self._register_signal(QCoreApplication.instance().aboutToQuit, self._on_qgis_closing)
     
@@ -1615,6 +1632,30 @@ class DamanQGIS:
                 # Сохраняем проект
                 if self.project_manager:
                     self.project_manager.save_project()
+
+    def _on_layer_added(self, layer):
+        """Установка digitizing-точности 0.01 м для слоёв в проектной МСК.
+
+        Включает привязку вершин к сетке 0.01 м при редактировании (нативная
+        QGIS-фича geometryPrecision, persist в .qgs).
+
+        Фильтр строго по факту совпадения CRS слоя с проектной (а не по типу или
+        имени слоя): на практике под исключение попадают web-подложки, которые
+        грузятся в EPSG:3857 (WFS/WMS, reference-слои) — их CRS != проектной МСК,
+        и сетка 0.01 в чужой проекции бессмысленна. Если бы такой слой оказался в
+        проектной МСК, он бы корректно получил precision.
+
+        Срабатывает на ЛЮБОЕ добавление слоя (через M_2.add_layer и прямой
+        addMapLayer в импортерах Fsm_1_1_*, M_35, M_8) — единая точка покрытия.
+        """
+        try:
+            from qgis.core import QgsVectorLayer
+            from Daman_QGIS.constants import COORDINATE_PRECISION
+            if isinstance(layer, QgsVectorLayer) and layer.isSpatial():
+                if layer.crs() == QgsProject.instance().crs():
+                    layer.geometryOptions().setGeometryPrecision(COORDINATE_PRECISION)
+        except Exception as e:
+            log_warning(f"Daman_QGIS: geometryPrecision setup failed: {e}")
 
     def _on_new_project(self):
         """Обработчик создания нового проекта (переход на другой проект)"""

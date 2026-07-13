@@ -152,49 +152,64 @@ def test_default_on_skip_no_raise() -> None:
 
 def test_cache_hit_returns_same_value() -> None:
     """FIX-5: get_cached_or_compute второй вызов с тем же dir = cache hit."""
-    invalidate_cache()
-    with tempfile.TemporaryDirectory() as tmp:
-        (Path(tmp) / "main.py").write_text("# v1", encoding="utf-8")
-        h1 = get_cached_or_compute(tmp)
-        # Меняем файл — но cache должен хранить старое значение
-        (Path(tmp) / "main.py").write_text("# v2_changed", encoding="utf-8")
-        h2 = get_cached_or_compute(tmp)
-        assert h1 == h2, (
-            f"Fsm_4_2_T_compute_hash: cache miss при том же dir: {h1} != {h2}"
-        )
-    invalidate_cache()
-    log_info("Fsm_4_2_T_compute_hash: cache hit OK")
+    # D5a: snapshot/restore живого FIX-5-кэша (test запускаем поодиночке из
+    # console → иначе invalidate оставит кэш ПУСТЫМ → следующий validate
+    # предъявит свежий диск-хеш → обход integrity + самоснятие D2). Прецедент
+    # стиля — save/restore _on_skip в этом же файле.
+    saved_hash, saved_dir = _ih._cached_hash, _ih._cached_dir
+    try:
+        invalidate_cache()
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "main.py").write_text("# v1", encoding="utf-8")
+            h1 = get_cached_or_compute(tmp)
+            # Меняем файл — но cache должен хранить старое значение
+            (Path(tmp) / "main.py").write_text("# v2_changed", encoding="utf-8")
+            h2 = get_cached_or_compute(tmp)
+            assert h1 == h2, (
+                f"Fsm_4_2_T_compute_hash: cache miss при том же dir: {h1} != {h2}"
+            )
+        log_info("Fsm_4_2_T_compute_hash: cache hit OK")
+    finally:
+        _ih._cached_hash, _ih._cached_dir = saved_hash, saved_dir
 
 
 def test_invalidate_cache_recompute() -> None:
     """FIX-5: invalidate_cache → следующий вызов recompute."""
-    invalidate_cache()
-    with tempfile.TemporaryDirectory() as tmp:
-        (Path(tmp) / "main.py").write_text("# v1", encoding="utf-8")
-        h1 = get_cached_or_compute(tmp)
-        (Path(tmp) / "main.py").write_text("# v2_changed", encoding="utf-8")
+    # D5a: snapshot/restore живого FIX-5-кэша (см. test_cache_hit_returns_same_value).
+    saved_hash, saved_dir = _ih._cached_hash, _ih._cached_dir
+    try:
         invalidate_cache()
-        h2 = get_cached_or_compute(tmp)
-        assert h1 != h2, (
-            f"Fsm_4_2_T_compute_hash: invalidate не сработал: {h1} == {h2}"
-        )
-    invalidate_cache()
-    log_info("Fsm_4_2_T_compute_hash: invalidate_cache recompute OK")
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "main.py").write_text("# v1", encoding="utf-8")
+            h1 = get_cached_or_compute(tmp)
+            (Path(tmp) / "main.py").write_text("# v2_changed", encoding="utf-8")
+            invalidate_cache()
+            h2 = get_cached_or_compute(tmp)
+            assert h1 != h2, (
+                f"Fsm_4_2_T_compute_hash: invalidate не сработал: {h1} == {h2}"
+            )
+        log_info("Fsm_4_2_T_compute_hash: invalidate_cache recompute OK")
+    finally:
+        _ih._cached_hash, _ih._cached_dir = saved_hash, saved_dir
 
 
 def test_cache_miss_on_dir_change() -> None:
     """FIX-5: разные dir → recompute, не reuse чужого cache."""
-    invalidate_cache()
-    with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
-        (Path(tmp1) / "a.py").write_text("# tmp1", encoding="utf-8")
-        (Path(tmp2) / "b.py").write_text("# tmp2", encoding="utf-8")
-        h1 = get_cached_or_compute(tmp1)
-        h2 = get_cached_or_compute(tmp2)
-        assert h1 != h2, (
-            f"Fsm_4_2_T_compute_hash: cache не сменился при смене dir"
-        )
-    invalidate_cache()
-    log_info("Fsm_4_2_T_compute_hash: cache miss on dir change OK")
+    # D5a: snapshot/restore живого FIX-5-кэша (см. test_cache_hit_returns_same_value).
+    saved_hash, saved_dir = _ih._cached_hash, _ih._cached_dir
+    try:
+        invalidate_cache()
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            (Path(tmp1) / "a.py").write_text("# tmp1", encoding="utf-8")
+            (Path(tmp2) / "b.py").write_text("# tmp2", encoding="utf-8")
+            h1 = get_cached_or_compute(tmp1)
+            h2 = get_cached_or_compute(tmp2)
+            assert h1 != h2, (
+                f"Fsm_4_2_T_compute_hash: cache не сменился при смене dir"
+            )
+        log_info("Fsm_4_2_T_compute_hash: cache miss on dir change OK")
+    finally:
+        _ih._cached_hash, _ih._cached_dir = saved_hash, saved_dir
 
 
 def run_all() -> None:

@@ -135,7 +135,7 @@ class TestF31Cutting:
                 if hasattr(module, class_name):
                     self.logger.success(f"{class_name} доступен")
                 else:
-                    self.logger.warning(f"{class_name} не найден в модуле")
+                    self.logger.fail(f"{class_name} не найден в модуле")
             except Exception as e:
                 self.logger.fail(f"{class_name}: ошибка импорта - {str(e)[:50]}")
 
@@ -148,7 +148,7 @@ class TestF31Cutting:
                 if hasattr(module, class_name):
                     self.logger.success(f"{class_name} доступен")
                 else:
-                    self.logger.warning(f"{class_name} не найден в модуле")
+                    self.logger.fail(f"{class_name} не найден в модуле")
             except Exception as e:
                 self.logger.fail(f"{class_name}: ошибка импорта - {str(e)[:50]}")
 

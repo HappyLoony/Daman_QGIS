@@ -22,13 +22,18 @@ API:
 Субменеджеры:
     - Msm_25_0_fills_utils: утилиты (создание слоя, сохранение в GPKG)
     - Msm_25_1_category_classifier: классификация по категориям
-    - Msm_25_2_rights_classifier: классификация по правам
+    - Msm_25_2_rights_classifier: классификация по правам (читает __Форма_тех)
     - Msm_25_3_layer_distributor: распределение объектов по слоям
-    - Msm_25_4_rights_dialog: GUI для ручной классификации
+
+Классификация прав (Вариант B, §5.5):
+    Классификатор читает ТРАНЗИТНОЕ поле формы (__Форма_тех), а не "Собственники"
+    (та = имя правообладателя). Непознанное (промах формы ИЛИ права) уходит ТИХО
+    в L_1_11_6_Свед_нет — интерактивный диалог Msm_25_4 удалён (решение владельца
+    2026-07-12): маппинг стабилен, ручной разбор — по ревью слоя Свед_нет владельцем.
 """
 
 from typing import Dict, List, Optional, Any
-from qgis.core import QgsProject, QgsVectorLayer, QgsFeature
+from qgis.core import QgsProject, QgsVectorLayer
 
 from Daman_QGIS.constants import LAYER_SELECTION_ZU
 from Daman_QGIS.utils import log_info, log_warning, log_success, log_error
@@ -37,7 +42,8 @@ from .submodules.Msm_25_3_layer_distributor import Msm_25_3_LayerDistributor
 
 # Lazy import для избежания циклических зависимостей
 # get_reference_managers импортируется внутри методов
-from .submodules.Msm_25_4_rights_dialog import show_rights_classification_dialog
+# ПРИМЕЧАНИЕ: интерактивный диалог классификации (Msm_25_4) выведен из потока
+# (§5.5, решение владельца 2026-07-12) — всё непознанное тихо -> Свед_нет.
 
 __all__ = ['FillsManager']
 
@@ -63,7 +69,6 @@ class FillsManager:
         """
         self.iface = iface
         self.layer_manager = layer_manager
-        self._rights_layers_config: Optional[List[Dict]] = None
 
     def set_layer_manager(self, layer_manager) -> None:
         """
@@ -181,10 +186,7 @@ class FillsManager:
                 return {}
 
             distributor = Msm_25_3_LayerDistributor(self.layer_manager)
-            result = distributor.distribute_by_rights(
-                source_layer,
-                unknown_handler=self._create_unknown_handler()
-            )
+            result = distributor.distribute_by_rights(source_layer)
 
             if result.get('success'):
                 log_success(f"M_25: Права - создано {len(result.get('layers_created', []))} слоёв")
@@ -203,67 +205,6 @@ class FillsManager:
             return source_layers[0]
         log_warning(f"M_25: Слой {self.SOURCE_LAYER_NAME} не найден")
         return None
-
-    def _get_rights_layers_config(self) -> List[Dict]:
-        """Получить конфигурацию слоёв прав из Base_layers.json"""
-        if self._rights_layers_config is not None:
-            return self._rights_layers_config
-
-        from Daman_QGIS.managers import get_reference_managers
-        ref_managers = get_reference_managers()
-        layer_ref_manager = ref_managers.layer
-
-        if not layer_ref_manager:
-            log_warning("M_25: Не удалось получить layer reference manager")
-            return []
-
-        rights_layers = []
-        all_layers = layer_ref_manager.get_base_layers()
-
-        for layer_data in all_layers:
-            group = layer_data.get('group', '')
-            if group == 'Права':
-                rights_layers.append(layer_data)
-
-        self._rights_layers_config = rights_layers
-        return rights_layers
-
-    def _create_unknown_handler(self):
-        """
-        Создать handler для обработки неопознанных объектов
-
-        Returns:
-            Callable для передачи в distributor.distribute_by_rights()
-        """
-        rights_layers_config = self._get_rights_layers_config()
-
-        def handler(feature: QgsFeature, index: int, total: int) -> Optional[str]:
-            """
-            Handler для неопознанных объектов
-
-            Args:
-                feature: Объект для классификации
-                index: Текущий номер (1-based)
-                total: Всего объектов
-
-            Returns:
-                str: имя слоя или "__SKIP_ALL__" или None
-            """
-            selected_layer, skip_all, accepted = show_rights_classification_dialog(
-                parent=self.iface.mainWindow(),
-                feature=feature,
-                rights_layers=rights_layers_config,
-                current_index=index,
-                total_count=total
-            )
-
-            if skip_all:
-                return "__SKIP_ALL__"
-            if accepted and selected_layer:
-                return selected_layer
-            return None
-
-        return handler
 
     def _cleanup_existing_fills(self) -> int:
         """
@@ -327,10 +268,7 @@ class FillsManager:
         # ШАГ 2: Распределение по правам
         log_info("M_25: Шаг 2/2 - Распределение по правам")
         distributor_rights = Msm_25_3_LayerDistributor(self.layer_manager)
-        rights_result = distributor_rights.distribute_by_rights(
-            source_layer,
-            unknown_handler=self._create_unknown_handler()
-        )
+        rights_result = distributor_rights.distribute_by_rights(source_layer)
         stats['rights'] = rights_result
 
         # Итоговое логирование

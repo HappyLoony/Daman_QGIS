@@ -1119,6 +1119,9 @@ def supplement_selection_from_extracts(created_layers: List[QgsVectorLayer]) -> 
         'Обременения',
         'Собственники',
         'Арендаторы',
+        '__Форма_тех',  # Транзитная форма собственности (3-я fill-тропа, §5.3):
+                        # fill-only (доминирование через M_24), но должна подхватиться
+                        # при импорте выписки ПОСЛЕ выборки
     ]
 
     # Значения считающиеся пустыми
@@ -1248,7 +1251,10 @@ def supplement_selection_from_extracts(created_layers: List[QgsVectorLayer]) -> 
         # Операции идемпотентны. Можно удалить при рефакторинге.
         try:
             data_cleanup = DataCleanupManager()
-            data_cleanup.finalize_layer(selection_layer, SELECTION_LAYER_NAME)
+            # Транзитное __Форма_тех исключаем из финализации (INST-2, §5.5)
+            data_cleanup.finalize_layer(
+                selection_layer, SELECTION_LAYER_NAME, exclude_fields=['__Форма_тех']
+            )
             log_info(f"Fsm_1_1_4_6: Финализация слоя выборки '{SELECTION_LAYER_NAME}' выполнена")
         except Exception as e:
             log_warning(f"Fsm_1_1_4_6: Ошибка финализации слоя выборки: {e}")
