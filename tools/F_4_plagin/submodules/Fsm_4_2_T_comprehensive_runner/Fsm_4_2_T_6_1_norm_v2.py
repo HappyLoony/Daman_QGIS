@@ -1,9 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-Субмодуль Fsm_4_2_T_6_1_norm_v2 - Тесты F_6_1 (по-дневная норма с cap, ревизия 9).
+Субмодуль Fsm_4_2_T_6_1_norm_v2 - Тесты F_6_1 (по-дневная норма с cap,
+ревизия 9 + ревизия 10: отгул выкупает норму, не нейтрализует).
 
 Машинная планка реализации плана
 `documentation/plans/_PLAN_F_6_1_part_rate_vacation_2026-06-22.md`.
+
+Ревизия 10 (два множества, R10.2): NEUTRALIZING={Отпуск,Больничный}
+нейтрализуют норму подённо с cap; BUYOUT={Отгул} выкупает норму (ст. 128) --
+в факте (employee_total), НЕ в норме -> полностью уменьшает норму. Различие
+выкуп<->нейтрализация ВИДНО только когда cap кусает (отгул-часы > day_norm):
+D1 (rate 0.5, отгул@8 > day_norm=4 -> старый 0 / новый +4),
+D3 (rate 1.0 предпраздничный, отгул@8 > day_norm=7 -> старый 0 / новый +1).
+rate 1.0 обычный день (отгул@8 = day_norm=8, cap НЕ кусает) тождественен в
+обоих режимах -> для инъекции дефекта БЕСПОЛЕЗЕН (test_08 старой ревизии был
+именно таким -> слеп). Эталоны инъекции ОБЯЗАНЫ быть cap-кусающими.
 
 КЛЮЧЕВОЕ ОТЛИЧИЕ ОТ Fsm_4_2_T_6_1.py (§7, FIX-8):
 - employee_total берётся из РЕАЛЬНЫХ daily_hours через
@@ -81,6 +92,14 @@ class _FakeCalendar:
         if self._raise_runtime:
             raise RuntimeError("Производственный календарь недоступен (фейк)")
         return check_date.day in self._shortened
+
+    def is_holiday(self, check_date: date) -> bool:
+        """Выходной/праздник = не рабочий день (реплика Msm_4_22.is_holiday).
+
+        Использует is_workday -> уважает raise_runtime/fail_on_scan_start
+        (validate_overtime/validate_absence_placement ловят RuntimeError, F-07).
+        """
+        return not self.is_workday(check_date)
 
     # --- Интерфейс, требуемый generate() для расчёта шапки "Норма часов" ---
 
@@ -240,7 +259,7 @@ class TestF61NormV2:
             self.test_05_rate05_full_vacation()
             self.test_06_shortened_day_full_hour()
             self.test_07_absence_on_shortened_day()
-            self.test_08_absence_all_categories_neutralized()
+            self.test_08_otgul_buyout_differentiating_D2()
             self.test_09_kp_as_work_reduces_deficit()
             self.test_10_year_boundary_not_rejected()
             self.test_11_month_rejection()
@@ -254,6 +273,18 @@ class TestF61NormV2:
             self.test_16_total_deviation_sum_of_rounded()
             self.test_17_manager_norm_meaningful()
             self.test_18_malformed_inputs_no_crash()
+
+            # Ревизия 10: выкуп отгула + валидация размещения
+            self.test_19_otgul_buyout_injection_D1()
+            self.test_20_otgul_buyout_injection_D3_shortened()
+            self.test_21_otgul_plus_vacation_two_classes_O4()
+            self.test_22_overtime_absence_categories_skipped()
+            self.test_23_otgul_parser_gate_invisible_chars()
+            self.test_24_absence_placement_rejects_anomalies()
+            self.test_25_absence_placement_valid_controls()
+            self.test_26_absence_placement_calendar_runtime_failsoft()
+            self.test_27_overtime_absence_no_phantom_valid_otgul()
+            self.test_28_validator_summary_consistency_otgul()
 
         except Exception as e:
             self.logger.error(f"Критическая ошибка: {e}")
@@ -560,22 +591,41 @@ class TestF61NormV2:
         except Exception as e:
             self.logger.error(f"Ошибка: {e}")
 
-    def test_08_absence_all_categories_neutralized(self):
-        """§7.8: Отгул нейтрализуется наравне с отпуском/больничным."""
-        self.logger.section("8. Отгул нейтрализуется (наравне)")
+    def test_08_otgul_buyout_differentiating_D2(self):
+        """§7.8 (ревизия 10, D2): отгул ВЫКУПАЕТ норму (cap-кусающий эталон).
+
+        РАЗЛИЧАЮЩИЙ эталон D2 (rate 0.5, отгул@8 + переработка): старый режим
+        (отгул нейтрализуется) дал бы +8, новый (отгул выкупает) даёт +12. rate
+        0.5 обязателен: cap min(отгул8, day_norm4) кусает -> различие видно.
+
+        ИНЪЕКЦИЯ ДЕФЕКТА (канон-21): на ТЕКУЩЕМ (нейтрализация) коде этот эталон
+        FAIL (dev=+8, ассерт ждёт +12); после ревизии 10 PASS (dev=+12). См.
+        implementation-notes run-dir. D2 -- ОБЫЧНЫЙ overtime-регресс (та же ось
+        rate<1.0 что D1, знак "+"), не единственный механизм инъекции (D1+D3 --
+        два разных механизма кусания cap).
+        """
+        self.logger.section("8. Отгул выкупает норму, D2 (rate 0.5, cap кусает)")
         try:
-            # 1.0: отгул 8ч день1 + работа 19@8. Отгул нейтрализуется -> dev=0.
+            # rate 0.5, 20 раб.дней -> норма (новая) = 80 (нет absence).
+            # отгул@8 день1; работа: день1=4, день2=8, дни3-20=4 (work_fact=84).
+            # total = 84 (работа) + 8 (отгул) = 92.
+            # НОВЫЙ (выкуп): norm=80 -> dev = 92-80 = +12.
+            # СТАРЫЙ (нейтрализ.): отгул в absence, absence_total=8;
+            #   work_norm: день1 excused=min(8,4)=4 -> 0; дни2-20=76; work_norm=76;
+            #   norm_old = 76+8 = 84 -> dev = 92-84 = +8. Различает (+8 vs +12).
             otgul = {1: 8.0}
-            work = {d: 8.0 for d in range(2, 21)}
+            work = {1: 4.0, 2: 8.0}
+            work.update({d: 4.0 for d in range(3, 21)})  # дни3-20 = 18*4 = 72
             ts = _make_timesheet(
                 projects=[_make_project("25-П-1", work)],
                 special_categories=[_make_category("Отгул", otgul)]
             )
-            total, norm, dev = self._full_chain(ts, 1.0, _make_calendar_20wd())
+            total, norm, dev = self._full_chain(ts, 0.5, _make_calendar_20wd())
             self.logger.check(
-                total == 160.0 and norm == 160.0 and dev == 0.0,
-                "Отгул нейтрализован: total=160, norm=160, dev=0",
-                f"total={total}, norm={norm}, dev={dev} (ожидалось 160/160/0)"
+                total == 92.0 and norm == 80.0 and dev == 12.0,
+                "D2: отгул выкупил норму -> total=92, norm=80, dev=+12 "
+                "(старый режим дал бы +8)",
+                f"total={total}, norm={norm}, dev={dev} (ожидалось 92/80/+12)"
             )
         except Exception as e:
             self.logger.error(f"Ошибка: {e}")
@@ -810,26 +860,35 @@ class TestF61NormV2:
             self.logger.error(f"Ошибка: {e}")
 
     def test_13_fact_norm_invariant_partial_period(self):
-        """§7.13: инвариант факт<->норма на НЕПОЛНОМ периоде через _build_data_matrix."""
-        self.logger.section("13. Инвариант факт<->норма (неполный период)")
+        """§7.13 (ревизия 10 / A1): инвариант факт<->норма через NEUTRALIZING.
+
+        Инвариант `Σ(NEUTRALIZING факта) == absence_total == Σ absence_by_day` на
+        НЕПОЛНОМ периоде. КРИТИЧНО (rev-code-r6 ISSUE-001): отбор идёт по
+        NEUTRALIZING (Отпуск/Больничный), НЕ ABSENCE -- absence_by_day в ревизии 10
+        исключает отгул, значит и fact_absence должен считаться по NEUTRALIZING,
+        иначе инвариант ложно упадёт. Отгул в employee_total, НЕ в absence_by_day.
+        """
+        self.logger.section("13. Инвариант факт<->норма (NEUTRALIZING, неполный период)")
         try:
             from Daman_QGIS.tools.F_6_special.submodules.Fsm_6_1_5_summary import (
                 SummaryTimesheetGenerator
             )
             from Daman_QGIS.tools.F_6_special.submodules.Fsm_6_1_6_norm import (
-                absence_by_day, compute_employee_norm
-            )
-            from Daman_QGIS.tools.F_6_special.submodules.Fsm_6_1_3_parser import (
-                SPECIAL_CATEGORIES_ORDER
+                absence_by_day, compute_employee_norm, NEUTRALIZING
             )
             from Daman_QGIS.utils import normalize_for_classification
 
-            # Чисто-absence табель: отпуск дни 1-10 по 8ч. end_day=5 (середина).
-            # На неполном периоде: employee_total(до 5) должен == norm(до 5),
-            # deviation=0. И absence-доля факта == absence_total == Σ absence_by_day.
+            # Табель: отпуск дни 1-10 по 8ч (NEUTRALIZING) + отгул день 3 8ч
+            # (BUYOUT -- в факте, НЕ в absence_by_day). end_day=5 (середина).
+            # Инвариант по NEUTRALIZING: fact_neutral(до5) == absence_total(до5)
+            #   == Σ absence_by_day (все = отпуск дни1-5 = 40; отгул НЕ входит).
             vac_daily = {d: 8.0 for d in range(1, 11)}
+            otgul_daily = {3: 8.0}  # отгул в факте, но НЕ в absence_by_day
             ts = _make_timesheet(
-                special_categories=[_make_category("Отпуск", vac_daily)]
+                special_categories=[
+                    _make_category("Отпуск", vac_daily),
+                    _make_category("Отгул", otgul_daily),
+                ]
             )
             end_day = 5
 
@@ -844,14 +903,19 @@ class TestF61NormV2:
             amap = absence_by_day(ts, end_day)
             absence_total = sum(amap.values())
 
-            # absence-доля employee_total: сумма absence-колонок факта
-            absence_norm_set = {
-                normalize_for_classification(c).lower()
-                for c in ("Отпуск", "Больничный", "Отгул")
+            # neutralizing-доля employee_total: сумма ТОЛЬКО NEUTRALIZING-колонок
+            # факта (A1: НЕ ABSENCE -- отгул исключён из инварианта нормы).
+            neutralizing_set = {
+                normalize_for_classification(c).lower() for c in NEUTRALIZING
             }
-            fact_absence = sum(
+            fact_neutral = sum(
                 h for col, h in hours_by_column.items()
-                if normalize_for_classification(col).lower() in absence_norm_set
+                if normalize_for_classification(col).lower() in neutralizing_set
+            )
+            # отгул-доля факта (для контроля: он ЕСТЬ в факте, но НЕ в норме)
+            fact_otgul = sum(
+                h for col, h in hours_by_column.items()
+                if normalize_for_classification(col).lower() == "отгул"
             )
 
             norm = compute_employee_norm(
@@ -859,18 +923,30 @@ class TestF61NormV2:
             )
             deviation = round(employee_total - norm, 2)
 
-            # На неполном периоде (5 раб.дней@0.5=20 норма работы), отпуск 40 (дни1-5).
-            # work_norm: каждый из 5 дней excused=min(8,4)=4 -> 0. absence_total=40.
-            # norm=40. employee_total(до 5)=40. dev=0.
+            # neutralizing-инвариант: fact_neutral == absence_total == Σamap == 40
+            # (отпуск дни1-5 = 40; отгул НЕ входит).
             self.logger.check(
-                deviation == 0.0,
-                "чисто-absence, неполный период -> deviation=0",
-                f"total={employee_total}, norm={norm}, dev={deviation} (ожидалось 0)"
+                fact_neutral == absence_total == sum(amap.values()) == 40.0,
+                "инвариант (NEUTRALIZING): fact_neutral == absence_total == "
+                "Σ absence_by_day == 40 (отгул НЕ в absence_by_day)",
+                f"fact_neutral={fact_neutral}, absence_total={absence_total} "
+                f"(ожидалось 40 все)"
             )
+            # отгул ЕСТЬ в факте (день3 <= 5): fact_otgul=8. Целевая асимметрия.
             self.logger.check(
-                fact_absence == absence_total == sum(amap.values()) == 40.0,
-                "инвариант: absence-доля факта == absence_total == Σ absence_by_day == 40",
-                f"fact_absence={fact_absence}, absence_total={absence_total} (ожидалось 40 все)"
+                fact_otgul == 8.0,
+                "отгул в employee_total (день3 <= end_day) -- выкуп через факт",
+                f"fact_otgul={fact_otgul} (ожидалось 8.0)"
+            )
+            # Отклонение: norm(до5,0.5) = work_norm(5дн, все excused отпуском) +
+            #   absence_total(40) = 0 + 40 = 40. Отгул@8 день3 в факте -> выкуп
+            #   на 8ч: dev = total - norm. total(до5) = отпуск40 + отгул8 = 48
+            #   (отпуск дни1-5=40, отгул день3=8). norm=40. dev = 48-40 = +8.
+            self.logger.check(
+                deviation == 8.0,
+                "отгул выкупил норму на неполном периоде -> dev=+8 "
+                "(старый режим нейтрализовал бы -> dev=0)",
+                f"total={employee_total}, norm={norm}, dev={deviation} (ожидалось +8)"
             )
         except Exception as e:
             self.logger.error(f"Ошибка: {e}")
@@ -1199,6 +1275,577 @@ class TestF61NormV2:
                     "нечисловые/отрицательные часы отфильтрованы (только >0)",
                     f"daily={proj_days} (ожидались только положительные)"
                 )
+        except Exception as e:
+            self.logger.error(f"Ошибка: {e}")
+
+    # ==================================================================
+    # РЕВИЗИЯ 10: выкуп отгула, overtime absence-отбор, валидация размещения
+    # ==================================================================
+
+    def _make_validator(self, calendar, rate=1.0, fio="Иванов Иван Иванович",
+                        target_month=1, target_year=2026, end_day=20):
+        """TimesheetValidator с ВПРЫСНУТЫМ фейк-календарём и праймленным сотрудником.
+
+        Изолирует validate_overtime/validate_absence_placement от сети: календарь
+        -- _FakeCalendar, employee-кэш праймлен (ставка из dict, без Base_employee).
+        """
+        from Daman_QGIS.tools.F_6_special.submodules.Fsm_6_1_2_validator import (
+            TimesheetValidator
+        )
+        validator = TimesheetValidator(
+            target_month=target_month, target_year=target_year, end_day=end_day
+        )
+        validator._calendar_manager = calendar  # впрыск фейка (обходит property)
+        # Праймим сотрудника с нужной ставкой (fio -> rate) без сети.
+        parts = fio.split()
+        emp = {
+            "last_name": parts[0] if parts else "Иванов",
+            "first_name": parts[1] if len(parts) > 1 else "Иван",
+            "middle_name": parts[2] if len(parts) > 2 else "Иванович",
+            "rate": rate,
+        }
+        validator._employees_cache = [emp]
+        validator._surnames_cache = {emp["last_name"].lower()}
+        validator._valid_project_codes = set()
+        return validator
+
+    def test_19_otgul_buyout_injection_D1(self):
+        """§R5/D1 (ИНЪЕКЦИЯ, механизм rate<1.0): 0.5, отгул@8 + работа76 -> 0/+4.
+
+        ИНЪЕКЦИЯ ДЕФЕКТА (канон-21): на ТЕКУЩЕМ (нейтрализация) коде dev=0,
+        ассерт ждёт +4 -> FAIL; после ревизии 10 -> PASS. Cap min(отгул8,4)
+        кусает -> различает выкуп от нейтрализации.
+        """
+        self.logger.section("19. D1 инъекция: отгул выкуп (0.5, cap min(8,4) кусает)")
+        try:
+            # отгул@8 день1, работа дни2-20 @4 = 76. 20 раб.дней, rate 0.5.
+            # НОВЫЙ: norm=80 (нет absence). total = 76+8 = 84. dev = 84-80 = +4.
+            # СТАРЫЙ: отгул в absence(8); work_norm: день1 excused=min(8,4)=4->0;
+            #   дни2-20=76; norm_old=76+8=84; dev = 84-84 = 0. Различает (0 vs +4).
+            otgul = {1: 8.0}
+            work = {d: 4.0 for d in range(2, 21)}  # 19 дней * 4 = 76
+            ts = _make_timesheet(
+                projects=[_make_project("25-П-1", work)],
+                special_categories=[_make_category("Отгул", otgul)]
+            )
+            total, norm, dev = self._full_chain(ts, 0.5, _make_calendar_20wd())
+            self.logger.check(
+                total == 84.0 and norm == 80.0 and dev == 4.0,
+                "D1: total=84, norm=80, dev=+4 (старый режим дал бы 0)",
+                f"total={total}, norm={norm}, dev={dev} (ожидалось 84/80/+4)"
+            )
+        except Exception as e:
+            self.logger.error(f"Ошибка: {e}")
+
+    def test_20_otgul_buyout_injection_D3_shortened(self):
+        """§R5/D3 (ИНЪЕКЦИЯ, механизм shortened): 1.0 предпраздн.+отгул@8 -> 0/+1.
+
+        Второй механизм кусания cap (отличный от D1): предпраздничный день,
+        day_norm=7, отгул@8 > 7 -> cap min(8,7) кусает. ИНЪЕКЦИЯ: старый 0,
+        новый +1.
+        """
+        self.logger.section("20. D3 инъекция: отгул на предпраздничном (min(8,7))")
+        try:
+            # rate 1.0, день20 предпраздничный. отгул@8 день20, работа дни1-19@8=152.
+            # НОВЫЙ: work_norm=19*8 + 7 = 159; absence_total=0; norm=159.
+            #   total = 152+8 = 160. dev = 160-159 = +1.
+            # СТАРЫЙ: отгул в absence(8); день20 excused=min(8,7)=7->0; дни1-19=152;
+            #   work_norm=152; norm_old=152+8=160; dev = 160-160 = 0. Различает.
+            cal = _make_calendar_20wd(shortened={20})
+            otgul = {20: 8.0}
+            work = {d: 8.0 for d in range(1, 20)}  # 19 дней * 8 = 152
+            ts = _make_timesheet(
+                projects=[_make_project("25-П-1", work)],
+                special_categories=[_make_category("Отгул", otgul)]
+            )
+            total, norm, dev = self._full_chain(ts, 1.0, cal)
+            self.logger.check(
+                total == 160.0 and norm == 159.0 and dev == 1.0,
+                "D3: предпраздн.+отгул@8 -> dev=+1 (старый режим дал бы 0)",
+                f"total={total}, norm={norm}, dev={dev} (ожидалось 160/159/+1)"
+            )
+        except Exception as e:
+            self.logger.error(f"Ошибка: {e}")
+
+    def test_21_otgul_plus_vacation_two_classes_O4(self):
+        """§R5/O4 (демо на 1.0, не различающий): два класса раздельны.
+
+        Отпуск нейтрализует (день1 обнулён), отгул выкупает -> те же 152ч работы
+        дают +8. Контроль: тот же табель БЕЗ отгула (день2=работа) -> dev 0
+        (различает выкуп от нейтрализации). rate 1.0 обычный день -- ДЕМО, для
+        инъекции непригоден (cap min(8,8) не кусает), но проверяет РАЗДЕЛЬНОСТЬ
+        двух множеств.
+        """
+        self.logger.section("21. O4: отпуск нейтрализует + отгул выкупает (раздельны)")
+        try:
+            cal = _make_calendar_20wd()
+            # отпуск@8 день1 + отгул@8 день2 + работа дни3-20@8 (18*8=144) +
+            # переработка день3 +8 -> работа=152. Норма 1.0 = 160.
+            # НОВЫЙ: absence_by_day={день1:8} (только отпуск); absence_total=8.
+            #   work_norm: день1 excused=min(8,8)=8->0; день2 (отгул НЕ в absence)
+            #   day_norm=8, excused=0 -> 8; дни3-20 = 18*8=144; work_norm=8+144=152.
+            #   norm = 152 + 8 = 160. total = отпуск8 + отгул8 + работа152 = 168.
+            #   dev = 168-160 = +8.
+            vac = {1: 8.0}
+            otgul = {2: 8.0}
+            work = {d: 8.0 for d in range(3, 21)}  # дни3-20 = 144
+            work[3] = 16.0  # день3: 8 работа + 8 переработка -> работа всего 152
+            ts = _make_timesheet(
+                projects=[_make_project("25-П-1", work)],
+                special_categories=[
+                    _make_category("Отпуск", vac),
+                    _make_category("Отгул", otgul),
+                ]
+            )
+            total, norm, dev = self._full_chain(ts, 1.0, cal)
+            self.logger.check(
+                total == 168.0 and norm == 160.0 and dev == 8.0,
+                "O4: отпуск нейтрализует, отгул выкупает -> dev=+8",
+                f"total={total}, norm={norm}, dev={dev} (ожидалось 168/160/+8)"
+            )
+            # Контроль: тот же объём работы (152ч), но БЕЗ отгула -- день2 стал
+            # обычной РАБОТОЙ@8, а "переработка" день3 убрана (работа день2
+            # поглотила эти 8ч, распределившись нормально). Оба варианта: 152ч
+            # РЕАЛЬНОЙ работы + отпуск день1. Разница ТОЛЬКО в дне2 (отгул vs работа).
+            # НОВЫЙ (без отгула): work_ctrl дни2-20@8 = 152. total = отпуск8 + 152
+            #   = 160. absence_by_day={день1:8}; work_norm: день1(0)+дни2-20(152)=152;
+            #   norm=152+8=160. dev = 160-160 = 0.
+            # -> отгул создал +8 (выкуп), обычная работа -- 0 (нейтрализация день1).
+            work_ctrl = {d: 8.0 for d in range(2, 21)}  # дни2-20 @8 = 152, без OT
+            ts_ctrl = _make_timesheet(
+                projects=[_make_project("25-П-1", work_ctrl)],
+                special_categories=[_make_category("Отпуск", vac)]
+            )
+            tc, nc, dc = self._full_chain(ts_ctrl, 1.0, cal)
+            self.logger.check(
+                tc == 160.0 and nc == 160.0 and dc == 0.0,
+                "контроль O4 (день2=работа, без отгула, 152ч работы) -> dev=0 "
+                "(различает выкуп от нейтрализации)",
+                f"total={tc}, norm={nc}, dev={dc} (ожидалось 160/160/0)"
+            )
+        except Exception as e:
+            self.logger.error(f"Ошибка: {e}")
+
+    def test_22_overtime_absence_categories_skipped(self):
+        """§R5 (а/б): validate_overtime пропускает absence-КАТЕГОРИИ, не ДНИ.
+
+        (а) 0.5 полнодневный отпуск@8 -> НЕТ per-day переработки (был ложный +4).
+        (б) частичный день 0.5: 4ч отпуск + 6ч работа -> переработка +2 СОХРАНЯЕТСЯ
+            (пропуск категории != пропуск дня; рабочие 6ч > day_norm 4ч).
+        """
+        self.logger.section("22. validate_overtime: absence-категории, не дни")
+        try:
+            # (а) rate 0.5, отпуск@8 дни1-5 (полнодневное отсутствие) + работа
+            #     дни6-20@4. Отпуск-категория пропущена -> дни1-5 без рабочих часов
+            #     -> НЕТ переработки. Дни6-20 @4 = day_norm -> нет переработки.
+            cal = _make_calendar_20wd()
+            vac = {d: 8.0 for d in range(1, 6)}
+            work = {d: 4.0 for d in range(6, 21)}
+            ts_a = _make_timesheet(
+                projects=[_make_project("25-П-1", work)],
+                special_categories=[_make_category("Отпуск", vac)]
+            )
+            validator = self._make_validator(cal, rate=0.5)
+            res_a = validator.validate_overtime(ts_a)
+            has_overtime_a = any("Переработка" in m.message for m in res_a.messages)
+            self.logger.check(
+                not has_overtime_a,
+                "(а) 0.5 полнодневный отпуск@8 -> НЕТ ложной per-day переработки",
+                f"сообщения: {[m.message for m in res_a.messages]}"
+            )
+
+            # (б) rate 0.5, день1: 4ч отпуск + 6ч работа. Отпуск-категория
+            #     пропущена -> рабочие 6ч > day_norm 4ч -> переработка +2 СОХРАНЯЕТСЯ.
+            vac_b = {1: 4.0}
+            work_b = {1: 6.0}
+            work_b.update({d: 4.0 for d in range(2, 21)})
+            ts_b = _make_timesheet(
+                projects=[_make_project("25-П-1", work_b)],
+                special_categories=[_make_category("Отпуск", vac_b)]
+            )
+            validator_b = self._make_validator(cal, rate=0.5)
+            res_b = validator_b.validate_overtime(ts_b)
+            has_overtime_b = any(
+                "Переработка 01.01" in m.message for m in res_b.messages
+            )
+            self.logger.check(
+                has_overtime_b,
+                "(б) частичный 0.5: 4ч отпуск + 6ч работа -> переработка +2 "
+                "по рабочей части СОХРАНЯЕТСЯ (пропуск категории != пропуск дня)",
+                f"сообщения: {[m.message for m in res_b.messages]}"
+            )
+        except Exception as e:
+            self.logger.error(f"Ошибка: {e}")
+
+    def test_23_otgul_parser_gate_invisible_chars(self):
+        """§R5b (ISSUE-002): отгул с zero-width/nbsp через РЕАЛЬНЫЙ parse_timesheet.
+
+        Смена предиката _ABSENCE_NORM->_NEUTRALIZING_NORM не проверена на реальном
+        парсер-пути отгула. Отгул с невидимыми символами -> корректно выкупает: в
+        employee_total (факт) ЕСТЬ, в absence_by_day НЕТ (BUYOUT).
+        """
+        self.logger.section("23. Отгул парсер-гейт (невидимые символы, выкуп)")
+        try:
+            from Daman_QGIS.tools.F_6_special.submodules.Fsm_6_1_3_parser import (
+                parse_timesheet
+            )
+            from Daman_QGIS.tools.F_6_special.submodules.Fsm_6_1_6_norm import (
+                absence_by_day
+            )
+            from Daman_QGIS.utils import normalize_for_classification
+
+            zwsp = "​"  # zero-width space
+            path = os.path.join(self._tempdir, "Отгулов_01.xlsx")
+            _write_timesheet_xlsx(
+                path, "Отгулов Отгул Отгулович",
+                rows=[
+                    {"col": "D", "value": f"Отгул{zwsp}", "daily": {1: 8.0}},
+                    {"col": "C", "value": "25-П-1", "daily": {2: 8.0}},
+                ],
+                year=2026, month=1, end_day=28
+            )
+            ts = parse_timesheet(path)
+            self.logger.check(
+                ts is not None,
+                "parse_timesheet вернул табель",
+                "parse_timesheet вернул None"
+            )
+            if ts is None:
+                return
+            # Отгул с zwsp распознан как категория (не проект-шифр)
+            cats = {}
+            for c in ts.special_categories:
+                key = normalize_for_classification(c.category).lower()
+                cats[key] = cats.get(key, 0.0) + sum(c.daily_hours.values())
+            self.logger.check(
+                cats.get("отгул", 0.0) == 8.0 and len(ts.projects) == 1,
+                "Отгул<zwsp> -> категория отгул 8ч (не проект); проект 25-П-1 отдельно",
+                f"cats={cats}, projects={[p.code for p in ts.projects]}"
+            )
+            # КЛЮЧЕВОЕ (норма-сторона): absence_by_day НЕ ловит отгул (BUYOUT
+            # исключён из нормы).
+            amap = absence_by_day(ts, None)
+            self.logger.check(
+                sum(amap.values()) == 0.0,
+                "absence_by_day НЕ содержит отгул (Σ=0; отгул выкупает через факт)",
+                f"Σ absence_by_day = {sum(amap.values())} (ожидалось 0.0)"
+            )
+            # ФАКТ-сторона (полный инвариант «отгул в employee_total ЕСТЬ»):
+            # реальный _build_data_matrix даёт колонку «Отгул» с ненулём для
+            # отгула с zero-width из парсер-гейта. Инвариант выкупа держится на
+            # обоих концах: в факте ЕСТЬ (здесь), в норме НЕТ (проверка выше).
+            from Daman_QGIS.tools.F_6_special.submodules.Fsm_6_1_5_summary import (
+                SummaryTimesheetGenerator
+            )
+            gen = SummaryTimesheetGenerator()
+            codes, categories = gen._collect_unique_codes([ts])
+            employees_data, _ = gen._build_data_matrix(
+                [ts], codes, categories, end_day=None
+            )
+            _, hours_by_column = employees_data[0]
+            # Колонка «Отгул» (каноническое имя из SPECIAL_CATEGORIES_ORDER)
+            otgul_in_fact = sum(
+                h for col, h in hours_by_column.items()
+                if normalize_for_classification(col).lower() == "отгул"
+            )
+            self.logger.check(
+                otgul_in_fact == 8.0,
+                "employee_total СОДЕРЖИТ отгул 8ч (колонка «Отгул» _build_data_matrix)",
+                f"otgul_in_fact={otgul_in_fact}, columns={list(hours_by_column.keys())} "
+                f"(ожидалось 8.0)"
+            )
+        except Exception as e:
+            self.logger.error(f"Ошибка: {e}")
+
+    def test_24_absence_placement_rejects_anomalies(self):
+        """§R5d (R3b): validate_absence_placement ОТБРАКОВЫВАЕТ аномалии.
+
+        (1) отгул на нерабочий день (day 6, выходной внутри окна) -> ошибка.
+        (2) отпуск@8 + отгул@8 в один день (двойное absence) -> ошибка.
+        (3) отгул@10 (Σ absence > 8) -> ошибка.
+        """
+        self.logger.section("24. validate_absence_placement: отбраковка аномалий")
+        try:
+            cal = _make_calendar_20wd()  # раб.дни 1-20; дни 21-31 нерабочие
+
+            # (1) отгул@8 на нерабочий день 6. Календарь с "дырой": день 6 НЕ
+            #     рабочий, остальные 1-20 рабочие. День 6 <= end_day(20) -> в окне
+            #     проверки (не отфильтрован по cutoff).
+            cal_hole = _FakeCalendar(workdays=(set(range(1, 21)) - {6}))
+            ts1 = _make_timesheet(
+                special_categories=[_make_category("Отгул", {6: 8.0})]
+            )
+            v1 = self._make_validator(cal_hole)
+            r1 = v1.validate_absence_placement(ts1)
+            self.logger.check(
+                (not r1.is_valid) and any(
+                    "нерабочий день" in m.message for m in r1.messages
+                ),
+                "(1) отгул на нерабочий день 6 (внутри окна) -> отбраковка",
+                f"is_valid={r1.is_valid}, msgs={[m.message for m in r1.messages]}"
+            )
+
+            # (2) отпуск@8 + отгул@8 в день 3 (несовместимо)
+            ts2 = _make_timesheet(
+                special_categories=[
+                    _make_category("Отпуск", {3: 8.0}),
+                    _make_category("Отгул", {3: 8.0}),
+                ]
+            )
+            v2 = self._make_validator(cal)
+            r2 = v2.validate_absence_placement(ts2)
+            self.logger.check(
+                (not r2.is_valid) and any(
+                    "Несовместимые" in m.message for m in r2.messages
+                ),
+                "(2) отпуск@8 + отгул@8 в один день -> отбраковка (несовместимо)",
+                f"is_valid={r2.is_valid}, msgs={[m.message for m in r2.messages]}"
+            )
+            # день3 Σ absence = 16 > 8 -> ТАКЖЕ ошибка п.3 (двойная детекция ok)
+            self.logger.check(
+                any("превышает полный день" in m.message for m in r2.messages),
+                "(2доп) Σ absence 16>8 -> также ошибка п.3",
+                f"msgs={[m.message for m in r2.messages]}"
+            )
+
+            # (3) отгул@10 в день 4 (Σ absence > 8, одна категория)
+            ts3 = _make_timesheet(
+                special_categories=[_make_category("Отгул", {4: 10.0})]
+            )
+            v3 = self._make_validator(cal)
+            r3 = v3.validate_absence_placement(ts3)
+            self.logger.check(
+                (not r3.is_valid) and any(
+                    "превышает полный день" in m.message for m in r3.messages
+                ),
+                "(3) отгул@10 (Σ>8) -> отбраковка",
+                f"is_valid={r3.is_valid}, msgs={[m.message for m in r3.messages]}"
+            )
+        except Exception as e:
+            self.logger.error(f"Ошибка: {e}")
+
+    def test_25_absence_placement_valid_controls(self):
+        """§R5d валидные контроли (НЕ отбраковка): частичный / предпраздн.8 / отгул одиночный.
+
+        (а) 4ч отпуск + 4ч работа в рабочий день -> ВАЛИДЕН (absence-доля 4<=8).
+        (б) отпуск@8 на ПРЕДПРАЗДНИЧНОМ дне (норма 7) -> НЕ отбракован (порог 8,
+            не 7; кейс G легитимен).
+        (в) отгул@8 одиночный на рабочий день -> ВАЛИДЕН (выкуп легитимен).
+        """
+        self.logger.section("25. validate_absence_placement: валидные контроли")
+        try:
+            cal = _make_calendar_20wd(shortened={20})  # день20 предпраздничный
+
+            # (а) 4ч отпуск + 4ч работа день3 -> валиден (одна absence-категория,
+            #     absence-доля 4 <= 8, рабочий день).
+            ts_a = _make_timesheet(
+                projects=[_make_project("25-П-1", {3: 4.0})],
+                special_categories=[_make_category("Отпуск", {3: 4.0})]
+            )
+            va = self._make_validator(cal)
+            ra = va.validate_absence_placement(ts_a)
+            self.logger.check(
+                ra.is_valid,
+                "(а) 4ч отпуск + 4ч работа (частичный) -> ВАЛИДЕН",
+                f"is_valid={ra.is_valid}, msgs={[m.message for m in ra.messages]}"
+            )
+
+            # (б) отпуск@8 на предпраздничном дне 20 (норма 7) -> НЕ отбракован
+            #     (порог 8, не day_norm 7; кейс G легитимен, регламент мандатирует 8).
+            ts_b = _make_timesheet(
+                special_categories=[_make_category("Отпуск", {20: 8.0})]
+            )
+            vb = self._make_validator(cal)
+            rb = vb.validate_absence_placement(ts_b)
+            self.logger.check(
+                rb.is_valid,
+                "(б) отпуск@8 на предпраздничном (порог 8, не 7) -> НЕ отбракован",
+                f"is_valid={rb.is_valid}, msgs={[m.message for m in rb.messages]}"
+            )
+
+            # (в) отгул@8 одиночный на рабочий день 5 -> ВАЛИДЕН (выкуп легитимен)
+            ts_c = _make_timesheet(
+                special_categories=[_make_category("Отгул", {5: 8.0})]
+            )
+            vc = self._make_validator(cal)
+            rc = vc.validate_absence_placement(ts_c)
+            self.logger.check(
+                rc.is_valid,
+                "(в) отгул@8 одиночный на рабочий день -> ВАЛИДЕН (выкуп)",
+                f"is_valid={rc.is_valid}, msgs={[m.message for m in rc.messages]}"
+            )
+        except Exception as e:
+            self.logger.error(f"Ошибка: {e}")
+
+    def test_26_absence_placement_calendar_runtime_failsoft(self):
+        """§R5d RuntimeError (ISSUE-002): недоступный календарь -> НЕ роняет валидацию.
+
+        F-07 graceful: п.1 (is_workday) требует сеть; при RuntimeError проверка
+        размещения пропускается (валидация продолжается). п.2/п.3 (арифметика
+        без сети) выполняются ДО обращения к is_workday -> двойное absence и
+        Σ>8 всё равно ловятся.
+        """
+        self.logger.section("26. validate_absence_placement: RuntimeError fail-soft")
+        try:
+            cal_down = _make_calendar_20wd(raise_runtime=True)
+
+            # (а) отгул@8 одиночный на рабочий день: п.2/п.3 чисты, п.1 нужен
+            #     календарь -> недоступен -> проверка не роняет, is_valid=True.
+            ts_a = _make_timesheet(
+                special_categories=[_make_category("Отгул", {5: 8.0})]
+            )
+            va = self._make_validator(cal_down)
+            ra = va.validate_absence_placement(ts_a)
+            self.logger.check(
+                ra.is_valid,
+                "(а) недоступный календарь + валидный отгул -> НЕ роняет (fail-soft)",
+                f"is_valid={ra.is_valid}, msgs={[m.message for m in ra.messages]}"
+            )
+
+            # (б) двойное absence день3 (отпуск@8+отгул@8): п.2/п.3 БЕЗ календаря
+            #     ловят аномалию ДАЖЕ при недоступном календаре (is_valid=False).
+            ts_b = _make_timesheet(
+                special_categories=[
+                    _make_category("Отпуск", {3: 8.0}),
+                    _make_category("Отгул", {3: 8.0}),
+                ]
+            )
+            vb = self._make_validator(cal_down)
+            rb = vb.validate_absence_placement(ts_b)
+            self.logger.check(
+                (not rb.is_valid) and any(
+                    "Несовместимые" in m.message for m in rb.messages
+                ),
+                "(б) двойное absence ловится п.2/п.3 даже без календаря",
+                f"is_valid={rb.is_valid}, msgs={[m.message for m in rb.messages]}"
+            )
+        except Exception as e:
+            self.logger.error(f"Ошибка: {e}")
+
+    def test_27_overtime_absence_no_phantom_valid_otgul(self):
+        """§R5/ISSUE-003 (стык R3/R3b): валидный одиночный отгул@8 на рабочий день.
+
+        validate_overtime НЕ даёт ложной per-day переработки по отгул-категории
+        (R3 исключил absence); validate_absence_placement НЕ бракует (одиночный
+        отгул легитимен). Стык двух правок на одном валидном табеле.
+        """
+        self.logger.section("27. Стык R3/R3b: валидный одиночный отгул@8")
+        try:
+            cal = _make_calendar_20wd()
+            # отгул@8 день1 + работа дни2-20@8. rate 1.0.
+            ts = _make_timesheet(
+                projects=[_make_project("25-П-1", {d: 8.0 for d in range(2, 21)})],
+                special_categories=[_make_category("Отгул", {1: 8.0})]
+            )
+            validator = self._make_validator(cal, rate=1.0)
+
+            # R3: validate_overtime -> НЕТ переработки по отгул-категории (день1)
+            res_ot = validator.validate_overtime(ts)
+            has_ot_day1 = any(
+                "Переработка 01.01" in m.message for m in res_ot.messages
+            )
+            self.logger.check(
+                not has_ot_day1,
+                "R3: одиночный отгул@8 -> НЕТ ложной per-day переработки (день1)",
+                f"сообщения: {[m.message for m in res_ot.messages]}"
+            )
+            # R3b: validate_absence_placement -> НЕ бракует (одиночный отгул легитимен)
+            res_pl = validator.validate_absence_placement(ts)
+            self.logger.check(
+                res_pl.is_valid,
+                "R3b: одиночный отгул@8 на рабочий день -> НЕ отбракован (легитимен)",
+                f"is_valid={res_pl.is_valid}, msgs={[m.message for m in res_pl.messages]}"
+            )
+        except Exception as e:
+            self.logger.error(f"Ошибка: {e}")
+
+    def test_28_validator_summary_consistency_otgul(self):
+        """§R2d (D4/R5-2 распространён на выкуп): validator↔summary одно отклонение.
+
+        На ОДНОМ табеле с отгулом (rate 0.5, Гребенников-профиль: отгул@8 +
+        работа76) validator-путь (format_validation_report) и summary-путь
+        (generate() -> ячейка «Отклонение») ОБЯЗАНЫ дать одинаковое отклонение
+        (+4): оба считают норму через ЕДИНЫЙ helper compute_employee_norm.
+
+        Ловит рассинхрон validator↔summary (класс R5-2/D4 ревизии 9), если бы
+        кто-то развёл семантику отгула по путям. Выкуп проявляется в ЧИСЛЕ
+        (+4 vs 0 на старом коде — но здесь важно РАВЕНСТВО путей, не абс.число).
+        """
+        self.logger.section("28. Согласованность validator↔summary (отгул выкуп)")
+        try:
+            import re as _re
+            from Daman_QGIS.tools.F_6_special.submodules.Fsm_6_1_2_validator import (
+                format_validation_report, ValidationResult
+            )
+
+            cal = _make_calendar_20wd()
+            year, month, end_day = 2026, 1, 31  # весь январь; данные в днях 1-20
+            fio = "Гребенников Г.Г."
+            rates = {fio: 0.5}
+
+            # rate 0.5: отгул@8 день1 + работа дни2-20@4 (=76). Выкуп: norm=80,
+            # total=76+8=84, dev=+4 (D1). Табель валиден (нет аномалий/переработки).
+            otgul = {1: 8.0}
+            work = {d: 4.0 for d in range(2, 21)}
+            ts = _make_timesheet(
+                fio=fio,
+                projects=[_make_project("25-П-1", work)],
+                special_categories=[_make_category("Отгул", otgul)]
+            )
+
+            # --- (а) VALIDATOR-путь: format_validation_report (норма через helper) ---
+            # Минимальный валидный result (норма/отклонение в отчёте не зависят
+            # от result.messages -- считаются get_hours/get_employee_norm).
+            valid_result = ValidationResult(is_valid=True)
+            report = format_validation_report(
+                [(ts, valid_result)],
+                target_year=year, target_month=month,
+                use_html=False, end_day=end_day,
+                employee_rates=rates, calendar_manager=cal,
+                calendar_unavailable=False
+            )
+            # Отклонение в отчёте: "Часов: <hours> (<dev>)"
+            m = _re.search(r"Часов:\s*[\d.]+\s*\(([-\d.]+)\)", report)
+            validator_dev = round(float(m.group(1)), 2) if m else None
+            self.logger.check(
+                validator_dev == 4.0,
+                "validator-путь: отклонение +4 (отгул выкупил, помесячно)",
+                f"validator_dev={validator_dev}; report-фрагмент: "
+                f"{[l for l in report.splitlines() if 'Часов' in l]}"
+            )
+
+            # --- (б) SUMMARY-путь: generate() -> ячейка «Отклонение» ---
+            report_end = date(year, month, end_day)
+            path, cal_unavail = self._run_generate(
+                [ts], cal, report_end, employee_rates=rates, subdir="r2d"
+            )
+            self.logger.check(
+                path is not None and not cal_unavail,
+                "generate() создал файл, календарь доступен",
+                f"path={path}, cal_unavail={cal_unavail}"
+            )
+            if not path:
+                return
+            data = self._read_deviation_column(path)
+            per_emp = data["per_employee"]
+            summary_dev = None
+            for f, v in per_emp:
+                if v is not None:
+                    summary_dev = round(v, 2)
+                    break
+            self.logger.check(
+                summary_dev == 4.0,
+                "summary-путь: ячейка «Отклонение» +4 (тот же helper)",
+                f"summary_dev={summary_dev}, per_employee={per_emp}"
+            )
+
+            # --- КЛЮЧЕВОЕ: validator == summary (единый helper, нет рассинхрона) ---
+            self.logger.check(
+                validator_dev is not None and summary_dev is not None
+                and validator_dev == summary_dev,
+                "validator-отчёт == summary-файл: одно отклонение отгула (R2d)",
+                f"validator={validator_dev}, summary={summary_dev} (обязаны совпасть)"
+            )
         except Exception as e:
             self.logger.error(f"Ошибка: {e}")
 

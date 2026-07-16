@@ -80,6 +80,7 @@ class Fsm_1_1_4_7_UnifiedLandProcessor:
         self._common_land_cad_numbers = None
         self._parent_ez_attributes = None  # Атрибуты родительского ЕЗ для копирования
         self._wfs_area_cache = None  # Кэш площадей из WFS слоя
+        self._special_notes_areas_cache = None  # Кэш площадей из special_notes (парсится раз на ЕЗ)
 
     def process(self) -> List[Dict[str, Any]]:
         """Обработка ЕЗ - создание всех features в едином формате
@@ -303,7 +304,7 @@ class Fsm_1_1_4_7_UnifiedLandProcessor:
             # Извлечь геометрию из object_part
             contours = object_part.find('contours')
             if contours is None:
-                log_warning(f"Fsm_1_1_4_7: object_part {part_number} без геометрии - пропускаем")
+                log_debug(f"Fsm_1_1_4_7: object_part {part_number} без геометрии - пропускаем")
                 continue
 
             geometries_dict = self.extract_geometry_func(contours)
@@ -322,7 +323,7 @@ class Fsm_1_1_4_7_UnifiedLandProcessor:
                 geometry = geometries_dict['MultiPointM']
 
             if not geometry or geometry.isNull():
-                log_warning(f"Fsm_1_1_4_7: Пустая геометрия для part {part_number}")
+                log_debug(f"Fsm_1_1_4_7: Пустая геометрия для part {part_number}")
                 continue
 
             # Создать feature dict
@@ -483,10 +484,10 @@ class Fsm_1_1_4_7_UnifiedLandProcessor:
                         added_count += 1
 
             if added_count > 0:
-                log_info(f"Fsm_1_1_4_7: Загружено {added_count} площадей из слоя {layer_name}")
+                log_debug(f"Fsm_1_1_4_7: Загружено {added_count} площадей из слоя {layer_name}")
 
         if self._wfs_area_cache:
-            log_info(f"Fsm_1_1_4_7: Итого в кэше {len(self._wfs_area_cache)} площадей")
+            log_debug(f"Fsm_1_1_4_7: Итого в кэше {len(self._wfs_area_cache)} площадей")
 
         return self._wfs_area_cache
 
@@ -502,11 +503,19 @@ class Fsm_1_1_4_7_UnifiedLandProcessor:
         Returns:
             Dict[str, str]: Словарь {КН: площадь}
         """
+        # Кэш: special_notes ЕЗ парсится ОДИН раз. Метод вызывается per-child в
+        # цикле обработки обособленных участков (fallback площади) → без кэша
+        # повторный regex по одному тексту + лог-спам «Извлечено N площадей»
+        # на каждый дочерний участок (сотни строк на большой ЕЗ).
+        if self._special_notes_areas_cache is not None:
+            return self._special_notes_areas_cache
+
         import re
 
         areas = {}
         special_notes = self.main_record.findtext('.//special_notes')
         if not special_notes:
+            self._special_notes_areas_cache = areas
             return areas
 
         # Regex для поиска: КН - площадь кв.м
@@ -523,4 +532,5 @@ class Fsm_1_1_4_7_UnifiedLandProcessor:
         if areas:
             log_info(f"Fsm_1_1_4_7: Извлечено {len(areas)} площадей из special_notes")
 
+        self._special_notes_areas_cache = areas
         return areas

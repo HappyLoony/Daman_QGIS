@@ -7,24 +7,34 @@ Fsm_6_1_6: Расчёт индивидуальной нормы часов со�
 (absence-часы сокращаются в deviation) обеспечивают ВЫЗЫВАЮЩИЕ, а не helper --
 см. ниже.
 
-Целевая логика (план F_6_1 2026-06-22, ревизия 9 -- по-дневная норма с cap):
+Целевая логика (план F_6_1 2026-06-22, ревизия 9 + ревизия 10 -- по-дневная
+норма с cap; отгул выкупает норму, не нейтрализует):
 - норма строится по РАБОЧИМ дням периода с корректным предпраздничным
   сокращением (полный 1 час после масштабирования ставкой, ст. 95 ТК РФ);
-- отсутствия (отпуск/больничный/отгул) нейтрализуются ПО-ДНЕВНО с cap:
-  excused(d) = min(absence_on_d, day_norm(d)) -- зачёт не больше дневной нормы,
-  work_norm = Σ по рабочим d (day_norm(d) - excused(d)),
-  employee_norm = work_norm + absence_total,
-  где те же absence-часы входят и в норму, и в факт (employee_total) ->
-  сокращаются в deviation. Cap корректен и для полных, и для частичных дней
-  отсутствия (устраняет и ложную переработку 0.5-ставки на полном дне, и
-  ложную переработку на частичном дне 4ч отпуск + 4ч работа);
-- источник часов отсутствия -- absence_by_day (per-day карта из daily_hours
-  ABSENCE-категорий). Тождество absence-доли факта и absence_total нормы
-  обеспечивается НЕ здесь, а согласованностью вызывающих: сторона факта
-  (_build_data_matrix в Fsm_6_1_5) и сторона absence (absence_by_day) применяют
-  ОДИН предикат отбора + ОДИН cutoff (d <= end_day) + ОДНУ нормализацию ->
-  Σ совпадает by construction. Helper лишь суммирует переданную карту, сам
-  инвариант не устанавливает;
+- ДВА ортогональных множества категорий (ревизия 10, R10.2):
+  * NEUTRALIZING = {Отпуск, Больничный} -- нейтрализуют норму ПО-ДНЕВНО с cap:
+    excused(d) = min(absence_on_d, day_norm(d)) -- зачёт не больше дневной нормы,
+    work_norm = Σ по рабочим d (day_norm(d) - excused(d)),
+    те же neutralizing-часы входят и в норму (absence_total), и в факт
+    (employee_total) -> сокращаются в deviation (ст. 128 к ним НЕ применяется);
+  * BUYOUT = {Отгул} -- ВЫКУП нормы (ст. 128, отпуск за свой счёт): отгул НЕ
+    входит в absence_by_day, значит НЕ добавляется в employee_norm, но остаётся
+    в employee_total (колонка «Отгул» _build_data_matrix) -> полностью уменьшает
+    норму на проставленные часы (без cap, без масштабирования ставкой). Это
+    НАМЕРЕННАЯ асимметрия факт<->норма (R5-1 сужен до NEUTRALIZING), не дефект;
+  * ABSENCE = NEUTRALIZING ∪ BUYOUT -- все отсутствия (не работа) -- экспортируется
+    для validate_overtime/validate_absence_placement (Fsm_6_1_2), где отгул тоже
+    absence (не даёт per-day переработку); в НОРМЕ отгул не участвует;
+- cap NEUTRALIZING корректен и для полных, и для частичных дней отсутствия
+  (устраняет и ложную переработку 0.5-ставки на полном дне, и ложную
+  переработку на частичном дне 4ч отпуск + 4ч работа);
+- источник часов нейтрализации -- absence_by_day (per-day карта из daily_hours
+  NEUTRALIZING-категорий; отгул исключён). Тождество neutralizing-доли факта и
+  absence_total нормы обеспечивается НЕ здесь, а согласованностью вызывающих:
+  сторона факта (_build_data_matrix в Fsm_6_1_5, отбор NEUTRALIZING) и сторона
+  нормы (absence_by_day) применяют ОДИН предикат отбора + ОДИН cutoff
+  (d <= end_day) + ОДНУ нормализацию -> Σ совпадает by construction. Helper лишь
+  суммирует переданную карту, сам инвариант не устанавливает;
 - источник year/month -- GUI (authoritative), НЕ ts.year/ts.month (B4);
 - при недоступности производственного календаря -> возврат None (graceful
   degradation, пустая ячейка "Отклонение" честнее ложной нормы).
@@ -36,40 +46,56 @@ from typing import Dict, Optional
 
 from Daman_QGIS.utils import log_warning, normalize_for_classification
 
-# Множество нейтрализуемых категорий-отсутствий (канонический регистр).
-# Отбор absence выполняется через normalize_for_classification(x).lower()
+# Два ортогональных множества категорий-отсутствий (ревизия 10, R10.2).
+# Отбор выполняется через normalize_for_classification(x).lower()
 # (см. absence_by_day и _build_data_matrix в Fsm_6_1_5): parser хранит
 # оригинальный регистр из Excel и невидимые символы, поэтому голый .lower()
-# или in-в-ABSENCE промахивается.
-ABSENCE = {"Отпуск", "Больничный", "Отгул"}
+# или in-в-множество промахивается.
+#
+# NEUTRALIZING -- нейтрализуют норму подённо с cap (входят и в факт, и в норму
+#   -> сокращаются в deviation). Отбор НОРМЫ (absence_by_day) идёт по ним.
+# BUYOUT -- выкуп нормы (ст. 128): в факте (колонка «Отгул»), НЕ в норме
+#   -> полностью уменьшает норму. НЕ в absence_by_day (намеренная асимметрия).
+# ABSENCE = NEUTRALIZING ∪ BUYOUT -- все отсутствия (не работа): экспортируется
+#   для validate_overtime (пропуск per-day переработки) и
+#   validate_absence_placement (отбраковка аномального заполнения) в Fsm_6_1_2.
+#   В расчёте НОРМЫ множество ABSENCE НЕ используется (только NEUTRALIZING).
+NEUTRALIZING = {"Отпуск", "Больничный"}
+BUYOUT = {"Отгул"}
+ABSENCE = NEUTRALIZING | BUYOUT
 
-# Нормализованное+lowercase множество для устойчивого отбора absence.
-# Один и тот же предикат применяется на стороне нормы (здесь) и на стороне
-# факта (Fsm_6_1_5._build_data_matrix) -> суммы согласованы (R5-1).
-_ABSENCE_NORM = {normalize_for_classification(c).lower() for c in ABSENCE}
+# Нормализованное+lowercase множество для устойчивого отбора нейтрализующих
+# категорий (норма). Один и тот же предикат применяется на стороне нормы
+# (здесь) и на стороне факта (Fsm_6_1_5._build_data_matrix, отбор NEUTRALIZING)
+# -> суммы neutralizing-доли согласованы (R5-1, сужен до NEUTRALIZING).
+_NEUTRALIZING_NORM = {normalize_for_classification(c).lower() for c in NEUTRALIZING}
 
 
 def absence_by_day(ts, end_day: Optional[int]) -> Dict[int, float]:
     """
-    Построить per-day карту часов отсутствия {день: Σ absence-часов}.
+    Построить per-day карту часов НЕЙТРАЛИЗУЮЩИХ отсутствий {день: Σ часов}.
 
-    Заменяет прежний build_absence_dict (per-category словарь). Возвращает
-    per-day скаляр для cap-формулы compute_employee_norm.
+    Собирает ТОЛЬКО NEUTRALIZING (Отпуск, Больничный). Отгул (BUYOUT) НАМЕРЕННО
+    исключён (ревизия 10, R10.3): он выкупает норму через факт, в норму не
+    добавляется -> в этой карте его быть не должно (иначе выкуп сломается).
 
-    Согласованность с фактом (R5-1, критично): отбор absence-категорий
+    Возвращает per-day скаляр для cap-формулы compute_employee_norm.
+
+    Согласованность с фактом (R5-1, сужен до NEUTRALIZING): отбор категорий
     выполняется тем же предикатом, что и на стороне факта
     (_build_data_matrix в Fsm_6_1_5): normalize_for_classification(name).lower()
-    in _ABSENCE_NORM. Один предикат + один cutoff (d <= end_day) + одна
-    нормализация -> Σ(absence-часов этой карты) тождественна Σ(absence-колонок
-    employee_total) на ЛЮБОМ периоде by construction.
+    in _NEUTRALIZING_NORM. Один предикат + один cutoff (d <= end_day) + одна
+    нормализация -> Σ(neutralizing-часов этой карты) тождественна
+    Σ(Отпуск+Больничный факта) на ЛЮБОМ периоде by construction. Отгул в факте,
+    но НЕ в этой карте -- целевая асимметрия выкупа, не нарушение инварианта.
 
     Args:
         ts: TimesheetData.
         end_day: Последний день для расчёта (включительно). None -> все дни.
 
     Returns:
-        Словарь {день: суммарные absence-часы в этом дне} по ABSENCE-категориям.
-        Дни без absence-часов отсутствуют.
+        Словарь {день: суммарные neutralizing-часы в этом дне}.
+        Дни без neutralizing-часов отсутствуют.
     """
     result: Dict[int, float] = {}
 
@@ -77,7 +103,7 @@ def absence_by_day(ts, end_day: Optional[int]) -> Dict[int, float]:
         cat_name = category.category
         if not cat_name:
             continue
-        if normalize_for_classification(cat_name).lower() not in _ABSENCE_NORM:
+        if normalize_for_classification(cat_name).lower() not in _NEUTRALIZING_NORM:
             continue
         for d, hours in category.daily_hours.items():
             if end_day is not None and d > end_day:
@@ -118,18 +144,24 @@ def compute_employee_norm(
     Предпраздничный: -1 полный час учитывается в day_norm ДО cap
     (excused = min(8, 7) = 7 на предпраздничном полном отсутствии, кейс G).
 
-    Согласованность absence_total с фактом обеспечивают ВЫЗЫВАЮЩИЕ, не helper:
-    absence_by_day_map строится тем же предикатом+cutoff+нормализацией, что и
-    absence-доля employee_total на стороне факта (_build_data_matrix). Helper
-    принимает карту как есть и суммирует её -- он не отбирает absence и не
-    сверяет её с фактом.
+    ОТГУЛ (BUYOUT, ревизия 10, R10.3) в этом расчёте НЕ участвует: он отсутствует
+    в absence_by_day_map (см. absence_by_day -- отбор по NEUTRALIZING), значит НЕ
+    добавляется ни в work-часть (нет cap-зачёта), ни в absence_total. При этом
+    отгул остаётся в employee_total (факт) -> полностью уменьшает норму на
+    проставленные часы (выкуп, ст. 128). Это НАМЕРЕННАЯ асимметрия факт<->норма.
+
+    Согласованность absence_total с neutralizing-долей факта обеспечивают
+    ВЫЗЫВАЮЩИЕ, не helper: absence_by_day_map строится тем же предикатом
+    (NEUTRALIZING)+cutoff+нормализацией, что и neutralizing-доля employee_total
+    на стороне факта (_build_data_matrix). Helper принимает карту как есть и
+    суммирует её -- он не отбирает категории и не сверяет карту с фактом.
 
     Предусловие (гарантируется валидатором Fsm_6_1_2.validate_total_consistency):
     валидный табель имеет total == Σdaily с допуском 0.5 ч. Malformed-вход
     (итог часов без подённой детализации либо расхождение total/daily свыше
     0.5 ч) ОТВЕРГАЕТСЯ валидатором ДО расчёта нормы -- сюда такой табель не
     доходит. Поэтому absence_total, взятый из absence_by_day_map (источник --
-    подённые ячейки daily), согласован с absence-долей факта employee_total.
+    подённые ячейки daily NEUTRALIZING), согласован с neutralizing-долей факта.
 
     Источник year/month -- GUI (authoritative), НЕ ts.year/ts.month (значение
     из ячейки B4 файла, лишь ориентир -- всегда 1 число). Это устраняет
@@ -137,7 +169,8 @@ def compute_employee_norm(
 
     Args:
         ts: TimesheetData (нужен fio для логов).
-        absence_by_day_map: словарь {день: Σ absence-часов} (из absence_by_day).
+        absence_by_day_map: словарь {день: Σ neutralizing-часов} (из
+            absence_by_day; отгул исключён -- он выкупает норму через факт).
         rate: ставка сотрудника (0.5, 1.0 и т.д.).
         end_day: последний день периода (включительно). None -> полный месяц.
         calendar_manager: ProductionCalendarManager (источник статуса дня, SSOT).
@@ -183,8 +216,10 @@ def compute_employee_norm(
         )
         return None
 
-    # absence_total: часы отсутствия входят и в норму, и в факт -> сокращаются
-    # в deviation. Работа в день отсутствия сверх зачёта остаётся переработкой.
+    # absence_total: neutralizing-часы (отпуск/больничный) входят и в норму, и в
+    # факт -> сокращаются в deviation. Работа в день отсутствия сверх зачёта
+    # остаётся переработкой. Отгул (BUYOUT) сюда НЕ входит (нет в карте) -> в
+    # норму не добавляется, но в факте есть -> выкуп нормы (ревизия 10).
     absence_total = sum(absence_by_day_map.values())
 
     employee_norm = work_norm + absence_total

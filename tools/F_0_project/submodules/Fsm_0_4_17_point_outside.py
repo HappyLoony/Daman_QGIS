@@ -19,13 +19,14 @@ SCOPE: ВСЕ точечные Т_-слои (маркер: geometry_type точ�
 Точка-маркер = сама точка Т_ (M_9 не нужен, DEF-план).
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 from qgis.core import (
     Qgis, QgsProject, QgsVectorLayer, QgsGeometry
 )
 
 from Daman_QGIS.utils import log_info, log_warning, log_error
+from .._topology_geom_utils import get_workarea_geometry
 
 
 class Fsm_0_4_17_PointOutsideChecker:
@@ -37,9 +38,6 @@ class Fsm_0_4_17_PointOutsideChecker:
 
     # Маркер точечного слоя нарезки в full_name.
     POINT_MARKER = "_Т_"
-
-    # Имя эталонного слоя границ работ.
-    WORKAREA_LAYER = "L_1_1_1_Границы_работ"
 
     def __init__(self):
         """Инициализация: справочник Base_layers для маркеров слоёв."""
@@ -62,7 +60,7 @@ class Fsm_0_4_17_PointOutsideChecker:
         """
         errors: List[Dict[str, Any]] = []
 
-        workarea = self._get_workarea_geometry()
+        workarea = get_workarea_geometry()
         if workarea is None:
             log_info(
                 "Fsm_0_4_17: эталон L_1_1_1_Границы_работ отсутствует/пуст, "
@@ -82,47 +80,6 @@ class Fsm_0_4_17_PointOutsideChecker:
             errors.extend(self._check_layer(layer, workarea))
 
         return errors
-
-    def _get_workarea_geometry(self) -> Optional[QgsGeometry]:
-        """Union геометрий эталонного слоя L_1_1_1_Границы_работ.
-
-        Returns:
-            QgsGeometry (валидная) либо None если слой отсутствует/пуст.
-        """
-        for layer in QgsProject.instance().mapLayers().values():
-            if not isinstance(layer, QgsVectorLayer):
-                continue
-            if layer.name() != self.WORKAREA_LAYER:
-                continue
-            try:
-                if not layer.isValid():
-                    return None
-            except RuntimeError:
-                return None
-
-            geoms: List[QgsGeometry] = []
-            for feat in layer.getFeatures():
-                geom = feat.geometry()
-                if geom is None or geom.isNull() or geom.isEmpty():
-                    continue
-                if not geom.isGeosValid():
-                    geom = geom.makeValid()
-                    if geom is None or geom.isEmpty():
-                        continue
-                geoms.append(QgsGeometry(geom))
-
-            if not geoms:
-                return None
-            union_geom = QgsGeometry.unaryUnion(geoms)
-            if union_geom is None or union_geom.isEmpty():
-                return None
-            if not union_geom.isGeosValid():
-                union_geom = union_geom.makeValid()
-                if union_geom is None or union_geom.isEmpty():
-                    return None
-            return union_geom
-
-        return None
 
     def _collect_point_layers(self) -> List[QgsVectorLayer]:
         """Точечные Т_-слои проекта (geometry_type точка + '_Т_' в имени).

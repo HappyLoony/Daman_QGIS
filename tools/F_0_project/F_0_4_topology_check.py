@@ -38,6 +38,9 @@ from .submodules.Fsm_0_4_7_dialog import Fsm_0_4_7_TopologyCheckDialog
 from .submodules.Fsm_0_4_15_async_task import Fsm_0_4_15_TopologyCheckTask
 from .submodules.Fsm_0_4_16_coverage_gap import Fsm_0_4_16_CoverageGapChecker
 from .submodules.Fsm_0_4_17_point_outside import Fsm_0_4_17_PointOutsideChecker
+from .submodules.Fsm_0_4_18_zpr_vertex_outside import (
+    Fsm_0_4_18_ZprVertexOutsideChecker
+)
 from Daman_QGIS.constants import PLUGIN_NAME
 # registry already imported above
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
@@ -62,6 +65,7 @@ class F_0_4_TopologyCheck(BaseTool):
       Whole-project (синхронная фаза, INV-2):
       * Fsm_0_4_16: Зазоры покрытия нарезки (C) + многоконтурность (E)
       * Fsm_0_4_17: Точки нарезки вне границ работ (D)
+      * Fsm_0_4_18: Вершины ЗПР вне границ работ (A, феномен «спицы»)
     - Создает единый слой ошибок для каждого исходного слоя
     - Слой ошибок содержит точки всех типов ошибок с атрибутами
     - Не изменяет исходные данные
@@ -432,6 +436,16 @@ class F_0_4_TopologyCheck(BaseTool):
             wp_errors.extend(point_checker.check())
         except Exception as e:
             log_error(f"F_0_4: Ошибка класса D (Fsm_0_4_17): {e}")
+
+        # Класс A феномена «спицы» (вершины ЗПР вне границ работ).
+        # Изолированный try: падение Fsm_0_4_18 не должно терять C/D/E.
+        try:
+            zpr_checker = Fsm_0_4_18_ZprVertexOutsideChecker()
+            wp_errors.extend(zpr_checker.check())
+        except Exception as e:
+            log_error(
+                f"F_0_4: Ошибка детектора вершин ЗПР (Fsm_0_4_18): {e}"
+            )
 
         if not wp_errors:
             log_info("F_0_4: Whole-project фаза — ошибок нарезки не найдено")

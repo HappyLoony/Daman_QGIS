@@ -525,9 +525,11 @@ class SummaryTimesheetGenerator:
                     rate = employee_rates[fio]
 
                 # Индивидуальная норма через единый helper: по-дневная норма с
-                # cap, отсутствия нейтрализуются подённо. None при недоступности
-                # календаря (F-07). Источник absence -- per-day карта absence_by_day
-                # (C2/FIX-2), согласованная с фактом employee_total (R5-1).
+                # cap. Отпуск/больничный (NEUTRALIZING) нейтрализуются подённо;
+                # отгул (BUYOUT, ревизия 10) выкупает норму -- в факте, НЕ в норме.
+                # None при недоступности календаря (F-07). Источник нормы --
+                # per-day карта absence_by_day (только NEUTRALIZING), согласованная
+                # с neutralizing-долей факта employee_total (R5-1).
                 ts_for_norm = timesheets_by_fio.get(fio)
                 if ts_for_norm is None:
                     employee_norm = None

@@ -15,11 +15,22 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Dict, List, Optional, Set, Tuple
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import (
+    log_info, log_warning, log_error, normalize_for_classification
+)
 from Daman_QGIS.managers.reference import EmployeeReferenceManager
 from Daman_QGIS.managers.reference.submodules import ProductionCalendarManager
 from .Fsm_6_1_3_parser import TimesheetData, SPECIAL_CATEGORIES, load_valid_project_codes
-from .Fsm_6_1_6_norm import compute_employee_norm, absence_by_day
+from .Fsm_6_1_6_norm import compute_employee_norm, absence_by_day, ABSENCE
+
+# Нормализованное+lowercase множество ВСЕХ отсутствий (ABSENCE = отпуск/
+# больничный/отгул) для устойчивого отбора absence-категорий в validate_overtime
+# (пропуск per-day переработки) и validate_absence_placement (отбраковка
+# аномального заполнения). Отбор через normalize_for_classification -- parser
+# несёт невидимые символы из Excel (nbsp/zero-width), голый .lower() промахнётся
+# (как C0/C3). Отличие от _NEUTRALIZING_NORM (норма): ABSENCE включает отгул --
+# он тоже отсутствие (не работа), но выкупает норму, а не нейтрализует.
+_ABSENCE_CLASSIFY = {normalize_for_classification(c).lower() for c in ABSENCE}
 
 
 @dataclass
@@ -504,6 +515,13 @@ class TimesheetValidator:
         - Предпраздничные дни: >(8*ставка-1) часов (ст. 95 ТК РФ)
         - Выходные/праздники: любые часы (>0)
 
+        Absence-КАТЕГОРИИ (отпуск/больничный/отгул, ABSENCE) исключаются из
+        подсчёта часов дня (ревизия 10, R3): отсутствие -- не работа, само по
+        себе per-day переработку не даёт. Рабочие часы того же дня (проекты +
+        КП/ОПВ/Обучение) остаются -> частичный день сохраняет легитимную
+        переработку по рабочей части. Переработка от отгула проявляется в
+        МЕСЯЧНОМ отклонении (выкуп нормы), не здесь.
+
         Args:
             timesheet: Данные табеля
 
@@ -524,14 +542,24 @@ class TimesheetValidator:
         # Используем end_day из настроек валидатора
         check_until_day = self.get_end_day(year, month)
 
-        # Собираем часы по дням
+        # Собираем часы по дням. Проекты -- всегда работа.
         hours_by_day: Dict[int, float] = {}
         for project in timesheet.projects:
             for day, hours in project.daily_hours.items():
                 if day <= check_until_day:
                     hours_by_day[day] = hours_by_day.get(day, 0.0) + hours
 
+        # Спец-категории: пропускаем absence-КАТЕГОРИИ (отпуск/больничный/отгул,
+        # ABSENCE), НЕ absence-ДНИ (ревизия 10, R3/R10.4). Отсутствие -- не работа,
+        # само по себе per-day переработку не даёт (полнодневное отсутствие 8ч у
+        # 0.5-ставки давало ложную "+4"). Но рабочие спец-категории того же дня
+        # (КП/ОПВ/Обучение) и проекты ОСТАЮТСЯ в hours_by_day -> частичный день
+        # (4ч отпуск + 6ч работа у 0.5) сохраняет легитимную переработку по
+        # рабочей части. Отбор absence через normalize_for_classification (C3).
         for category in timesheet.special_categories:
+            cat_name = category.category
+            if cat_name and normalize_for_classification(cat_name).lower() in _ABSENCE_CLASSIFY:
+                continue  # absence-категория не даёт per-day переработку
             for day, hours in category.daily_hours.items():
                 if day <= check_until_day:
                     hours_by_day[day] = hours_by_day.get(day, 0.0) + hours
@@ -587,6 +615,112 @@ class TimesheetValidator:
             result.add_warning(
                 f"... и ещё {len(overtime_days) - 10} дней с переработкой"
             )
+
+        return result
+
+    def validate_absence_placement(self, timesheet: TimesheetData) -> ValidationResult:
+        """
+        Валидация размещения отсутствий (fail-closed, ревизия 10 / R10.6c).
+
+        Отбраковывает табель с аномальным заполнением absence-категорий
+        (отпуск/больничный/отгул). Причина -- отгул выкупает норму через факт:
+        аномальное заполнение (отгул на выходной / двойное absence / absence >
+        полного дня) даёт ФАНТОМНУЮ переработку в месячном отклонении. Защита
+        конструкцией (пока-ёкэ): аномалия -> add_error -> is_valid=False ->
+        исключение табеля из расчёта с причиной в отчёт-окно.
+
+        Правила для КАЖДОГО дня d:
+        1. absence-часы > 0 на НЕРАБОЧЕМ дне (not is_workday) -> ошибка.
+           Регламент: не ставить 8ки на выходные.
+        2. >1 absence-КАТЕГОРИИ с часами > 0 в день d -> ошибка (несовместимо:
+           нельзя одновременно отпуск/больничный/отгул).
+        3. Σ absence-часов дня d > 8 (ФИКСИРОВАННЫЙ полный день, НЕ day_norm,
+           НЕ предпраздничные 7, НЕ масштаб ставкой) -> ошибка. Покрывает двойное
+           absence (16>8) и absence>8ч/день. КРИТИЧНО (R10.6c п.3): порог = 8, НЕ
+           норма дня -- иначе ложно бракует легитимный отпуск@8 на предпраздничном
+           (кейс G: excused=min(8,7)=7 в норме, но ЗАПОЛНЕНИЕ 8ч мандатировано
+           регламентом). "Сколько absence зачитывается в норму" (cap day_norm=7,
+           это compute_employee_norm) != "какое заполнение аномально" (>8, это
+           здесь) -- РАЗНЫЕ пороги.
+
+        Отбор absence -- ABSENCE (все три) через normalize_for_classification (C3).
+
+        RuntimeError календаря (F-07 graceful, как validate_overtime/workdays):
+        п.1 (is_workday) требует сетевой календарь. При недоступности -> ловим
+        RuntimeError и возвращаем текущий result (проверка размещения пропущена,
+        валидация продолжается, НЕ краш). п.2 (>1 категории) и п.3 (Σ>8) -- чистая
+        арифметика без календаря -- считаются ДО обращения к is_workday, поэтому
+        при недоступном календаре они уже выполнены.
+
+        Args:
+            timesheet: Данные табеля
+
+        Returns:
+            Результат валидации (ошибки на аномальных днях)
+        """
+        result = ValidationResult(is_valid=True)
+
+        if timesheet.month_start is None:
+            return result
+
+        year = timesheet.year
+        month = timesheet.month
+        check_until_day = self.get_end_day(year, month)
+
+        # Собираем per-day: {день: {нормализованная_absence_категория: Σ часов}}.
+        # Только absence-категории (ABSENCE через normalize_for_classification).
+        absence_by_day_cat: Dict[int, Dict[str, float]] = {}
+        for category in timesheet.special_categories:
+            cat_name = category.category
+            if not cat_name:
+                continue
+            norm_name = normalize_for_classification(cat_name).lower()
+            if norm_name not in _ABSENCE_CLASSIFY:
+                continue
+            for day, hours in category.daily_hours.items():
+                if day > check_until_day or hours <= 0:
+                    continue
+                per_cat = absence_by_day_cat.setdefault(day, {})
+                per_cat[norm_name] = per_cat.get(norm_name, 0.0) + hours
+
+        # Правила п.2 (>1 категории) и п.3 (Σ > 8) -- БЕЗ календаря, считаем сразу.
+        # RuntimeError-безопасны: не обращаются к сетевому is_workday.
+        for day in sorted(absence_by_day_cat.keys()):
+            per_cat = absence_by_day_cat[day]
+            # п.2: несовместимые отсутствия в один день
+            if len(per_cat) > 1:
+                cats_str = ", ".join(sorted(per_cat.keys()))
+                result.add_error(
+                    f"Несовместимые отсутствия в один день "
+                    f"{day:02d}.{month:02d}: {cats_str} "
+                    f"(нельзя одновременно отпуск/больничный/отгул)"
+                )
+            # п.3: суммарные absence-часы дня > полного дня (фикс. 8)
+            day_absence_sum = sum(per_cat.values())
+            if day_absence_sum > 8:
+                result.add_error(
+                    f"Отсутствие превышает полный день "
+                    f"{day:02d}.{month:02d}: {day_absence_sum} ч (> 8 ч)"
+                )
+
+        # Правило п.1 (absence на нерабочий день) -- ТРЕБУЕТ сетевой календарь.
+        # F-07 graceful: недоступен -> пропускаем п.1 (п.2/п.3 уже выполнены),
+        # валидация продолжается, не краш (как validate_workdays/validate_overtime).
+        try:
+            for day in sorted(absence_by_day_cat.keys()):
+                check_date = date(year, month, day)
+                if not self.calendar_manager.is_workday(check_date):
+                    result.add_error(
+                        f"Отсутствие проставлено на нерабочий день "
+                        f"{day:02d}.{month:02d}"
+                    )
+        except RuntimeError as e:
+            log_warning(
+                f"Fsm_6_1_2: производственный календарь недоступен, проверка "
+                f"размещения отсутствий (нерабочий день) пропущена для "
+                f"{timesheet.fio}: {e}"
+            )
+            return result
 
         return result
 
@@ -699,6 +833,23 @@ class TimesheetValidator:
                 f"Fsm_6_1_2: Файл {timesheet.filename} отбракован "
                 f"({result.errors_count} ошибок), проверки заполненности/"
                 f"переработок пропущены"
+            )
+            return result
+
+        # Валидация размещения отсутствий (fail-closed, ревизия 10 / R10.6c):
+        # аномальное заполнение absence (отгул на выходной / двойное absence /
+        # Σ absence > 8) -> отбраковка табеля с причиной. Стоит ПОСЛЕ гейта выше
+        # (не тянуть на уже-отбракованные по fio/месяцу/consistency) и ПЕРЕД
+        # validate_workdays, со своим гейтом после -- отбракованный аномалией
+        # табель не должен плодить вторичные warnings заполненности/переработок.
+        absence_placement_result = self.validate_absence_placement(timesheet)
+        result.merge(absence_placement_result)
+
+        if not result.is_valid:
+            log_warning(
+                f"Fsm_6_1_2: Файл {timesheet.filename} отбракован по размещению "
+                f"отсутствий ({result.errors_count} ошибок), проверки "
+                f"заполненности/переработок пропущены"
             )
             return result
 
@@ -889,8 +1040,10 @@ def format_validation_report(
         """Получить индивидуальную норму часов сотрудника через единый helper.
 
         Норма считается по производственному календарю (рабочие дни с учётом
-        предпраздничного сокращения), отсутствия (отпуск/больничный/отгул)
-        нейтрализуются. При недоступности календаря -> None (отклонение пустое).
+        предпраздничного сокращения). Отпуск/больничный (NEUTRALIZING)
+        нейтрализуются подённо с cap; отгул (BUYOUT, ревизия 10) выкупает норму
+        (ст. 128) -- остаётся в факте, из нормы полностью вычитается. При
+        недоступности календаря -> None (отклонение пустое).
         """
         if calendar_manager is None or calendar_unavailable:
             return None

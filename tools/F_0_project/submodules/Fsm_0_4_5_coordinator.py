@@ -76,7 +76,10 @@ class Fsm_0_4_5_TopologyCoordinator:
         # НЕ добавлять в FIXABLE_ERROR_TYPES.
         'coverage_gap': 'Зазор покрытия нарезки',
         'point_outside_workarea': 'Точка нарезки вне границ работ',
-        'multipart_geometry': 'Многоконтурный образуемый ЗУ'
+        'multipart_geometry': 'Многоконтурный образуемый ЗУ',
+        # Whole-project класс A феномена «спицы» (Fsm_0_4_18) — индикатор
+        # причины (вершина ЗПР вне границ), НЕ fixable.
+        'zpr_vertex_outside_workarea': 'Вершина ЗПР вне границ работ'
     }
 
     # Типы ошибок, которые могут быть автоматически исправлены
