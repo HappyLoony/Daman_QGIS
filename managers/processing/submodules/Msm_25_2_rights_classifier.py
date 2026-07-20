@@ -21,7 +21,7 @@ Msm_25_2 - Классификатор прав на земельные учас�
 from collections import Counter
 from typing import Dict, List, Tuple, Optional
 
-from Daman_QGIS.utils import log_info, log_warning, normalize_for_classification
+from Daman_QGIS.utils import log_info, log_warning, log_error, normalize_for_classification
 
 # Lazy import для избежания циклических зависимостей
 def _get_reference_managers():
@@ -35,87 +35,13 @@ class Msm_25_2_RightsClassifier:
     # Разделитель для множественных значений в полях
     FIELD_SEPARATOR = " / "
 
-    # Маппинг основных прав собственности (Права + Собственники -> слой)
-    # Формат: (право, собственник): full_name_слоя
-    PRIMARY_RIGHTS_MAPPING: Dict[Tuple[str, str], str] = {
-        # === Собственность + Форма собственности ===
-        ("Собственность", "Государственная федеральная"): "L_1_11_1_Права_ЗУ_РФ",
-        ("Собственность", "Государственная субъекта РФ"): "L_1_11_2_Права_ЗУ_Суб",
-        ("Собственность", "Муниципальная"): "L_1_11_3_Права_ЗУ_Муницип",
-        ("Собственность", "Частная"): "L_1_11_4_Права_ЗУ_Частное",
-        # === Собственность + Имя собственника (вместо формы) ===
-        ("Собственность", "Российская Федерация"): "L_1_11_1_Права_ЗУ_РФ",
-        # === Собственность + Собственник неизвестен ===
-        ("Собственность", "Сведения отсутствуют"): "L_1_11_6_Права_ЗУ_Свед_нет",
-        # === Общая собственность (любой собственник -> Долевая) ===
-        ("Общая долевая собственность", "Частная"): "L_1_11_5_Права_ЗУ_Долевая",
-        ("Общая долевая собственность", "Сведения отсутствуют"): "L_1_11_5_Права_ЗУ_Долевая",
-        ("Общая совместная собственность", "Частная"): "L_1_11_5_Права_ЗУ_Долевая",
-        ("Общая совместная собственность", "Сведения отсутствуют"): "L_1_11_5_Права_ЗУ_Долевая",
-        # === "Сведения отсутствуют" + Форма собственности ===
-        ("Сведения отсутствуют", "Государственная федеральная"): "L_1_11_1_Права_ЗУ_РФ",
-        ("Сведения отсутствуют", "Государственная субъекта РФ"): "L_1_11_2_Права_ЗУ_Суб",
-        ("Сведения отсутствуют", "Муниципальная"): "L_1_11_3_Права_ЗУ_Муницип",
-        ("Сведения отсутствуют", "Частная"): "L_1_11_4_Права_ЗУ_Частное",
-        # === "Сведения отсутствуют" + Имя собственника ===
-        ("Сведения отсутствуют", "Российская Федерация"): "L_1_11_1_Права_ЗУ_РФ",
-        # === Нет данных ни о правах, ни о собственниках ===
-        ("Сведения отсутствуют", "Сведения отсутствуют"): "L_1_11_6_Права_ЗУ_Свед_нет",
-        # === Постоянное (бессрочное) пользование + Форма собственности ===
-        ("Постоянное (бессрочное) пользование", "Сведения отсутствуют"): "L_1_11_6_Права_ЗУ_Свед_нет",
-        ("Постоянное (бессрочное) пользование", "Государственная федеральная"): "L_1_11_1_Права_ЗУ_РФ",
-        ("Постоянное (бессрочное) пользование", "Российская Федерация"): "L_1_11_1_Права_ЗУ_РФ",
-        ("Постоянное (бессрочное) пользование", "Государственная субъекта РФ"): "L_1_11_2_Права_ЗУ_Суб",
-        ("Постоянное (бессрочное) пользование", "Муниципальная"): "L_1_11_3_Права_ЗУ_Муницип",
-        ("Постоянное (бессрочное) пользование", "Частная"): "L_1_11_4_Права_ЗУ_Частное",
-        # === Аренда + Форма собственности ===
-        ("Аренда", "Государственная федеральная"): "L_1_11_1_Права_ЗУ_РФ",
-        ("Аренда", "Российская Федерация"): "L_1_11_1_Права_ЗУ_РФ",
-        ("Аренда", "Государственная субъекта РФ"): "L_1_11_2_Права_ЗУ_Суб",
-        ("Аренда", "Муниципальная"): "L_1_11_3_Права_ЗУ_Муницип",
-        ("Аренда", "Частная"): "L_1_11_4_Права_ЗУ_Частное",
-        # === Безвозмездное пользование + Форма собственности ===
-        ("Безвозмездное пользование", "Государственная федеральная"): "L_1_11_1_Права_ЗУ_РФ",
-        ("Безвозмездное пользование", "Российская Федерация"): "L_1_11_1_Права_ЗУ_РФ",
-        ("Безвозмездное пользование", "Государственная субъекта РФ"): "L_1_11_2_Права_ЗУ_Суб",
-        ("Безвозмездное пользование", "Муниципальная"): "L_1_11_3_Права_ЗУ_Муницип",
-        ("Безвозмездное пользование", "Частная"): "L_1_11_4_Права_ЗУ_Частное",
-        # === Безвозмездное срочное пользование + Форма собственности ===
-        ("Безвозмездное срочное пользование", "Государственная федеральная"): "L_1_11_1_Права_ЗУ_РФ",
-        ("Безвозмездное срочное пользование", "Российская Федерация"): "L_1_11_1_Права_ЗУ_РФ",
-        ("Безвозмездное срочное пользование", "Государственная субъекта РФ"): "L_1_11_2_Права_ЗУ_Суб",
-        ("Безвозмездное срочное пользование", "Муниципальная"): "L_1_11_3_Права_ЗУ_Муницип",
-        ("Безвозмездное срочное пользование", "Частная"): "L_1_11_4_Права_ЗУ_Частное",
-    }
-
-    # Маппинг дополнительных прав и обременений (для дублирования объектов)
-    # Объект копируется в дополнительные слои если найдено совпадение в полях "Права" или "Обременения"
-    # Формат: строка_поиска: full_name_слоя
-    ADDITIONAL_RIGHTS_MAPPING: Dict[str, str] = {
-        # Права (из поля "Права")
-        "Постоянное (бессрочное) пользование": "L_1_11_7_Права_ЗУ_ПБП",
-        "Сервитут (Право)": "L_1_11_13_Права_ЗУ_Сервитут",
-        # Обременения (из поля "Обременения")
-        "Аренда": "L_1_11_9_Права_ЗУ_Аренда",
-        "Безвозмездное срочное пользование": "L_1_11_8_Права_ЗУ_БСП",
-        "Безвозмездное пользование": "L_1_11_16_Права_ЗУ_БП",
-        "Ипотека": "L_1_11_10_Права_ЗУ_Ипотека",
-        "Арест": "L_1_11_11_Права_ЗУ_Арест",
-        "Доверительное управление": "L_1_11_12_Права_ЗУ_Довер_упр",
-        "Сервитут": "L_1_11_13_Права_ЗУ_Сервитут",
-        "Рента": "L_1_11_14_Права_ЗУ_Рента",
-        "Запрещение сделок": "L_1_11_15_Права_ЗУ_Запрет",
-    }
-
-    # Фоллбэк по собственнику: если точная пара (право, собственник) не найдена,
-    # собственник сам определяет слой (гос. собственность всегда = права соотв. уровня)
-    OWNER_FALLBACK_MAPPING: Dict[str, str] = {
-        "Государственная федеральная": "L_1_11_1_Права_ЗУ_РФ",
-        "Российская Федерация": "L_1_11_1_Права_ЗУ_РФ",
-        "Государственная субъекта РФ": "L_1_11_2_Права_ЗУ_Суб",
-        "Муниципальная": "L_1_11_3_Права_ЗУ_Муницип",
-        "Частная": "L_1_11_4_Права_ЗУ_Частное",
-    }
+    # Правила классификации (классы A/B) грузятся из справочника
+    # Base_rights_classification.json через RightsClassificationManager
+    # (BaseReferenceLoader, кэш на сессию), сортируются по rule_id. Хардкод-словари
+    # PRIMARY/ADDITIONAL/OWNER_FALLBACK вынесены в справочник (рефакторинг фазы-2,
+    # PLAN_rights_classification_registry). Владелец отлаживает маппинг в Excel.
+    # Класс A (record_kind='right') — основной слой по паре (право, форма);
+    # класс B (record_kind ∈ {'semi_right','encumbrance'}) — доп-слои.
 
     # Слой для неопознанных участков
     UNKNOWN_LAYER = "L_1_11_6_Права_ЗУ_Свед_нет"
@@ -140,6 +66,11 @@ class Msm_25_2_RightsClassifier:
         """Инициализация классификатора"""
         self._rights_layers_config: Optional[List[Dict]] = None
         self._unclassified: Counter = Counter()
+        # Кэш правил справочника на время жизни экземпляра (один прогон
+        # распределения). JSON и так кэшируется на уровне BaseReferenceLoader;
+        # здесь — чтобы не пересортировывать/не переопрашивать менеджер на каждой
+        # фиче (classify_feature зовётся в цикле по всем ЗУ выборки).
+        self._rules_cache: Optional[List[Dict]] = None
 
     def get_rights_layers_config(self) -> List[Dict]:
         """
@@ -170,6 +101,85 @@ class Msm_25_2_RightsClassifier:
         log_info(f"Msm_25_2: Загружена конфигурация для {len(rights_layers)} слоёв прав")
 
         return rights_layers
+
+    def _get_rules(self) -> List[Dict]:
+        """Получить правила справочника Base_rights_classification.json (кэш экземпляра).
+
+        Правила отсортированы по rule_id (приоритет). Возвращает пустой список
+        при недоступности менеджера — fail-closed: без справочника primary/
+        additional не определяются, объект уходит в Свед_нет (сетевой сбой —
+        политика проекта, см. BaseReferenceLoader).
+        """
+        if self._rules_cache is not None:
+            return self._rules_cache
+
+        ref_managers = _get_reference_managers()
+        rights_ref_manager = getattr(ref_managers, 'rights_classification', None)
+
+        if rights_ref_manager is None:
+            # Fail-closed + ГРОМКО (канон-8): без менеджера все ЗУ уйдут в Свед_нет.
+            log_error(
+                "Msm_25_2: rights_classification reference manager недоступен — "
+                "все ЗУ уйдут в Свед_нет (fail-closed). Классификация прав не работает."
+            )
+            self._rules_cache = []
+            return self._rules_cache
+
+        rules = rights_ref_manager.get_rules()
+        if not rules:
+            # Пустой справочник при доступном менеджере = сетевой / integrity сбой
+            # (на валидных данных правила всегда есть). Fail-closed, но ГРОМКО
+            # (канон-8): иначе тихий обвал всей выборки в Свед_нет неотличим от
+            # штатного «нет данных». Кэшируем даже пустое — иначе _get_rules зовётся
+            # на каждую фичу (primary+additional) и BaseReferenceLoader не кэширует
+            # неудачу → сотни retry-циклов (сетевой хаммер). Оператор видит log_error
+            # и перезапускает распределение.
+            log_error(
+                "Msm_25_2: справочник классификации прав ПУСТ (сетевой сбой / "
+                "integrity) — все ЗУ уйдут в Свед_нет (fail-closed). Перезапустите "
+                "распределение после восстановления связи."
+            )
+        else:
+            log_info(f"Msm_25_2: Загружено {len(rules)} правил классификации прав")
+        self._rules_cache = rules
+        return self._rules_cache
+
+    def _rules_of_kind(self, *kinds: str) -> List[Dict]:
+        """Правила заданных record_kind, в порядке rule_id."""
+        allowed = set(kinds)
+        return [r for r in self._get_rules() if r.get('record_kind') in allowed]
+
+    @staticmethod
+    def _value_matches(data_value: str, match_value: str, match_mode: str) -> bool:
+        """Сравнение значения данных с ключом правила (нормализация С ОБЕИХ сторон).
+
+        `normalize_for_classification` убирает невидимые символы НСПД (\\xa0,
+        zero-width, юникод-тире) — обязательная гоча проекта. Режимы:
+        - 'contains' — подстрока, регистронезависимо (casefold): ключ «аренд»
+          ловит «Аренда», «федеральн» ловит «Федеральное». Допустим ТОЛЬКО когда
+          все строки-надмножества ключа целят в тот же слой (§7 R1 плана).
+        - 'exact' (по умолчанию) — точное равенство после нормализации.
+        """
+        dv = normalize_for_classification(data_value)
+        mv = normalize_for_classification(match_value)
+        if match_mode == 'contains':
+            return bool(mv) and mv.casefold() in dv.casefold()
+        return dv.casefold() == mv.casefold()
+
+    def _primary_rule_matches(self, rule: Dict, right: str, form: str) -> bool:
+        """Проверка совпадения A-правила (record_kind='right') с парой (право, форма).
+
+        match_value сверяется с ПРАВОМ по match_mode правила; условие form —
+        всегда exact (строка-синоним формы); пустой form = любая форма (долевая/
+        совместная, rule 11-12).
+        """
+        if not self._value_matches(right, rule.get('match_value', ''),
+                                   rule.get('match_mode', 'exact')):
+            return False
+        rule_form = rule.get('form')
+        if not rule_form:
+            return True
+        return self._value_matches(form, rule_form, 'exact')
 
     @staticmethod
     def parse_field(value: Optional[str]) -> List[str]:
@@ -213,50 +223,74 @@ class Msm_25_2_RightsClassifier:
         # Фильтруем пустые значения и "-"
         return [part for part in parts if part and part != "-"]
 
-    @staticmethod
     def classify_primary_layer(
+        self,
         rights_list: List[str],
-        owners_list: List[str]
+        forms_list: List[str]
     ) -> Optional[str]:
         """
-        Определение основного слоя по правам и собственникам
+        Определение основного слоя по ПОЗИЦИОННОЙ паре (право[i], форма[i]).
 
-        Ищет точное совпадение пары (право, собственник) в PRIMARY_RIGHTS_MAPPING
+        Основной слой определяет ТОЛЬКО право собственности (§2 плана): A-правила
+        справочника (record_kind='right') — виды собственности + «Сведения
+        отсутствуют» × форма. Полу-права (ПБП и т.п.) и обременения основной слой
+        НЕ определяют (их A-пара отсутствует → не дают кандидата) — они дают
+        доп-слои через classify_additional_layers.
+
+        Алгоритм (§5.2): строим позиционные пары (право[i], форма[i]); выбор —
+        первое совпавшее A-правило в порядке rule_id (приоритет РФ>Суб>Мун>...
+        задан нумерацией строк Excel). Guard рассинхрона длин осей (Права per
+        right_record, форма per right_holder — мультихолдер даёт разную кратность)
+        → log_warning + откат на cartesian. На корпусе Чижика 0 мультихолдеров
+        (позиционная пара корректна на всех реальных данных); guard страхует
+        гипотетический будущий мультихолдер (OWNER-3, R5).
 
         Args:
             rights_list: Список прав из поля "Права"
-            owners_list: Список собственников из поля "Собственники"
+            forms_list: Список форм собственности из "__Форма_тех" (уже
+                нормализованы вызывающим classify_feature)
 
         Returns:
-            Optional[str]: full_name слоя или None если не найдено
+            Optional[str]: full_name слоя или None если A-пара не найдена
         """
-        # Проверяем все комбинации прав и собственников
-        for right in rights_list:
-            for owner in owners_list:
-                # Ищем точное совпадение
-                layer_name = Msm_25_2_RightsClassifier.PRIMARY_RIGHTS_MAPPING.get((right, owner))
+        a_rules = self._rules_of_kind('right')
+        if not a_rules or not rights_list or not forms_list:
+            return None
 
-                if layer_name:
-                    return layer_name
+        # Кандидатные пары: позиционные при равной кратности осей, иначе cartesian
+        if len(rights_list) == len(forms_list):
+            pairs = list(zip(rights_list, forms_list))
+        else:
+            log_warning(
+                f"Msm_25_2: мультихолдерная запись "
+                f"(прав={len(rights_list)} != форм={len(forms_list)}) → откат на "
+                f"cartesian, основной слой может быть недетерминирован "
+                f"(права={rights_list}, формы={forms_list})"
+            )
+            pairs = [(right, form) for right in rights_list for form in forms_list]
 
-        # Фоллбэк: собственник определяет слой независимо от типа права
-        for owner in owners_list:
-            layer_name = Msm_25_2_RightsClassifier.OWNER_FALLBACK_MAPPING.get(owner)
-            if layer_name:
-                return layer_name
+        # Первое A-правило в порядке rule_id, совпавшее с любой парой-кандидатом
+        for rule in a_rules:
+            for right, form in pairs:
+                if self._primary_rule_matches(rule, right, form):
+                    return rule.get('target_layer')
 
-        # Совпадение не найдено
         return None
 
-    @staticmethod
     def classify_additional_layers(
+        self,
         rights_list: List[str],
         encumbrances_list: List[str]
     ) -> List[str]:
         """
         Определение дополнительных слоёв для дублирования объекта
 
-        Ищет совпадения в "Права" и "Обременения" с ADDITIONAL_RIGHTS_MAPPING
+        Применяет B-правила справочника (record_kind ∈ {'semi_right',
+        'encumbrance'}, match_mode exact/contains) к ОБЪЕДИНЕНИЮ полей
+        "Права" + "Обременения" (OWNER-2: аренда из любого поля → доп-слой).
+        Правило заведено ТОЛЬКО при наличии target_layer (ЗОУИТ-стиль, OWNER-1):
+        класс без слоя доп-слой не даёт. Итерация по rule_id (порядок членства
+        на дублирование не влияет — важна принадлежность, не порядок).
 
         Args:
             rights_list: Список прав из поля "Права"
@@ -265,17 +299,23 @@ class Msm_25_2_RightsClassifier:
         Returns:
             List[str]: Список full_name слоёв для дублирования
         """
-        additional_layers = []
+        b_rules = self._rules_of_kind('semi_right', 'encumbrance')
+        if not b_rules:
+            return []
 
-        # Объединяем права и обременения для проверки
         all_values = rights_list + encumbrances_list
+        additional_layers: List[str] = []
 
-        # Ищем совпадения
-        for value in all_values:
-            layer_name = Msm_25_2_RightsClassifier.ADDITIONAL_RIGHTS_MAPPING.get(value)
-
-            if layer_name and layer_name not in additional_layers:
-                additional_layers.append(layer_name)
+        for rule in b_rules:
+            target_layer = rule.get('target_layer')
+            if not target_layer or target_layer in additional_layers:
+                continue
+            match_value = rule.get('match_value', '')
+            match_mode = rule.get('match_mode', 'exact')
+            for value in all_values:
+                if self._value_matches(value, match_value, match_mode):
+                    additional_layers.append(target_layer)
+                    break
 
         return additional_layers
 
@@ -286,25 +326,30 @@ class Msm_25_2_RightsClassifier:
         encumbrances_value: Optional[str]
     ) -> Tuple[Optional[str], List[str]]:
         """
-        Полная классификация объекта по правам, собственникам и обременениям
+        Полная классификация объекта по правам, форме собственности и обременениям
 
         Args:
             rights_value: Значение поля "Права"
-            owners_value: Значение поля "Собственники"
+            owners_value: Значение поля "__Форма_тех" (транзитная форма
+                собственности; параметр назван owners_value по историческому
+                контракту get_field_names, но несёт форму — Вариант B)
             encumbrances_value: Значение поля "Обременения"
 
         Returns:
             Tuple[Optional[str], List[str]]:
-                - primary_layer: full_name основного слоя (None если не найдено)
+                - primary_layer: full_name основного слоя (None если A-пара не
+                  найдена → распределитель шлёт в Свед_нет)
                 - additional_layers: список full_name дополнительных слоёв
 
-        Examples:
+        Examples (позиционная пара право[i] ↔ форма[i], primary — только
+        собственность):
             >>> classify_feature(
-                "Собственность / Постоянное (бессрочное) пользование",
-                "Государственная федеральная / Частная",
+                "Постоянное (бессрочное) пользование / Собственность",
+                "Частная / Российская Федерация",
                 None
             )
             ("L_1_11_1_Права_ЗУ_РФ", ["L_1_11_7_Права_ЗУ_ПБП"])
+            # (ПБП,Частная) не A-пара; (Собственность,РФ) → L_1_11_1; ПБП → доп-слой
 
             >>> classify_feature("Собственность", "Частная", "Сервитут (Право)")
             ("L_1_11_4_Права_ЗУ_Частное", ["L_1_11_13_Права_ЗУ_Сервитут"])
@@ -327,18 +372,18 @@ class Msm_25_2_RightsClassifier:
         rights_list = self.parse_field(rights_value)
         # owners_value здесь = ТРАНЗИТНАЯ ФОРМА (__Форма_тех), не имя правообладателя.
         # Нормализуем: невидимые символы НСПД (\xa0 и др.) + род ("Частное"->"Частная").
-        owners_list = [self._normalize_form(f) for f in self.parse_field(owners_value)]
+        forms_list = [self._normalize_form(f) for f in self.parse_field(owners_value)]
         encumbrances_list = self.parse_field(encumbrances_value)
 
-        # Определяем основной слой
-        primary_layer = self.classify_primary_layer(rights_list, owners_list)
+        # Определяем основной слой (позиционные пары право[i] ↔ форма[i])
+        primary_layer = self.classify_primary_layer(rights_list, forms_list)
 
         # Определяем дополнительные слои
         additional_layers = self.classify_additional_layers(rights_list, encumbrances_list)
 
         # Считаем неклассифицированные для сводки
         if not primary_layer:
-            key = (tuple(rights_list), tuple(owners_list))
+            key = (tuple(rights_list), tuple(forms_list))
             self._unclassified[key] += 1
 
         return primary_layer, additional_layers

@@ -132,6 +132,39 @@ class FieldMappingManager(BaseReferenceLoader):
 
         return None
 
+    @staticmethod
+    def _findtext_composite(xml_element, xpath: str) -> Optional[str]:
+        """
+        Извлечь значение по одиночному или композитному XPath
+
+        Композитный XPath: "pathA+pathB+pathC" — под-значения извлекаются
+        по порядку, непустые соединяются пробелом. Применяется для сборки
+        ФИО физлица из individual/surname+individual/name+individual/patronymic
+        («Капкин Дмитрий Сергеевич» вместо потери фамилии/отчества при
+        одиночном individual/name — дефект, найденный владельцем 2026-07-17).
+        Символ "+" в тегах XML-схем ЕГРН не встречается — разделитель безопасен.
+
+        Args:
+            xml_element: XML элемент
+            xpath: Одиночный ("a/b") или композитный ("a/b+a/c") XPath
+
+        Returns:
+            Значение (для композита — собранное через пробел) или None
+        """
+        if '+' not in xpath:
+            return xml_element.findtext(xpath)
+
+        parts = []
+        for sub_xpath in xpath.split('+'):
+            sub_xpath = sub_xpath.strip()
+            if not sub_xpath:
+                continue
+            value = xml_element.findtext(sub_xpath)
+            if value and value.strip():
+                parts.append(value.strip())
+
+        return ' '.join(parts) if parts else None
+
     def extract_value(self, xml_element, mapping: Dict) -> Any:
         """
         Извлечь значение из XML элемента согласно маппингу
@@ -188,11 +221,11 @@ class FieldMappingManager(BaseReferenceLoader):
         for elem in xml_element.findall(xml_xpath_root):
             # ПОДДЕРЖКА АЛЬТЕРНАТИВНЫХ XPATH (для физлиц/юрлиц/муниципалитетов)
             if alternatives:
-                # Пробуем каждый XPath по порядку
+                # Пробуем каждый XPath по порядку (одиночный или композитный "a+b+c")
                 for alt_xpath in alternatives:
                     if not alt_xpath or alt_xpath in ('-', 'null', ''):
                         continue
-                    value = elem.findtext(alt_xpath)
+                    value = self._findtext_composite(elem, alt_xpath)
                     if value and value.strip():
                         values.append(value.strip())
                         break  # Нашли значение - переходим к следующему элементу
@@ -272,7 +305,7 @@ class FieldMappingManager(BaseReferenceLoader):
             if not xpath or xpath in ('-', 'null', ''):
                 continue
 
-            value = xml_element.findtext(xpath)
+            value = self._findtext_composite(xml_element, xpath)
             if value and value.strip():
                 return self._convert_value(value, mapping)
 

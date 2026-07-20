@@ -453,78 +453,177 @@ class AttributeProcessor:
 
         return value_str
 
-    def deduplicate_encumbrances_and_tenants(self, encumbrances_value: Optional[str],
-                                              tenants_value: Optional[str]) -> Tuple[str, str]:
+    def deduplicate_synced_fields(self, values: List[Optional[str]]) -> List[str]:
         """
-        Дедупликация пар Обременения-Арендаторы (удаление дубликатов ТОЛЬКО для типа "Аренда")
+        Позиционная дедупликация N синхронных мульти-значных полей.
+
+        Кортеж значений одной позиции (value1[i], value2[i], ..., valueN[i])
+        считается дубликатом ТОЛЬКО при полном посимвольном совпадении с уже
+        встреченным кортежем. Дубликат удаляется СИНХРОННО из всех полей —
+        позиционное соответствие сохраняется (решение владельца 2026-07-17).
+
+        Guard'ы (fail-safe, поля возвращаются без изменений):
+        - любое значение пустое (None/''/'-') — синхронный дедуп неприменим;
+        - списки разной кратности — рассинхрон, не трогаем (прежняя версия
+          дедупа обременений резала хвост длинного списка по min_len — silent
+          data loss, устранено).
+
+        Примечание: parse_field фильтрует пустые элементы и "-" внутри списка,
+        поэтому поле с "дырой" даёт другую кратность и попадает под guard.
+
+        Args:
+            values: Список значений синхронных полей (2 и более)
+
+        Returns:
+            List[str]: Значения в том же порядке — дедуплицированные либо исходные
+        """
+        originals = [v if v is not None and str(v).strip() else "-" for v in values]
+
+        # Пустое значение среди полей - синхронный дедуп неприменим
+        if any(str(v).strip() == "-" for v in originals):
+            return [str(v) for v in originals]
+
+        parsed = [self.parse_field(str(v)) for v in originals]
+
+        lengths = {len(lst) for lst in parsed}
+        if len(lengths) != 1:
+            log_debug(
+                "Msm_13_2_AttributeProcessor: рассинхрон кратности синхронных полей "
+                f"({sorted(len(lst) for lst in parsed)}) - дедупликация пропущена"
+            )
+            return [str(v) for v in originals]
+
+        n = lengths.pop()
+        if n < 2:
+            return [str(v) for v in originals]
+
+        seen = set()
+        keep_indices = []
+        for i in range(n):
+            tup = tuple(lst[i] for lst in parsed)
+            if tup in seen:
+                continue
+            seen.add(tup)
+            keep_indices.append(i)
+
+        # Ничего не удалено - возвращаем исходные строки как есть
+        if len(keep_indices) == n:
+            return [str(v) for v in originals]
+
+        return [self.join_field([lst[i] for i in keep_indices]) for lst in parsed]
+
+    def deduplicate_encumbrances_and_tenants(self, encumbrances_value: Optional[str],
+                                              tenants_value: Optional[str],
+                                              all_types: bool = False) -> Tuple[str, str]:
+        """
+        Дедупликация пар Обременения-Арендаторы (полное посимвольное совпадение пары)
 
         ВАЖНО: Сохраняет позиционное соответствие между полями!
-        Дедупликация применяется ТОЛЬКО к парам с типом "Аренда".
-        Другие типы обременений (Сервитут и т.д.) сохраняются как есть.
 
-        Пример:
-            Обременения: Аренда / Сервитут / Аренда / Сервитут / Аренда / Аренда / Аренда
-            Арендаторы:  Физ1   / ООО      / Физ2   / ООО      / Физ1   / Физ1   / Физ1
+        Два режима (скоуп-решение владельца 2026-07-17):
+        - all_types=False (default, legacy): дедуп ТОЛЬКО пар с типом "Аренда";
+          прочие типы (Ипотека, Сервитут) сохраняются как есть. Применяется на
+          слоях выписок (Le_1_6_*) — они зеркало юридического документа.
+        - all_types=True: дедуп ЛЮБОЙ полностью совпавшей пары
+          (Обременение, Арендатор/залогодержатель). Применяется на слоях
+          выборки через finalize(dedup_synced_tuples=True). Значения,
+          различающиеся написанием (кавычки «» vs "", опечатки ЕГРН),
+          дублями НЕ считаются.
 
-            Уникальные пары Аренды: (Аренда, Физ1), (Аренда, Физ2)
-            Сервитут не дедуплицируется!
-
-            Результат:
-            Обременения: Аренда / Сервитут / Аренда / Сервитут
-            Арендаторы:  Физ1   / ООО      / Физ2   / ООО
+        Рассинхрон кратности списков → без изменений (прежняя версия резала
+        хвост длинного списка по min_len — silent data loss, устранено).
 
         Args:
             encumbrances_value: Значение поля "Обременения"
             tenants_value: Значение поля "Арендаторы"
+            all_types: Дедупить все типы (True) или только "Аренда" (False)
 
         Returns:
             Tuple[str, str]: (дедуплицированные обременения, дедуплицированные арендаторы)
         """
-        # Если одно из значений пустое - возвращаем как есть
+        if all_types:
+            result = self.deduplicate_synced_fields([encumbrances_value, tenants_value])
+            return result[0], result[1]
+
+        # Legacy-режим: только пары "Аренда"
         if not encumbrances_value or not tenants_value:
             return encumbrances_value or "-", tenants_value or "-"
 
         if encumbrances_value.strip() == "-" or tenants_value.strip() == "-":
             return encumbrances_value, tenants_value
 
-        # Парсим оба поля
         encumbrances_list = self.parse_field(encumbrances_value)
         tenants_list = self.parse_field(tenants_value)
 
-        # Если списки пустые - ничего не делаем
         if not encumbrances_list or not tenants_list:
             return encumbrances_value, tenants_value
 
-        # Отслеживаем уникальные пары ТОЛЬКО для типа "Аренда"
+        # Guard рассинхрона кратности (fail-safe вместо min_len-обреза)
+        if len(encumbrances_list) != len(tenants_list):
+            log_debug(
+                "Msm_13_2_AttributeProcessor: рассинхрон кратности Обременения/Арендаторы "
+                f"({len(encumbrances_list)}/{len(tenants_list)}) - дедупликация пропущена"
+            )
+            return encumbrances_value, tenants_value
+
         seen_rent_pairs = set()
         new_encumbrances = []
         new_tenants = []
 
-        # Обрабатываем по минимальной длине для синхронности
-        min_len = min(len(encumbrances_list), len(tenants_list))
-
-        for i in range(min_len):
+        for i in range(len(encumbrances_list)):
             enc = encumbrances_list[i].strip()
             tenant = tenants_list[i].strip()
 
-            # Дедупликация ТОЛЬКО для типа "Аренда"
             if enc == "Аренда":
                 pair = (enc, tenant)
                 if pair in seen_rent_pairs:
-                    # Дубликат пары Аренда - пропускаем
                     continue
                 seen_rent_pairs.add(pair)
 
-            # Добавляем пару (или не-Аренда, или уникальная Аренда)
             new_encumbrances.append(enc)
             new_tenants.append(tenant)
 
-        # Если ничего не изменилось - возвращаем исходные
-        if len(new_encumbrances) == min_len:
+        if len(new_encumbrances) == len(encumbrances_list):
             return encumbrances_value, tenants_value
 
-        # Собираем обратно
         return self.join_field(new_encumbrances), self.join_field(new_tenants)
+
+    def deduplicate_rights_owners_form(
+        self,
+        rights_value: Optional[str],
+        owners_value: Optional[str],
+        form_value: Optional[str] = None
+    ) -> Tuple[str, str, Optional[str]]:
+        """
+        Дедупликация тройки Права-Собственники-__Форма_тех (или пары без формы)
+
+        Кортеж (Право, Собственник, Форма) одной позиции удаляется ТОЛЬКО при
+        полном посимвольном совпадении всех элементов с уже встреченным кортежем;
+        удаление синхронно во всех полях (решение владельца 2026-07-17).
+        Форма включена в ключ: одинаковая пара (Право, Собственник) с разной
+        формой дублем не считается.
+
+        Пример (52 доли, ЕГРН обезличивает физлиц):
+            Права:        52 x "Общая долевая собственность"
+            Собственники: "ООО А / Дмитрий / Дмитрий / Физическое лицо / ..."
+            __Форма_тех:  52 x "Частная"
+            -> остаются только уникальные кортежи (29 из 52)
+
+        Args:
+            rights_value: Значение поля "Права"
+            owners_value: Значение поля "Собственники"
+            form_value: Значение поля "__Форма_тех"; None = поля нет в слое,
+                        дедуп идёт по паре (Права, Собственники)
+
+        Returns:
+            Tuple[str, str, Optional[str]]: (права, собственники, форма или None)
+        """
+        if form_value is None:
+            result = self.deduplicate_synced_fields([rights_value, owners_value])
+            return result[0], result[1], None
+
+        result = self.deduplicate_synced_fields([rights_value, owners_value, form_value])
+        return result[0], result[1], result[2]
 
     def simplify_rent_individuals(self, encumbrances_value: Optional[str],
                                    tenants_value: Optional[str]) -> Tuple[str, str]:
@@ -703,7 +802,8 @@ class AttributeProcessor:
                                   layer_name: str,
                                   fields_to_process: Optional[List[str]] = None,
                                   capitalize: bool = True,
-                                  exclude_fields: Optional[List[str]] = None) -> None:
+                                  exclude_fields: Optional[List[str]] = None,
+                                  dedup_synced_tuples: bool = False) -> None:
         """
         УНИВЕРСАЛЬНАЯ финальная обработка слоя - "наведение красоты"
 
@@ -719,6 +819,12 @@ class AttributeProcessor:
             fields_to_process: Список полей для обработки. Если None, обрабатываются ВСЕ текстовые поля
             capitalize: Применять ли капитализацию первой буквы (по умолчанию True)
             exclude_fields: Список полей для исключения из обработки (например, технических полей)
+            dedup_synced_tuples: Синхронная дедупликация кортежей (решение владельца
+                2026-07-17): тройка Права/Собственники/__Форма_тех + пара
+                Обременения/Арендаторы ВСЕХ типов. ТОЛЬКО для слоёв ВЫБОРКИ
+                (default False: слои выписок Le_1_6_* — зеркало юр. документа,
+                их кортежи не дедупятся; пара обременений в этом режиме
+                обрабатывается legacy-логикой "только Аренда")
         """
         log_debug(f"Msm_13_2_AttributeProcessor: Финальная обработка слоя {layer_name}")
 
@@ -757,13 +863,55 @@ class AttributeProcessor:
         has_tenants = 'Арендаторы' in field_names
         can_simplify_rent = has_encumbrances and has_tenants
 
+        # Поля тройки Права/Собственники/__Форма_тех для синхронной дедупликации.
+        # Дедуп тройки НЕ зависит от exclude_fields: exclude управляет ЭТАПами 1-2
+        # (NULL-заполнение/капитализация), а дедуп чистит синхронно все три поля
+        # (решение владельца 2026-07-17, форма — часть ключа кортежа).
+        # Гейт dedup_synced_tuples: только слои выборки (см. docstring)
+        has_rights = 'Права' in field_names
+        has_owners = 'Собственники' in field_names
+        has_form_tech = '__Форма_тех' in field_names
+        can_dedup_rights = dedup_synced_tuples and has_rights and has_owners
+
         layer.startEditing()
         processed_count = 0
         capitalized_count = 0
         rent_simplified_count = 0
+        rights_deduped_count = 0
 
         for feature in layer.getFeatures():
             feature_modified = False
+
+            # ЭТАП 0.0: Дедупликация тройки Права/Собственники/__Форма_тех
+            # (полное посимвольное совпадение кортежа, синхронное удаление)
+            if can_dedup_rights:
+                rights_value = feature['Права']
+                owners_value = feature['Собственники']
+                form_value = feature['__Форма_тех'] if has_form_tech else None
+
+                rights_str = str(rights_value) if rights_value is not None and rights_value != NULL else None
+                owners_str = str(owners_value) if owners_value is not None and owners_value != NULL else None
+                form_str = (
+                    str(form_value) if has_form_tech and form_value is not None and form_value != NULL
+                    else None
+                )
+
+                if rights_str and owners_str and rights_str != '-' and owners_str != '-':
+                    new_rights, new_owners, new_form = self.deduplicate_rights_owners_form(
+                        rights_str, owners_str, form_str
+                    )
+
+                    rights_changed = new_rights != rights_str
+                    owners_changed = new_owners != owners_str
+                    form_changed = form_str is not None and new_form != form_str
+
+                    if rights_changed or owners_changed or form_changed:
+                        feature['Права'] = new_rights
+                        feature['Собственники'] = new_owners
+                        if form_str is not None and new_form is not None:
+                            feature['__Форма_тех'] = new_form
+                        feature_modified = True
+                        rights_deduped_count += 1
 
             # ЭТАП 0: Дедупликация и упрощение множественных арендаторов-физлиц
             # Выполняется ДО обработки отдельных полей, так как требует синхронной обработки пар
@@ -777,9 +925,11 @@ class AttributeProcessor:
 
                 if enc_str and tenant_str and enc_str != '-' and tenant_str != '-':
                     # ШАГ 0.1: Дедупликация пар (удаление полных дубликатов)
-                    # Пример: "Аренда / Сервитут / Аренда / Сервитут" + "Физ1 / ООО / Физ1 / ООО"
-                    #      -> "Аренда / Сервитут" + "Физ1 / ООО"
-                    enc_str, tenant_str = self.deduplicate_encumbrances_and_tenants(enc_str, tenant_str)
+                    # На слоях выборки (dedup_synced_tuples=True) — все типы обременений,
+                    # на прочих (слои выписок) — legacy-режим "только Аренда"
+                    enc_str, tenant_str = self.deduplicate_encumbrances_and_tenants(
+                        enc_str, tenant_str, all_types=dedup_synced_tuples
+                    )
 
                     # ШАГ 0.2: Упрощение физлиц (множественные "Физическое лицо" -> одно)
                     new_enc, new_tenant = self.simplify_rent_individuals(enc_str, tenant_str)
@@ -867,6 +1017,8 @@ class AttributeProcessor:
                 details.append(f"капитализировано: {capitalized_count}")
             if rent_simplified_count > 0:
                 details.append(f"упрощено арендаторов: {rent_simplified_count}")
+            if rights_deduped_count > 0:
+                details.append(f"дедуплицировано прав: {rights_deduped_count}")
             details_str = f" ({', '.join(details)})" if details else ""
             log_debug(f"Msm_13_2_AttributeProcessor: Обработано {processed_count} объектов в слое {layer_name}{details_str}")
         else:

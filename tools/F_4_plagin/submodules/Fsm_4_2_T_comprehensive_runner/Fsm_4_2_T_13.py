@@ -63,6 +63,12 @@ class TestDataCleanupManager:
             self.test_22_simplify_rent_individuals_below_threshold()
             self.test_23_is_ngs_by_kn()
 
+            # Группа 3б: Синхронная дедупликация кортежей (2026-07-17)
+            self.test_32_deduplicate_rights_owners_form_triple()
+            self.test_33_deduplicate_synced_fields_length_mismatch()
+            self.test_34_deduplicate_encumbrances_all_types()
+            self.test_35_deduplicate_rights_owners_pair_without_form()
+
             # Группа 4: FieldCleanup (Msm_13_3)
             self.test_24_is_field_empty()
             self.test_25_get_empty_fields()
@@ -1276,6 +1282,170 @@ class TestDataCleanupManager:
                     f"Ключ '{key}' в статистике: {stats[key]}",
                     f"Ключ '{key}' отсутствует в статистике"
                 )
+
+        except Exception as e:
+            self.logger.fail(f"Ошибка теста: {e}")
+
+    def test_32_deduplicate_rights_owners_form_triple(self) -> None:
+        """ТЕСТ 32: deduplicate_rights_owners_form - тройка с дублями кортежей"""
+        self.logger.section("32. deduplicate_rights_owners_form: тройка")
+
+        if not self.manager:
+            self.logger.fail("Manager не инициализирован")
+            return
+
+        try:
+            # Прецедент 78:11:0006160:18 (упрощённый): доли обезличены до имени,
+            # полные дубли кортежа (Право, Собственник, Форма) должны схлопнуться
+            rights, owners, form = self.manager.deduplicate_rights_owners_form(
+                "Общая долевая собственность / Общая долевая собственность / "
+                "Общая долевая собственность / Общая долевая собственность",
+                'ООО "Право" / Дмитрий / Дмитрий / ООО "Право"',
+                "Частная / Частная / Частная / Частная"
+            )
+
+            self.logger.check(
+                owners == 'ООО "Право" / Дмитрий',
+                f"Собственники дедуплицированы: '{owners}'",
+                f"Собственники неверны: '{owners}'"
+            )
+            self.logger.check(
+                rights == "Общая долевая собственность / Общая долевая собственность",
+                f"Права синхронны: '{rights}'",
+                f"Права рассинхронены: '{rights}'"
+            )
+            self.logger.check(
+                form == "Частная / Частная",
+                f"Форма синхронна: '{form}'",
+                f"Форма рассинхронена: '{form}'"
+            )
+
+            # Форма - часть ключа: одинаковая пара с РАЗНОЙ формой дублем не считается
+            rights2, owners2, form2 = self.manager.deduplicate_rights_owners_form(
+                "Собственность / Собственность",
+                "Иванов / Иванов",
+                "Частная / Российская Федерация"
+            )
+            self.logger.check(
+                owners2 == "Иванов / Иванов",
+                f"Разная форма - не дубль: '{owners2}' / '{form2}'",
+                f"Разная форма ошибочно схлопнута: '{owners2}' / '{form2}'"
+            )
+
+        except Exception as e:
+            self.logger.fail(f"Ошибка теста: {e}")
+
+    def test_33_deduplicate_synced_fields_length_mismatch(self) -> None:
+        """ТЕСТ 33: deduplicate_synced_fields - рассинхрон кратности не трогаем"""
+        self.logger.section("33. deduplicate_synced_fields: рассинхрон длин")
+
+        if not self.manager:
+            self.logger.fail("Manager не инициализирован")
+            return
+
+        try:
+            # Кратность 3 vs 2 - fail-safe: вернуть исходные без изменений
+            rights, owners, form = self.manager.deduplicate_rights_owners_form(
+                "Собственность / Собственность / Собственность",
+                "Иванов / Иванов",
+                None
+            )
+            self.logger.check(
+                rights == "Собственность / Собственность / Собственность"
+                and owners == "Иванов / Иванов",
+                "Рассинхрон длин: поля не тронуты",
+                f"Рассинхрон длин: поля изменены! '{rights}' / '{owners}'"
+            )
+
+            # Пустое значение среди синхронных полей - дедуп неприменим
+            rights2, owners2, form2 = self.manager.deduplicate_rights_owners_form(
+                "Собственность / Собственность", "-", None
+            )
+            self.logger.check(
+                rights2 == "Собственность / Собственность" and owners2 == "-",
+                "Пустой собственник: поля не тронуты",
+                f"Пустой собственник: поля изменены! '{rights2}' / '{owners2}'"
+            )
+
+        except Exception as e:
+            self.logger.fail(f"Ошибка теста: {e}")
+
+    def test_34_deduplicate_encumbrances_all_types(self) -> None:
+        """ТЕСТ 34: deduplicate_encumbrances_and_tenants - все типы обременений"""
+        self.logger.section("34. deduplicate_encumbrances: все типы (2026-07-17)")
+
+        if not self.manager:
+            self.logger.fail("Manager не инициализирован")
+            return
+
+        try:
+            # all_types=True (режим выборки): Ипотека дедуплицируется
+            enc, ten = self.manager.deduplicate_encumbrances_and_tenants(
+                "Ипотека / Ипотека / Сервитут / Ипотека",
+                'ПАО «Сбербанк России» / ПАО «Сбербанк России» / ООО "Газпром" / Банк ВТБ (ПАО)',
+                all_types=True
+            )
+            self.logger.check(
+                enc == "Ипотека / Сервитут / Ипотека",
+                f"Дубль пары Ипотека+Сбер удалён: '{enc}'",
+                f"Дубль пары не удалён: '{enc}'"
+            )
+            self.logger.check(
+                ten == 'ПАО «Сбербанк России» / ООО "Газпром" / Банк ВТБ (ПАО)',
+                f"Залогодержатели синхронны: '{ten}'",
+                f"Залогодержатели рассинхронены: '{ten}'"
+            )
+
+            # Посимвольность: разные кавычки (ёлочки vs прямые) - НЕ дубль
+            enc2, ten2 = self.manager.deduplicate_encumbrances_and_tenants(
+                "Ипотека / Ипотека",
+                'ПАО «Сбербанк России» / ПАО "Сбербанк России"',
+                all_types=True
+            )
+            self.logger.check(
+                ten2 == 'ПАО «Сбербанк России» / ПАО "Сбербанк России"',
+                f"Разные кавычки не схлопнуты: '{ten2}'",
+                f"Разные кавычки ошибочно схлопнуты: '{ten2}'"
+            )
+
+            # Legacy-режим (default, слои выписок): Ипотека НЕ дедуплицируется
+            enc3, ten3 = self.manager.deduplicate_encumbrances_and_tenants(
+                "Ипотека / Ипотека",
+                'ПАО «Сбербанк России» / ПАО «Сбербанк России»'
+            )
+            self.logger.check(
+                enc3 == "Ипотека / Ипотека",
+                f"Legacy: Ипотека не тронута: '{enc3}'",
+                f"Legacy: Ипотека ошибочно дедуплицирована: '{enc3}'"
+            )
+
+        except Exception as e:
+            self.logger.fail(f"Ошибка теста: {e}")
+
+    def test_35_deduplicate_rights_owners_pair_without_form(self) -> None:
+        """ТЕСТ 35: deduplicate_rights_owners_form - пара без поля формы"""
+        self.logger.section("35. deduplicate_rights_owners_form: пара без формы")
+
+        if not self.manager:
+            self.logger.fail("Manager не инициализирован")
+            return
+
+        try:
+            rights, owners, form = self.manager.deduplicate_rights_owners_form(
+                "Собственность / Собственность / Аренда",
+                "Иванов / Иванов / ООО",
+                None
+            )
+            self.logger.check(
+                rights == "Собственность / Аренда" and owners == "Иванов / ООО",
+                f"Пара дедуплицирована: '{rights}' / '{owners}'",
+                f"Пара неверна: '{rights}' / '{owners}'"
+            )
+            self.logger.check(
+                form is None,
+                "Форма None (поля нет)",
+                f"Форма неожиданна: '{form}'"
+            )
 
         except Exception as e:
             self.logger.fail(f"Ошибка теста: {e}")

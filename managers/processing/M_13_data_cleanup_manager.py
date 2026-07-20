@@ -113,9 +113,18 @@ class DataCleanupManager:
         return self.attribute_processor.normalize_rights_order(rights_value, owners_value)
 
     def deduplicate_encumbrances_and_tenants(self, encumbrances_value: Optional[str],
-                                              tenants_value: Optional[str]) -> Tuple[str, str]:
-        """Дедупликация пар Обременения-Арендаторы (удаление полных дубликатов пар)"""
-        return self.attribute_processor.deduplicate_encumbrances_and_tenants(encumbrances_value, tenants_value)
+                                              tenants_value: Optional[str],
+                                              all_types: bool = False) -> Tuple[str, str]:
+        """Дедупликация пар Обременения-Арендаторы (all_types=False: только 'Аренда')"""
+        return self.attribute_processor.deduplicate_encumbrances_and_tenants(
+            encumbrances_value, tenants_value, all_types
+        )
+
+    def deduplicate_rights_owners_form(self, rights_value: Optional[str],
+                                       owners_value: Optional[str],
+                                       form_value: Optional[str] = None) -> Tuple[str, str, Optional[str]]:
+        """Дедупликация тройки Права-Собственники-__Форма_тех (полное совпадение кортежа)"""
+        return self.attribute_processor.deduplicate_rights_owners_form(rights_value, owners_value, form_value)
 
     def simplify_rent_individuals(self, encumbrances_value: Optional[str],
                                    tenants_value: Optional[str]) -> Tuple[str, str]:
@@ -127,10 +136,16 @@ class DataCleanupManager:
                       layer_name: str,
                       fields_to_process: Optional[List[str]] = None,
                       capitalize: bool = True,
-                      exclude_fields: Optional[List[str]] = None) -> None:
-        """Финальная обработка слоя (наведение красоты)"""
+                      exclude_fields: Optional[List[str]] = None,
+                      dedup_synced_tuples: bool = False) -> None:
+        """Финальная обработка слоя (наведение красоты).
+
+        dedup_synced_tuples=True — синхронная дедупликация кортежей
+        (тройка прав + пара обременений всех типов), ТОЛЬКО для слоёв выборки.
+        """
         return self.attribute_processor.finalize_layer_processing(
-            layer, layer_name, fields_to_process, capitalize, exclude_fields
+            layer, layer_name, fields_to_process, capitalize, exclude_fields,
+            dedup_synced_tuples
         )
 
     # ========== Делегирующие методы для FieldCleanup ==========

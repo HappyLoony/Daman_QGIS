@@ -19,7 +19,6 @@ from qgis.core import (
 from qgis.PyQt.QtCore import QMetaType
 
 from Daman_QGIS.utils import log_info, log_warning, log_error
-from Daman_QGIS.constants import LAYER_SELECTION_ZU
 from Daman_QGIS.managers import StyleManager, DataCleanupManager
 from .Fsm_1_1_4_4_layer_creator import set_field_aliases
 
@@ -243,13 +242,11 @@ def split_and_create_layers(features_data: List[Dict[str, Any]],
             log_warning(f"Fsm_1_1_4_6: Не удалось сохранить слой {layer_name}")
 
     if created_layer_objects:
-        # FIX (2025-12-18): Дополнение выборки при импорте выписки ПОСЛЕ выборки
-        # Если выборка уже существует - дополняем её атрибутами из новых выписок
-        supplemented = supplement_selection_from_extracts(created_layer_objects)
-
+        # Доставка данных выписок в выборку — ЕДИНСТВЕННЫЙ канал M_24 auto_sync
+        # (F_1_1._run_auto_sync_and_analysis, вызывается сразу после импорта).
+        # Прежний второй канал supplement_selection_from_extracts удалён 2026-07-17
+        # (П.4: дубляж с M_24, расходящиеся критерии пустоты fill)
         message = f'Создано слоёв: {len(created_layer_objects)}, объектов: {total_features}'
-        if supplemented > 0:
-            message += f', дополнено в выборке: {supplemented}'
 
         return {
             'success': True,
@@ -1088,177 +1085,3 @@ def _append_without_check(existing_layer: QgsVectorLayer,
         log_error(f"Fsm_1_1_4_6: Ошибка добавления в слой '{layer_name}': {e}")
         return None
 
-
-def supplement_selection_from_extracts(created_layers: List[QgsVectorLayer]) -> int:
-    """Дополнение слоя выборки атрибутами из только что импортированных выписок
-
-    FIX (2025-12-18): Поддержка сценария "выборка ДО выписок".
-    Когда выписки импортируются ПОСЛЕ выборки, нужно дополнить
-    существующую выборку данными из новых выписок.
-
-    Логика:
-    1. Проверить существование слоя выборки (Le_1_9_1_1_Выборка_ЗУ)
-    2. Извлечь атрибуты из созданных слоёв выписок
-    3. Дополнить пустые поля в выборке по КН
-
-    Args:
-        created_layers: Список только что созданных слоёв выписок
-
-    Returns:
-        int: Количество обновлённых записей в выборке
-    """
-    # Слой выборки ЗУ
-    SELECTION_LAYER_NAME = LAYER_SELECTION_ZU
-
-    # Поля для дополнения
-    FIELDS_TO_SUPPLEMENT = [
-        'Адрес_Местоположения',
-        'Категория',
-        'ВРИ',
-        'Права',
-        'Обременения',
-        'Собственники',
-        'Арендаторы',
-        '__Форма_тех',  # Транзитная форма собственности (3-я fill-тропа, §5.3):
-                        # fill-only (доминирование через M_24), но должна подхватиться
-                        # при импорте выписки ПОСЛЕ выборки
-    ]
-
-    # Значения считающиеся пустыми
-    EMPTY_VALUES = [None, '', '-', 'NULL', 'Сведения отсутствуют', 'Категория не установлена']
-
-    project = QgsProject.instance()
-
-    # Проверяем существование слоя выборки
-    selection_layers = project.mapLayersByName(SELECTION_LAYER_NAME)
-    if not selection_layers:
-        log_info("Fsm_1_1_4_6: Слой выборки не найден - дополнение не требуется")
-        return 0
-
-    layer_obj = selection_layers[0]
-    if not isinstance(layer_obj, QgsVectorLayer):
-        log_warning("Fsm_1_1_4_6: Слой выборки не является векторным")
-        return 0
-
-    selection_layer: QgsVectorLayer = layer_obj
-    if not selection_layer.isValid():
-        log_warning("Fsm_1_1_4_6: Слой выборки невалиден")
-        return 0
-
-    if selection_layer.featureCount() == 0:
-        log_info("Fsm_1_1_4_6: Слой выборки пуст - дополнение не требуется")
-        return 0
-
-    # Проверяем наличие поля "КН" в слое выборки
-    kn_field_idx = selection_layer.fields().indexOf('КН')
-    if kn_field_idx == -1:
-        log_warning("Fsm_1_1_4_6: Поле 'КН' не найдено в слое выборки")
-        return 0
-
-    # Строим кэш атрибутов из созданных слоёв выписок
-    attr_cache = {}  # {КН: {поле: значение}}
-
-    for layer in created_layers:
-        if layer is None or not layer.isValid():
-            continue
-
-        # Проверяем что это слой выписок (Le_1_6_*)
-        layer_name = layer.name()
-        if not layer_name.startswith('Le_1_6_'):
-            continue
-
-        extract_kn_idx = layer.fields().indexOf('КН')
-        if extract_kn_idx == -1:
-            continue
-
-        extract_field_names = [f.name() for f in layer.fields()]
-
-        for feature in layer.getFeatures():
-            kn = feature.attribute(extract_kn_idx)
-            if not kn:
-                continue
-
-            kn_str = str(kn)
-
-            # Инициализируем или дополняем кэш для этого КН
-            if kn_str not in attr_cache:
-                attr_cache[kn_str] = {}
-
-            for field_name in FIELDS_TO_SUPPLEMENT:
-                if field_name in extract_field_names:
-                    value = feature.attribute(field_name)
-                    # Сохраняем только непустые значения
-                    # Не перезаписываем уже существующие в кэше
-                    if field_name not in attr_cache[kn_str]:
-                        if value is not None and str(value).strip() not in ['', '-', 'NULL']:
-                            attr_cache[kn_str][field_name] = value
-
-    if not attr_cache:
-        log_info("Fsm_1_1_4_6: Нет данных для дополнения выборки")
-        return 0
-
-    log_info(f"Fsm_1_1_4_6: Загружено {len(attr_cache)} КН из выписок для дополнения выборки")
-
-    # Определяем индексы полей в слое выборки
-    target_field_indices = {}
-    for field_name in FIELDS_TO_SUPPLEMENT:
-        idx = selection_layer.fields().indexOf(field_name)
-        if idx != -1:
-            target_field_indices[field_name] = idx
-
-    if not target_field_indices:
-        log_warning("Fsm_1_1_4_6: Нет полей для дополнения в слое выборки")
-        return 0
-
-    # Дополняем атрибуты в слое выборки
-    supplemented_count = 0
-    selection_layer.startEditing()
-
-    for feature in selection_layer.getFeatures():
-        kn = feature.attribute(kn_field_idx)
-        if not kn:
-            continue
-
-        kn_str = str(kn)
-        if kn_str not in attr_cache:
-            continue
-
-        cache_data = attr_cache[kn_str]
-        feature_updated = False
-
-        for field_name, field_idx in target_field_indices.items():
-            if field_name not in cache_data:
-                continue
-
-            current_value = feature.attribute(field_idx)
-            # Дополняем только если текущее значение пустое
-            current_str = str(current_value).strip() if current_value is not None else ''
-            if current_value is None or current_str in ['', '-', 'Сведения отсутствуют', 'Категория не установлена']:
-                selection_layer.changeAttributeValue(feature.id(), field_idx, cache_data[field_name])
-                feature_updated = True
-
-        if feature_updated:
-            supplemented_count += 1
-
-    selection_layer.commitChanges()
-
-    if supplemented_count > 0:
-        log_info(f"Fsm_1_1_4_6: Дополнены атрибуты для {supplemented_count} объектов в слое выборки")
-
-        # FIX (2026-02-05): Финализация слоя выборки после дополнения
-        # Применяет simplify_rent_individuals, сокращения юрлиц, капитализацию и т.д.
-        # ПРИМЕЧАНИЕ: Дублируется в F_1_1._finalize_selection_layers_after_sync() (после M_24).
-        # Операции идемпотентны. Можно удалить при рефакторинге.
-        try:
-            data_cleanup = DataCleanupManager()
-            # Транзитное __Форма_тех исключаем из финализации (INST-2, §5.5)
-            data_cleanup.finalize_layer(
-                selection_layer, SELECTION_LAYER_NAME, exclude_fields=['__Форма_тех']
-            )
-            log_info(f"Fsm_1_1_4_6: Финализация слоя выборки '{SELECTION_LAYER_NAME}' выполнена")
-        except Exception as e:
-            log_warning(f"Fsm_1_1_4_6: Ошибка финализации слоя выборки: {e}")
-    else:
-        log_info("Fsm_1_1_4_6: Нет объектов для дополнения в слое выборки")
-
-    return supplemented_count

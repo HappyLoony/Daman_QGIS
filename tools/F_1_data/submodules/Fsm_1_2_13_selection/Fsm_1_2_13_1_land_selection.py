@@ -873,9 +873,11 @@ class Fsm_1_2_13_1_LandSelection(BaseTool):
             for layer_name in selection_layers:
                 layer = self._get_layer_by_name(layer_name)
                 if layer and layer.featureCount() > 0:
-                    # Транзитное __Форма_тех исключаем из финализации (INST-2, §5.5)
+                    # Транзитное __Форма_тех исключаем из финализации (INST-2, §5.5).
+                    # dedup_synced_tuples: слои выборки — дедуп кортежей (2026-07-17)
                     cleanup_manager.finalize_layer(
-                        layer, layer_name, exclude_fields=['__Форма_тех']
+                        layer, layer_name, exclude_fields=['__Форма_тех'],
+                        dedup_synced_tuples=True
                     )
                     sanitized_count += 1
 

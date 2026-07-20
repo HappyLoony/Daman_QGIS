@@ -220,10 +220,21 @@ class Msm_25_3_LayerDistributor:
             result["unknown_count"] = len(unknown_features)
 
             if unknown_features:
-                log_info(
-                    f"Msm_25_3: {len(unknown_features)} неопознанных объектов "
-                    f"-> {self.rights_classifier.UNKNOWN_LAYER} (разбор по ревью слоя владельцем)"
-                )
+                if processed > 0 and len(unknown_features) == processed:
+                    # ВСЯ выборка ушла в Свед_нет — сильный индикатор сбоя загрузки
+                    # справочника классификации прав (см. log_error Msm_25_2), а не
+                    # штатного «нет данных». ГРОМКО (канон-8), fail-closed.
+                    log_warning(
+                        f"Msm_25_3: ВСЕ {processed} объектов -> "
+                        f"{self.rights_classifier.UNKNOWN_LAYER}. Вероятен сбой загрузки "
+                        f"справочника классификации прав (проверьте лог Msm_25_2). "
+                        f"Это НЕ штатный разбор — перезапустите распределение."
+                    )
+                else:
+                    log_info(
+                        f"Msm_25_3: {len(unknown_features)} неопознанных объектов "
+                        f"-> {self.rights_classifier.UNKNOWN_LAYER} (разбор по ревью слоя владельцем)"
+                    )
 
                 for feature in unknown_features:
                     self._add_feature_to_layer(

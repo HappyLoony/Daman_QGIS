@@ -589,8 +589,11 @@ class F_1_1_UniversalImport(BaseTool):
                     # Транзитное __Форма_тех исключаем из финализации (INST-2, §5.5):
                     # рабочее поле классификатора, не выходное. Пустое __Форма_тех =
                     # легитимный маршрут в Свед_нет, не баг finalize.
+                    # dedup_synced_tuples: слой выборки — синхронная дедупликация
+                    # кортежей прав/обременений (решение владельца 2026-07-17)
                     cleanup_manager.finalize_layer(
-                        layers[0], layer_name, exclude_fields=['__Форма_тех']
+                        layers[0], layer_name, exclude_fields=['__Форма_тех'],
+                        dedup_synced_tuples=True
                     )
                     sanitized_count += 1
 
