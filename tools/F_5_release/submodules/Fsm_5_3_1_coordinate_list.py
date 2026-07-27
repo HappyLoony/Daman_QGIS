@@ -1073,9 +1073,16 @@ class Fsm_5_3_1_CoordinateList:
         extra_context: Dict[str, Any]
     ) -> bool:
         """
-        Экспорт сводной таблицы: ID контура, Площадь, Количество точек.
+        Экспорт сводной таблицы: ID контура, Площадь, Количество точек,
+        Номера характерных точек.
 
         Требование КГА СПб. Формируется отдельно для ЗУ и ПС.
+
+        Номера характерных точек — локальная нумерация контуров, идентичная
+        перечню координат СПб (_export_to_excel_spb_merged: каждое кольцо
+        нумеруется с 1). Формат: «1-13 (внутренний контур 1: 1-4)».
+        Считается от геометрии, атрибут 'Точки' (сквозная нумерация слоя
+        от M_20) здесь НЕ применим — в перечне другие номера.
 
         Args:
             output_folder: Папка для сохранения
@@ -1111,6 +1118,7 @@ class Fsm_5_3_1_CoordinateList:
             worksheet.set_column(0, 0, 20)  # ID контура
             worksheet.set_column(1, 1, 18)  # Площадь
             worksheet.set_column(2, 2, 22)  # Кол-во точек
+            worksheet.set_column(3, 3, 45)  # Номера характерных точек
 
             header_format = fmt.get_header_format(
                 with_border=True, bg_color='#FFFFFF'
@@ -1124,6 +1132,9 @@ class Fsm_5_3_1_CoordinateList:
             worksheet.write(current_row, 0, 'ID контура', header_format)
             worksheet.write(current_row, 1, 'Площадь, кв. м', header_format)
             worksheet.write(current_row, 2, 'Количество точек', header_format)
+            worksheet.write(
+                current_row, 3, 'Номера характерных точек', header_format
+            )
             current_row += 1
 
             total_features = 0
@@ -1139,28 +1150,46 @@ class Fsm_5_3_1_CoordinateList:
                     geom = feature.geometry()
                     area_int = round(geom.area())
 
-                    # Количество уникальных вершин (без замыкающей точки)
-                    vertex_count = 0
+                    # Размеры колец без замыкающей точки: [[exterior, hole1, ...]]
+                    # Тот же счёт, что даёт _collect_contours_with_coordinates
+                    # перечню (M_47-нормализация вершин не добавляет/не удаляет)
+                    ring_sizes: List[List[int]] = []
                     if geom.type() == Qgis.GeometryType.Polygon:
                         polygons = (
                             geom.asMultiPolygon() if geom.isMultipart()
                             else [geom.asPolygon()]
                         )
                         for polygon in polygons:
+                            sizes = []
                             for ring in polygon:
                                 # Убираем замыкающую точку
                                 pts = ring[:-1] if (
                                     len(ring) > 1 and ring[0] == ring[-1]
                                 ) else ring
-                                vertex_count += len(pts)
+                                sizes.append(len(pts))
+                            if sizes:
+                                ring_sizes.append(sizes)
+
+                    if len(ring_sizes) > 1:
+                        log_warning(
+                            f"Fsm_5_3_1: Объект ID={feature_id} слоя "
+                            f"'{layer.name()}' многоконтурный "
+                            f"({len(ring_sizes)} внешних контура) — "
+                            f"образование многоконтурных ЗУ не предусмотрено, "
+                            f"проверить геометрию"
+                        )
+
+                    vertex_count = sum(sum(sizes) for sizes in ring_sizes)
+                    points_str = self._format_contour_points(ring_sizes)
 
                     worksheet.write(current_row, 0, feature_id, data_format)
                     worksheet.write(current_row, 1, area_int, data_format)
                     worksheet.write(current_row, 2, vertex_count, data_format)
+                    worksheet.write(current_row, 3, points_str, data_format)
                     current_row += 1
                     total_features += 1
 
-            worksheet.print_area(0, 0, current_row - 1, 2)
+            worksheet.print_area(0, 0, current_row - 1, 3)
         finally:
             workbook.close()
 
@@ -1169,6 +1198,68 @@ class Fsm_5_3_1_CoordinateList:
             f"{os.path.basename(filepath)}"
         )
         return True
+
+    @staticmethod
+    def _format_sequential_range(count: int) -> str:
+        """
+        Диапазон номеров кольца, пронумерованного с 1.
+
+        Схлопывание как в M_20._format_point_numbers: 3+ подряд -> «1-N»,
+        две точки -> «1, 2», одна -> «1».
+
+        Args:
+            count: Количество точек кольца (без замыкающей)
+
+        Returns:
+            Строка диапазона, '' для пустого кольца
+        """
+        if count <= 0:
+            return ''
+        if count == 1:
+            return '1'
+        if count == 2:
+            return '1, 2'
+        return f"1-{count}"
+
+    def _format_contour_points(self, ring_sizes: List[List[int]]) -> str:
+        """
+        Строка номеров характерных точек объекта для сводной таблицы.
+
+        Формат: «1-13» без дырок, «1-13 (внутренний контур 1: 1-4)» с одной,
+        «1-13 (внутренний контур 1: 1-4; внутренний контур 2: 1-6)» с двумя.
+        Нумерация локальная — каждое кольцо с 1, как в перечне координат СПб.
+        Внутренние контуры нумеруются сквозно по объекту (как разделители
+        «Внутренний контур N» в _export_to_excel_spb_merged).
+
+        Args:
+            ring_sizes: Размеры колец по полигонам: [[exterior, hole1, ...], ...]
+
+        Returns:
+            Строка номеров точек, '-' если колец нет
+        """
+        parts: List[str] = []
+        inner_num = 0
+
+        for sizes in ring_sizes:
+            if not sizes:
+                continue
+
+            exterior = self._format_sequential_range(sizes[0])
+            inner_parts: List[str] = []
+
+            for hole_size in sizes[1:]:
+                inner_num += 1
+                inner_parts.append(
+                    f"внутренний контур {inner_num}: "
+                    f"{self._format_sequential_range(hole_size)}"
+                )
+
+            if inner_parts:
+                parts.append(f"{exterior} ({'; '.join(inner_parts)})")
+            else:
+                parts.append(exterior)
+
+        return '; '.join(parts) if parts else '-'
 
     def _create_temp_single_feature_layer(
         self,

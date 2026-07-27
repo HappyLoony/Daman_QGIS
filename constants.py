@@ -929,18 +929,15 @@ PROFILE_COPY_IGNORE = ['__pycache__', '*.pyc', '.git', '.gitignore']
 # КОНСТАНТЫ АВТООБНОВЛЕНИЯ (M_42)
 # ============================================================================
 
-# URL plugins.xml (Public репозиторий, raw.githubusercontent)
+# URL plugins.xml (single-source per Q14: только daman.tools)
 # {channel} заменяется на 'stable' или 'beta'
-UPDATE_PLUGINS_XML_URL = (
-    "https://raw.githubusercontent.com/HappyLoony/"
-    "Daman_QGIS/main/{channel}/plugins.xml"
-)
+UPDATE_PLUGINS_XML_URL = "https://daman.tools/repository/{channel}/plugins.xml"
 
 # Таймаут проверки версии (секунды, UI thread при запуске)
-UPDATE_VERSION_CHECK_TIMEOUT = 5
+UPDATE_VERSION_CHECK_TIMEOUT = 15
 
 # Таймаут скачивания ZIP (секунды)
-UPDATE_DOWNLOAD_TIMEOUT = 60
+UPDATE_DOWNLOAD_TIMEOUT = 120
 
 # Канал обновления по умолчанию
 UPDATE_DEFAULT_CHANNEL = "stable"

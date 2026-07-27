@@ -4,14 +4,59 @@ Msm_4_17_FieldMappingManager - Менеджер маппинга полей вы
 
 Загрузка и управление маппингом XML XPath → рабочие поля для импорта выписок.
 Поддержка альтернативных путей (физлицо/юрлицо), массивов, конвертации типов.
+
+Детектор непокрытых веток холдера: при массивном извлечении по контейнеру
+правообладателей холдер, чью ветку не покрывает ни один xpath маппинга, молча
+выпадает из значения поля. Детектор делает потерю видимой в логе (пофайловое
+предупреждение + сводка за прогон), извлекаемые значения не меняет.
+Спецификация: documentation/plans/PLAN_rights_3axis_I5_branch_coverage_detector_2026-07-27.md
 """
 
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Set
 from qgis.core import QgsField
 from qgis.PyQt.QtCore import QMetaType, QDate
 from Daman_QGIS.database.base_reference_loader import BaseReferenceLoader
-from Daman_QGIS.utils import log_error, log_warning
+from Daman_QGIS.utils import log_error, log_info, log_warning
 from Daman_QGIS.constants import MAX_FIELD_LEN
+
+# ДЕТЕКТОР НЕПОКРЫТЫХ ВЕТОК ХОЛДЕРА
+#
+# Суффикс xml_xpath_root, по которому распознаётся массивное извлечение по
+# контейнеру правообладателей. Признак СТРУКТУРНЫЙ - берётся из данных маппинга
+# (xml_xpath_root), а не из имён полей: сейчас суффиксу отвечают «Собственники»
+# (right_records/right_record/right_holders/right_holder) и «Арендаторы»
+# (restrict_records/restrict_record/right_holders/right_holder); новое поле по
+# тому же контейнеру попадёт под детектор без правки кода.
+HOLDER_CONTAINER_SUFFIX = 'right_holders/right_holder'
+
+# Максимальная глубина метки ветки холдера. XSD tRightHolderOut = xsd:choice
+# { public_formation | individual | legal_entity | another }, где ветки-обёртки
+# несут дискриминатор типа на третьем уровне: another/another_type/<тип>,
+# legal_entity/entity/<тип>, public_formation/public_formation_type/<тип>.
+# Прямые ветки (individual, undefined) остаются одноуровневыми.
+BRANCH_LABEL_MAX_DEPTH = 3
+
+# Подстановка идентификатора объекта, если вызывающий не передал КН в context
+UNKNOWN_OBJECT_ID = 'КН не определён'
+
+# Метка холдера без единого дочернего элемента (пустой <right_holder/>)
+EMPTY_BRANCH_LABEL = 'ветка отсутствует'
+
+
+def _element_children(element) -> List:
+    """
+    Дочерние ЭЛЕМЕНТЫ узла (без комментариев и processing instructions)
+
+    У comment/PI-узлов ElementTree tag - функция, а не строка; попадание такого
+    узла в метку ветки дало бы нечитаемый мусор вместо имени тега.
+
+    Args:
+        element: XML элемент
+
+    Returns:
+        Список дочерних элементов с текстовым тегом
+    """
+    return [child for child in element if isinstance(child.tag, str)]
 
 
 class FieldMappingManager(BaseReferenceLoader):
@@ -29,6 +74,12 @@ class FieldMappingManager(BaseReferenceLoader):
         self._mappings = None
         self._by_record_type = {}
         self._by_working_name = {}
+
+        # Агрегат детектора непокрытых веток холдера за прогон импорта.
+        # {метка ветки: {'holders': int, 'objects': set(КН)}}
+        self._uncovered_branches: Dict[str, Dict[str, Any]] = {}
+        self._checked_holders: int = 0
+        self._checked_objects: Set[str] = set()
 
     def get_all_mappings(self) -> List[Dict]:
         """
@@ -165,7 +216,7 @@ class FieldMappingManager(BaseReferenceLoader):
 
         return ' '.join(parts) if parts else None
 
-    def extract_value(self, xml_element, mapping: Dict) -> Any:
+    def extract_value(self, xml_element, mapping: Dict, context: Optional[Dict[str, Any]] = None) -> Any:
         """
         Извлечь значение из XML элемента согласно маппингу
 
@@ -177,13 +228,17 @@ class FieldMappingManager(BaseReferenceLoader):
         Args:
             xml_element: XML элемент (lxml или ElementTree)
             mapping: Маппинг поля
+            context: Контекст вызова для диагностики (ключ 'cad_number' - КН
+                     объекта, к которому относится элемент). На извлекаемое
+                     значение НЕ влияет, используется только детектором
+                     непокрытых веток холдера
 
         Returns:
             Извлечённое и сконвертированное значение
         """
         # CASE 1: Массив (xml_xpath_root указан)
         if mapping.get('xml_xpath_root') and mapping['xml_xpath_root'] not in ('-', 'null', ''):
-            return self._extract_array_value(xml_element, mapping)
+            return self._extract_array_value(xml_element, mapping, context)
 
         # CASE 2: Альтернативные XPath (физлицо/юрлицо или ";"-список)
         alternatives = self._parse_xpath_alternatives(mapping)
@@ -198,13 +253,15 @@ class FieldMappingManager(BaseReferenceLoader):
         value = xml_element.findtext(xml_xpath)
         return self._convert_value(value, mapping)
 
-    def _extract_array_value(self, xml_element, mapping: Dict) -> Any:
+    def _extract_array_value(self, xml_element, mapping: Dict,
+                             context: Optional[Dict[str, Any]] = None) -> Any:
         """
         Извлечь множественные значения из XML (массив)
 
         Args:
             xml_element: XML элемент
             mapping: Маппинг поля
+            context: Контекст вызова для детектора непокрытых веток холдера
 
         Returns:
             Объединённая строка значений через "; " или None
@@ -217,8 +274,15 @@ class FieldMappingManager(BaseReferenceLoader):
         alternatives = self._parse_xpath_alternatives(mapping)
 
         values = []
+        # Элементы контейнера, не давшие значения НИ ПО ОДНОМУ xpath маппинга.
+        # Наблюдение для детектора - на values не влияет.
+        uncovered_elements = []
+        elements = xml_element.findall(xml_xpath_root)
+
         # Итерация по корневому контейнеру (например, right_records/right_record)
-        for elem in xml_element.findall(xml_xpath_root):
+        for elem in elements:
+            matched = False
+
             # ПОДДЕРЖКА АЛЬТЕРНАТИВНЫХ XPATH (для физлиц/юрлиц/муниципалитетов)
             if alternatives:
                 # Пробуем каждый XPath по порядку (одиночный или композитный "a+b+c")
@@ -228,6 +292,7 @@ class FieldMappingManager(BaseReferenceLoader):
                     value = self._findtext_composite(elem, alt_xpath)
                     if value and value.strip():
                         values.append(value.strip())
+                        matched = True
                         break  # Нашли значение - переходим к следующему элементу
             # Обычный XPath (без альтернатив и без ";")
             else:
@@ -236,6 +301,16 @@ class FieldMappingManager(BaseReferenceLoader):
                     value = elem.findtext(xml_xpath)
                     if value and value.strip():
                         values.append(value.strip())
+                        matched = True
+
+            if not matched:
+                uncovered_elements.append(elem)
+
+        # ДЕТЕКТОР непокрытых веток холдера: расхождение между числом элементов
+        # контейнера и числом извлечённых значений становится видимым в логе.
+        # Значения полей не меняет - только наблюдает.
+        if self._is_holder_container(xml_xpath_root):
+            self._register_holder_coverage(elements, uncovered_elements, mapping, context)
 
         # Применение конвертации для массивов
         conversion = mapping.get('conversion')
@@ -282,6 +357,146 @@ class FieldMappingManager(BaseReferenceLoader):
                 return "; ".join(documents)
 
         return None
+
+    @staticmethod
+    def _is_holder_container(xml_xpath_root: str) -> bool:
+        """
+        Проверка: корень маппинга указывает на контейнер правообладателей
+
+        Признак структурный (суффикс xml_xpath_root), не по имени поля.
+
+        Args:
+            xml_xpath_root: Корневой XPath из маппинга
+
+        Returns:
+            True для полей с массивным извлечением по контейнеру холдеров
+        """
+        return xml_xpath_root.rstrip('/').endswith(HOLDER_CONTAINER_SUFFIX)
+
+    @staticmethod
+    def _holder_branch_label(holder_element) -> str:
+        """
+        Определить фактическую ветку одного правообладателя
+
+        Спуск по первому дочернему элементу, пока следующий уровень остаётся
+        контейнером (у него есть собственные дочерние элементы), но не глубже
+        BRANCH_LABEL_MAX_DEPTH. Тег-обёртка (legal_entity, public_formation,
+        another) содержит контейнер-дискриминатор, за которым идёт тип; прямая
+        ветка (individual, undefined) сразу упирается в лист со значением и
+        остаётся одноуровневой.
+
+        Args:
+            holder_element: XML элемент <right_holder>
+
+        Returns:
+            Метка ветки, например "legal_entity/entity/government_entity",
+            "public_formation/public_formation_type/russia", "individual"
+        """
+        children = _element_children(holder_element)
+        if not children:
+            return EMPTY_BRANCH_LABEL
+
+        node = children[0]
+        parts = [node.tag]
+
+        while len(parts) < BRANCH_LABEL_MAX_DEPTH:
+            node_children = _element_children(node)
+            if not node_children:
+                break
+            first_child = node_children[0]
+            if not _element_children(first_child):
+                # Первый потомок - лист со значением: текущий узел и есть тип
+                break
+            node = first_child
+            parts.append(node.tag)
+
+        return '/'.join(parts)
+
+    def _register_holder_coverage(self, elements: List, uncovered_elements: List,
+                                  mapping: Dict, context: Optional[Dict[str, Any]]) -> None:
+        """
+        Учесть покрытие холдеров и предупредить о непокрытых ветках
+
+        Наблюдение: значения поля не меняются, подстановок нет. Непокрытый
+        холдер - тот, для которого не сработал ни один xpath маппинга; без
+        предупреждения его потеря неотличима от честного отсутствия сведений.
+
+        Args:
+            elements: Все элементы контейнера холдеров
+            uncovered_elements: Элементы, не давшие значения ни по одному xpath
+            mapping: Маппинг поля
+            context: Контекст вызова (ключ 'cad_number')
+        """
+        cad_number = context.get('cad_number') if context else None
+        object_id = str(cad_number).strip() if cad_number else UNKNOWN_OBJECT_ID
+
+        if elements:
+            self._checked_holders += len(elements)
+            self._checked_objects.add(object_id)
+
+        if not uncovered_elements:
+            return
+
+        branch_counts: Dict[str, int] = {}
+        for elem in uncovered_elements:
+            label = self._holder_branch_label(elem)
+            branch_counts[label] = branch_counts.get(label, 0) + 1
+
+            stats = self._uncovered_branches.setdefault(label, {'holders': 0, 'objects': set()})
+            stats['holders'] += 1
+            stats['objects'].add(object_id)
+
+        working_name = mapping.get('working_name', 'без имени')
+        branches = ', '.join(f"{label} - {count}" for label, count in sorted(branch_counts.items()))
+        log_warning(
+            f"Msm_4_17 (_register_holder_coverage): Объект {object_id}, поле '{working_name}': "
+            f"{len(uncovered_elements)} из {len(elements)} холдеров не покрыты ни одним xpath маппинга. "
+            f"Непокрытые ветки: {branches}"
+        )
+
+    def reset_uncovered_branch_stats(self) -> None:
+        """Сбросить агрегат детектора непокрытых веток холдера (начало прогона)"""
+        self._uncovered_branches = {}
+        self._checked_holders = 0
+        self._checked_objects = set()
+
+    def get_uncovered_branch_stats(self) -> Dict[str, Dict[str, int]]:
+        """
+        Агрегат детектора за текущий прогон
+
+        Returns:
+            {метка ветки: {'holders': число холдеров, 'objects': число объектов}}
+        """
+        return {
+            label: {'holders': stats['holders'], 'objects': len(stats['objects'])}
+            for label, stats in self._uncovered_branches.items()
+        }
+
+    def log_uncovered_branch_summary(self) -> None:
+        """
+        Итоговая сводка детектора непокрытых веток холдера за прогон
+
+        Вызывается потребителем на границе прогона (окончание разбора файлов).
+        Обе стороны видимы: при пустом агрегате пишется число проверенных
+        холдеров - молчание детектора отличимо от его незапуска.
+        """
+        if not self._checked_holders:
+            return
+
+        checked = (f"проверено {self._checked_holders} холдеров "
+                   f"в {len(self._checked_objects)} объектах")
+
+        if not self._uncovered_branches:
+            log_info(f"Msm_4_17: Непокрытых веток холдеров нет ({checked})")
+            return
+
+        log_warning(f"Msm_4_17: Непокрытые ветки холдеров за прогон ({checked}):")
+        for label, stats in sorted(self._uncovered_branches.items(),
+                                   key=lambda item: (-item[1]['holders'], item[0])):
+            log_warning(
+                f"Msm_4_17: {label} - {stats['holders']} холдеров "
+                f"в {len(stats['objects'])} объектах"
+            )
 
     def _extract_alternative_value(self, xml_element, mapping: Dict, alternatives: Optional[List[str]] = None) -> Any:
         """

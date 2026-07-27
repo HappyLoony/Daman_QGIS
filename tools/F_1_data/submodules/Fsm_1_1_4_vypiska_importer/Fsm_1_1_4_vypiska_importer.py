@@ -31,6 +31,11 @@ from .Fsm_1_1_4_6_layer_splitter import split_and_create_layers
 from .Fsm_1_1_4_7_unified_land_processor import Fsm_1_1_4_7_UnifiedLandProcessor
 from .Fsm_1_1_4_8_form_deriver import derive_form_tech
 
+# XPath кадастрового номера относительно основного record (main_record).
+# Используется и при фильтрации дубликатов, и как контекст объекта для
+# детектора непокрытых веток холдера (Msm_4_17).
+CAD_NUMBER_XPATH = './/object/common_data/cad_number'
+
 
 class Fsm_1_1_4_VypiskaImporter(BaseImporter):
     """Импортер XML выписок ЕГРН - database-driven версия с ZERO HARDCODE"""
@@ -139,6 +144,10 @@ class Fsm_1_1_4_VypiskaImporter(BaseImporter):
         self.total_parts_count = 0
         self.zu_with_parts_count = 0
 
+        # Сбрасываем агрегат детектора непокрытых веток холдера (Msm_4_17):
+        # прогон = разбор текущего набора файлов, счётчики не переносятся
+        self.field_mapper.reset_uncovered_branch_stats()
+
         # Собираем все данные из всех файлов
         all_features = []
         success_count = 0
@@ -161,6 +170,13 @@ class Fsm_1_1_4_VypiskaImporter(BaseImporter):
                 import traceback
                 log_error(f"Fsm_1_1_4: {traceback.format_exc()}")
                 error_count += 1
+
+        # Сводка детектора непокрытых веток холдера (Msm_4_17).
+        # Точка вывода - сразу после разбора всех файлов: извлечение значений
+        # закончено, дальше идут только создание слоя и запись в GPKG.
+        # До ранних выходов ниже, поэтому сводка печатается и при пустом
+        # результате импорта.
+        self.field_mapper.log_uncovered_branch_summary()
 
         if not all_features:
             log_error("Fsm_1_1_4: Не удалось извлечь данные ни из одного файла")
@@ -336,7 +352,7 @@ class Fsm_1_1_4_VypiskaImporter(BaseImporter):
                 if record_type:
                     main_record = root.find(record_type)
                     if main_record is not None:
-                        identifier = main_record.findtext('.//object/common_data/cad_number')
+                        identifier = main_record.findtext(CAD_NUMBER_XPATH)
 
                 # Извлекаем дату формирования из корня XML
                 date_elem = root.find('date_formation')
@@ -690,6 +706,14 @@ class Fsm_1_1_4_VypiskaImporter(BaseImporter):
             log_warning(f"Fsm_1_1_4 (_extract_all_attributes): Нет маппингов для record_type='{record_type}'")
             return attributes
 
+        # Контекст объекта для детектора непокрытых веток холдера (Msm_4_17):
+        # предупреждение должно указывать на конкретный КН. Для object_part
+        # (xml_element = part_elem) КН не извлекается - контекст остаётся None,
+        # детектор в этой ветке не срабатывает (у object_part нет полей с
+        # массивным извлечением по контейнеру холдеров).
+        cad_number = xml_element.findtext(CAD_NUMBER_XPATH)
+        context = {'cad_number': cad_number} if cad_number else None
+
         # Извлекаем значение для каждого поля
         for mapping in field_mappings:
             working_name = mapping.get('working_name')
@@ -703,20 +727,20 @@ class Fsm_1_1_4_VypiskaImporter(BaseImporter):
 
                 # CASE 1: xml_level="root" - поле находится в корне XML
                 if xml_level == 'root' and root_element is not None:
-                    value = self.field_mapper.extract_value(root_element, mapping)
+                    value = self.field_mapper.extract_value(root_element, mapping, context)
 
                 # CASE 2: xml_xpath_root начинается с right_records/restrict_records - они в корне!
                 elif xml_xpath_root and xml_xpath_root not in ('-', 'null', '') and root_element is not None:
                     # Проверяем, что xml_xpath_root указывает на корневые элементы
                     if xml_xpath_root.startswith('right_records') or xml_xpath_root.startswith('restrict_records'):
-                        value = self.field_mapper.extract_value(root_element, mapping)
+                        value = self.field_mapper.extract_value(root_element, mapping, context)
                     else:
                         # Обычное извлечение из main_record
-                        value = self.field_mapper.extract_value(xml_element, mapping)
+                        value = self.field_mapper.extract_value(xml_element, mapping, context)
 
                 # CASE 3: Обычное поле внутри main_record
                 else:
-                    value = self.field_mapper.extract_value(xml_element, mapping)
+                    value = self.field_mapper.extract_value(xml_element, mapping, context)
 
                 # Сохраняем только непустые значения
                 if value is not None and str(value).strip() != '':

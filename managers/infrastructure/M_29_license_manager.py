@@ -218,6 +218,11 @@ class LicenseManager(QObject):
         Returns:
             True если лицензия валидна
         """
+        # Обнулить перед запросом: main_plugin читает _last_validate_result на
+        # неактивированной ветке (где verify до validate не доходит) — цель =
+        # фактический ответ сессии, не переживший артефакт прошлого verify.
+        self._last_validate_result = None
+
         if not self._initialized:
             if not self.initialize():
                 return False
@@ -269,7 +274,7 @@ class LicenseManager(QObject):
                 # Не SERVER_ERROR (чтобы не путать с реальной server недоступностью):
                 # session_verified=False, status неизменен; main_plugin поймёт
                 # из _last_validate_result что нужен force update.
-                log_warning("M_29: Update required (integrity mismatch on production channel)")
+                log_warning("M_29: Update required (integrity mismatch)")
                 return False
 
             if result["status"] == "registry_unavailable":

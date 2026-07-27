@@ -219,7 +219,10 @@ class AutoUpdateManager:
         """Определить канал из URL репозитория в настройках QGIS.
 
         M_37 записывает URL репозитория при настройке профиля.
-        URL содержит канал: .../beta/plugins.xml или .../stable/plugins.xml
+        URL содержит канал: .../beta/plugins.xml или .../stable/plugins.xml.
+
+        Транзишн-паттерны (оба валидны до Phase 2): legacy GitHub raw
+        (содержит PLUGIN_NAME) и mirror daman.tools/repository/.
         """
         settings = QgsSettings()
         settings.beginGroup("app/plugin_repositories")
@@ -231,7 +234,10 @@ class AutoUpdateManager:
                 enabled = settings.value("enabled", True, type=bool)
                 settings.endGroup()
 
-                if not enabled or PLUGIN_NAME not in url:
+                if not enabled or (
+                    PLUGIN_NAME not in url
+                    and "daman.tools/repository/" not in url
+                ):
                     continue
 
                 if "/beta/" in url:

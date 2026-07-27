@@ -326,6 +326,14 @@ class DamanQGIS:
 
         self._profile_only_mode = False
 
+        # Миграция repo URL QgsSettings на mirror (Phase 1) — ДО M_42.
+        # На нормальном прогоне мигрирует legacy GitHub raw -> daman.tools,
+        # затем M_42 детектит канал и фетчит plugins.xml с mirror. Идемпотентно.
+        try:
+            profile_mgr.migrate_repo_url_v1()
+        except Exception as e:
+            log_warning(f"Daman_QGIS: Repo URL migration failed: {e}")
+
         # --- FIX-4 (review 2026-05-09): integrity_hash _on_skip hook wiring ---
         # Перенаправить skip events (locked/AV-blocked файлы при compute hash)
         # в log + M_32 telemetry. integrity_hash модуль stdlib-only, поэтому
@@ -449,6 +457,23 @@ class DamanQGIS:
         log_timing(f"Daman_QGIS: [TIMING] _acquire_jwt_tokens: {perf_counter() - _t:.3f}s")
 
         if not has_license:
+            # Self-heal: verify мог вернуть False из-за update_required /
+            # DEV_HASH_MISMATCH (integrity mismatch на стартовом пути), а не из-за
+            # отсутствия лицензии. Обработать force-update ДО диалога активации —
+            # иначе пользователь видит бесполезный диалог, плагин заблокирован.
+            try:
+                license_mgr = registry.get('M_29')
+                last_validate = getattr(license_mgr, "_last_validate_result", None)
+                if last_validate and (
+                    last_validate.get("status") == "update_required"
+                    or last_validate.get("error_code") == "DEV_HASH_MISMATCH"
+                ):
+                    if not self._handle_validate_result(last_validate):
+                        # Force update запущен/заблокирован — диалог уже показан.
+                        return
+            except Exception as e:
+                log_error(f"Daman_QGIS: startup self-heal handler error: {e}")
+
             # Нет лицензии -- принудительно показать диалог активации
             activated = self._show_forced_activation()
             if not activated:
@@ -1076,9 +1101,12 @@ class DamanQGIS:
 
         if status == "update_required":
             download_url = validate_result.get("download_url")
+            # latest_version = версия реестра (реальная цель), current_version =
+            # эхо версии клиента. Реестровая цель первой, иначе при клиенте старше
+            # реестра лог/диалог показывают старую версию как цель обновления.
             target_version = (
-                validate_result.get("current_version")
-                or validate_result.get("latest_version")
+                validate_result.get("latest_version")
+                or validate_result.get("current_version")
             )
             channel = validate_result.get("channel")
 

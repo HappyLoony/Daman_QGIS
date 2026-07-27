@@ -58,12 +58,13 @@ class ProfileSetupManager:
     4. Запуск в другом профиле -- предупреждение.
     """
 
-    # URL репозитория плагина (Beta)
-    REPO_URL = (
-        "https://raw.githubusercontent.com/HappyLoony/"
-        "Daman_QGIS/main/beta/plugins.xml"
-    )
+    # URL репозитория плагина (Beta) — mirror на daman.tools (Phase 1)
+    REPO_URL = "https://daman.tools/repository/beta/plugins.xml"
     REPO_NAME = "Daman QGIS (Beta)"
+
+    # Legacy GitHub raw паттерн для миграции QgsSettings (транзишн-артефакт,
+    # снимается в Phase 2).
+    REPO_URL_LEGACY_PATTERN = "raw.githubusercontent.com/HappyLoony/Daman_QGIS"
 
     # Timeout для profile операций (выполняются на UI thread при запуске)
     _PROFILE_TIMEOUT = 10  # seconds
@@ -73,6 +74,11 @@ class ProfileSetupManager:
     # Daman_QGIS -- profile_hash, profile_applied_at_version и др.
     # метаданные плагина, иначе каждый запуск = повторное обновление.
     _PROTECTED_INI_GROUPS = ("Projections", "Daman_QGIS")
+
+    # Nested-prefix защита: ключи app/plugin_repositories/* владеет
+    # _write_repo_url_to_profile/migrate_repo_url_v1, а не reference-профиль.
+    # Первый сегмент этих ключей = 'app', не матчится _PROTECTED_INI_GROUPS.
+    _PROTECTED_INI_PREFIXES = ("app/plugin_repositories/",)
 
     def __init__(self) -> None:
         pass
@@ -744,7 +750,8 @@ class ProfileSetupManager:
         for key in src.allKeys():
             # Секция определяется первым сегментом ключа (QSettings flatten-формат).
             first_segment = key.split("/", 1)[0] if "/" in key else key
-            if first_segment.lower() in protected_lower:
+            if (first_segment.lower() in protected_lower
+                    or key.lower().startswith(self._PROTECTED_INI_PREFIXES)):
                 skipped += 1
                 continue
             try:
@@ -790,6 +797,56 @@ class ProfileSetupManager:
                 )
         except Exception as e:
             log_error(f"M_37 (_write_repo_url_to_profile): {e}")
+
+    def migrate_repo_url_v1(self) -> None:
+        """Перенести repo URL мигрированных установок с legacy GitHub raw на mirror.
+
+        Существующие установки хранят в QgsSettings legacy GitHub raw URL
+        (см. REPO_URL_LEGACY_PATTERN). Метод переписывает его на mirror
+        daman.tools/repository/{channel}/plugins.xml, сохраняя канал
+        (beta/stable) из старого URL.
+
+        Идемпотентен по природе: после первой миграции legacy-паттерн больше не
+        матчится, повторный вызов — no-op. Крутится каждую нормальную сессию как
+        backstop против отката (legacy .pending / профиль-архив).
+        """
+        if not self._is_daman_profile():
+            return
+
+        try:
+            settings = QgsSettings()
+            settings.beginGroup("app/plugin_repositories")
+            try:
+                repo_names = list(settings.childGroups())
+            finally:
+                settings.endGroup()
+
+            for repo_name in repo_names:
+                repo_key = f"app/plugin_repositories/{repo_name}"
+                url = settings.value(f"{repo_key}/url", "", type=str)
+
+                if PLUGIN_NAME not in url or self.REPO_URL_LEGACY_PATTERN not in url:
+                    continue
+
+                if "/beta/" in url:
+                    channel = "beta"
+                elif "/stable/" in url:
+                    channel = "stable"
+                else:
+                    log_warning(
+                        f"M_37: legacy repo URL без канала, пропущен: {url}"
+                    )
+                    continue
+
+                new_url = f"https://daman.tools/repository/{channel}/plugins.xml"
+                settings.setValue(f"{repo_key}/url", new_url)
+                settings.sync()
+                log_info(
+                    f"M_37: Repo URL migrated ({channel}): "
+                    f"{url} -> {new_url}"
+                )
+        except Exception as e:
+            log_error(f"M_37 (migrate_repo_url_v1): {e}")
 
     def _enable_plugin_in_profile(self, profile_path: Path) -> None:
         """Включить Daman_QGIS в PythonPlugins нового профиля."""
