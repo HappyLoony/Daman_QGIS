@@ -84,9 +84,6 @@ class Fsm_1_2_11_RedlineLoader:
                 )
                 return 0
 
-            # Geometry provider стандартный 10м (Layer_selector = L_1_1_2)
-            geometry_provider = self.egrn_loader.get_boundary_extent
-
             # Загрузка из каждого endpoint
             # Каждый результат: (layer, count, ep_name)
             loaded_layers: List[Tuple[QgsVectorLayer, int, str]] = []
@@ -96,6 +93,9 @@ class Fsm_1_2_11_RedlineLoader:
                 ep_id = ep.get('endpoint_id', '?')
 
                 try:
+                    # Определяем geometry_provider по Layer_selector endpoint'а
+                    geometry_provider = self._get_geometry_provider(ep)
+
                     layer, count = self.egrn_loader.load_layer_by_endpoint(
                         endpoint=ep,
                         geometry_provider=geometry_provider,
@@ -103,6 +103,7 @@ class Fsm_1_2_11_RedlineLoader:
                     )
 
                     if not layer or count == 0:
+                        log_info(f"Fsm_1_2_11: EP {ep_id} ({ep_name}): 0 объектов")
                         continue
 
                     log_info(f"Fsm_1_2_11: EP {ep_id} ({ep_name}): {count} объектов")
@@ -163,6 +164,22 @@ class Fsm_1_2_11_RedlineLoader:
         except Exception as e:
             log_error(f"Fsm_1_2_11: Ошибка загрузки красных линий: {str(e)}")
             return 0
+
+    def _get_geometry_provider(self, endpoint: Dict[str, Any]):
+        """
+        Определить geometry_provider по Layer_selector endpoint'а
+
+        Args:
+            endpoint: Конфигурация endpoint из Base_api_endpoints.json
+
+        Returns:
+            Callable для получения extent границ работ
+        """
+        boundary_selector = endpoint.get('Layer_selector', '')
+        if boundary_selector == "L_1_1_3_Границы_работ_500_м":
+            egrn_loader = self.egrn_loader
+            return lambda: egrn_loader.get_boundary_extent(use_500m_buffer=True)
+        return self.egrn_loader.get_boundary_extent
 
     def _create_merged_layer(
         self,

@@ -24,9 +24,10 @@ Fsm_0_4_18: Whole-project детектор вершин полигонов ЗП�
 (_topology_geom_utils, тот же эталон что у класса D).
 
 ПРАВИЛО: для КАЖДОЙ вершины КАЖДОГО кольца (exterior + holes) КАЖДОГО
-полигона ЗПР: not workarea.intersects(vertex) → маркер. Строгий intersects
-БЕЗ допуска (ловим микровылеты наружу, решение владельца) — intersects True
-для точки внутри/на границе, False только для точки снаружи.
+полигона ЗПР: workarea.distance(vertex) > VERTEX_OUTSIDE_TOLERANCE → маркер.
+distance == 0 для точки внутри/на границе, фактическое расстояние — только
+для точки снаружи. Требование «ЗПР ⊆ границы работ» сохраняется: отсекается
+не вылет, а шум двоичного представления (обоснование порога — у константы).
 
 Тип ошибки: 'zpr_vertex_outside_workarea'. Индикатор, НЕ fixable.
 Точка-маркер = сама вершина (M_9 не нужен, как класс D).
@@ -52,6 +53,19 @@ class Fsm_0_4_18_ZprVertexOutsideChecker:
 
     # Группы ЗПР-зон в Base_layers (L_1_12_* / L_1_13_*).
     ZPR_GROUPS = ("ЗПР", "ЗПР_РЕК")
+
+    # Допуск двоичного представления (калибровка 2026-08-04, метры).
+    # НЕ смягчение правила «ЗПР ⊆ границы работ»: одна и та же точка сетки
+    # 0.01, пришедшая в проект разными вычислительными путями, различается
+    # на 1-3 ULP (для координат МСК порядка 4.4e6 это ~9.3e-10 м) — такая
+    # вершина лежит на границе физически, но intersects даёт False.
+    # Замер (проект «Камышовая», MCP): 37 маркеров, вылет 1.2e-11..3.04e-09 м,
+    # все 37 на сетке 0.01, 30% вершин общей грани ЗПР с границами работ.
+    # Порог гасит шум с запасом x330 и лежит в 10 000 раз ниже кадастровой
+    # единицы 0.01 м, поэтому реальный вылет оцифровки (не менее 1e-3 м)
+    # не маскируется. Инъекция в копию: вылет 8.87e-05 м детектируется,
+    # 8.87e-07 м — нет. Разбор — documentation/plans/LEDGER_F_0_4_razbor_2026-08-04.md
+    VERTEX_OUTSIDE_TOLERANCE = 1e-6
 
     def __init__(self):
         """Инициализация: справочник Base_layers для маркеров слоёв."""
@@ -132,7 +146,8 @@ class Fsm_0_4_18_ZprVertexOutsideChecker:
         Обход: все части MultiPolygon → все кольца (exterior + holes) → все
         вершины. Замыкающая вершина кольца (дубликат первой) снимается через
         ring[:-1] (прецедент Fsm_1_1_3:393-395) — иначе двойной маркер на
-        одной точке. Строгий intersects без допуска.
+        одной точке. Вылет измеряется distance() и сверяется с допуском
+        двоичного представления VERTEX_OUTSIDE_TOLERANCE.
 
         Returns:
             Список ошибок 'zpr_vertex_outside_workarea' для вершин вне границ.
@@ -170,9 +185,12 @@ class Fsm_0_4_18_ZprVertexOutsideChecker:
                         ring = ring[:-1]
                     for vertex_idx, point in enumerate(ring):
                         vertex_geom = QgsGeometry.fromPointXY(point)
-                        # not intersects → вершина вне границ работ
-                        # (строго, без допуска).
-                        if workarea.intersects(vertex_geom):
+                        # distance == 0 для вершины внутри/на границе,
+                        # фактическое расстояние — только для вершины снаружи.
+                        # Маркер лишь когда вылет превышает допуск двоичного
+                        # представления (VERTEX_OUTSIDE_TOLERANCE).
+                        outside_dist = workarea.distance(vertex_geom)
+                        if outside_dist <= self.VERTEX_OUTSIDE_TOLERANCE:
                             continue
                         outside_count += 1
                         ring_ref = (
@@ -186,6 +204,8 @@ class Fsm_0_4_18_ZprVertexOutsideChecker:
                             'part_index': part_idx,
                             'ring_index': ring_idx,
                             'vertex_index': vertex_idx,
+                            # Величина вылета наружу (м) — масштаб дефекта.
+                            'distance': outside_dist,
                             'description': (
                                 f'Вершина ЗПР вне границ работ: слой '
                                 f'{layer.name()}, объект {feat.id()}, '
