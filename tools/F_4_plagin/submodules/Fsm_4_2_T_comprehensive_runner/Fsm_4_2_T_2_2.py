@@ -273,9 +273,12 @@ class TestF32:
             # Проверяем исходный код метода _set_bez_mezh_attributes
             source = inspect.getsource(Fsm_2_2_2_Transfer._set_bez_mezh_attributes)
 
-            # Поле Точки должно быть '-', а не ''
-            if "'Точки', '-'" in source or '"Точки", "-"' in source:
-                self.logger.success("Точки устанавливается в '-'")
+            # Поле Точки должно быть прочерком, а не пустой строкой.
+            # Дом значения — константа POINTS_FIELD_NONE; литерал в коде
+            # писателя допустим как исторический вариант записи.
+            if ("'Точки', POINTS_FIELD_NONE" in source
+                    or "'Точки', '-'" in source or '"Точки", "-"' in source):
+                self.logger.success("Точки устанавливается в прочерк")
             elif "'Точки', ''" in source or '"Точки", ""' in source:
                 self.logger.fail("Точки устанавливается в '' (пустую строку)!")
             else:

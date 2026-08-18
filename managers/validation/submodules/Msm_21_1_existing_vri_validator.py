@@ -29,7 +29,7 @@ Msm_21_1_ExistingVRIValidator - Валидатор существующего В
 import re
 from typing import Dict, List, Optional, Tuple, Any
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, normalize_for_classification
 
 
 class Msm_21_1_ExistingVRIValidator:
@@ -77,8 +77,9 @@ class Msm_21_1_ExistingVRIValidator:
             if code:
                 self._by_code[code] = vri
             if name:
-                # Нормализуем имя для поиска (нижний регистр, без лишних пробелов)
-                self._by_name[name.lower()] = vri
+                # Ключ индекса — нормализованное имя: наименования ВРИ приходят
+                # из внешних источников с nbsp, zero-width и юникод-тире
+                self._by_name[normalize_for_classification(name).lower()] = vri
             if full_name:
                 self._by_full_name[full_name.lower()] = vri
 
@@ -158,7 +159,7 @@ class Msm_21_1_ExistingVRIValidator:
 
         # Поиск по имени (нечувствительно к регистру)
         if name:
-            name_lower = name.lower()
+            name_lower = normalize_for_classification(name).lower()
             if name_lower in self._by_name:
                 return True, self._by_name[name_lower]
 
@@ -215,7 +216,7 @@ class Msm_21_1_ExistingVRIValidator:
 
         # Если только имя - ищем код в базе
         if name:
-            vri_entry = self._by_name.get(name.lower())
+            vri_entry = self._by_name.get(normalize_for_classification(name).lower())
             if vri_entry:
                 return vri_entry.get('code')
 
@@ -287,8 +288,8 @@ class Msm_21_1_ExistingVRIValidator:
         # Если не удалось нормализовать - fallback на строковое сравнение
         if not existing_codes or not zpr_codes:
             # Сравниваем как множества строк (нижний регистр)
-            existing_names = {p.lower() for p in existing_parts}
-            zpr_names = {p.lower() for p in zpr_parts}
+            existing_names = {normalize_for_classification(p).lower() for p in existing_parts}
+            zpr_names = {normalize_for_classification(p).lower() for p in zpr_parts}
 
             if existing_names == zpr_names:
                 return True, f"match_by_names:{existing_names}"

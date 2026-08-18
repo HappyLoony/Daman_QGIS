@@ -17,10 +17,8 @@ Fsm_2_7_2_MergeProcessor - Логика объединения контуров 
 
 Атрибуты объединённого:
 - Услов_КН = "КН:ЗУ{N}" (N = max+1 с учётом Раздел + НГС)
-- Вид_Работ = "Образование ЗУ путём объединения ... с условными номерами X, Y"
-- Состав_контуров = "ID (КН), ID, ID (КН)" - расширенный формат
+- Вид_Работ = "Образование ЗУ путем объединения ... с условными номерами X, Y"
 - Площадь_ОЗУ = area() объединённой геометрии
-- Многоконтурный = "Да" / "Нет"
 """
 
 import os
@@ -34,8 +32,8 @@ from qgis.core import (
     QgsGeometry,
 )
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
-from Daman_QGIS.constants import COORDINATE_PRECISION
+from Daman_QGIS.utils import log_info, log_warning, log_error, commit_or_rollback
+from Daman_QGIS.constants import COORDINATE_PRECISION, POINTS_FIELD_NONE
 
 # Импорт субмодулей F_2_1 для переиспользования
 from .Fsm_2_1_6_point_layer_creator import Fsm_2_1_6_PointLayerCreator
@@ -140,11 +138,10 @@ class Fsm_2_7_2_MergeProcessor:
             if _norm is not None:
                 merged_geom = _norm
 
-            is_multipart = merged_geom.isMultipart()
+            # Multipart отсечён гардом выше — геометрия здесь всегда Polygon
             new_area = merged_geom.area()
 
-            log_info(f"Fsm_2_7_2: Объединённая геометрия - "
-                     f"{'MultiPolygon' if is_multipart else 'Polygon'}, "
+            log_info(f"Fsm_2_7_2: Объединённая геометрия - Polygon, "
                      f"площадь {new_area:.0f} м2")
 
             # 3. Определить целевой слой
@@ -172,7 +169,6 @@ class Fsm_2_7_2_MergeProcessor:
                 features_to_merge,
                 target_layer.fields(),
                 new_area,
-                is_multipart,
                 existing_uslov_kns=existing_uslov_kns
             )
 
@@ -189,12 +185,35 @@ class Fsm_2_7_2_MergeProcessor:
                 idx = target_layer.fields().indexOf(field_name)
                 if idx >= 0:
                     new_feature.setAttribute(idx, value)
+                else:
+                    # Значение сгенерировано, но в схеме целевого слоя такого
+                    # поля нет — молчаливое отбрасывание скрывает расхождение
+                    # схем источника и цели
+                    log_error(
+                        f"Fsm_2_7_2: поле «{field_name}» отсутствует в схеме слоя "
+                        f"{target_layer.name()}, значение не записано"
+                    )
 
-            # 7. Удаление исходных контуров из source
+            # 7. Удаление исходных контуров из source.
+            # Удаляется ровно то, что вошло в объединение: контур без геометрии
+            # в объединение не попал (фильтр hasGeometry выше), и удалять его
+            # значило бы стереть данные, не перенеся их никуда.
+            merged_ids = [f.id() for f in features_to_merge]
+            if len(merged_ids) != len(feature_ids):
+                skipped = sorted(set(feature_ids) - set(merged_ids))
+                log_error(
+                    f"Fsm_2_7_2: контуры без геометрии не объединены и не удалены: {skipped}"
+                )
+                source_layer.rollBack()
+                return {'error': (
+                    f"Контуры без геометрии: {skipped}. Объединение отменено — "
+                    f"проверьте геометрию этих контуров."
+                )}
+
             if not source_layer.isEditable():
                 source_layer.startEditing()
 
-            if not source_layer.deleteFeatures(feature_ids):
+            if not source_layer.deleteFeatures(merged_ids):
                 source_layer.rollBack()
                 return {'error': "Ошибка удаления исходных контуров"}
 
@@ -213,15 +232,24 @@ class Fsm_2_7_2_MergeProcessor:
                 self._renumber_ids(target_layer)
 
                 # Нумерация характерных точек в target
-                self._number_all_points(target_layer)
+                if not self._number_all_points(target_layer):
+                    source_layer.rollBack()
+                    target_layer.rollBack()
+                    return {'error': "Нумерация характерных точек отказала, объединение отменено"}
 
                 # Commit target
-                target_layer.commitChanges()
+                if not commit_or_rollback(target_layer, "Fsm_2_7_2"):
+                    source_layer.rollBack()
+                    return {'error': "Не удалось сохранить целевой слой, объединение отменено"}
                 target_layer.updateExtents()
 
                 # Перенумерация source (Без_Меж) и commit
                 self._renumber_ids(source_layer)
-                source_layer.commitChanges()
+                if not commit_or_rollback(source_layer, "Fsm_2_7_2"):
+                    return {'error': (
+                        "Целевой слой сохранён, но исходный слой не сохранён: "
+                        "контуры остались в обоих слоях, требуется ручная проверка"
+                    )}
                 source_layer.updateExtents()
 
             else:
@@ -233,9 +261,12 @@ class Fsm_2_7_2_MergeProcessor:
                 self._renumber_ids(target_layer)
 
                 # Нумерация характерных точек
-                self._number_all_points(target_layer)
+                if not self._number_all_points(target_layer):
+                    source_layer.rollBack()
+                    return {'error': "Нумерация характерных точек отказала, объединение отменено"}
 
-                source_layer.commitChanges()
+                if not commit_or_rollback(source_layer, "Fsm_2_7_2"):
+                    return {'error': "Не удалось сохранить слой, объединение отменено"}
                 source_layer.updateExtents()
 
             # 9. Пересоздание точечных слоёв
@@ -259,7 +290,6 @@ class Fsm_2_7_2_MergeProcessor:
 
             result: Dict[str, Any] = {
                 'merged_count': len(feature_ids),
-                'is_multipart': is_multipart,
                 'new_area': new_area,
                 'new_uslov_kn': new_uslov_kn,
                 'points_layer': source_points_layer,
@@ -559,14 +589,21 @@ class Fsm_2_7_2_MergeProcessor:
         log_info(f"Fsm_2_7_2: Перенумерованы ID в {layer.name()} "
                  f"({len(features)} объектов, СЗ -> ЮВ)")
 
-    def _number_all_points(self, layer: QgsVectorLayer) -> None:
+    def _number_all_points(self, layer: QgsVectorLayer) -> bool:
         """Пронумеровать характерные точки всех контуров в слое
 
         Использует number_layer_points() для обработки всего слоя.
         Обновляет поле Точки для каждого feature.
 
+        Отказ поднимается наверх: контур без номеров характерных точек уходит
+        в координатный перечень неполным, поэтому объединение с непронумерованным
+        слоем успешным не считается.
+
         Args:
             layer: Слой с контурами (должен быть в режиме редактирования)
+
+        Returns:
+            bool: True — поле «Точки» заполнено у всех контуров слоя
         """
         try:
             from Daman_QGIS.managers.geometry.M_20_point_numbering_manager import (
@@ -576,24 +613,31 @@ class Fsm_2_7_2_MergeProcessor:
             points_dict, _ = number_layer_points(layer)
 
             if not points_dict:
-                log_warning(f"Fsm_2_7_2: Нет данных нумерации точек для {layer.name()}")
-                return
+                log_error(f"Fsm_2_7_2: Нет данных нумерации точек для {layer.name()}")
+                return False
 
             if not layer.isEditable():
                 layer.startEditing()
 
             points_idx = layer.fields().indexOf('Точки')
             if points_idx < 0:
-                return
+                log_error(f"Fsm_2_7_2: В слое {layer.name()} нет поля «Точки»")
+                return False
 
             for fid, points_str in points_dict.items():
-                layer.changeAttributeValue(fid, points_idx, points_str)
+                # Пустая строка неотличима от «поле не заполнено» — конвенция
+                # пакета требует прочерк там, где нумерации нет
+                layer.changeAttributeValue(
+                    fid, points_idx, points_str if points_str else POINTS_FIELD_NONE
+                )
 
             log_info(f"Fsm_2_7_2: Пронумерованы точки для {len(points_dict)} "
                      f"контуров в {layer.name()}")
+            return True
 
         except Exception as e:
-            log_warning(f"Fsm_2_7_2: Ошибка нумерации точек: {e}")
+            log_error(f"Fsm_2_7_2: Ошибка нумерации точек: {e}")
+            return False
 
     # ------------------------------------------------------------------
     # Пересоздание точечного слоя
@@ -667,30 +711,15 @@ class Fsm_2_7_2_MergeProcessor:
             return None
 
         try:
-            # Генерируем данные точек для всех контуров слоя
-            points_data = []
-            global_point_id = 1
+            # Точки берутся у M_20 — единственного хозяина нумерации. Слой уже
+            # закоммичен, поэтому расчёт даёт тот же набор номеров, что записан
+            # в атрибут «Точки»: нумерация детерминирована геометрией и не
+            # зависит от порядка чтения (контуры сортируются от СЗ к ЮВ).
+            from Daman_QGIS.managers.geometry.M_20_point_numbering_manager import (
+                number_layer_points,
+            )
 
-            for feature in source_layer.getFeatures():
-                geom = feature.geometry()
-                if not geom or geom.isEmpty():
-                    continue
-
-                contour_id = feature['ID'] or 0
-                uslov_kn = feature['Услов_КН'] or ''
-                kn = feature['КН'] or ''
-
-                feature_points = self._extract_points_from_geometry(
-                    geom,
-                    contour_id,
-                    uslov_kn,
-                    kn,
-                    global_point_id,
-                    source_layer.crs()
-                )
-
-                points_data.extend(feature_points)
-                global_point_id += len(feature_points)
+            _, points_data = number_layer_points(source_layer)
 
             if not points_data:
                 log_warning(f"Fsm_2_7_2: Нет точек для слоя {point_layer_name}")
@@ -725,75 +754,3 @@ class Fsm_2_7_2_MergeProcessor:
             log_error(f"Fsm_2_7_2: Ошибка пересоздания точечного слоя: {e}")
             return None
 
-    def _extract_points_from_geometry(
-        self,
-        geom: QgsGeometry,
-        contour_id: int,
-        uslov_kn: str,
-        kn: str,
-        start_id: int,
-        crs
-    ) -> List[Dict[str, Any]]:
-        """Извлечь точки из геометрии полигона
-
-        Args:
-            geom: Геометрия полигона
-            contour_id: ID контура
-            uslov_kn: Условный КН
-            kn: Кадастровый номер
-            start_id: Начальный ID для нумерации
-            crs: Система координат
-
-        Returns:
-            Список словарей с данными точек
-        """
-        from qgis.core import QgsPointXY
-
-        points_data = []
-        point_id = start_id
-
-        # Нормализуем к списку полигонов
-        if geom.isMultipart():
-            polygons = geom.asMultiPolygon()
-        else:
-            polygons = [geom.asPolygon()]
-
-        for polygon in polygons:
-            for ring_idx, ring in enumerate(polygon):
-                is_outer = (ring_idx == 0)
-                contour_type = 'Внешний' if is_outer else 'Внутренний'
-                contour_number = ring_idx + 1
-
-                # Убираем замыкающую точку и нормализуем от СЗ угла.
-                # FIX-8: _rotate_ring_to_nw заменён на _ring_utils.rotate_to_nw (canonical).
-                # FIX-rev2-12: _ring_utils работает с tuple, ring_points = list[QgsPointXY] →
-                # конверсия на границе (rotate_to_nw НЕ subscriptable на QgsPointXY).
-                from Daman_QGIS.managers.geometry import _ring_utils
-                ring_points = list(ring[:-1])
-                _tuples = _ring_utils.rotate_to_nw([(p.x(), p.y()) for p in ring_points])
-                ring_points = [QgsPointXY(x, y) for (x, y) in _tuples]
-
-                for pt_idx, point in enumerate(ring_points):
-                    x_math = point.x()
-                    y_math = point.y()
-
-                    # Геодезические координаты (X=Y_math, Y=X_math)
-                    x_geodetic = round(y_math, 2)
-                    y_geodetic = round(x_math, 2)
-
-                    points_data.append({
-                        'id': point_id,
-                        'contour_point_index': pt_idx + 1,
-                        'contour_id': contour_id,
-                        'uslov_kn': uslov_kn,
-                        'kn': kn,
-                        'contour_type': contour_type,
-                        'contour_number': contour_number,
-                        'x_geodetic': x_geodetic,
-                        'y_geodetic': y_geodetic,
-                        'point': QgsPointXY(x_math, y_math)
-                    })
-
-                    point_id += 1
-
-        return points_data

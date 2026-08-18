@@ -42,7 +42,7 @@ from qgis.core import (
     QgsSpatialIndex,
 )
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, normalize_for_classification
 
 
 class ZuClassification(Enum):
@@ -77,6 +77,10 @@ class Fsm_2_1_7_NoChangeDetector:
     # Допуск для определения точки на границе
     BOUNDARY_TOLERANCE = 0.01  # м
 
+    # Порог площади пересечения, ниже которого контакт считается касанием,
+    # а не наложением: смежные ЗПР делят границу, и `intersects` на ней истинен
+    AREA_TOLERANCE = 0.01  # кв. м
+
     def __init__(
         self,
         zpr_layer: QgsVectorLayer,
@@ -90,7 +94,17 @@ class Fsm_2_1_7_NoChangeDetector:
             zpr_layer: Слой ЗПР
             zu_layer: Слой Выборка_ЗУ
             vri_validator: Опциональный валидатор ВРИ (Msm_21_1_ExistingVRIValidator)
+
+        Raises:
+            ValueError: CRS слоёв не совпадают — сравнение геометрий было бы
+                        сравнением координат в разных системах
         """
+        if zpr_layer.crs().authid() != zu_layer.crs().authid():
+            raise ValueError(
+                f"CRS слоёв не совпадают: ЗПР {zpr_layer.crs().authid()}, "
+                f"Выборка_ЗУ {zu_layer.crs().authid()}. Детекция невозможна."
+            )
+
         self.zpr_layer = zpr_layer
         self.zu_layer = zu_layer
         self.vri_validator = vri_validator
@@ -99,8 +113,12 @@ class Fsm_2_1_7_NoChangeDetector:
         self._zpr_index: Optional[QgsSpatialIndex] = None
         self._zpr_features: Dict[int, QgsFeature] = {}
 
-        # Кэш вершин ЗПР для быстрой проверки
-        self._zpr_vertices_cache: Dict[int, Set[Tuple[float, float]]] = {}
+        # Кэш вершин ЗПР: пространственный индекс + координаты по id точки.
+        # Индекс, а не множество округлённых координат: округление в бины даёт
+        # разрыв на границе бина — две вершины в 0.2 мм друг от друга попадают
+        # в разные бины и считаются несовпадающими
+        self._zpr_vertex_index: Dict[int, QgsSpatialIndex] = {}
+        self._zpr_vertex_points: Dict[int, Dict[int, QgsPointXY]] = {}
         self._zpr_boundary_cache: Dict[int, QgsGeometry] = {}
 
         self._build_spatial_index()
@@ -115,9 +133,10 @@ class Fsm_2_1_7_NoChangeDetector:
                 self._zpr_index.addFeature(feature)
                 self._zpr_features[feature.id()] = QgsFeature(feature)
 
-                # Кэширование вершин
-                vertices = self._extract_vertices(geom)
-                self._zpr_vertices_cache[feature.id()] = vertices
+                # Кэширование вершин в пространственный индекс
+                index, points = self._build_vertex_index(geom)
+                self._zpr_vertex_index[feature.id()] = index
+                self._zpr_vertex_points[feature.id()] = points
 
                 # Кэширование boundary
                 boundary = geom.constGet().boundary()
@@ -126,25 +145,34 @@ class Fsm_2_1_7_NoChangeDetector:
 
         log_info(f"Fsm_2_1_7: Индекс ЗПР построен ({len(self._zpr_features)} объектов)")
 
-    def _extract_vertices(self, geom: QgsGeometry) -> Set[Tuple[float, float]]:
+    def _build_vertex_index(
+        self,
+        geom: QgsGeometry
+    ) -> Tuple[QgsSpatialIndex, Dict[int, QgsPointXY]]:
         """
-        Извлечение всех вершин геометрии
+        Построение пространственного индекса вершин геометрии
+
+        Индекс вместо множества округлённых координат: округление в бины
+        разрывает пару вершин, оказавшихся по разные стороны границы бина,
+        даже если расстояние между ними доли миллиметра.
 
         Args:
             geom: Геометрия (полигон или мультиполигон)
 
         Returns:
-            Множество координат вершин (x, y) округлённых до TOLERANCE
+            Tuple: индекс точек и словарь {id точки: координаты}
         """
-        vertices = set()
+        index = QgsSpatialIndex()
+        points: Dict[int, QgsPointXY] = {}
 
-        for vertex in geom.vertices():
-            # Округляем до TOLERANCE для сравнения
-            x = round(vertex.x() / self.TOLERANCE) * self.TOLERANCE
-            y = round(vertex.y() / self.TOLERANCE) * self.TOLERANCE
-            vertices.add((x, y))
+        for idx, vertex in enumerate(geom.vertices()):
+            point = QgsPointXY(vertex.x(), vertex.y())
+            feature = QgsFeature(idx)
+            feature.setGeometry(QgsGeometry.fromPointXY(point))
+            index.addFeature(feature)
+            points[idx] = point
 
-        return vertices
+        return index, points
 
     def _point_on_boundary(
         self,
@@ -165,26 +193,34 @@ class Fsm_2_1_7_NoChangeDetector:
         distance = point_geom.distance(boundary_geom)
         return distance <= self.BOUNDARY_TOLERANCE
 
-    def _vertex_matches_zpr(
-        self,
-        vertex: QgsPointXY,
-        zpr_vertices: Set[Tuple[float, float]]
-    ) -> bool:
+    def _vertex_matches_zpr(self, vertex: QgsPointXY, zpr_fid: int) -> bool:
         """
         Проверка совпадения вершины с вершинами ЗПР
 
+        Критерий — истинное расстояние до ближайшей вершины ЗПР (как в
+        `_point_on_boundary`), а не попадание в один бин округления.
+
         Args:
             vertex: Вершина для проверки
-            zpr_vertices: Множество вершин ЗПР
+            zpr_fid: fid контура ЗПР, с вершинами которого сверяемся
 
         Returns:
-            True если есть совпадающая вершина ЗПР
+            True если есть вершина ЗПР ближе TOLERANCE
         """
-        # Округляем до TOLERANCE
-        x = round(vertex.x() / self.TOLERANCE) * self.TOLERANCE
-        y = round(vertex.y() / self.TOLERANCE) * self.TOLERANCE
+        index = self._zpr_vertex_index.get(zpr_fid)
+        points = self._zpr_vertex_points.get(zpr_fid)
+        if index is None or not points:
+            return False
 
-        return (x, y) in zpr_vertices
+        nearest = index.nearestNeighbor(vertex, 1)
+        if not nearest:
+            return False
+
+        candidate = points.get(nearest[0])
+        if candidate is None:
+            return False
+
+        return vertex.distance(candidate) <= self.TOLERANCE
 
     def _get_zpr_vri(self, zpr_feature: QgsFeature) -> Optional[str]:
         """Получить ВРИ из ЗПР"""
@@ -219,8 +255,12 @@ class Fsm_2_1_7_NoChangeDetector:
             matches, _ = self.vri_validator.matches_zpr_vri(zu_vri, zpr_vri)
             return matches
 
-        # Простое сравнение (fallback)
-        return zu_vri.strip() == zpr_vri.strip()
+        # Простое сравнение: обе стороны нормализуются, иначе невидимые символы
+        # из внешних источников (nbsp, zero-width, тире) дают ложное «не равно»
+        return (
+            normalize_for_classification(str(zu_vri))
+            == normalize_for_classification(str(zpr_vri))
+        )
 
     def detect_single(self, zu_feature: QgsFeature) -> NoChangeDetectionResult:
         """
@@ -250,7 +290,11 @@ class Fsm_2_1_7_NoChangeDetector:
             zpr_feature = self._zpr_features.get(zpr_fid)
             if zpr_feature:
                 zpr_geom = zpr_feature.geometry()
-                if zpr_geom.intersects(zu_geom):
+                # Критерий — пересечение ПО ПЛОЩАДИ, а не касание: `intersects`
+                # истинен и когда ЗУ лишь примыкает к соседней ЗПР по общей
+                # границе, из-за чего ЗУ внутри одной зоны уходил в Раздел
+                inter = zpr_geom.intersection(zu_geom)
+                if not inter.isEmpty() and inter.area() > self.AREA_TOLERANCE:
                     intersecting_zprs.append(zpr_fid)
 
         # 2. Проверка: ЗУ должен пересекать ровно одну ЗПР
@@ -286,21 +330,19 @@ class Fsm_2_1_7_NoChangeDetector:
                         zpr_fid=zpr_fid
                     )
 
-                # Вычисляем долю пересечения
-                intersection_area = intersection.area()
-                zu_area = zu_geom.area()
-                if zu_area > 0:
-                    coverage = intersection_area / zu_area
-                    if coverage < 0.9999:  # Допуск 0.01%
-                        return NoChangeDetectionResult(
-                            zu_fid=zu_fid,
-                            classification=ZuClassification.RAZDEL,
-                            reason=f"partial_coverage:{coverage:.4f}",
-                            zpr_fid=zpr_fid
-                        )
+                # Площадь ЗУ, оставшаяся вне ЗПР. Порог абсолютный: относительная
+                # доля масштабируется с площадью участка, и для ЗУ в 10 га допуск
+                # 0.01% пропускал бы до 10 кв.м земли вне зоны размещения.
+                outside_area = zu_geom.area() - intersection.area()
+                if outside_area > self.AREA_TOLERANCE:
+                    return NoChangeDetectionResult(
+                        zu_fid=zu_fid,
+                        classification=ZuClassification.RAZDEL,
+                        reason=f"outside_zpr_area:{outside_area:.3f}",
+                        zpr_fid=zpr_fid
+                    )
 
         # 4. Проверка вершин ЗУ
-        zpr_vertices = self._zpr_vertices_cache.get(zpr_fid, set())
         zpr_boundary = self._zpr_boundary_cache.get(zpr_fid)
 
         if not zpr_boundary:
@@ -320,7 +362,7 @@ class Fsm_2_1_7_NoChangeDetector:
 
             if on_boundary:
                 # Точка на границе ЗПР - должна совпадать с вершиной ЗПР
-                if not self._vertex_matches_zpr(point, zpr_vertices):
+                if not self._vertex_matches_zpr(point, zpr_fid):
                     return NoChangeDetectionResult(
                         zu_fid=zu_fid,
                         classification=ZuClassification.RAZDEL,

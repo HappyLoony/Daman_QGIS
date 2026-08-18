@@ -189,30 +189,42 @@ class MinAreaValidator:
         """
         log_info(f"M_27: Начало валидации минимальных площадей для {zpr_type}")
 
+        # `success` НЕ инициализируется True: ранние выходы возвращали бы
+        # «валидация успешна» при нуле проверенных контуров
         result = {
-            'success': True,
+            'success': False,
             'total_checked': 0,
             'problem_count': 0,
             'problems': [],
             'skipped_no_field': False,
+            'skipped_no_layer': False,
+            'reason': None,
         }
 
         # Получаем исходный слой ЗПР
         zpr_layer = self._get_zpr_layer(zpr_type)
         if zpr_layer is None or not zpr_layer.isValid():
             log_info(f"M_27: Слой ЗПР для типа {zpr_type} не найден")
+            # Тип ЗПР в проекте отсутствует — штатная ситуация (проект может
+            # содержать только ОКС), а не несостоявшаяся проверка
+            result['skipped_no_layer'] = True
+            result['reason'] = f"слой ЗПР для типа {zpr_type} не найден"
             return result
 
         # Проверяем наличие поля MIN_AREA_VRI
         if not self._has_min_area_field(zpr_layer):
             log_info(f"M_27: Поле {self.MIN_AREA_FIELD} отсутствует в слое {zpr_layer.name()}, пропуск валидации")
             result['skipped_no_field'] = True
+            result['reason'] = f"поле {self.MIN_AREA_FIELD} отсутствует в слое ЗПР"
             return result
 
         # Получаем слои нарезки
         cutting_layers = self._get_cutting_layers(zpr_type)
         if not cutting_layers:
-            log_warning(f"M_27: Слои нарезки для типа {zpr_type} не найдены")
+            log_info(f"M_27: Слои нарезки для типа {zpr_type} не найдены")
+            # Нарезки этого типа в проекте нет — проверять нечего
+            result['skipped_no_layer'] = True
+            result['reason'] = f"слои нарезки для типа {zpr_type} не найдены"
             return result
 
         # Создаём движок валидации
@@ -233,7 +245,9 @@ class MinAreaValidator:
         result['total_checked'] = total_checked
         result['problem_count'] = len(all_problems)
         result['problems'] = all_problems
-        result['success'] = len(all_problems) == 0
+        result['success'] = not all_problems and total_checked > 0
+        if total_checked == 0:
+            result['reason'] = "ни один контур не проверен"
 
         # Логируем результат
         if all_problems:
@@ -268,13 +282,14 @@ class MinAreaValidator:
         for zpr_type in self.ZPR_TYPE_TO_LAYER.keys():
             result = self.validate_cutting_results(zpr_type, show_dialog=False)
 
-            if not result['skipped_no_field']:
+            if not result['skipped_no_field'] and not result.get('skipped_no_layer'):
                 types_checked.append(zpr_type)
                 total_checked += result['total_checked']
                 all_problems.extend(result['problems'])
 
         aggregate_result = {
-            'success': len(all_problems) == 0,
+            # Ноль проверенных контуров успехом не считается
+            'success': not all_problems and total_checked > 0,
             'total_checked': total_checked,
             'problem_count': len(all_problems),
             'problems': all_problems,

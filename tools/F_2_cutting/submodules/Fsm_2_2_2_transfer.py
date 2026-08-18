@@ -33,7 +33,8 @@ from qgis.core import (
     QgsPointXY,
 )
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.constants import POINTS_FIELD_NONE
+from Daman_QGIS.utils import log_info, log_warning, log_error, commit_or_rollback, sort_by_northwest
 
 if TYPE_CHECKING:
     from Daman_QGIS.managers import LayerManager
@@ -127,7 +128,11 @@ class Fsm_2_2_2_Transfer:
             self._renumber_all_affected_layers()
 
             # Commit изменений во всех слоях
-            self._commit_all_changes()
+            if not self._commit_all_changes():
+                results['errors'].append(
+                    "Часть слоёв не сохранена, их правки откачены — "
+                    "перенос выполнен не полностью, требуется повторный прогон"
+                )
 
             # Добавить слои Без_Меж в проект если новые
             for layer_name, layer in self._bez_mezh_layers.items():
@@ -191,25 +196,9 @@ class Fsm_2_2_2_Transfer:
         if not zu_feature:
             return {'error': f"Исходный ЗУ с КН {kn} не найден в Выборке"}
 
-        # 4. Удалить все части из Раздел
-        for layer in self.razdel_layers:
-            layer_name = layer.name()
-            if layer_name in kn_locations:
-                fids = kn_locations[layer_name]
-                deleted = self._delete_features_by_fids(layer, fids)
-                result['deleted_razdel'] += deleted
-                self._affected_layers.add(layer)
-
-        # 5. Удалить все части из Изм
-        for layer in self.izm_layers:
-            layer_name = layer.name()
-            if layer_name in kn_locations:
-                fids = kn_locations[layer_name]
-                deleted = self._delete_features_by_fids(layer, fids)
-                result['deleted_izm'] += deleted
-                self._affected_layers.add(layer)
-
-        # 6. Скопировать исходный ЗУ в каждый целевой слой Без_Меж
+        # 4. СНАЧАЛА копирование исходного ЗУ в каждый целевой слой Без_Меж.
+        # Порядок принципиален: при обратном порядке отказ целевого слоя
+        # оставлял бы ЗУ удалённым из Раздел/Изм и не скопированным никуда.
         for zpr_type in zpr_types:
             bez_mezh_name = self.zpr_type_to_bez_mezh.get(zpr_type)
             if not bez_mezh_name:
@@ -219,14 +208,48 @@ class Fsm_2_2_2_Transfer:
             # Получить или создать слой Без_Меж
             bez_mezh_layer = self._get_or_create_bez_mezh_layer(bez_mezh_name, zpr_type)
             if not bez_mezh_layer:
-                result['error'] = f"Не удалось создать слой {bez_mezh_name}"
-                continue
+                result['error'] = (
+                    f"Не удалось создать слой {bez_mezh_name} — "
+                    f"удаление нарезанных частей не выполнено"
+                )
+                return result
 
             # Копировать ЗУ в слой Без_Меж
-            if self._copy_zu_to_bez_mezh(zu_feature, bez_mezh_layer, zpr_type):
-                result['copied_to'].append(bez_mezh_name)
-                self._affected_layers.add(bez_mezh_layer)
-                self._bez_mezh_layers[bez_mezh_name] = bez_mezh_layer
+            if not self._copy_zu_to_bez_mezh(zu_feature, bez_mezh_layer, zpr_type):
+                result['error'] = (
+                    f"Не удалось скопировать ЗУ в {bez_mezh_name} — "
+                    f"удаление нарезанных частей не выполнено"
+                )
+                return result
+
+            result['copied_to'].append(bez_mezh_name)
+            self._affected_layers.add(bez_mezh_layer)
+            self._bez_mezh_layers[bez_mezh_name] = bez_mezh_layer
+
+        if not result['copied_to']:
+            result['error'] = (
+                f"КН {kn} не скопирован ни в один слой Без_Меж — "
+                f"удаление нарезанных частей не выполнено"
+            )
+            return result
+
+        # 5. И только теперь удаление нарезанных частей из Раздел
+        for layer in self.razdel_layers:
+            layer_name = layer.name()
+            if layer_name in kn_locations:
+                fids = kn_locations[layer_name]
+                deleted = self._delete_features_by_fids(layer, fids)
+                result['deleted_razdel'] += deleted
+                self._affected_layers.add(layer)
+
+        # 6. Удаление нарезанных частей из Изм
+        for layer in self.izm_layers:
+            layer_name = layer.name()
+            if layer_name in kn_locations:
+                fids = kn_locations[layer_name]
+                deleted = self._delete_features_by_fids(layer, fids)
+                result['deleted_izm'] += deleted
+                self._affected_layers.add(layer)
 
         return result
 
@@ -363,6 +386,10 @@ class Fsm_2_2_2_Transfer:
                 log_info(f"Fsm_2_2_2: Используем существующий слой {layer_name}")
                 layer.startEditing()
                 return layer
+            log_warning(
+                f"Fsm_2_2_2: слой {layer_name} есть в проекте, но не читается "
+                f"(isValid={getattr(layer, 'isValid', lambda: '?')()})"
+            )
 
         # Проверить слой в GPKG
         uri = f"{self.gpkg_path}|layername={layer_name}"
@@ -371,6 +398,18 @@ class Fsm_2_2_2_Transfer:
             log_info(f"Fsm_2_2_2: Загружен слой {layer_name} из GPKG")
             gpkg_layer.startEditing()
             return gpkg_layer
+
+        log_warning(f"Fsm_2_2_2: слой {layer_name} не поднялся из GPKG по URI {uri}")
+
+        # Невалидность слоя НЕ означает, что таблицы нет: создание пошло бы
+        # через CreateOrOverwriteLayer и стёрло бы существующие данные.
+        # Спрашиваем сам файл, а не результат загрузки слоя.
+        if self._table_exists_in_gpkg(layer_name):
+            log_error(
+                f"Fsm_2_2_2: таблица {layer_name} в GPKG существует, но слой не "
+                f"читается — перезапись запрещена, данные сохранены"
+            )
+            return None
 
         # Создать новый слой на основе слоя Раздел того же типа
         template_layer = self._find_template_layer(zpr_type)
@@ -592,7 +631,13 @@ class Fsm_2_2_2_Transfer:
         self._set_attr(target, target_fields, 'План_ВРИ', vri_value)
 
         # Общая_земля - определяется по ВРИ из исходного ЗУ через M_21
-        public_territory_status = self._determine_public_territory(vri_value)
+        # Правило «Общая_земля» живёт в M_21 — единственном доме
+        from Daman_QGIS.managers.validation.M_21_vri_assignment_manager import (
+            VRIAssignmentManager,
+        )
+        public_territory_status = (
+            VRIAssignmentManager.get_instance().public_territory_by_vri(vri_value)
+        )
         self._set_attr(target, target_fields, 'Общая_земля', public_territory_status)
 
         # Площадь_ОЗУ = Площадь
@@ -602,62 +647,12 @@ class Fsm_2_2_2_Transfer:
         # Вид_Работ = константа
         self._set_attr(target, target_fields, 'Вид_Работ', self.work_type)
 
-        # Точки = "-" (нет нумерации для Без_Меж)
-        self._set_attr(target, target_fields, 'Точки', '-')
+        # Точки — прочерк (нет нумерации для Без_Меж)
+        self._set_attr(target, target_fields, 'Точки', POINTS_FIELD_NONE)
 
         # ЗПР = тип ЗПР
         self._set_attr(target, target_fields, 'ЗПР', zpr_type)
 
-    def _determine_public_territory(self, vri_value: str) -> str:
-        """Определить значение поля Общая_земля по ВРИ
-
-        Использует M_21 (VRIAssignmentManager) для проверки is_public_territory.
-        Поддерживает множественные ВРИ через разделитель ",".
-
-        Args:
-            vri_value: Значение ВРИ из исходного ЗУ (может быть множественным)
-
-        Returns:
-            "Отнесен" только если ВСЕ распознанные ВРИ относятся к территории
-            общего пользования, "Не отнесен" в противном случае
-        """
-        if not vri_value or vri_value == '-':
-            log_info("Fsm_2_2_2: ВРИ пустой или '-', Общая_земля = 'Не отнесен'")
-            return "Не отнесен"
-
-        try:
-            from Daman_QGIS.managers.validation.M_21_vri_assignment_manager import VRIAssignmentManager
-
-            vri_manager = VRIAssignmentManager.get_instance()
-
-            # Разбиваем множественные ВРИ по запятой
-            vri_parts = [v.strip() for v in vri_value.split(',') if v.strip()]
-            log_info(f"Fsm_2_2_2: Проверка ВРИ на общие земли: {vri_parts}")
-
-            # Собираем флаги is_public_territory по всем распознанным ВРИ.
-            # ЗУ относится к общим землям только если ВСЕ его ВРИ относятся;
-            # любой ВРИ не общий -> весь ЗУ не общий.
-            recognized_public = []
-            for vri_str in vri_parts:
-                # Используем внутренний метод для получения данных ВРИ
-                vri_data = vri_manager._get_vri_data_for_single(vri_str)
-                if vri_data:
-                    is_public = vri_data.get('is_public_territory', False)
-                    log_info(f"Fsm_2_2_2: ВРИ '{vri_str}' -> is_public_territory={is_public}")
-                    recognized_public.append(is_public)
-                else:
-                    log_warning(f"Fsm_2_2_2: ВРИ '{vri_str}' не найден в базе VRI.json")
-
-            if recognized_public and all(recognized_public):
-                log_info(f"Fsm_2_2_2: ВСЕ ВРИ относятся к территории общего пользования")
-                return VRIAssignmentManager.PUBLIC_TERRITORY_YES
-
-            log_info(f"Fsm_2_2_2: Не все ВРИ относятся к общим землям, Общая_земля = 'Не отнесен'")
-            return VRIAssignmentManager.PUBLIC_TERRITORY_NO
-
-        except Exception as e:
-            log_warning(f"Fsm_2_2_2: Ошибка определения Общая_земля: {e}")
-            return "Не отнесен"
 
     def _get_value(self, feature: QgsFeature, field_name: str, default: Any) -> Any:
         """Безопасное получение значения атрибута
@@ -721,7 +716,10 @@ class Fsm_2_2_2_Transfer:
         if not features:
             return
 
-        sorted_features = self._sort_by_northwest(features)
+        sorted_features = sort_by_northwest(
+            features,
+            lambda f: f.geometry() if f.hasGeometry() else None
+        )
 
         # Перенумерация
         for new_id, feature in enumerate(sorted_features, start=1):
@@ -729,61 +727,51 @@ class Fsm_2_2_2_Transfer:
 
         log_info(f"Fsm_2_2_2: Перенумерованы ID в {layer.name()} ({len(features)} объектов)")
 
-    @staticmethod
-    def _sort_by_northwest(features: List[QgsFeature]) -> List[QgsFeature]:
-        """Сортировка features от СЗ к ЮВ для корректной нумерации ID
 
-        Алгоритм: сортировка по расстоянию центроида до СЗ угла глобального MBR.
-        Это унифицированный алгоритм, используемый также в M_20 и F_2_3.
+    def _table_exists_in_gpkg(self, layer_name: str) -> bool:
+        """Существует ли таблица с таким именем в GeoPackage
+
+        Спрашивается сам файл через OGR: `QgsVectorLayer.isValid() == False`
+        означает «слой не загрузился», а не «таблицы нет», и путать эти два
+        состояния опасно — на втором стоит перезапись таблицы.
 
         Args:
-            features: Список features для сортировки
+            layer_name: Имя таблицы (слоя) в GeoPackage
 
         Returns:
-            Отсортированный список
+            bool: True — таблица есть в файле
         """
-        if len(features) <= 1:
-            return features
+        try:
+            from osgeo import ogr
 
-        # Собираем центроиды и глобальный MBR
-        centroids = []
-        global_min_x = float('inf')
-        global_max_y = float('-inf')
+            datasource = ogr.Open(self.gpkg_path, 0)
+            if datasource is None:
+                return False
+            exists = datasource.GetLayerByName(layer_name) is not None
+            datasource = None
+            return exists
+        except Exception as e:
+            # Не смогли проверить — считаем, что таблица есть: перезапись
+            # существующих данных дороже отказа от создания слоя
+            log_error(f"Fsm_2_2_2: не удалось проверить наличие таблицы {layer_name}: {e}")
+            return True
 
-        for f in features:
-            if f.hasGeometry() and not f.geometry().isEmpty():
-                centroid = f.geometry().centroid().asPoint()
-                centroids.append((centroid.x(), centroid.y()))
-                bbox = f.geometry().boundingBox()
-                global_min_x = min(global_min_x, bbox.xMinimum())
-                global_max_y = max(global_max_y, bbox.yMaximum())
-            else:
-                centroids.append(None)
+    def _commit_all_changes(self) -> bool:
+        """Сохранить изменения во всех затронутых слоях
 
-        # СЗ угол глобального MBR
-        nw_x, nw_y = global_min_x, global_max_y
+        Отказ коммита откатывает слой (буфер не остаётся висеть) и поднимается
+        наверх: рапортовать перенос успешным поверх несохранённого слоя нельзя.
 
-        # Сортируем по расстоянию до СЗ угла
-        def sort_key(idx_feat):
-            idx, _ = idx_feat
-            c = centroids[idx]
-            if c is None:
-                return float('inf')
-            return (c[0] - nw_x) ** 2 + (c[1] - nw_y) ** 2
-
-        indexed = list(enumerate(features))
-        indexed.sort(key=sort_key)
-
-        return [feat for _, feat in indexed]
-
-    def _commit_all_changes(self) -> None:
-        """Сохранить изменения во всех затронутых слоях"""
+        Returns:
+            bool: True — все затронутые слои сохранены
+        """
+        all_saved = True
         for layer in self._affected_layers:
-            if layer.isEditable():
-                if not layer.commitChanges():
-                    log_warning(f"Fsm_2_2_2: Ошибка сохранения слоя {layer.name()}")
-                else:
-                    log_info(f"Fsm_2_2_2: Слой {layer.name()} сохранён")
+            if not commit_or_rollback(layer, "Fsm_2_2_2"):
+                all_saved = False
+                continue
+            log_info(f"Fsm_2_2_2: Слой {layer.name()} сохранён")
+        return all_saved
 
     def _add_layer_to_project(
         self,
@@ -807,10 +795,14 @@ class Fsm_2_2_2_Transfer:
         project.addMapLayer(layer)
         log_info(f"Fsm_2_2_2: Слой {layer_name} добавлен в проект")
 
-        # Применить стили через LayerManager если доступен
-        if self.layer_manager:
-            try:
-                self.layer_manager.apply_style_to_layer(layer)
-                self.layer_manager.apply_labels_to_layer(layer)
-            except Exception as e:
-                log_warning(f"Fsm_2_2_2: Не удалось применить стили: {e}")
+        # Стили и подписи — через штатные менеджеры M_5 и M_12, как в
+        # соседних модулях пакета. Прежние вызовы `apply_style_to_layer` и
+        # `apply_labels_to_layer` в LayerManager не существуют: исключение
+        # глоталось warning'ом, и слой оставался без оформления
+        try:
+            from Daman_QGIS.managers import StyleManager, LabelManager
+
+            StyleManager().apply_qgis_style(layer, layer_name)
+            LabelManager().apply_labels(layer, layer_name)
+        except Exception as e:
+            log_error(f"Fsm_2_2_2: Не удалось применить стили: {e}")

@@ -170,6 +170,33 @@ class WorkTypeAssignmentManager:
 
         return "-"
 
+    def get_merge_work_type(self, merged_ids: Optional[List] = None) -> str:
+        """Значение Вид_Работ для объединения участков
+
+        Единственный источник формулировки для всех потребителей: строка
+        обязана совпадать с `vedomost_value` справочника Work_types, иначе
+        сопоставление с записью справочника провалится молча.
+
+        Args:
+            merged_ids: Идентификаторы объединяемых контуров (ID или Услов_КН);
+                        пустой список означает дефект вызова — объединять нечего
+
+        Returns:
+            str: значение поля Вид_Работ, либо прочерк при пустом составе
+        """
+        if not merged_ids:
+            # Прежняя формулировка без перечня в справочнике Work_types
+            # отсутствует: она проходила дальше как валидная и молча лишала
+            # контур кода и стиля ведомости
+            log_error(
+                "M_22: состав объединяемых контуров пуст — Вид_Работ "
+                "для объединения не определён"
+            )
+            return "-"
+        return self._get_work_type_value(
+            LayerType.RAZDEL, StageType.STAGE_2, list(merged_ids)
+        )
+
     def _get_work_type_record(self, vedomost_value: str) -> Optional[Dict]:
         """Получить запись из Work_types по значению ведомости
 
@@ -328,11 +355,19 @@ class WorkTypeAssignmentManager:
                     # Пробуем получить из поля Состав_контуров в attrs
                     sostav = attrs.get('Состав_контуров', '')
                 if sostav and sostav not in ('-', '', 'NULL', 'None'):
-                    # Разделитель может быть ";" или ","
-                    if ';' in sostav:
-                        merged_ids = [int(x.strip()) for x in sostav.split(';') if x.strip().isdigit()]
-                    elif ',' in sostav:
-                        merged_ids = [int(x.strip()) for x in sostav.split(',') if x.strip().isdigit()]
+                    # Разделитель ";" либо ","; состав из одного ID приходит
+                    # без разделителя вовсе — прежняя пара веток его теряла,
+                    # и контур 2 этапа молча получал формулировку раздела
+                    separator = ';' if ';' in str(sostav) else ','
+                    merged_ids = [
+                        int(x.strip()) for x in str(sostav).split(separator)
+                        if x.strip().isdigit()
+                    ]
+                    if not merged_ids:
+                        log_warning(
+                            f"M_22: состав контуров «{sostav}» не разобран — "
+                            f"Вид_Работ будет заполнен как для раздела"
+                        )
 
             # Получаем значение Вид_Работ
             work_type = self._get_work_type_value(
@@ -396,6 +431,10 @@ class WorkTypeAssignmentManager:
             Словарь с данными или None
         """
         if not self._load_databases():
+            log_error(
+                "M_22: справочник Work_types не загружен — запись для "
+                f"«{work_type_value}» не найдена"
+            )
             return None
 
         # Ищем по точному совпадению vedomost_value
@@ -410,6 +449,10 @@ class WorkTypeAssignmentManager:
             if key in self._work_types_by_vedomost:
                 return self._work_types_by_vedomost[key]
 
+        log_warning(
+            f"M_22: «{work_type_value}» не сопоставлено ни с одной записью "
+            f"Work_types — code и стиль для ведомости не определены"
+        )
         return None
 
     def get_all_work_types(self) -> List[Dict]:

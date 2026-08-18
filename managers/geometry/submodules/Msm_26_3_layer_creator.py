@@ -7,8 +7,6 @@ Msm_26_3 - Создание выходных слоёв для нарезки З
 - Установка структуры полей из Base_cutting.json
 - Сохранение features в слой
 - Добавление слоя в проект QGIS
-
-Перенесено из Fsm_2_1_3_layer_creator
 """
 
 import os
@@ -231,39 +229,3 @@ class Msm_26_3_LayerCreator:
             log_error(f"Msm_26_3: Не удалось загрузить слой из {uri}")
             return None
 
-    def delete_existing_layer(self, layer_name: str) -> bool:
-        """Удаление существующего слоя из GPKG
-
-        Args:
-            layer_name: Имя слоя
-
-        Returns:
-            bool: True если успешно (или слой не существовал)
-        """
-        if not os.path.exists(self.gpkg_path):
-            return True
-
-        try:
-            from osgeo import ogr
-
-            ds = ogr.Open(self.gpkg_path, update=True)
-            if ds is None:
-                return True
-
-            # Ищем слой
-            layer_idx = -1
-            for i in range(ds.GetLayerCount()):
-                if ds.GetLayerByIndex(i).GetName() == layer_name:
-                    layer_idx = i
-                    break
-
-            if layer_idx >= 0:
-                ds.DeleteLayer(layer_idx)
-                log_info(f"Msm_26_3: Удалён существующий слой {layer_name}")
-
-            ds = None
-            return True
-
-        except Exception as e:
-            log_warning(f"Msm_26_3: Не удалось удалить слой {layer_name}: {e}")
-            return False

@@ -16,7 +16,8 @@ from qgis.core import (
 from qgis.gui import QgsMessageBar
 
 from Daman_QGIS.constants import (
-    MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION
+    MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION,
+    OBJECT_TYPE_AREA, OBJECT_TYPE_LINEAR
 )
 from Daman_QGIS.utils import log_info, log_warning, create_crs_from_string
 from Daman_QGIS.database.project_db import ProjectDB
@@ -49,6 +50,29 @@ class ProjectManager:
         self.plugin_version = ""  # Версия плагина (передается из main_plugin)
         # Lazy init для избежания циклических импортов
         self._reference_managers = None
+
+    @staticmethod
+    def is_linear_object(settings) -> bool:
+        """Проверка, что проект относится к линейному объекту
+
+        Единственный владелец проверки типа объекта. В `settings.object_type`
+        лежит КОД из метаданных `1_2_object_type` (`area` / `linear`), а не
+        отображаемое название — сравнивать с русской строкой нельзя.
+
+        Args:
+            settings: Настройки проекта (ProjectSettings) либо None
+
+        Returns:
+            bool: True — линейный объект, False — площадной
+
+        Raises:
+            ValueError: тип объекта отсутствует или не распознан; решение о
+                        допуске операции принимает вызывающий (fail-closed)
+        """
+        code = getattr(settings, 'object_type', None) if settings else None
+        if code not in (OBJECT_TYPE_AREA, OBJECT_TYPE_LINEAR):
+            raise ValueError(f"Тип объекта проекта не определён: {code!r}")
+        return code == OBJECT_TYPE_LINEAR
 
     @property
     def reference_managers(self):

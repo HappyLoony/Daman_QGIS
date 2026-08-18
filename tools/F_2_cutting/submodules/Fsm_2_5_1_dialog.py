@@ -326,6 +326,23 @@ class Fsm_2_5_1_Dialog(BaseResponsiveDialog):
                         pass
         return fids
 
+    def _remove_rubber_band(self) -> None:
+        """Снять подсветку со сцены канвы
+
+        `reset()` очищает геометрию, но сам объект остаётся в сцене:
+        без `removeItem` каждое новое выделение оставляло бы там пустой
+        QGraphicsItem. Образец — Fsm_1_1_3.remove_highlight.
+        """
+        if not self._rubber_band:
+            return
+
+        from qgis.utils import iface
+        canvas = iface.mapCanvas() if iface else None
+        if canvas is not None and canvas.scene() is not None:
+            canvas.scene().removeItem(self._rubber_band)
+        self._rubber_band.reset()
+        self._rubber_band = None
+
     def _on_highlight(self) -> None:
         """Выделить выбранные объекты на карте"""
         from qgis.utils import iface
@@ -341,8 +358,7 @@ class Fsm_2_5_1_Dialog(BaseResponsiveDialog):
             return
 
         # Удалить старую подсветку
-        if self._rubber_band:
-            self._rubber_band.reset()
+        self._remove_rubber_band()
 
         # Создать новую подсветку
         from qgis.core import QgsWkbTypes
@@ -432,24 +448,18 @@ class Fsm_2_5_1_Dialog(BaseResponsiveDialog):
             self._on_deselect_all()
 
             # Очистить подсветку
-            if self._rubber_band:
-                self._rubber_band.reset()
-                self._rubber_band = None
+            self._remove_rubber_band()
 
     def closeEvent(self, event) -> None:
         """Обработка закрытия диалога"""
         # Очистить подсветку
-        if self._rubber_band:
-            self._rubber_band.reset()
-            self._rubber_band = None
+        self._remove_rubber_band()
 
         super().closeEvent(event)
 
     def reject(self) -> None:
         """Обработка отмены"""
         # Очистить подсветку
-        if self._rubber_band:
-            self._rubber_band.reset()
-            self._rubber_band = None
+        self._remove_rubber_band()
 
         super().reject()

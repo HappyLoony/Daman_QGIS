@@ -11,11 +11,19 @@ Msm_26_2 - Маппинг и генерация атрибутов для нар
 
 import json
 import os
-from typing import Dict, List, Any, Optional
+import re
+from typing import Any, Dict, Iterable, List, Optional
 
 from qgis.core import QgsFeature, QgsGeometry, QgsFields, QgsField
 from qgis.PyQt.QtCore import QMetaType
 
+from Daman_QGIS.constants import (
+    POINTS_FIELD_NONE,
+    WORK_TYPE_IZM_KAT,
+    WORK_TYPE_IZM_KAT_VRI,
+    WORK_TYPE_IZM_REESTR,
+    WORK_TYPE_IZM_VRI,
+)
 from Daman_QGIS.utils import log_info, log_warning, log_error
 
 
@@ -216,6 +224,27 @@ class Msm_26_2_AttributeMapper:
         """Сброс счётчиков КН (вызывать перед обработкой нового слоя)"""
         self._kn_counter.clear()
 
+    def seed_kn_counter(self, existing_uslov_kns: Iterable[Optional[str]]) -> None:
+        """Продолжить нумерацию условных КН от уже выданных номеров
+
+        Счётчик сбрасывается на каждый слой, поэтому этап, идущий после уже
+        пронумерованных контуров того же квартала, начал бы ряд `:ЗУ1` заново
+        и выдал бы занятые номера. Метод поднимает счётчик до максимума,
+        встреченного среди переданных значений.
+
+        Args:
+            existing_uslov_kns: Уже выданные условные КН (формат `<база>:ЗУ<N>`)
+        """
+        for value in existing_uslov_kns:
+            if not value:
+                continue
+            match = re.match(r'^(.*):ЗУ(\d+)$', str(value).strip())
+            if not match:
+                continue
+            base, number = match.group(1), int(match.group(2))
+            if number > self._kn_counter.get(base, 0):
+                self._kn_counter[base] = number
+
     def generate_conditional_kn(self, base_kn: Optional[str]) -> str:
         """Генерация условного кадастрового номера
 
@@ -261,6 +290,70 @@ class Msm_26_2_AttributeMapper:
         area = geometry.area()
         return int(round(area))
 
+    @staticmethod
+    def parse_egrn_area(value: Any) -> Optional[float]:
+        """Числовое значение поля «Площадь» из сведений ЕГРН
+
+        Поле символьное: при отсутствии сведений содержит «-» либо пусто.
+        Сравнивать с фактической площадью геометрии можно только это поле —
+        «Площадь_ОЗУ» рассчитывается из той же геометрии (calculate_area).
+
+        Args:
+            value: Значение поля «Площадь» из атрибутов контура
+
+        Returns:
+            float: Площадь по сведениям ЕГРН, либо None — сведений нет
+        """
+        if value is None:
+            return None
+
+        text = str(value).strip().replace('\xa0', '').replace(' ', '').replace(',', '.')
+        if not text or text in ('-', 'NULL', 'None'):
+            return None
+
+        try:
+            return float(text)
+        except ValueError:
+            log_warning(f"Msm_26_2: поле «Площадь» не числовое: '{value}'")
+            return None
+
+    @staticmethod
+    def compose_work_type_izm(
+        vri_changed: bool = False,
+        category_changed: bool = False,
+        area_mismatch: bool = False
+    ) -> Optional[str]:
+        """Составить значение Вид_Работ для ИЗМ из флагов причин
+
+        Формат: «Причина1. Причина2.» — каждая причина заканчивается точкой.
+        Реестровая ошибка (площадь) — модификатор, добавляется после основной
+        причины.
+
+        Args:
+            vri_changed: Изменён вид разрешённого использования
+            category_changed: Изменена категория земель
+            area_mismatch: Расхождение площади со сведениями ЕГРН
+
+        Returns:
+            str: Составленное значение, либо None — ни одна причина не поднята
+                 (решение о запасной формулировке принимает вызывающий)
+        """
+        parts = []
+        if category_changed and vri_changed:
+            parts.append(WORK_TYPE_IZM_KAT_VRI)
+        elif category_changed:
+            parts.append(WORK_TYPE_IZM_KAT)
+        elif vri_changed:
+            parts.append(WORK_TYPE_IZM_VRI)
+
+        if area_mismatch:
+            parts.append(WORK_TYPE_IZM_REESTR)
+
+        if not parts:
+            return None
+
+        return ". ".join(parts) + "."
+
     def fill_generated_fields(
         self,
         attributes: Dict[str, Any],
@@ -304,7 +397,7 @@ class Msm_26_2_AttributeMapper:
         result.setdefault('План_категория', '-')
         result['План_ВРИ'] = "-"  # Заполняется M_21 (VRIAssignmentManager)
         result['Вид_Работ'] = "-"  # TODO: из справочника Work_types
-        result['Точки'] = "-"  # TODO: нумерация вершин
+        result['Точки'] = POINTS_FIELD_NONE  # проставляется при нумерации (M_20)
         result['Общая_земля'] = "-"  # Заполняется M_21 (VRIAssignmentManager)
 
         # ОКС_на_ЗУ - значения из выборки сохраняются через ZU_FIELD_MAPPING,

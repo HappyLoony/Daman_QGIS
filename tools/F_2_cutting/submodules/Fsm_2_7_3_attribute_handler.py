@@ -4,10 +4,8 @@ Fsm_2_7_3_AttributeHandler - Генерация атрибутов объеди�
 
 Формирует атрибуты для объединённого земельного участка:
 - Услов_КН = "КН:ЗУ{N}" (N = max+1 с учётом Раздел + НГС)
-- Вид_Работ = "Образование ЗУ путём объединения ... с условными номерами X, Y"
-- Состав_контуров = "ID (КН), ID, ID (КН)" - расширенный формат
+- Вид_Работ = "Образование ЗУ путем объединения ... с условными номерами X, Y"
 - Площадь_ОЗУ = площадь объединённой геометрии
-- Многоконтурный = "Да" / "Нет"
 
 Правила наследования атрибутов:
 - КН, ЕЗ, Права, Обременение = комбинация всех (через "; ")
@@ -58,7 +56,6 @@ class Fsm_2_7_3_AttributeHandler:
         features: List[QgsFeature],
         fields: QgsFields,
         new_area: float,
-        is_multipart: bool,
         existing_uslov_kns: Optional[List[str]] = None
     ) -> Optional[Dict[str, Any]]:
         """Генерация атрибутов для объединённого контура
@@ -67,7 +64,6 @@ class Fsm_2_7_3_AttributeHandler:
             features: Список исходных features для объединения
             fields: Структура полей слоя
             new_area: Площадь объединённой геометрии
-            is_multipart: Является ли геометрия многоконтурной
             existing_uslov_kns: Существующие Услов_КН в слое и НГС
                 (для корректной нумерации :ЗУ{N})
 
@@ -87,23 +83,35 @@ class Fsm_2_7_3_AttributeHandler:
             )
             attrs['Услов_КН'] = new_uslov_kn
 
-            # 2. Генерируем Состав_контуров
-            sostav = self._generate_sostav_konturov(features)
-            attrs['Состав_контуров'] = sostav
+            # Состав объединённых контуров не сохраняется: F_2_7 работает только
+            # по слоям нарезки, а их схема (Base_cutting) такого поля не несёт.
+            # Поле «Состав_контуров» существует у слоёв 2 этапа и Итога, которые
+            # создаёт писатель этапности (Fsm_2_4_1, add_merged_field=True).
 
-            # 3. Генерируем Вид_Работ
+            # 2. Генерируем Вид_Работ
             uslov_kn_list = [self._get_value(f, 'Услов_КН') for f in features]
             uslov_kn_list = [uk for uk in uslov_kn_list if uk]
             vid_rabot = self._generate_vid_rabot(uslov_kn_list)
             attrs['Вид_Работ'] = vid_rabot
 
-            # 4. Площадь_ОЗУ
-            attrs['Площадь_ОЗУ'] = round(new_area, 0)
+            # 4. Площадь_ОЗУ (поле объявлено целым в Base_cutting)
+            attrs['Площадь_ОЗУ'] = int(round(new_area))
 
-            # 5. Многоконтурный
-            attrs['Многоконтурный'] = 'Да' if is_multipart else 'Нет'
+            # Поля исходного ЗУ при объединении контуров РАЗНЫХ участков
+            # неизвестны: наследование от первого контура дало бы пару
+            # «два КН — характеристики одного из них». Комбинируемый КН
+            # остаётся, остальное чистится (санитайзер поставит «-»).
+            source_kns = {
+                str(self._get_value(f, 'КН')).strip()
+                for f in features
+                if self._get_value(f, 'КН') and str(self._get_value(f, 'КН')).strip() != '-'
+            }
+            merges_different_zu = len(source_kns) > 1
 
-            # 6. ID = 0 (будет перенумерован)
+            # Поля «Многоконтурный» нет: multipart отвергается гардом
+            # процессора до генерации атрибутов, и в схеме Base_cutting его нет
+
+            # 5. ID = 0 (будет перенумерован)
             attrs['ID'] = 0
 
             # 7. Комбинируемые поля
@@ -124,16 +132,32 @@ class Fsm_2_7_3_AttributeHandler:
                     value = self._get_same_value(features, field_name)
                     attrs[field_name] = value
 
-            # 10. Копируем остальные поля из первого контура
+            # 10. Копируем остальные поля из первого контура.
+            # Служебный `fid` пропускается: это первичный ключ GeoPackage,
+            # его присваивает провайдер, а копия чужого значения даёт коллизию
             first_feature = features[0]
             for i in range(fields.count()):
                 field_name = fields.at(i).name()
+                if field_name.lower() == 'fid':
+                    continue
                 if field_name not in attrs:
                     value = self._get_value(first_feature, field_name)
                     attrs[field_name] = value
 
             # 11. Очищаем поле Точки (будет заполнено позже)
             attrs['Точки'] = ''
+
+            # 12. Характеристики исходных ЗУ при объединении разных участков
+            if merges_different_zu:
+                for field_name in ('Категория', 'ВРИ', 'Площадь',
+                                   'Права', 'Обременения', 'Собственники',
+                                   'Арендаторы', 'Адрес_Местоположения'):
+                    if field_name in attrs:
+                        attrs[field_name] = None
+                log_info(
+                    f"Fsm_2_7_3: объединены контуры разных ЗУ ({len(source_kns)} КН) — "
+                    f"характеристики исходных участков очищены"
+                )
 
             log_info(f"Fsm_2_7_3: Сгенерированы атрибуты для объединённого контура, "
                     f"Услов_КН={new_uslov_kn}")
@@ -196,34 +220,10 @@ class Fsm_2_7_3_AttributeHandler:
                 f"(max существующий :ЗУ{max_n})")
         return result
 
-    def _generate_sostav_konturov(self, features: List[QgsFeature]) -> str:
-        """Генерация поля Состав_контуров
-
-        Формат: "ID (КН), ID, ID (КН)" - ID с КН если есть
-
-        Args:
-            features: Список контуров
-
-        Returns:
-            Строка состава контуров
-        """
-        parts = []
-
-        for f in features:
-            feature_id = self._get_value(f, 'ID') or '?'
-            kn = self._get_value(f, 'КН')
-
-            if kn and kn != '-':
-                parts.append(f"{feature_id} ({kn})")
-            else:
-                parts.append(str(feature_id))
-
-        return ', '.join(parts)
-
     def _generate_vid_rabot(self, uslov_kn_list: List[str]) -> str:
         """Генерация поля Вид_Работ для объединения
 
-        Формат: "Образование ЗУ путём объединения земельных участков
+        Формат: "Образование ЗУ путем объединения земельных участков
                  с условными номерами X, Y, Z"
 
         Args:
@@ -232,19 +232,10 @@ class Fsm_2_7_3_AttributeHandler:
         Returns:
             Строка Вид_Работ
         """
-        if not uslov_kn_list:
-            return "Образование ЗУ путём объединения"
-
-        # Используем менеджер для получения шаблона
-        uslov_kn_str = ', '.join(uslov_kn_list)
-
-        # Шаблон из плана F_2_7
-        vid_rabot = (
-            f"Образование земельного участка путём объединения "
-            f"земельных участков с условными номерами {uslov_kn_str}"
-        )
-
-        return vid_rabot
+        # Формулировку даёт M_22 — единственный источник: собственная копия
+        # строки расходилась с ним в одной букве («путём» против «путем»), и
+        # сопоставление со справочником Work_types проваливалось молча
+        return self._work_type_manager.get_merge_work_type(uslov_kn_list)
 
     def _get_value(self, feature: QgsFeature, field_name: str) -> Any:
         """Безопасное получение значения атрибута

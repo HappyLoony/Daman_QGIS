@@ -28,7 +28,7 @@ from qgis.core import (
     QgsFields,
 )
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, commit_or_rollback
 
 if TYPE_CHECKING:
     from Daman_QGIS.managers import LayerManager
@@ -81,6 +81,7 @@ class Fsm_2_5_2_Transfer:
         """
         log_info(f"Fsm_2_5_2: Копирование {len(feature_ids)} объектов из {source_layer.name()}")
 
+        target_layer = None
         try:
             # 1. Получить или создать целевой слой
             target_layer = self._get_or_create_target_layer(source_layer)
@@ -124,7 +125,8 @@ class Fsm_2_5_2_Transfer:
             self._renumber_ids(target_layer)
 
             # 6. Сохранить изменения
-            target_layer.commitChanges()
+            if not commit_or_rollback(target_layer, "Fsm_2_5_2"):
+                return {'error': "Не удалось сохранить целевой слой изъятия"}
 
             # 6a. M_47 нормализация (CW + старт NW) целевого слоя изъятия.
             # Level-map: F_2_5 layer-level, commit-before-M_47 (FIX-rev2-16) — commitChanges
@@ -149,6 +151,17 @@ class Fsm_2_5_2_Transfer:
         except Exception as e:
             log_error(f"Fsm_2_5_2: Исключение при копировании: {e}")
             return {'error': str(e)}
+
+        finally:
+            # Успешный путь закрывает сессию через commit_or_rollback выше; сюда доходят
+            # только пути отказа. Открытая сессия на слое project.gpkg делает соседние
+            # слои того же файла нечитаемыми до перезапуска QGIS.
+            if target_layer is not None and target_layer.isEditable():
+                if not target_layer.rollBack():
+                    log_error(
+                        f"Fsm_2_5_2: откат не выполнен, слой {target_layer.name()} "
+                        f"остался в режиме редактирования"
+                    )
 
     def _get_or_create_target_layer(
         self,
@@ -212,8 +225,16 @@ class Fsm_2_5_2_Transfer:
                 log_error(f"Fsm_2_5_2: Не удалось создать memory layer")
                 return None
 
-            # Добавляем поля
-            mem_layer.dataProvider().addAttributes(fields.toList())
+            # Добавляем поля БЕЗ служебного `fid`: в GeoPackage это первичный
+            # ключ, и копирование его как обычного атрибута роняет вторую
+            # партию переноса на UNIQUE constraint
+            clean_fields = QgsFields()
+            for field in fields:
+                if field.name().lower() == 'fid':
+                    continue
+                clean_fields.append(field)
+
+            mem_layer.dataProvider().addAttributes(clean_fields.toList())
             mem_layer.updateFields()
 
             # Сохраняем в GPKG
@@ -319,9 +340,12 @@ class Fsm_2_5_2_Transfer:
                 new_geom.fromWkb(wkb)
                 new_feat.setGeometry(new_geom)
 
-            # Копируем все атрибуты 1:1
+            # Копируем атрибуты по ИМЕНАМ, пропуская служебный `fid`:
+            # он первичный ключ GeoPackage и присваивается провайдером
             for i in range(fields.count()):
                 field_name = fields.at(i).name()
+                if field_name.lower() == 'fid':
+                    continue
                 try:
                     value = source_feat[field_name]
                     new_feat.setAttribute(i, value)
@@ -401,8 +425,14 @@ class Fsm_2_5_2_Transfer:
         """
         project = QgsProject.instance()
 
-        # Проверить, есть ли уже такой слой
-        existing = project.mapLayersByName(self.target_layer_name)
+        # Проверить, есть ли уже такой слой. Критерий тот же, по которому слой
+        # выбирается для работы: одноимённый НЕВАЛИДНЫЙ слой в проекте не
+        # должен блокировать добавление валидного — иначе результат переноса
+        # не попадёт на канву и останется без стилей
+        existing = [
+            l for l in project.mapLayersByName(self.target_layer_name)
+            if isinstance(l, QgsVectorLayer) and l.isValid()
+        ]
         if existing:
             return
 
@@ -410,10 +440,14 @@ class Fsm_2_5_2_Transfer:
         project.addMapLayer(layer)
         log_info(f"Fsm_2_5_2: Слой {self.target_layer_name} добавлен в проект")
 
-        # Применить стили через LayerManager если доступен
-        if self.layer_manager:
-            try:
-                self.layer_manager.apply_style_to_layer(layer)
-                self.layer_manager.apply_labels_to_layer(layer)
-            except Exception as e:
-                log_warning(f"Fsm_2_5_2: Не удалось применить стили: {e}")
+        # Стили и подписи — через штатные менеджеры M_5 и M_12, как в
+        # соседних модулях пакета. Прежние вызовы `apply_style_to_layer` и
+        # `apply_labels_to_layer` в LayerManager не существуют: исключение
+        # глоталось warning'ом, и слой оставался без оформления
+        try:
+            from Daman_QGIS.managers import StyleManager, LabelManager
+
+            StyleManager().apply_qgis_style(layer, self.target_layer_name)
+            LabelManager().apply_labels(layer, self.target_layer_name)
+        except Exception as e:
+            log_error(f"Fsm_2_5_2: Не удалось применить стили: {e}")

@@ -23,7 +23,12 @@ from qgis.core import (
     QgsSpatialIndex,
 )
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import (
+    log_info,
+    log_warning,
+    log_error,
+    normalize_for_classification,
+)
 
 
 class Fsm_2_1_5_KKMatcher:
@@ -48,9 +53,28 @@ class Fsm_2_1_5_KKMatcher:
             self._build_index()
 
     def _build_index(self) -> None:
-        """Построение пространственного индекса и фильтрация валидных кварталов"""
+        """Построение пространственного индекса и фильтрация валидных кварталов
+
+        Raises:
+            ValueError: в слое кварталов нет ни одного из поддерживаемых полей
+                        кадастрового номера
+        """
         if not self.kk_layer:
             return
+
+        # Имя поля КН разрешает M_16: слои НСПД несут `cad_num` либо
+        # `cad_number`, рабочие слои плагина — `КН`. Хардкод одного имени
+        # оставлял бы слой без привязки к кварталам без единой ошибки.
+        from Daman_QGIS.managers.infrastructure.M_16_cadnum_search_manager import (
+            CadnumSearchManager,
+        )
+
+        cadnum_field = CadnumSearchManager.get_cadnum_field_name(self.kk_layer)
+        if not cadnum_field:
+            raise ValueError(
+                f"В слое {self.kk_layer.name()} нет поля кадастрового номера "
+                f"(ожидались cad_num / cad_number / КН)"
+            )
 
         self._spatial_index = QgsSpatialIndex()
         valid_count = 0
@@ -61,14 +85,22 @@ class Fsm_2_1_5_KKMatcher:
             geom = feature.geometry()
 
             if not geom or geom.isEmpty():
+                log_warning(
+                    f"Fsm_2_1_5: квартал fid={feature.id()} без геометрии, пропуск"
+                )
                 continue
 
-            # Получаем КН из поля cad_num
-            cad_num = feature.attribute('cad_num')
+            cad_num = feature.attribute(cadnum_field)
             if not cad_num:
+                log_warning(
+                    f"Fsm_2_1_5: квартал fid={feature.id()} без значения "
+                    f"{cadnum_field}, пропуск"
+                )
                 continue
 
-            cad_num = str(cad_num).strip()
+            # Строки НСПД несут невидимые символы (nbsp, zero-width) — без
+            # нормализации квартал не проходит формат-проверку и молча выпадает
+            cad_num = normalize_for_classification(str(cad_num))
 
             # Проверяем что это валидный квартал (не нулёвка)
             if not self.is_valid_quarter(cad_num):

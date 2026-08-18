@@ -85,6 +85,7 @@ class LayerSchemaValidator:
                 'layer_name': str,
                 'schema': str или None,
                 'missing_fields': List[str],
+                'wrong_types': List[str],
                 'present_fields': List[str],
                 'error': str или None
             }
@@ -94,6 +95,7 @@ class LayerSchemaValidator:
             'layer_name': layer.name() if layer is not None else 'Unknown',
             'schema': schema_name,
             'missing_fields': [],
+            'wrong_types': [],
             'present_fields': [],
             'error': None
         }
@@ -133,13 +135,30 @@ class LayerSchemaValidator:
         missing = [f for f in required_fields if f.lower() not in field_names_lower]
         result['missing_fields'] = missing
 
-        result['valid'] = len(missing) == 0
+        # Типы полей — блокирующая проверка. Схема объявляет ID целым, но пока
+        # сверялись только ИМЕНА, поле могло быть строковым, и потребители
+        # заводили расходящиеся фоллбэки на приведение типа.
+        wrong_types = []
+        for fname, expected in schema.get('field_types', {}).items():
+            idx = layer.fields().indexFromName(fname)
+            if idx >= 0 and layer.fields().at(idx).type() != expected:
+                wrong_types.append(
+                    f"{fname}: {layer.fields().at(idx).typeName()} вместо целого"
+                )
+        result['wrong_types'] = wrong_types
+
+        result['valid'] = not missing and not wrong_types
 
         if result['valid']:
             log_info(f"M_28: Слой {layer_name} соответствует схеме {schema_name}")
         else:
+            problems = []
+            if missing:
+                problems.append(f"отсутствуют поля: {', '.join(missing)}")
+            if wrong_types:
+                problems.append(f"неверные типы полей: {', '.join(wrong_types)}")
             log_warning(f"M_28: Слой {layer_name} не соответствует схеме {schema_name}, "
-                       f"отсутствуют поля: {', '.join(missing)}")
+                       f"{'; '.join(problems)}")
 
         return result
 
@@ -167,6 +186,7 @@ class LayerSchemaValidator:
                 'schema': schema_name,
                 'missing_fields': [],
                 'present_fields': [],
+                'wrong_types': [],
                 'error': f'Слой {layer_name} не найден в проекте'
             }
 
@@ -178,6 +198,7 @@ class LayerSchemaValidator:
                 'schema': schema_name,
                 'missing_fields': [],
                 'present_fields': [],
+                'wrong_types': [],
                 'error': f'Слой {layer_name} не является векторным'
             }
 
@@ -251,6 +272,7 @@ class LayerSchemaValidator:
                 result['invalid_layers'].append({
                     'layer_name': layer_name,
                     'missing_fields': validation['missing_fields'],
+                    'wrong_types': validation.get('wrong_types', []),
                     'error': validation.get('error')
                 })
                 result['valid'] = False

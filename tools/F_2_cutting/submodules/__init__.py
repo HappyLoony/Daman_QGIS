@@ -2,19 +2,25 @@
 """
 Субмодули для F_2_cutting
 
-Fsm_2_1_3_layer_creator - создание слоёв
 Fsm_2_1_5_kk_matcher - сопоставление с кадастровыми кварталами
 Fsm_2_1_6_point_layer_creator - создание точечных слоёв
 Fsm_2_1_7_no_change_detector - детектор неизменяемых ЗУ
 Fsm_2_1_8_izmenyaemye_processor - процессор изменяемых ЗУ
 Fsm_2_1_9_bez_mezh_processor - процессор без межевания
+Fsm_2_4_1_layer_writer - запись полигональных слоёв этапности в GeoPackage (F_2_4)
+Fsm_2_4_2_value_converter - приведение значений атрибутов к типам полей OGR (F_2_4)
+Fsm_2_4_3_point_numbering - единая нумерация характерных точек этапности (F_2_4)
+Fsm_2_4_4_point_writer - создание точечных слоёв этапности, включая итоговый (F_2_4)
+Fsm_2_4_5_finisher - валидация минимальных площадей, стили и подписи (F_2_4)
+Fsm_2_4_6_source_provider - поиск и валидация исходных слоёв этапности (F_2_4)
+Fsm_2_4_7_zpr_analyzer - анализ соответствия контуров контурам ЗПР (F_2_4)
+Fsm_2_4_8_geocoder - адрес контура по точке привязки через M_39 (F_2_4)
+Fsm_2_4_9_stage_builder - данные 1 этапа и итогового слоя (F_2_4)
+Fsm_2_4_10_stage2_builder - данные 2 этапа, объединение по ЗПР (F_2_4)
+Fsm_2_4_11_bez_mezh_staging - ветка Без_Меж: 1 этап и Итог без точек (F_2_4)
 
 Геометрические операции и маппинг атрибутов: Msm_26_1, Msm_26_2 (в managers/geometry/)
 Движок нарезки: Msm_26_4 (в managers/geometry/)
 """
 
-from .Fsm_2_1_3_layer_creator import Fsm_2_1_3_LayerCreator
-
-__all__ = [
-    'Fsm_2_1_3_LayerCreator',
-]
+__all__: list = []

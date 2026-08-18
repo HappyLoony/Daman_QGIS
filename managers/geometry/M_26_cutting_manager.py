@@ -238,13 +238,22 @@ class CuttingManager:
                 # Валидация структуры ЗПР
                 validation = schema_validator.validate_layer(layer, 'ZPR')
                 if not validation['valid']:
+                    wrong_types = validation.get('wrong_types', [])
                     result['invalid_zpr'].append({
                         'name': zpr_name,
                         'layer': zpr_config['source'],
-                        'missing_fields': validation['missing_fields']
+                        'missing_fields': validation['missing_fields'],
+                        'wrong_types': wrong_types
                     })
+                    problems = []
+                    if validation['missing_fields']:
+                        problems.append(
+                            f"отсутствуют поля: {', '.join(validation['missing_fields'])}"
+                        )
+                    if wrong_types:
+                        problems.append(f"неверные типы полей: {', '.join(wrong_types)}")
                     log_warning(f"M_26: Слой {zpr_config['source']} имеет невалидную структуру, "
-                               f"отсутствуют поля: {', '.join(validation['missing_fields'])}")
+                               f"{'; '.join(problems)}")
                     continue
 
                 # Валидация VRI в ЗПР (только если структура валидна)
@@ -597,10 +606,22 @@ class CuttingManager:
             validator = MinAreaValidator(self.plugin_dir)
             result = validator.validate_cutting_results(zpr_type, show_dialog=True)
 
-            if result.get('skipped_no_field'):
+            if result.get('skipped_no_layer'):
+                log_info(
+                    f"M_26: Валидация {zpr_type} не требуется ({result.get('reason')})"
+                )
+            elif result.get('skipped_no_field'):
                 log_info(f"M_26: Валидация {zpr_type} пропущена (нет поля MIN_AREA_VRI)")
             elif result.get('success'):
-                log_info(f"M_26: Валидация {zpr_type} успешна")
+                log_info(
+                    f"M_26: Валидация {zpr_type} успешна, проверено "
+                    f"{result.get('total_checked', 0)} контуров"
+                )
+            elif result.get('total_checked', 0) == 0:
+                log_error(
+                    f"M_26: Валидация {zpr_type} НЕ ВЫПОЛНЕНА "
+                    f"({result.get('reason') or 'причина не указана'})"
+                )
             else:
                 log_warning(
                     f"M_26: Валидация {zpr_type} - найдено {result.get('problem_count', 0)} "

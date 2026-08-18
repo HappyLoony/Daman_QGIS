@@ -5,7 +5,7 @@
 """
 
 import re
-from pathlib import Path
+import unicodedata
 from typing import List, Optional
 
 from qgis.core import QgsMessageLog, Qgis
@@ -352,7 +352,8 @@ def normalize_for_classification(s: Optional[str]) -> str:
         - Msm_25_1_category_classifier.classify_feature (M_25 категории)
 
     Args:
-        s: Строка для нормализации (или None)
+        s: Значение для нормализации (None даёт пустую строку; нестроковое
+           значение приводится к строке - атрибут слоя приходит и числом)
 
     Returns:
         Нормализованная строка (пустая для None). Идемпотентна — повторное
@@ -360,83 +361,18 @@ def normalize_for_classification(s: Optional[str]) -> str:
     """
     if s is None:
         return ""
-    # nbsp (U+00A0), zero-width space (U+200B), narrow nbsp (U+202F)
-    s = s.replace("\xa0", " ").replace("​", "").replace(" ", " ")
+    if not isinstance(s, str):
+        s = str(s)
+    # Невидимые символы форматирования (zero-width space и joiner, BOM,
+    # направляющие метки) снимаются по свойству Unicode: поимённый перечень
+    # отстаёт от того, что приходит из внешних источников
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Cf")
+    # nbsp (U+00A0) и narrow nbsp (U+202F) - пробелы, а не format-символы
+    s = s.replace("\xa0", " ").replace(" ", " ")
     # em-dash (U+2014), en-dash (U+2013), minus sign (U+2212) -> ASCII hyphen
     s = s.replace("—", "-").replace("–", "-").replace("−", "-")
     return " ".join(s.split())
 
-
-# ============================================================================
-# ВАЛИДАЦИЯ ПУТЕЙ (SECURITY)
-# ============================================================================
-
-
-class SecurityError(Exception):
-    """Исключение для ошибок безопасности"""
-    pass
-
-
-class PathValidator:
-    """Валидация путей для предотвращения path traversal"""
-
-    @staticmethod
-    def validate_user_path(base_dir: str, user_path: str, must_exist: bool = False) -> Path:
-        """Валидирует путь от пользователя для предотвращения path traversal"""
-        base = Path(base_dir).resolve()
-
-        if Path(user_path).is_absolute():
-            target = Path(user_path).resolve()
-        else:
-            target = (base / user_path).resolve()
-
-        try:
-            target.relative_to(base)
-        except ValueError:
-            log_error(f"Path traversal attempt detected: {user_path}")
-            raise SecurityError(
-                f"Path traversal attempt detected: {user_path}. "
-                f"Path must be inside {base_dir}"
-            )
-
-        if must_exist and not target.exists():
-            log_error(f"Path does not exist: {target}")
-            raise FileNotFoundError(f"Path does not exist: {target}")
-
-        log_debug(f"Path validated: {target}")
-        return target
-
-    @staticmethod
-    def validate_file_extension(path: str, allowed_extensions: List[str]) -> bool:
-        """Проверяет расширение файла"""
-        ext = Path(path).suffix.lower()
-
-        normalized_extensions = []
-        for allowed_ext in allowed_extensions:
-            if not allowed_ext.startswith('.'):
-                allowed_ext = '.' + allowed_ext
-            normalized_extensions.append(allowed_ext.lower())
-
-        if ext not in normalized_extensions:
-            log_error(f"Invalid file extension: {ext}. Allowed: {', '.join(normalized_extensions)}")
-            raise ValueError(
-                f"Invalid file extension: {ext}. "
-                f"Allowed extensions: {', '.join(normalized_extensions)}"
-            )
-
-        log_debug(f"File extension validated: {ext}")
-        return True
-
-    @staticmethod
-    def validate_project_path(project_path: str, allowed_extensions: Optional[List[str]] = None) -> Path:
-        """Комплексная валидация пути к проекту"""
-        if allowed_extensions is None:
-            allowed_extensions = ['.qgs', '.qgz', '.gpkg']
-
-        PathValidator.validate_file_extension(project_path, allowed_extensions)
-        path = Path(project_path).resolve()
-        log_debug(f"Project path validated: {path}")
-        return path
 
 # ============================================================================
 # ФУНКЦИИ ОБНОВЛЕНИЯ ОТРИСОВКИ (RENDERING REFRESH)
@@ -685,6 +621,103 @@ def exportable_field_indices(layer) -> List[int]:
         idx for idx, f in enumerate(layer.fields())
         if not is_internal_field(f.name())
     ]
+
+
+def sort_by_northwest(items: List, get_geometry=None) -> List:
+    """Сортировка объектов от северо-западного к юго-восточному
+
+    Единственная реализация конвенции порядка контуров: раньше алгоритм жил
+    шестью копиями (M_20, Msm_26_4, F_2_3, Fsm_2_1_8, Fsm_2_1_9, Fsm_2_2_2),
+    и одна из них падала на объекте без геометрии.
+
+    Считает глобальный описывающий прямоугольник всех объектов, берёт его
+    северо-западный угол и упорядочивает по квадрату расстояния центроида до
+    этого угла. Объекты без геометрии уходят в конец.
+
+    Args:
+        items: Список объектов (словари с ключом `geometry` либо QgsFeature)
+        get_geometry: Функция извлечения геометрии; по умолчанию читается
+                      ключ `geometry` словаря
+
+    Returns:
+        List: новый упорядоченный список (исходный не мутируется)
+    """
+    if len(items) <= 1:
+        return items
+
+    def default_getter(item):
+        if isinstance(item, dict):
+            return item.get('geometry')
+        # QgsFeature: геометрия читается методом. Без этой ветки объект молча
+        # получал бы None и уезжал в конец списка, портя порядок контуров
+        geometry = getattr(item, 'geometry', None)
+        return geometry() if callable(geometry) else None
+
+    getter = get_geometry if get_geometry is not None else default_getter
+
+    global_min_x = float('inf')
+    global_max_y = float('-inf')
+    centroids = []
+
+    for item in items:
+        geom = getter(item)
+        if geom and not geom.isEmpty():
+            centroid = geom.centroid().asPoint()
+            centroids.append((centroid.x(), centroid.y()))
+            bbox = geom.boundingBox()
+            global_min_x = min(global_min_x, bbox.xMinimum())
+            global_max_y = max(global_max_y, bbox.yMaximum())
+        else:
+            centroids.append(None)
+
+    if all(c is None for c in centroids):
+        log_warning(
+            "sort_by_northwest: ни один объект не дал геометрию — "
+            "порядок оставлен исходным"
+        )
+        return items
+
+    # Северо-западный угол глобального MBR
+    nw_x, nw_y = global_min_x, global_max_y
+
+    def sort_key(indexed_item):
+        idx, _ = indexed_item
+        c = centroids[idx]
+        if c is None:
+            return float('inf')
+        return (c[0] - nw_x) ** 2 + (c[1] - nw_y) ** 2
+
+    indexed = list(enumerate(items))
+    indexed.sort(key=sort_key)
+    return [item for _, item in indexed]
+
+
+def commit_or_rollback(layer, ctx: str) -> bool:
+    """Коммит правок слоя с обязательным откатом при отказе.
+
+    Единая точка завершения edit-сессии. `commitChanges()` возвращает False
+    БЕЗ исключения (отвергнутая фича при этом остаётся в буфере, и слой
+    продолжает висеть в режиме редактирования — соседние слои того же
+    GeoPackage начинают отдавать 0 объектов). Прямой вызов `commitChanges()`
+    без проверки возврата запрещён: используйте этот хелпер.
+
+    Args:
+        layer: QgsVectorLayer с открытой (или уже закрытой) edit-сессией
+        ctx: MODULE_ID вызывающего для префикса лога
+
+    Returns:
+        bool: True — правки записаны в файл; False — буфер откачен,
+              слой гарантированно не в режиме редактирования
+    """
+    if not layer.isEditable():
+        return True
+
+    if layer.commitChanges():
+        return True
+
+    log_error(f"{ctx}: commitChanges отказал в слое {layer.name()}: {layer.commitErrors()}")
+    layer.rollBack()
+    return False
 
 
 # ============================================================================

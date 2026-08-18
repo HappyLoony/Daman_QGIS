@@ -26,8 +26,8 @@ from qgis.core import (
     QgsGeometry,
 )
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
-from Daman_QGIS.constants import WORK_TYPE_BEZ_MEZH
+from Daman_QGIS.utils import log_info, log_warning, log_error, sort_by_northwest
+from Daman_QGIS.constants import WORK_TYPE_BEZ_MEZH, POINTS_FIELD_NONE
 
 # Типы для аннотаций
 from typing import TYPE_CHECKING
@@ -118,7 +118,7 @@ class Fsm_2_1_9_BezMezhProcessor:
                 features_data.append(feature_data)
 
         # Сортировка от СЗ к ЮВ для корректной нумерации ID
-        features_data = self._sort_by_northwest(features_data)
+        features_data = sort_by_northwest(features_data)
 
         # Переназначение ID после сортировки (1, 2, 3... в порядке СЗ -> ЮВ)
         for idx, feat in enumerate(features_data, start=1):
@@ -210,140 +210,26 @@ class Fsm_2_1_9_BezMezhProcessor:
         log_info(f"Fsm_2_1_9: План_категория установлена = '{plan_category}'")
 
         # Общая_земля - определяется по ВРИ из исходного ЗУ
-        attributes['Общая_земля'] = self._determine_public_territory(vri)
+        # Правило «Общая_земля» живёт в M_21 — единственном доме
+        from Daman_QGIS.managers.validation.M_21_vri_assignment_manager import (
+            VRIAssignmentManager,
+        )
+        attributes['Общая_земля'] = (
+            VRIAssignmentManager.get_instance().public_territory_by_vri(vri)
+        )
 
-        # Площадь_ОЗУ = Площадь (из ЗУ, не пересчитывается)
-        area = zu_attrs.get('Площадь', 0)
-        if area:
-            attributes['Площадь_ОЗУ'] = area
+        # Площадь_ОЗУ НЕ перезаписывается полем «Площадь» из ЗУ: то поле
+        # символьное и при отсутствии сведений ЕГРН содержит «-», из-за чего
+        # ниже по конвейеру площадь читалась как 0 и ЗУ переезжал из Без_Меж
+        # в Изм с фиктивной «реестровой ошибкой». Значение уже посчитано по
+        # геометрии в fill_generated_fields (Msm_26_2).
 
         # Вид_Работ - константа для Без_Меж
         attributes['Вид_Работ'] = WORK_TYPE_BEZ_MEZH
 
         # Точки = "-" (нет нумерации для Без_Меж)
-        attributes['Точки'] = '-'
+        attributes['Точки'] = POINTS_FIELD_NONE
 
         return attributes
 
-    def _determine_public_territory(self, vri_value: Optional[str]) -> str:
-        """Определить значение поля Общая_земля по ВРИ
 
-        Использует M_21 (VRIAssignmentManager) Singleton с force_reload=True
-        для гарантированного использования актуального кода.
-        Поддерживает поиск по name (короткое имя) и full_name (полное имя с кодом).
-        Поддерживает множественные ВРИ через разделитель ",".
-
-        Args:
-            vri_value: Значение ВРИ из исходного ЗУ (может быть множественным)
-
-        Returns:
-            "Отнесен" только если ВСЕ распознанные ВРИ относятся к территории
-            общего пользования, "Не отнесен" в противном случае
-        """
-        if not vri_value or vri_value == '-':
-            log_info(f"Fsm_2_1_9: ВРИ пустой или '-', Общая_земля = 'Не отнесен'")
-            return "Не отнесен"
-
-        try:
-            from Daman_QGIS.managers.validation.M_21_vri_assignment_manager import VRIAssignmentManager
-
-            vri_manager = VRIAssignmentManager.get_instance()
-
-            # Разбиваем множественные ВРИ по запятой
-            vri_parts = [v.strip() for v in vri_value.split(',') if v.strip()]
-            log_info(f"Fsm_2_1_9: Проверка Общая_земля для ВРИ '{vri_value}' (частей: {len(vri_parts)})")
-
-            # Собираем флаги is_public_territory по всем распознанным ВРИ.
-            # ЗУ относится к общим землям только если ВСЕ его ВРИ относятся;
-            # любой ВРИ не общий -> весь ЗУ не общий.
-            recognized_public = []
-            for vri_str in vri_parts:
-                # Используем метод менеджера для получения данных ВРИ
-                vri_data = vri_manager._get_vri_data_for_single(vri_str)
-                if vri_data:
-                    is_public = vri_data.get('is_public_territory', False)
-                    log_info(f"Fsm_2_1_9: ВРИ '{vri_str}' найден, is_public_territory={is_public}")
-                    recognized_public.append(is_public)
-                else:
-                    log_warning(f"Fsm_2_1_9: ВРИ '{vri_str}' НЕ найден в базе VRI.json")
-
-            if recognized_public and all(recognized_public):
-                log_info(f"Fsm_2_1_9: ВСЕ ВРИ относятся к территории общего пользования -> 'Отнесен'")
-                return VRIAssignmentManager.PUBLIC_TERRITORY_YES
-
-            log_info(f"Fsm_2_1_9: Не все ВРИ относятся к территории общего пользования -> 'Не отнесен'")
-            return VRIAssignmentManager.PUBLIC_TERRITORY_NO
-
-        except Exception as e:
-            log_warning(f"Fsm_2_1_9: Ошибка определения Общая_земля: {e}")
-            return "Не отнесен"
-
-    def get_bez_mezh_layer_name(self, zpr_type: str) -> str:
-        """
-        Получить имя слоя Без_Меж для типа ЗПР
-
-        Args:
-            zpr_type: Тип ЗПР (ОКС, ЛО, ВО)
-
-        Returns:
-            Имя слоя Без_Меж
-        """
-        from Daman_QGIS.constants import (
-            LAYER_CUTTING_OKS_BEZ_MEZH,
-            LAYER_CUTTING_PO_BEZ_MEZH,
-            LAYER_CUTTING_VO_BEZ_MEZH,
-        )
-
-        layer_map = {
-            'ОКС': LAYER_CUTTING_OKS_BEZ_MEZH,
-            'ЛО': LAYER_CUTTING_PO_BEZ_MEZH,
-            'ВО': LAYER_CUTTING_VO_BEZ_MEZH,
-        }
-
-        return layer_map.get(zpr_type, LAYER_CUTTING_OKS_BEZ_MEZH)
-
-    @staticmethod
-    def _sort_by_northwest(data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Сортировка features от СЗ к ЮВ
-
-        Обеспечивает назначение ID контуров в порядке от северо-западного
-        к юго-восточному (по расстоянию центроида до СЗ угла глобального MBR).
-
-        Args:
-            data: Список features_data (каждый элемент содержит 'geometry')
-
-        Returns:
-            Отсортированный список
-        """
-        if len(data) <= 1:
-            return data
-
-        # Глобальный MBR
-        global_min_x = float('inf')
-        global_max_y = float('-inf')
-        centroids = []
-
-        for item in data:
-            geom = item['geometry']
-            if geom and not geom.isEmpty():
-                centroid = geom.centroid().asPoint()
-                centroids.append((centroid.x(), centroid.y()))
-                bbox = geom.boundingBox()
-                global_min_x = min(global_min_x, bbox.xMinimum())
-                global_max_y = max(global_max_y, bbox.yMaximum())
-            else:
-                centroids.append(None)
-
-        nw_x, nw_y = global_min_x, global_max_y
-
-        def sort_key(idx_item):
-            idx, _ = idx_item
-            c = centroids[idx]
-            if c is None:
-                return float('inf')
-            return (c[0] - nw_x) ** 2 + (c[1] - nw_y) ** 2
-
-        indexed = list(enumerate(data))
-        indexed.sort(key=sort_key)
-        return [item for _, item in indexed]

@@ -26,8 +26,8 @@ from qgis.core import (
     QgsGeometry,
 )
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
-from Daman_QGIS.constants import WORK_TYPE_IZM
+from Daman_QGIS.utils import log_info, log_warning, log_error, sort_by_northwest
+from Daman_QGIS.constants import WORK_TYPE_IZM, POINTS_FIELD_NONE
 
 # Типы для аннотаций
 from typing import TYPE_CHECKING
@@ -140,7 +140,7 @@ class Fsm_2_1_8_IzmenyaemyeProcessor:
             })
 
         # Сортировка от СЗ к ЮВ для корректной нумерации ID
-        result = self._sort_by_northwest(result)
+        result = sort_by_northwest(result)
 
         # Переназначение ID после сортировки (1, 2, 3... в порядке СЗ -> ЮВ)
         for idx, feat in enumerate(result, start=1):
@@ -182,85 +182,17 @@ class Fsm_2_1_8_IzmenyaemyeProcessor:
         category = zu_attrs.get('Категория', '-')
         attributes['План_категория'] = category if category else '-'
 
-        # Площадь_ОЗУ = Площадь (из ЗУ, не пересчитывается)
-        area = zu_attrs.get('Площадь', 0)
-        if area:
-            attributes['Площадь_ОЗУ'] = area
+        # Площадь_ОЗУ НЕ перезаписывается полем «Площадь» из ЗУ: то поле
+        # символьное и при отсутствии сведений ЕГРН содержит «-», из-за чего
+        # ниже по конвейеру площадь читалась как 0 и ЗУ получал фиктивную
+        # «реестровую ошибку площади». Значение уже посчитано по геометрии
+        # в fill_generated_fields (Msm_26_2).
 
         # Вид_Работ - константа для Изменяемых
         attributes['Вид_Работ'] = WORK_TYPE_IZM
 
         # Точки = "-" (нет нумерации для Изменяемых)
-        attributes['Точки'] = '-'
+        attributes['Точки'] = POINTS_FIELD_NONE
 
         return attributes
 
-    def get_izm_layer_name(self, zpr_type: str) -> str:
-        """
-        Получить имя слоя Изм для типа ЗПР
-
-        Args:
-            zpr_type: Тип ЗПР (ОКС, ЛО, ВО)
-
-        Returns:
-            Имя слоя Изм
-        """
-        from Daman_QGIS.constants import (
-            LAYER_CUTTING_OKS_IZM,
-            LAYER_CUTTING_PO_IZM,
-            LAYER_CUTTING_VO_IZM,
-        )
-
-        layer_map = {
-            'ОКС': LAYER_CUTTING_OKS_IZM,
-            'ЛО': LAYER_CUTTING_PO_IZM,
-            'ВО': LAYER_CUTTING_VO_IZM,
-        }
-
-        return layer_map.get(zpr_type, LAYER_CUTTING_OKS_IZM)
-
-    @staticmethod
-    def _sort_by_northwest(data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Сортировка features от СЗ к ЮВ
-
-        Обеспечивает назначение ID контуров в порядке от северо-западного
-        к юго-восточному (по расстоянию центроида до СЗ угла глобального MBR).
-
-        Args:
-            data: Список features_data (каждый элемент содержит 'geometry')
-
-        Returns:
-            Отсортированный список
-        """
-        if len(data) <= 1:
-            return data
-
-        # Глобальный MBR
-        global_min_x = float('inf')
-        global_max_y = float('-inf')
-        centroids = []
-
-        for item in data:
-            geom = item['geometry']
-            if geom and not geom.isEmpty():
-                centroid = geom.centroid().asPoint()
-                centroids.append((centroid.x(), centroid.y()))
-                bbox = geom.boundingBox()
-                global_min_x = min(global_min_x, bbox.xMinimum())
-                global_max_y = max(global_max_y, bbox.yMaximum())
-            else:
-                centroids.append(None)
-
-        nw_x, nw_y = global_min_x, global_max_y
-
-        def sort_key(idx_item):
-            idx, _ = idx_item
-            c = centroids[idx]
-            if c is None:
-                return float('inf')
-            return (c[0] - nw_x) ** 2 + (c[1] - nw_y) ** 2
-
-        indexed = list(enumerate(data))
-        indexed.sort(key=sort_key)
-        return [item for _, item in indexed]

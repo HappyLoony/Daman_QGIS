@@ -33,7 +33,7 @@ from qgis.core import (
 )
 
 from Daman_QGIS.constants import PRECISION_DECIMALS
-from Daman_QGIS.utils import log_info, log_warning
+from Daman_QGIS.utils import log_info, log_warning, log_error, sort_by_northwest
 from . import _ring_utils
 
 __all__ = ['PointNumberingManager', 'number_layer_points']
@@ -107,7 +107,7 @@ class PointNumberingManager:
 
         # Сортировка контуров от СЗ к ЮВ
         if sort_northwest:
-            features_data = self._sort_features_by_northwest(features_data)
+            features_data = sort_by_northwest(features_data)
 
         # Первый проход: собираем уникальные точки (включая внутренние контуры)
         for item in features_data:
@@ -216,7 +216,7 @@ class PointNumberingManager:
         total_points = 0
 
         if sort_northwest:
-            features_data = self._sort_features_by_northwest(features_data)
+            features_data = sort_by_northwest(features_data)
 
         for item in features_data:
             geom = item.get('geometry')
@@ -588,55 +588,6 @@ class PointNumberingManager:
         """
         return _ring_utils.is_clockwise(points)
 
-    def _sort_features_by_northwest(
-        self,
-        features_data: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Сортировка контуров от северо-западного к юго-восточному
-
-        Вычисляет глобальный MBR всех контуров, находит СЗ угол,
-        сортирует по расстоянию центроида каждого контура до СЗ угла.
-
-        Args:
-            features_data: Список словарей с данными объектов (geometry)
-
-        Returns:
-            Отсортированный список (новый, не мутация исходного)
-        """
-        if len(features_data) <= 1:
-            return features_data
-
-        # Собираем центроиды и глобальный MBR
-        centroids = []
-        global_min_x = float('inf')
-        global_max_y = float('-inf')
-
-        for item in features_data:
-            geom = item.get('geometry')
-            if geom and not geom.isEmpty():
-                centroid = geom.centroid().asPoint()
-                centroids.append((centroid.x(), centroid.y()))
-                bbox = geom.boundingBox()
-                global_min_x = min(global_min_x, bbox.xMinimum())
-                global_max_y = max(global_max_y, bbox.yMaximum())
-            else:
-                centroids.append(None)
-
-        # СЗ угол глобального MBR
-        nw_x, nw_y = global_min_x, global_max_y
-
-        # Сортируем по расстоянию до СЗ угла
-        def sort_key(idx_item):
-            idx, _ = idx_item
-            c = centroids[idx]
-            if c is None:
-                return float('inf')
-            return (c[0] - nw_x) ** 2 + (c[1] - nw_y) ** 2
-
-        indexed = list(enumerate(features_data))
-        indexed.sort(key=sort_key)
-
-        return [item for _, item in indexed]
 
     def get_unique_points_count(self) -> int:
         """Получить количество уникальных точек"""
@@ -675,10 +626,12 @@ def number_layer_points(
 
     # Собираем данные объектов
     features_data = []
-    fid_mapping = {}  # {index: fid}
 
-    for idx, feature in enumerate(layer.getFeatures()):
+    for feature in layer.getFeatures():
         if not feature.hasGeometry():
+            log_warning(
+                f"M_20: {layer.name()}: объект fid={feature.id()} без геометрии, пропущен"
+            )
             continue
 
         contour_id = feature[contour_id_field] if contour_id_field in layer.fields().names() else feature.id()
@@ -686,9 +639,11 @@ def number_layer_points(
         features_data.append({
             'geometry': feature.geometry(),
             'contour_id': contour_id,
+            # Привязка по значению: process_polygon_layer пересортирует список,
+            # поэтому позиция элемента после обработки не адресует исходный объект.
+            'fid': feature.id(),
             'attributes': dict(zip(layer.fields().names(), feature.attributes()))
         })
-        fid_mapping[idx] = feature.id()
 
     # Обрабатываем через менеджер
     manager = PointNumberingManager()
@@ -696,8 +651,20 @@ def number_layer_points(
 
     # Формируем результат
     result_dict = {}
-    for idx, item in enumerate(processed_data):
-        if idx in fid_mapping:
-            result_dict[fid_mapping[idx]] = item.get('point_numbers_str', '')
+    for item in processed_data:
+        fid = item.get('fid')
+        if fid is None:
+            log_error(
+                f"M_20: {layer.name()}: элемент без fid — привязка номеров невозможна"
+            )
+            return {}, []
+        result_dict[fid] = item.get('point_numbers_str', '')
+
+    if len(result_dict) != len(features_data):
+        log_error(
+            f"M_20: {layer.name()}: пронумеровано {len(result_dict)} из "
+            f"{len(features_data)} контуров"
+        )
+        return {}, []
 
     return result_dict, points_data

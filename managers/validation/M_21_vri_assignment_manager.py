@@ -26,7 +26,12 @@ from typing import Dict, List, Optional, Set, Tuple, Any
 
 from qgis.core import QgsVectorLayer, QgsFeature
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import (
+    log_info,
+    log_warning,
+    log_error,
+    normalize_for_classification,
+)
 
 __all__ = ['VRIAssignmentManager']
 
@@ -160,18 +165,20 @@ class VRIAssignmentManager:
                 code = vri.get('code', '')
 
                 if full_name:
-                    # Нормализуем для поиска (lowercase, без лишних пробелов)
-                    normalized = full_name.strip().lower()
+                    # Нормализуем обе стороны сравнения: значения ВРИ приходят из
+                    # выписок ЕГРН и НСПД с невидимыми символами и юникод-тире,
+                    # справочник заполняется руками с ASCII
+                    normalized = normalize_for_classification(full_name).lower()
                     self._vri_by_full_name[normalized] = vri
 
                 if name:
                     # Индекс по короткому имени (name) для поиска ВРИ из исходных ЗУ
                     # Пример: "Отдых (рекреация)" -> vri_data
-                    normalized_name = name.strip().lower()
+                    normalized_name = normalize_for_classification(name).lower()
                     self._vri_by_name[normalized_name] = vri
 
                 if code:
-                    self._vri_by_code[code.strip()] = vri
+                    self._vri_by_code[normalize_for_classification(code)] = vri
 
             # Virtual entry для FALLBACK_VRI — позволяет downstream
             # (assign_vri_to_features, reassign_vri_by_geometry) обработать
@@ -268,8 +275,9 @@ class VRIAssignmentManager:
         if not self._loaded:
             self._load_vri_database()
 
-        # Удаляем ВСЕ кавычки из строки (они могут быть внутри из-за данных ЕГРН)
-        cleaned = vri_str.replace('"', '').replace("'", '').strip()
+        # Удаляем ВСЕ кавычки из строки (они могут быть внутри из-за данных ЕГРН);
+        # нормализация — та же, что применена к ключам индексов
+        cleaned = normalize_for_classification(vri_str.replace('"', '').replace("'", ''))
         normalized = cleaned.lower()
 
         # Поиск по full_name
@@ -303,9 +311,10 @@ class VRIAssignmentManager:
         if not self._loaded:
             self._load_vri_database()
 
-        # Удаляем ВСЕ кавычки из строки (они могут быть внутри из-за данных ЕГРН)
+        # Удаляем ВСЕ кавычки из строки (они могут быть внутри из-за данных ЕГРН);
+        # нормализация — та же, что применена к ключам индексов
         # Пример: "Растениеводство" (код 1.1) → Растениеводство (код 1.1)
-        cleaned = vri_str.replace('"', '').replace("'", '').strip()
+        cleaned = normalize_for_classification(vri_str.replace('"', '').replace("'", ''))
         normalized = cleaned.lower()
 
         # 1. Поиск по full_name (полное имя с кодом)
@@ -565,6 +574,40 @@ class VRIAssignmentManager:
                 return self.PUBLIC_TERRITORY_YES
             return self.PUBLIC_TERRITORY_NO
         return "-"
+
+    def public_territory_by_vri(self, vri_value: Optional[str]) -> str:
+        """Значение поля Общая_земля по строке ВРИ
+
+        Единственный дом правила: раньше логика жила двумя копиями в пакете
+        нарезки, и обе лезли в приватный метод этого класса.
+
+        Множественные ВРИ разделяются запятой. «Отнесен» только если ВСЕ
+        распознанные ВРИ относятся к территории общего пользования.
+
+        Args:
+            vri_value: Значение ВРИ исходного ЗУ (возможно множественное)
+
+        Returns:
+            str: `PUBLIC_TERRITORY_YES` либо `PUBLIC_TERRITORY_NO`
+        """
+        if not vri_value or str(vri_value).strip() in ('', '-'):
+            return self.PUBLIC_TERRITORY_NO
+
+        # Разбор — общим правилом (_parse_multiple_vri): наименования ВРИ сами
+        # содержат запятые («Земельные участки, входящие в состав общего
+        # имущества …»), поэтому split(',') резал одно наименование на части
+        vri_parts = self._parse_multiple_vri(str(vri_value))
+        recognized_public = []
+        for vri_str in vri_parts:
+            vri_data = self._get_vri_data_for_single(vri_str)
+            if vri_data:
+                recognized_public.append(vri_data.get('is_public_territory', False))
+            else:
+                log_warning(f"M_21: ВРИ '{vri_str}' не найден в справочнике")
+
+        if recognized_public and all(recognized_public):
+            return self.PUBLIC_TERRITORY_YES
+        return self.PUBLIC_TERRITORY_NO
 
     def assign_vri_to_features(
         self,

@@ -3,12 +3,12 @@
 F_2_7_Объединение - Ручное объединение контуров нарезки
 
 Позволяет вручную выбрать земельные участки из слоёв Раздел или Без_Меж
-и объединить их в единый земельный участок (Polygon или MultiPolygon).
+и объединить их в единый земельный участок (Polygon).
 При объединении из Без_Меж результат попадает в слой Раздел (cross-layer).
 
 Особенности:
 - Объединение геометрий через QgsGeometry.unaryUnion()
-- Смежные геометрии -> Polygon, разнесённые -> MultiPolygon
+- Объединяются только смежные геометрии (общая граница), результат - Polygon
 - Полная перенумерация ID и характерных точек
 - Пересоздание точечного слоя (Т_*)
 - Самодостаточная функция (F_2_3 не требуется)
@@ -17,10 +17,8 @@ F_2_7_Объединение - Ручное объединение контур�
 
 Атрибуты объединённого:
 - Услов_КН = новый (генерируется)
-- Вид_Работ = "Образование ЗУ путём объединения ... с условными номерами X, Y"
-- Состав_контуров = "ID (КН), ID, ID (КН)" - расширенный формат
+- Вид_Работ = "Образование ЗУ путем объединения ... с условными номерами X, Y"
 - Площадь_ОЗУ = area() объединённой геометрии
-- Многоконтурный = "Да" / "Нет"
 """
 
 from typing import Optional, Dict, List, Any, TYPE_CHECKING
@@ -214,11 +212,9 @@ class F_2_7_Merge(BaseTool):
         else:
             # Успешное объединение
             merged_count = result.get('merged_count', 0)
-            is_multipart = result.get('is_multipart', False)
             new_area = result.get('new_area', 0)
 
-            geom_type = "многоконтурный" if is_multipart else "единый"
-            msg = (f"Объединено {merged_count} контуров в {geom_type} участок. "
+            msg = (f"Объединено {merged_count} контуров в единый участок. "
                    f"Площадь: {new_area:.0f} м2")
 
             log_info(f"F_2_7: {msg}")
@@ -241,7 +237,7 @@ class F_2_7_Merge(BaseTool):
 
     def _refresh_layers(
         self,
-        source_layer: QgsVectorLayer,
+        source_layer: Optional[QgsVectorLayer],
         points_layer: Optional[QgsVectorLayer],
         razdel_layer: Optional[QgsVectorLayer] = None,
         razdel_points_layer: Optional[QgsVectorLayer] = None
@@ -249,7 +245,8 @@ class F_2_7_Merge(BaseTool):
         """Обновить отображение слоёв после объединения
 
         Args:
-            source_layer: Слой-источник (Раздел или Без_Меж)
+            source_layer: Слой-источник (Раздел или Без_Меж); None, если слой
+                опустел и был удалён из проекта
             points_layer: Точечный слой источника (если пересоздан)
             razdel_layer: Целевой слой Раздел (при cross-layer объединении)
             razdel_points_layer: Точечный слой Раздел (при cross-layer)

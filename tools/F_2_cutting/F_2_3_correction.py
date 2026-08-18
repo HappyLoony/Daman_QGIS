@@ -32,7 +32,7 @@ from Daman_QGIS.core.base_tool import BaseTool
 from Daman_QGIS.managers import registry
 from Daman_QGIS.constants import (
     PLUGIN_NAME, MESSAGE_SUCCESS_DURATION, MESSAGE_INFO_DURATION,
-    COORDINATE_PRECISION,
+    COORDINATE_PRECISION, VERTEX_DUPLICATE_EPSILON, POINTS_FIELD_NONE,
     # Исходные слои ЗПР
     LAYER_ZPR_OKS, LAYER_ZPR_PO, LAYER_ZPR_VO,
     # Полигональные слои нарезки
@@ -48,7 +48,7 @@ from Daman_QGIS.constants import (
     LAYER_CUTTING_POINTS_PO_RAZDEL, LAYER_CUTTING_POINTS_PO_NGS,
     LAYER_CUTTING_POINTS_VO_RAZDEL, LAYER_CUTTING_POINTS_VO_NGS,
 )
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import log_info, log_warning, log_error, commit_or_rollback, sort_by_northwest
 
 # Импорт менеджеров
 from Daman_QGIS.managers import (
@@ -118,6 +118,9 @@ class F_2_3_Correction(BaseTool):
         self._point_layer_creator: Optional[Fsm_2_1_6_PointLayerCreator] = None
         self._work_type_manager: Optional[WorkTypeAssignmentManager] = None
         self._vri_manager: Optional[VRIAssignmentManager] = None
+        # ID объектов без геометрии, найденных при сборе текущего слоя:
+        # непустой список останавливает корректировку до записи в GPKG
+        self.empty_geometry_ids: List[Any] = []
 
     def set_plugin_dir(self, plugin_dir: str) -> None:
         """Установка пути к папке плагина"""
@@ -298,12 +301,29 @@ class F_2_3_Correction(BaseTool):
         # Получаем объекты отсортированные по северо-западу (П/0592)
         features_data = self._collect_features_sorted_by_northwest(layer)
 
+        # Объект без геометрии остановил бы корректировку молча стёртым:
+        # слой ниже переписывается целиком (fail-closed до любой записи)
+        if self.empty_geometry_ids:
+            ids_str = ", ".join(str(i) for i in self.empty_geometry_ids)
+            log_error(
+                f"F_2_3: корректировка слоя {layer_name} остановлена — "
+                f"объекты без геометрии: {ids_str}"
+            )
+            QMessageBox.critical(
+                None, PLUGIN_NAME,
+                f"В слое {layer_name} есть объекты без геометрии (ID: {ids_str}).\n\n"
+                "Корректировка остановлена: восстановите или удалите эти объекты вручную."
+            )
+            return None
+
         if not features_data:
             log_warning(f"F_2_3: Нет объектов в слое {layer_name}")
             return None
 
-        # Проверка целостности ID: сохранить или перенумеровать
-        preserve_ids = self._check_ids_integrity(layer, layer_name)
+        # Проверка целостности ID: сохранить или перенумеровать.
+        # Проверяется тот же набор, что пойдёт в запись, — иначе решение об ID
+        # принималось бы по одному источнику, а перезапись шла бы по другому
+        preserve_ids = self._check_ids_integrity(features_data, layer_name)
 
         # Проверка конфликта диапазонов и синхронизация ZPR counter
         # Раздел 1-348 → ZPR=348, НГС должен начинаться с 349+
@@ -335,9 +355,9 @@ class F_2_3_Correction(BaseTool):
                 features_data, layer_name, zpr_type, preserve_ids
             )
 
-            # Поле "Точки" = "" (пустое)
+            # Поле «Точки» — прочерк: у Без_Меж нумерации нет (конвенция пакета)
             for item in updated_features:
-                item['attributes']['Точки'] = ""
+                item['attributes']['Точки'] = POINTS_FIELD_NONE
 
             # Обновление слоя в GPKG (без точечного слоя)
             self._update_layer_in_gpkg(layer, updated_features)
@@ -388,6 +408,17 @@ class F_2_3_Correction(BaseTool):
             if _ng is not None:
                 _item['geometry'] = _ng
 
+        # Площадь пересчитывается ПОСЛЕ всех мутаций геометрии (снятие дублей
+        # вершин + нормализация M_47), иначе в слой уходит площадь той геометрии,
+        # которой в файле уже нет
+        if self._attribute_mapper:
+            for _item in updated_features:
+                _geom = _item.get('geometry')
+                if _geom and not _geom.isEmpty():
+                    _item['attributes']['Площадь_ОЗУ'] = (
+                        self._attribute_mapper.calculate_area(_geom)
+                    )
+
         # Нумерация точек
         # ВАЖНО: sort_northwest=False, т.к. данные уже отсортированы в _collect_features_sorted_by_northwest
         # Это гарантирует совпадение порядка контуров и нумерации точек
@@ -407,7 +438,9 @@ class F_2_3_Correction(BaseTool):
         # Порядок features_with_points совпадает с updated_features (оба отсортированы по СЗ)
         for i, item in enumerate(updated_features):
             if i < len(features_with_points):
-                item['attributes']['Точки'] = features_with_points[i].get('point_numbers_str', '-')
+                item['attributes']['Точки'] = features_with_points[i].get(
+                    'point_numbers_str', POINTS_FIELD_NONE
+                )
 
         # Обновление слоя в GPKG
         self._update_layer_in_gpkg(layer, updated_features)
@@ -480,9 +513,23 @@ class F_2_3_Correction(BaseTool):
         """
         features_data = []
 
+        empty_geometry_ids = []
+
         for feature in layer.getFeatures():
             geom = feature.geometry()
             if not geom or geom.isEmpty():
+                # Объект без геометрии дальше был бы стёрт безвозвратно
+                # (_update_layer_in_gpkg переписывает слой целиком), поэтому
+                # он не пропускается молча, а останавливает корректировку
+                feature_id = (
+                    feature.attribute('ID')
+                    if feature.fields().indexOf('ID') >= 0 else '?'
+                )
+                empty_geometry_ids.append(feature_id)
+                log_error(
+                    f"F_2_3: объект ID={feature_id} (fid={feature.id()}) слоя "
+                    f"{layer.name()} не имеет геометрии"
+                )
                 continue
 
             # Собираем все атрибуты
@@ -499,36 +546,40 @@ class F_2_3_Correction(BaseTool):
             })
 
         # Сортировка по северо-западу (П/0592)
-        features_data = self._sort_features_by_northwest(features_data)
+        features_data = sort_by_northwest(features_data)
 
+        self.empty_geometry_ids = empty_geometry_ids
         return features_data
 
     def _check_ids_integrity(
         self,
-        layer: QgsVectorLayer,
+        features_data: List[Dict[str, Any]],
         layer_name: str
     ) -> bool:
-        """Проверка целостности ID в слое
+        """Проверка целостности ID в собранном наборе объектов
 
         Проверяет что все ID заполнены, уникальны и без пропусков.
         Если ID корректны - возвращает True (сохранить существующие).
         Если найдены проблемы - возвращает False (перенумеровать).
 
+        Проверяется ИМЕННО тот набор, который пойдёт в перезапись слоя:
+        чтение слоя заново дало бы второй источник истины для одного решения.
+
         Args:
-            layer: Слой для проверки
+            features_data: Собранные объекты слоя (после сортировки)
             layer_name: Имя слоя (для логирования)
 
         Returns:
             bool: True = сохранить ID, False = перенумеровать
         """
         # Проверка наличия поля ID
-        if layer.fields().indexFromName('ID') < 0:
+        if not features_data or 'ID' not in features_data[0].get('attributes', {}):
             log_info(f"F_2_3: {layer_name} - поле ID отсутствует, требуется перенумерация")
             return False
 
         ids = []
-        for feature in layer.getFeatures():
-            val = feature['ID']
+        for item in features_data:
+            val = item['attributes'].get('ID')
 
             # Проверка на NULL/None/пустое
             if val is None or str(val) == 'NULL' or str(val).strip() == '':
@@ -572,55 +623,6 @@ class F_2_3_Correction(BaseTool):
                 f"({len(ids)} шт., диапазон {min_id}-{max_id}), сохранены без перенумерации")
         return True
 
-    def _sort_features_by_northwest(
-        self,
-        features_data: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Сортировка контуров от северо-западного к юго-восточному
-
-        Вычисляет глобальный MBR всех контуров, находит СЗ угол,
-        сортирует по расстоянию центроида каждого контура до СЗ угла.
-
-        Args:
-            features_data: Список словарей с данными объектов (geometry)
-
-        Returns:
-            Отсортированный список (новый, не мутация исходного)
-        """
-        if len(features_data) <= 1:
-            return features_data
-
-        # Собираем центроиды и глобальный MBR
-        centroids = []
-        global_min_x = float('inf')
-        global_max_y = float('-inf')
-
-        for item in features_data:
-            geom = item.get('geometry')
-            if geom and not geom.isEmpty():
-                centroid = geom.centroid().asPoint()
-                centroids.append((centroid.x(), centroid.y()))
-                bbox = geom.boundingBox()
-                global_min_x = min(global_min_x, bbox.xMinimum())
-                global_max_y = max(global_max_y, bbox.yMaximum())
-            else:
-                centroids.append(None)
-
-        # СЗ угол глобального MBR
-        nw_x, nw_y = global_min_x, global_max_y
-
-        # Сортируем по расстоянию до СЗ угла
-        def sort_key(idx_item):
-            idx, _ = idx_item
-            c = centroids[idx]
-            if c is None:
-                return float('inf')
-            return (c[0] - nw_x) ** 2 + (c[1] - nw_y) ** 2
-
-        indexed = list(enumerate(features_data))
-        indexed.sort(key=sort_key)
-
-        return [item for _, item in indexed]
 
     def _recalculate_attributes(
         self,
@@ -720,8 +722,10 @@ class F_2_3_Correction(BaseTool):
         """Удаление дублей вершин из геометрий
 
         После ручного редактирования пользователь может создать дубли вершин
-        (например, переместив вершину на координаты соседней). Эта функция
-        удаляет такие дубли с допуском COORDINATE_PRECISION (1 см).
+        (например, переместив вершину на координаты соседней). Снимаются только
+        настоящие дубли: допуск VERTEX_DUPLICATE_EPSILON (1 мм) строго меньше
+        шага кадастровой сетки, иначе сносились бы легитимные вершины,
+        отстоящие ровно на 1 см.
 
         Args:
             features_data: Список данных объектов
@@ -742,9 +746,15 @@ class F_2_3_Correction(BaseTool):
             original_vertex_count = geom.constGet().nCoordinates() if geom.constGet() else 0
 
             # removeDuplicateNodes модифицирует геометрию in-place и возвращает True если были изменения
-            if geom.removeDuplicateNodes(epsilon=COORDINATE_PRECISION, useZValues=False):
+            if geom.removeDuplicateNodes(epsilon=VERTEX_DUPLICATE_EPSILON, useZValues=False):
                 new_vertex_count = geom.constGet().nCoordinates() if geom.constGet() else 0
-                removed_count += (original_vertex_count - new_vertex_count)
+                removed = original_vertex_count - new_vertex_count
+                removed_count += removed
+                if removed:
+                    log_info(
+                        f"F_2_3: контур ID={item.get('attributes', {}).get('ID')}: "
+                        f"снято {removed} дублей вершин"
+                    )
 
         if removed_count > 0:
             log_info(f"F_2_3: Удалено {removed_count} дублей вершин")
@@ -772,7 +782,10 @@ class F_2_3_Correction(BaseTool):
 
             # Удаляем все существующие объекты
             all_ids = [f.id() for f in layer.getFeatures()]
-            layer.deleteFeatures(all_ids)
+            if not layer.deleteFeatures(all_ids):
+                log_error(f"F_2_3: deleteFeatures отказал в слое {layer.name()}")
+                layer.rollBack()
+                return False
 
             # Добавляем объекты с обновлёнными атрибутами
             for item in features_data:
@@ -784,10 +797,21 @@ class F_2_3_Correction(BaseTool):
                     if idx >= 0:
                         feature.setAttribute(idx, value)
 
-                layer.addFeature(feature)
+                if not layer.addFeature(feature):
+                    feature_id = (
+                        feature.attribute('ID')
+                        if feature.fields().indexOf('ID') >= 0 else '?'
+                    )
+                    log_error(
+                        f"F_2_3: addFeature отказал в слое {layer.name()} "
+                        f"(ID={feature_id}) — слой откачен, объекты не потеряны"
+                    )
+                    layer.rollBack()
+                    return False
 
             # Сохраняем изменения
-            layer.commitChanges()
+            if not commit_or_rollback(layer, "F_2_3"):
+                return False
             log_info(f"F_2_3: Слой {layer.name()} обновлён в GPKG")
             return True
 
@@ -981,8 +1005,21 @@ class F_2_3_Correction(BaseTool):
         for feature in ngs_layer.getFeatures():
             ngs_geom = feature.geometry()
             if not ngs_geom or ngs_geom.isEmpty():
-                features_to_delete.append(feature.id())
-                continue
+                # Пустая геометрия после ручного редактирования — сигнал
+                # повреждения слоя, а не мусор: удалять такой объект молча
+                # значит стереть данные вместо того, чтобы показать проблему
+                log_error(
+                    f"F_2_3: объект ID={feature.attribute('ID') if feature.fields().indexOf('ID') >= 0 else '?'} "
+                    f"(fid={feature.id()}) слоя {ngs_layer.name()} не имеет геометрии — "
+                    f"пересчёт НГС остановлен"
+                )
+                QMessageBox.critical(
+                    None, PLUGIN_NAME,
+                    f"В слое {ngs_layer.name()} есть объект без геометрии "
+                    f"(fid={feature.id()}).\n\n"
+                    "Корректировка остановлена: восстановите или удалите этот объект вручную."
+                )
+                return 0
 
             # Вычисляем разницу: НГС - Раздел_union
             new_geom = ngs_geom.difference(razdel_union)
@@ -1013,7 +1050,12 @@ class F_2_3_Correction(BaseTool):
             for fid, new_geom in features_to_update:
                 ngs_layer.changeGeometry(fid, new_geom)
 
-            ngs_layer.commitChanges()
+            if not commit_or_rollback(ngs_layer, "F_2_3"):
+                log_error(
+                    f"F_2_3: правки слоя {ngs_name} откачены — "
+                    f"удаление {len(features_to_delete)} объектов НГС не выполнено"
+                )
+                return 0
 
         return len(features_to_delete)
 
@@ -1061,10 +1103,23 @@ class F_2_3_Correction(BaseTool):
                     zpr_types_checked.add(zpr_type)
                     result = validator.validate_cutting_results(zpr_type, show_dialog=True)
 
-                    if result.get('skipped_no_field'):
+                    if result.get('skipped_no_layer'):
+                        log_info(
+                            f"F_2_3: Валидация {zpr_type} не требуется "
+                            f"({result.get('reason')})"
+                        )
+                    elif result.get('skipped_no_field'):
                         log_info(f"F_2_3: Валидация {zpr_type} пропущена (нет поля MIN_AREA_VRI)")
                     elif result.get('success'):
-                        log_info(f"F_2_3: Валидация {zpr_type} успешна")
+                        log_info(
+                            f"F_2_3: Валидация {zpr_type} успешна, проверено "
+                            f"{result.get('total_checked', 0)} контуров"
+                        )
+                    elif result.get('total_checked', 0) == 0:
+                        log_error(
+                            f"F_2_3: Валидация {zpr_type} НЕ ВЫПОЛНЕНА "
+                            f"({result.get('reason') or 'причина не указана'})"
+                        )
                     else:
                         log_warning(
                             f"F_2_3: Валидация {zpr_type} - найдено {result.get('problem_count', 0)} "

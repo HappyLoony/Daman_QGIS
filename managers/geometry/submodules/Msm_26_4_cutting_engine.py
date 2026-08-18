@@ -25,7 +25,8 @@ from qgis.core import (
     QgsSpatialIndex,
 )
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.constants import POINTS_FIELD_NONE
+from Daman_QGIS.utils import log_info, log_warning, log_error, sort_by_northwest
 
 # Lazy imports для избежания циклических зависимостей
 def _get_managers():
@@ -121,16 +122,6 @@ class Msm_26_4_CuttingEngine:
             self._vri_manager = VRIAssignmentManager()
         return self._vri_manager
 
-    def _ensure_project_crs(self, geom: QgsGeometry, layer_crs: QgsCoordinateReferenceSystem) -> QgsGeometry:
-        """Трансформирует геометрию в CRS проекта если нужно"""
-        project_crs = QgsProject.instance().crs()
-        if layer_crs.authid() != project_crs.authid():
-            g = QgsGeometry(geom)  # deep copy
-            transform = QgsCoordinateTransform(layer_crs, project_crs, QgsProject.instance())
-            g.transform(transform)
-            return g
-        return geom
-
     def _reset_statistics(self) -> None:
         """Сброс статистики перед обработкой"""
         self.statistics = {
@@ -181,6 +172,18 @@ class Msm_26_4_CuttingEngine:
         """
         start_time = time.time()
         log_info(f"Msm_26_4: Начало нарезки {zpr_type}")
+
+        # Вахтёр CRS на входе: геометрия источников пишется в слои нарезки как
+        # есть, под штампом CRS проекта. Расхождение систем координат дало бы
+        # координаты одной СК под именем другой — молча и без единой ошибки.
+        project_crs = QgsProject.instance().crs()
+        for layer, role in ((zpr_layer, 'ЗПР'), (zu_layer, 'Выборка_ЗУ')):
+            if layer is not None and layer.crs().authid() != project_crs.authid():
+                log_error(
+                    f"Msm_26_4: CRS слоя {role} ({layer.crs().authid()}) не совпадает "
+                    f"с CRS проекта ({project_crs.authid()}) — нарезка остановлена"
+                )
+                return None
 
         # Сброс статистики и счётчиков ID
         # ВАЖНО: reset_kn_counters() НЕ вызываем здесь - счётчики КН/ЕЗ глобальные
@@ -339,7 +342,7 @@ class Msm_26_4_CuttingEngine:
 
                     if original_cat != m36_cat and m36_cat != '-':
                         # Категория изменилась -> перенос в Изм
-                        feat['attributes']['Точки'] = '-'
+                        feat['attributes']['Точки'] = POINTS_FIELD_NONE
                         feat.setdefault('_izm_flags', {})['category'] = True
                         moved_to_izm.append(feat)
                         log_info(f"Msm_26_4: Без_Меж -> Изм: категория изменилась "
@@ -364,11 +367,14 @@ class Msm_26_4_CuttingEngine:
                     geom = feat.get('geometry')
                     if not geom or geom.isEmpty():
                         continue
+                    # Сведения ЕГРН — поле «Площадь». «Площадь_ОЗУ» для сравнения
+                    # непригодно: оно само рассчитано из этой же геометрии.
+                    egrn_area = self.attribute_mapper.parse_egrn_area(
+                        feat['attributes'].get('Площадь')
+                    )
+                    if egrn_area is None:
+                        continue
                     actual_area = geom.area()
-                    try:
-                        egrn_area = float(feat['attributes'].get('Площадь_ОЗУ', 0) or 0)
-                    except (ValueError, TypeError):
-                        egrn_area = 0.0
                     if round(egrn_area) != round(actual_area):
                         feat.setdefault('_izm_flags', {})['area'] = True
                         feat['attributes']['Площадь_ОЗУ'] = int(round(actual_area))
@@ -376,8 +382,10 @@ class Msm_26_4_CuttingEngine:
                                 f"ЕГРН={round(egrn_area)} м2 -> факт={round(actual_area)} м2")
 
             # 3.3.4 Пост-проверка площади для Без_Меж
-            # Если фактическая площадь геометрии отличается от площади из выписки (ЕГРН)
-            # на >= 1 м2 (округлённо) -> переносим в Изм (реестровая ошибка)
+            # Фактическая площадь геометрии сравнивается со сведениями ЕГРН (поле
+            # «Площадь»). Расхождение округлённых значений -> перенос в Изм
+            # (реестровая ошибка). Сравнение округлённых даёт срабатывание от 0.5 м2.
+            # Контур без сведений ЕГРН остаётся в Без_Меж: сравнивать не с чем.
             if bez_mezh_features:
                 moved_area = []
                 remaining_area = []
@@ -388,15 +396,18 @@ class Msm_26_4_CuttingEngine:
                         remaining_area.append(feat)
                         continue
 
+                    egrn_area = self.attribute_mapper.parse_egrn_area(
+                        feat['attributes'].get('Площадь')
+                    )
+                    if egrn_area is None:
+                        remaining_area.append(feat)
+                        continue
+
                     actual_area = geom.area()
-                    try:
-                        egrn_area = float(feat['attributes'].get('Площадь_ОЗУ', 0) or 0)
-                    except (ValueError, TypeError):
-                        egrn_area = 0.0
 
                     if round(egrn_area) != round(actual_area):
                         # Площадь отличается -> перенос в Изм (реестровая ошибка)
-                        feat['attributes']['Точки'] = '-'
+                        feat['attributes']['Точки'] = POINTS_FIELD_NONE
                         feat['attributes']['Площадь_ОЗУ'] = int(round(actual_area))
                         feat.setdefault('_izm_flags', {})['area'] = True
                         moved_area.append(feat)
@@ -417,14 +428,24 @@ class Msm_26_4_CuttingEngine:
             izm_need_vri_reassign: List[Dict[str, Any]] = []
             izm_keep_vri: List[Dict[str, Any]] = []
             if izm_features:
-                from Daman_QGIS.constants import compose_work_type_izm
+                from Daman_QGIS.constants import WORK_TYPE_IZM
                 for feat in izm_features:
                     flags = feat.pop('_izm_flags', {})
-                    feat['attributes']['Вид_Работ'] = compose_work_type_izm(
+                    work_type = self.attribute_mapper.compose_work_type_izm(
                         vri_changed=flags.get('vri', False),
                         category_changed=flags.get('category', False),
                         area_mismatch=flags.get('area', False)
                     )
+                    if work_type is None:
+                        # Контур попал в Изм, но ни один флаг причины не поднят:
+                        # значит причина известна вызывающему коду, а не флагам
+                        log_warning(
+                            f"Msm_26_4: Изм ID={feat['attributes'].get('ID')}: "
+                            f"причина изменения не определена, Вид_Работ "
+                            f"заполнен обобщённой формулировкой"
+                        )
+                        work_type = WORK_TYPE_IZM
+                    feat['attributes']['Вид_Работ'] = work_type
                     # ВРИ менять только если мягкая валидация НЕ прошла (vri_changed)
                     if flags.get('vri', False):
                         izm_need_vri_reassign.append(feat)
@@ -660,8 +681,6 @@ class Msm_26_4_CuttingEngine:
                 intersecting_zu = self._find_intersecting_features(zpr_geom, zu_layer, zu_index)
 
             # Нарезка по каждому пересекающемуся ЗУ
-            processed_area = QgsGeometry()  # Уже обработанная область
-
             for zu_feature in intersecting_zu:
                 # Пропускаем ЗУ которые уже обработаны как Изм/Без_Меж
                 if zu_feature.id() in excluded_zu_ids:
@@ -699,12 +718,6 @@ class Msm_26_4_CuttingEngine:
                         'zpr_vri': zpr_vri,  # ВРИ из ЗПР для План_ВРИ
                         'overlays': {}  # Заполняется при overlay нарезке
                     })
-
-                # Обновляем обработанную область
-                if processed_area.isEmpty():
-                    processed_area = intersection
-                else:
-                    processed_area = processed_area.combine(intersection)
 
             # НГС = ЗПР минус union всех ЗУ
             if not zu_union.isEmpty():
@@ -796,18 +809,27 @@ class Msm_26_4_CuttingEngine:
             Msm_21_1_ExistingVRIValidator,
         )
 
-        # Инициализация валидатора ВРИ для мягкого сравнения
-        vri_validator = None
+        # Инициализация валидатора ВРИ.
+        # Справочник тянется с сервера, и его недоступность — сетевая ошибка:
+        # молча переходить на строгое сравнение нельзя, от результата зависит
+        # раскладка ЗУ по Изм/Без_Меж/Раздел (fail-closed).
         try:
             loader = BaseReferenceLoader()
             vri_data = loader._load_json('VRI.json')
-            if vri_data:
-                vri_validator = Msm_21_1_ExistingVRIValidator(vri_data)
-                log_info("Msm_26_4: Инициализирован ExistingVRIValidator для soft validation ВРИ")
-            else:
-                log_warning("Msm_26_4: VRI.json не загружен, используется строгое сравнение ВРИ")
         except Exception as e:
-            log_warning(f"Msm_26_4: Ошибка инициализации VRI валидатора: {e}")
+            raise RuntimeError(
+                f"Справочник ВРИ (VRI.json) недоступен: {e}. "
+                f"Нарезка остановлена: классификация ЗУ без справочника недостоверна."
+            ) from e
+
+        if not vri_data:
+            raise RuntimeError(
+                "Справочник ВРИ (VRI.json) пуст либо не загружен. "
+                "Нарезка остановлена: классификация ЗУ без справочника недостоверна."
+            )
+
+        vri_validator = Msm_21_1_ExistingVRIValidator(vri_data)
+        log_info("Msm_26_4: Инициализирован ExistingVRIValidator для сравнения ВРИ")
 
         # Инициализация детектора с валидатором
         detector = Fsm_2_1_7_NoChangeDetector(
@@ -1029,7 +1051,6 @@ class Msm_26_4_CuttingEngine:
 
                 # Нарезка по каждому overlay feature
                 remaining = QgsGeometry(geom)
-                has_cuts = False
 
                 for ov_feature in intersecting:
                     if remaining.isEmpty():
@@ -1062,7 +1083,6 @@ class Msm_26_4_CuttingEngine:
                                 'overlays': inside_overlays
                             })
                             remaining = QgsGeometry()
-                            has_cuts = True
                     else:
                         # Частичное пересечение -- вырезаем intersection
                         inside = self.geometry_processor.intersection(remaining, ov_geom)
@@ -1080,7 +1100,6 @@ class Msm_26_4_CuttingEngine:
                                         'zpr_vri': zpr_vri,
                                         'overlays': inside_overlays.copy()
                                     })
-                            has_cuts = True
 
                         remaining = outside if not outside.isEmpty() else QgsGeometry()
 
@@ -1138,7 +1157,7 @@ class Msm_26_4_CuttingEngine:
         result = []
 
         # Сортировка контуров от СЗ к ЮВ (ID=1 → самый СЗ контур)
-        data = self._sort_data_by_northwest(data)
+        data = sort_by_northwest(data)
 
         for item in data:
             geom = item['geometry']
@@ -1178,50 +1197,6 @@ class Msm_26_4_CuttingEngine:
 
         return result
 
-    @staticmethod
-    def _sort_data_by_northwest(data: List[Dict]) -> List[Dict]:
-        """Сортировка данных нарезки от СЗ к ЮВ
-
-        Обеспечивает назначение ID контуров в порядке от северо-западного
-        к юго-восточному (по расстоянию центроида до СЗ угла глобального MBR).
-
-        Args:
-            data: Данные нарезки (каждый элемент содержит 'geometry')
-
-        Returns:
-            Отсортированный список
-        """
-        if len(data) <= 1:
-            return data
-
-        # Глобальный MBR
-        global_min_x = float('inf')
-        global_max_y = float('-inf')
-        centroids = []
-
-        for item in data:
-            geom = item['geometry']
-            if not geom.isEmpty():
-                centroid = geom.centroid().asPoint()
-                centroids.append((centroid.x(), centroid.y()))
-                bbox = geom.boundingBox()
-                global_min_x = min(global_min_x, bbox.xMinimum())
-                global_max_y = max(global_max_y, bbox.yMaximum())
-            else:
-                centroids.append(None)
-
-        nw_x, nw_y = global_min_x, global_max_y
-
-        def sort_key(idx_item):
-            idx, _ = idx_item
-            c = centroids[idx]
-            if c is None:
-                return float('inf')
-            return (c[0] - nw_x) ** 2 + (c[1] - nw_y) ** 2
-
-        indexed = list(enumerate(data))
-        indexed.sort(key=sort_key)
-        return [item for _, item in indexed]
 
     def _build_spatial_index(
         self,

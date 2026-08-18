@@ -277,7 +277,13 @@ class Fsm_2_1_6_PointLayerCreator:
             mem_layer.updateFields()
 
             # Добавляем features
-            mem_layer.dataProvider().addFeatures(features)
+            ok, _ = mem_layer.dataProvider().addFeatures(features)
+            if not ok or mem_layer.featureCount() != len(features):
+                log_error(
+                    f"Fsm_2_1_6: записано {mem_layer.featureCount()} из {len(features)} "
+                    f"точек в {layer_name}, слой не сохранён"
+                )
+                return False
 
             # Сохраняем в GPKG
             error = QgsVectorFileWriter.writeAsVectorFormatV3(

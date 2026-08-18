@@ -114,7 +114,6 @@ class TestF31Cutting:
         self.logger.section("3. Проверка субмодулей F_2_1")
 
         submodules = [
-            ('Fsm_2_1_3_layer_creator', 'Fsm_2_1_3_LayerCreator'),
             ('Fsm_2_1_5_kk_matcher', 'Fsm_2_1_5_KKMatcher'),
             ('Fsm_2_1_6_point_layer_creator', 'Fsm_2_1_6_PointLayerCreator'),
         ]

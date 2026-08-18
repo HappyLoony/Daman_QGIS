@@ -25,7 +25,12 @@ from qgis.core import (
     QgsSpatialIndex,
 )
 
-from Daman_QGIS.utils import log_info, log_warning, log_error
+from Daman_QGIS.utils import (
+    log_info,
+    log_warning,
+    log_error,
+    normalize_for_classification,
+)
 
 
 class Msm_26_5_KKMatcher:
@@ -63,14 +68,18 @@ class Msm_26_5_KKMatcher:
             geom = feature.geometry()
 
             if not geom or geom.isEmpty():
+                log_warning(f"Msm_26_5: КК fid={feature.id()} без геометрии, пропущен")
                 continue
 
             # Получаем КН из поля cad_num
             cad_num = feature.attribute('cad_num')
             if not cad_num:
+                log_warning(f"Msm_26_5: КК fid={feature.id()} без значения КН, пропущен")
                 continue
 
-            cad_num = str(cad_num).strip()
+            # Строки НСПД несут невидимые символы (nbsp, zero-width) — без
+            # нормализации квартал не проходит формат-проверку и молча выпадает
+            cad_num = normalize_for_classification(str(cad_num))
 
             # Проверяем что это валидный квартал (не нулёвка)
             if not self.is_valid_quarter(cad_num):
