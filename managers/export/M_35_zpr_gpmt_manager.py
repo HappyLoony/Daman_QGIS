@@ -17,7 +17,9 @@ M_35_ZprGpmtManager - Формирование ГПМТ из слоёв ЗПР
 - При каждом импорте ЗПР вызывается rebuild_gpmt()
 - Удаляется старый ГПМТ и точечный слой нумерации
 - Собираются ВСЕ геометрии из ВСЕХ слоёв ЗПР в проекте
-- Объединяются через unaryUnion в один MultiPolygon
+- Объединяются через unaryUnion со snap-rounding gridSize=COORDINATE_PRECISION
+  в один MultiPolygon (без gridSize GEOS оставляет вырожденные кольца на стыках
+  смежных ЗПР — см. комментарий в _collect_and_unite_geometries)
 - Площадь вычисляется от объединённой геометрии (учитывает перекрытия)
 - Создаётся точечный слой с нумерацией всех вершин (M_20)
 """
@@ -29,7 +31,7 @@ from qgis.PyQt.QtCore import QMetaType
 from qgis.core import (
     Qgis, QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry,
     QgsField, QgsWkbTypes, QgsVectorFileWriter,
-    QgsMemoryProviderUtils, QgsFields, QgsPointXY
+    QgsMemoryProviderUtils, QgsFields, QgsPointXY, QgsGeometryParameters
 )
 
 from Daman_QGIS.utils import log_info, log_warning, log_error, log_success
@@ -269,8 +271,18 @@ class ZprGpmtManager:
 
         log_info(f"M_35: Объединение {len(all_geometries)} геометрий")
 
-        # Объединяем все геометрии в одну
-        united = QgsGeometry.unaryUnion(all_geometries)
+        # Объединяем все геометрии в одну со snap-rounding к кадастровой сетке.
+        # gridSize ОБЯЗАТЕЛЕН (правка 2026-08-18): голый unaryUnion оставляет на
+        # стыках смежных ЗПР вырожденные кольца нулевой площади — численный мусор
+        # GEOS, а не щели в данных. Замер на проекте «Сапун гора» (83 ЗПР):
+        # без gridSize — 13 колец / 155 вершин / 12 дырок по 1e-8 м2, детекторы
+        # F_0_4 дают 35 ошибок (10 дублей вершин + 20 близких точек + 5
+        # неокруглённых); с gridSize=0.01 — 1 кольцо / 83 вершины / 0 дырок /
+        # 0 ошибок. Площадь не меняется (481126.700100 м2 в обоих случаях,
+        # symDifference 1.15e-6 м2). Тот же приём — SSOT нарезки Msm_26_1.
+        params = QgsGeometryParameters()
+        params.setGridSize(COORDINATE_PRECISION)
+        united = QgsGeometry.unaryUnion(all_geometries, params)
 
         if not united or united.isEmpty():
             log_error("M_35: unaryUnion вернул пустую геометрию")
