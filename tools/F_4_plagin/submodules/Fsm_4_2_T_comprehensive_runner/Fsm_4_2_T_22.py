@@ -426,22 +426,55 @@ class TestM22:
             self.logger.skip("Менеджер не инициализирован")
             return
         try:
-            # Ищем запись для раздела
-            record = self.manager.get_work_type_record_for_vedomost(
-                "Образование земельного участка путем раздела"
-            )
+            razdel = "Образование земельного участка путем раздела"
+
+            # У 'раздела' три записи (7F.4 / 7F.5 / 7F.6) с одним
+            # vedomost_value: без признака общего пользования выбор
+            # невозможен, менеджер обязан отказать, а не отдать произвольную
+            ambiguous = self.manager.get_work_type_record_for_vedomost(razdel)
             self.logger.check(
-                record is not None,
-                "Запись для 'раздела' найдена",
-                "Запись для 'раздела' не найдена!"
+                ambiguous is None,
+                "'Раздел' без признака ТОП -> None (неоднозначность)",
+                f"'Раздел' без признака ТОП -> {ambiguous} (должен быть None)!"
             )
 
-            if record:
+            # Не отнесён к территории общего пользования -> обычные ОЗУ
+            ordinary = self.manager.get_work_type_record_for_vedomost(
+                razdel, is_public_territory=False
+            )
+            self.logger.check(
+                ordinary is not None and ordinary.get('code_code') == '7F.4',
+                "'Раздел' не отнесён к ТОП -> 7F.4",
+                f"'Раздел' не отнесён к ТОП -> {(ordinary or {}).get('code_code')}!"
+            )
+
+            # Отнесён к территории общего пользования
+            public = self.manager.get_work_type_record_for_vedomost(
+                razdel, is_public_territory=True
+            )
+            self.logger.check(
+                public is not None and public.get('code_code') == '7F.6',
+                "'Раздел' отнесён к ТОП -> 7F.6",
+                f"'Раздел' отнесён к ТОП -> {(public or {}).get('code_code')}!"
+            )
+
+            if ordinary:
                 self.logger.check(
-                    'code' in record or 'style' in record,
+                    'code' in ordinary or 'style' in ordinary,
                     f"Запись содержит 'code' или 'style'",
-                    f"Запись не содержит 'code' или 'style': {list(record.keys())}"
+                    f"Запись не содержит 'code' или 'style': {list(ordinary.keys())}"
                 )
+
+            # Единственная запись отдаётся без признака
+            ngs = self.manager.get_work_type_record_for_vedomost(
+                "Образование земельного участка из земель, находящихся "
+                "в государственной или муниципальной собственности"
+            )
+            self.logger.check(
+                ngs is not None,
+                "НГС (единственная запись) -> найдена без признака",
+                "НГС (единственная запись) -> не найдена!"
+            )
 
             # Несуществующая запись
             none_record = self.manager.get_work_type_record_for_vedomost("Несуществующий тип")

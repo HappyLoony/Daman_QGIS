@@ -29,7 +29,7 @@ M_22_WorkTypeAssignmentManager - Менеджер присвоения Вид_Р
 import json
 import os
 from enum import Enum
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 
 from qgis.core import QgsVectorLayer
 
@@ -61,6 +61,14 @@ class WorkTypeAssignmentManager:
 
     VRI-операции делегируются M_21_VRIAssignmentManager.
     """
+
+    # Коды условных обозначений Work_types для «раздела» — у него три записи
+    # с одинаковым vedomost_value, различаются только кодом.
+    CODE_ORDINARY = '7F.4'          # обычные образуемые ЗУ
+    CODE_PUBLIC_TERRITORY = '7F.6'  # территории общего пользования
+    # 7F.5 (имущество общего пользования) недостижим: в VRI.json признак один —
+    # is_public_territory, он склеивает ТОП и ИОП. Разграничение требует
+    # юридического разбора и отдельного признака в справочнике (задача в Vault).
 
     def __init__(self, plugin_dir: Optional[str] = None) -> None:
         """Инициализация менеджера
@@ -416,9 +424,57 @@ class WorkTypeAssignmentManager:
 
         return features_data
 
+    @staticmethod
+    def _pick_work_type_record(
+        records: List[Dict],
+        is_public_territory: Optional[bool] = None
+    ) -> Tuple[Optional[Dict], str]:
+        """Выбрать одну запись Work_types из найденных по vedomost_value
+
+        Чистая функция (списки и флаг на входе, запись и причина на выходе) —
+        логированием занимается вызывающий, проверяется без QGIS
+        (`scripts/check_work_types_sync.py`).
+
+        Неоднозначность существует только у «раздела»: три записи с одним
+        vedomost_value. Молча выбирать нельзя — в прежней редакции индекс
+        оставлял последнюю (7F.6, территории общего пользования) и рядовой
+        раздел получал чужой код.
+
+        Args:
+            records: Записи справочника с одинаковым vedomost_value
+            is_public_territory: Признак отнесения к территории общего
+                пользования (поле Общая_земля, ставит M_21). None — признак
+                не передан вызывающим
+
+        Returns:
+            (запись или None, причина отказа для лога — пустая строка при успехе)
+        """
+        if not records:
+            return None, 'записей нет'
+
+        if len(records) == 1:
+            return records[0], ''
+
+        if is_public_territory is None:
+            codes = ', '.join(str(r.get('code_code')) for r in records)
+            return None, (
+                f'найдено {len(records)} записей ({codes}) — для выбора нужен '
+                f'признак отнесения к территории общего пользования'
+            )
+
+        wanted = (WorkTypeAssignmentManager.CODE_PUBLIC_TERRITORY
+                  if is_public_territory
+                  else WorkTypeAssignmentManager.CODE_ORDINARY)
+        for record in records:
+            if record.get('code_code') == wanted:
+                return record, ''
+
+        return None, f'среди найденных записей нет кода {wanted}'
+
     def get_work_type_record_for_vedomost(
         self,
-        work_type_value: str
+        work_type_value: str,
+        is_public_territory: Optional[bool] = None
     ) -> Optional[Dict]:
         """Получить полную запись Work_types для значения Вид_Работ
 
@@ -429,12 +485,18 @@ class WorkTypeAssignmentManager:
         2. Для динамических значений с номерами контуров:
            - "...объединения...с условными номерами 100, 101" соответствует
              "...объединения...с условными номерами"
+        3. Выбор одной записи из найденных — `_pick_work_type_record`
 
         Args:
             work_type_value: Значение поля Вид_Работ
+            is_public_territory: Признак отнесения к территории общего
+                пользования (поле Общая_земля == "Отнесен"). Обязателен только
+                для «раздела», у которого в справочнике три записи; для прочих
+                значений игнорируется
 
         Returns:
-            Словарь с данными или None
+            Словарь с данными или None. None при неоднозначности — сознательно:
+            вернуть произвольную запись значит отдать чужой код и стиль
         """
         if not self._load_databases():
             log_error(
@@ -444,22 +506,31 @@ class WorkTypeAssignmentManager:
             return None
 
         # Ищем по точному совпадению vedomost_value
-        if work_type_value in self._work_types_by_vedomost:
-            return self._work_types_by_vedomost[work_type_value]
+        records = self._work_types_by_vedomost.get(work_type_value)
 
         # Для динамических значений с номерами контуров
         # Паттерн: "...с условными номерами X, Y, Z"
-        if ("путем объединения" in work_type_value and
-                "с условными номерами" in work_type_value):
+        if not records and ("путем объединения" in work_type_value and
+                            "с условными номерами" in work_type_value):
             key = "Образование земельного участка путем объединения земельных участков с условными номерами"
-            if key in self._work_types_by_vedomost:
-                return self._work_types_by_vedomost[key]
+            records = self._work_types_by_vedomost.get(key)
 
-        log_warning(
-            f"M_22: «{work_type_value}» не сопоставлено ни с одной записью "
-            f"Work_types — code и стиль для ведомости не определены"
+        if not records:
+            log_warning(
+                f"M_22: «{work_type_value}» не сопоставлено ни с одной записью "
+                f"Work_types — code и стиль для ведомости не определены"
+            )
+            return None
+
+        record, reason = self._pick_work_type_record(
+            records, is_public_territory
         )
-        return None
+        if record is None:
+            log_error(
+                f"M_22: «{work_type_value}» — {reason}; code и стиль для "
+                f"ведомости не определены"
+            )
+        return record
 
     def get_all_work_types(self) -> List[Dict]:
         """Получить все записи Work_types из базы данных
