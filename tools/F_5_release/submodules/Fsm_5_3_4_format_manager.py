@@ -328,6 +328,31 @@ class ExcelFormatManager:
             column_names: Список имён колонок
             column_hints: Словарь {ключевое_слово: ширина}
         """
+        widths = self.calc_column_widths(column_names, column_hints)
+
+        for col_idx, width in enumerate(widths):
+            worksheet.set_column(col_idx, col_idx, width)
+
+    @classmethod
+    def calc_column_widths(
+        cls,
+        column_names: List[str],
+        column_hints: Optional[Dict[str, float]] = None
+    ) -> List[float]:
+        """
+        Рассчитать ширины колонок (без записи в лист).
+
+        Тот же расчёт, что применяет set_smart_column_widths. Нужен отдельно,
+        когда ширины требуются для другой цели — например для
+        calc_merged_row_height по объединённым ячейкам.
+
+        Args:
+            column_names: Список имён колонок
+            column_hints: Словарь {ключевое_слово: ширина}
+
+        Returns:
+            Список ширин в том же порядке, что column_names
+        """
         default_hints = {
             '№': 8,
             'id': 8,
@@ -348,12 +373,13 @@ class ExcelFormatManager:
         }
 
         hints = {**default_hints, **(column_hints or {})}
+        widths: List[float] = []
 
-        for col_idx, col_name in enumerate(column_names):
+        for col_name in column_names:
             col_lower = col_name.lower()
 
             # Ищем подходящую ширину по ключевым словам
-            width = 15  # default
+            width = 15.0  # default
 
             for keyword, hint_width in hints.items():
                 if keyword in col_lower:
@@ -362,9 +388,9 @@ class ExcelFormatManager:
 
             # Минимальная ширина по длине заголовка
             header_width = len(col_name) * 1.2
-            width = max(width, header_width)
+            widths.append(max(width, header_width))
 
-            worksheet.set_column(col_idx, col_idx, width)
+        return widths
 
     def get_row_heights(self) -> Dict[str, int]:
         """

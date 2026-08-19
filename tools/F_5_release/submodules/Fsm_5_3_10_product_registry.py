@@ -376,25 +376,120 @@ class ProductRegistry:
         return False
 
     @staticmethod
-    def _log_staging_invariant() -> None:
+    def _conditional_numbers(layer: QgsVectorLayer) -> set:
         """
-        Инвариант этапности (§4.4/NEW-B): при активной этапности нарезные ОКС
-        Раздел/НГС должны быть пусты — этапная ОКС-группа их заменяет.
+        Множество непустых условных номеров ЗУ (поле Услов_КН) слоя.
 
-        Сигнал аномалии через log_error (НЕ assert — плагин не крашить). Control-flow
-        НЕ переключает: нарезные ОКС остаются пропущенными существующим `continue`
-        в staging-ветках, этапная группа используется. log_error лишь помечает
-        нарушение инварианта (например, ручное восстановление нарезного ОКС-слоя
-        при уже созданной этапности) для диагностики.
+        Args:
+            layer: Слой нарезки или этапности.
+
+        Returns:
+            Множество строк; пустое, если поля нет либо все значения пусты.
         """
-        oks_razdel = ProductRegistry._find_layer(constants.LAYER_CUTTING_OKS_RAZDEL)
-        oks_ngs = ProductRegistry._find_layer(constants.LAYER_CUTTING_OKS_NGS)
-        if oks_razdel is not None or oks_ngs is not None:
-            log_error(
-                "Fsm_5_3_10: нарезные ОКС Раздел/НГС непусты одновременно с "
-                "активной этапностью — инвариант нарушен (этапная ОКС-группа "
-                "заменяет нарезную; проверьте слои нарезки ОКС)"
+        if layer.fields().indexOf('Услов_КН') < 0:
+            return set()
+
+        numbers = set()
+        try:
+            for feature in layer.getFeatures():
+                value = feature.attribute('Услов_КН')
+                if value in (None, '', '-'):
+                    continue
+                numbers.add(str(value).strip())
+        except Exception as e:
+            log_warning(
+                f"Fsm_5_3_10 (_conditional_numbers): слой '{layer.name()}': {e}"
             )
+            return set()
+        return numbers
+
+    @staticmethod
+    def _staging_mismatch_message(
+        cutting_name: str,
+        stage1_name: str,
+        cutting_numbers: set,
+        stage1_numbers: set
+    ) -> Optional[str]:
+        """
+        Текст расхождения нарезки и 1 этапа либо None, если расхождения нет.
+
+        Чистая функция (множества строк на входе, строка на выходе) — вынесена
+        отдельно, чтобы её можно было проверить без QGIS
+        (`scripts/check_staging_sync.py`).
+
+        Args:
+            cutting_name: Имя слоя нарезки.
+            stage1_name: Имя слоя 1 этапа.
+            cutting_numbers: Условные номера нарезки.
+            stage1_numbers: Условные номера 1 этапа.
+
+        Returns:
+            Сообщение для log_error либо None.
+        """
+        if not cutting_numbers or not stage1_numbers:
+            return None  # нет субъекта сверки: сторона пуста или без Услов_КН
+        if cutting_numbers == stage1_numbers:
+            return None
+
+        only_cutting = sorted(cutting_numbers - stage1_numbers)
+        only_stage1 = sorted(stage1_numbers - cutting_numbers)
+        parts = [
+            f"Fsm_5_3_10: этапность не соответствует нарезке — "
+            f"'{cutting_name}' ({len(cutting_numbers)} ЗУ) и "
+            f"'{stage1_name}' ({len(stage1_numbers)} ЗУ) содержат разные "
+            f"условные номера. Слой 1 этапа — копия нарезки, значит нарезку "
+            f"перестроили после F_2_4; экспорт отдаст устаревшие контуры. "
+            f"Перезапустите F_2_4"
+        ]
+        if only_cutting:
+            parts.append(
+                f"; только в нарезке ({len(only_cutting)}): "
+                f"{', '.join(only_cutting[:5])}"
+            )
+        if only_stage1:
+            parts.append(
+                f"; только в 1 этапе ({len(only_stage1)}): "
+                f"{', '.join(only_stage1[:5])}"
+            )
+        return ''.join(parts)
+
+    @staticmethod
+    def _check_staging_matches_cutting() -> None:
+        """
+        Инвариант актуальности этапности: слой 1 этапа — копия нарезки, поэтому
+        составы условных номеров обязаны совпадать.
+
+        Расхождение = нарезку перестроили (F_2_1 / F_2_3) уже ПОСЛЕ F_2_4, а слои
+        этапности остались прежними: экспорт молча отдал бы устаревшие контуры.
+        Сигнал через log_error (НЕ assert — плагин не крашить); control-flow НЕ
+        меняется, решение за владельцем (перезапустить F_2_4 либо выгрузить как
+        есть).
+
+        Непустая нарезка при активной этапности — НОРМА, не аномалия: F_2_4 читает
+        её как источник (Fsm_2_4_6) и не удаляет, её же читают F_2_7, F_2_5, F_3_1,
+        F_2_3. Прежняя редакция инварианта (до 2026-08-19) считала это нарушением и
+        давала log_error на каждом обращении к продуктам.
+        """
+        pairs = (
+            (constants.LAYER_CUTTING_OKS_RAZDEL, constants.LAYER_STAGING_1_RAZDEL),
+            (constants.LAYER_CUTTING_OKS_NGS, constants.LAYER_STAGING_1_NGS),
+        )
+
+        for cutting_name, stage1_name in pairs:
+            cutting = ProductRegistry._find_layer(cutting_name)
+            stage1 = ProductRegistry._find_layer(stage1_name)
+            if cutting is None or stage1 is None:
+                # Одной стороны нет — сверять нечего (законно: F_2_3 удаляет
+                # пустой НГС, F_2_4 не строит этап по отсутствующей ветке)
+                continue
+
+            message = ProductRegistry._staging_mismatch_message(
+                cutting_name, stage1_name,
+                ProductRegistry._conditional_numbers(cutting),
+                ProductRegistry._conditional_numbers(stage1)
+            )
+            if message:
+                log_error(message)
 
     @staticmethod
     def _resolve_groups(product_id: str):
@@ -474,7 +569,7 @@ class ProductRegistry:
                 if grp is not None:
                     groups.append(grp)
             if staging_active:
-                ProductRegistry._log_staging_invariant()
+                ProductRegistry._check_staging_matches_cutting()
                 # Единая группа 'oks': [Этап-1 Раздел/НГС, Этап-2 Раздел/НГС].
                 # Порядок по этапу (читабельнее). Шаблон coord_stage_final (title
                 # generic, filename overridden post-grouping'ом на '..._ОКС').
@@ -523,7 +618,7 @@ class ProductRegistry:
                 if grp is not None:
                     groups.append(grp)
             if staging_active:
-                ProductRegistry._log_staging_invariant()
+                ProductRegistry._check_staging_matches_cutting()
                 # v5 (снятие решения #13): единый файл-ведомость на ЗПР ОКС из 5
                 # слоёв — Этап-1 Раздел/НГС, Этап-2 Раздел/НГС, Без_Меж_Итог.
                 # Источник Раздел/НГС = Этап-1+Этап-2 (НЕ Итог): Итог после §4.2

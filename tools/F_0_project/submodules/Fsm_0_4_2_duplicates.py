@@ -369,7 +369,7 @@ class Fsm_0_4_2_DuplicatesChecker:
                         'vertex_index2': j,
                         'description': (
                             f'Близкие точки в объекте {feature_id}: '
-                            f'вершины {i} и {j} на расстоянии {distance*100:.1f} мм '
+                            f'вершины {i} и {j} на расстоянии {distance*1000:.1f} мм '
                             f'(часть {part_idx}, кольцо {ring_idx})'
                         ),
                         'coords': (p1.x(), p1.y()),
@@ -448,7 +448,7 @@ class Fsm_0_4_2_DuplicatesChecker:
                         'vertex_index2': j,
                         'description': (
                             f'Близкие точки в объекте {feature_id}: '
-                            f'вершины {i} и {j} на расстоянии {distance*100:.1f} мм '
+                            f'вершины {i} и {j} на расстоянии {distance*1000:.1f} мм '
                             f'(часть {part_idx}, кольцо {ring_idx})'
                         ),
                         'coords': (p1.x(), p1.y()),

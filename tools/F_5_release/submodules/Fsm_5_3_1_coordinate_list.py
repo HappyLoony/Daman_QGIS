@@ -27,8 +27,13 @@ from .Fsm_5_3_4_format_manager import ExcelFormatManager
 from .Fsm_5_3_5_export_utils import ExportUtils
 from .Fsm_5_3_8_template_registry import (
     DocumentTemplate, POINT_NUMBER_FIELDS, POINTS_LAYER_EXCLUSIONS,
-    COORD_HEADERS_LOCAL, COORD_HEADERS_WGS84
+    CONTOUR_TITLE_FIELDS, COORD_HEADERS_LOCAL, COORD_HEADERS_WGS84
 )
+
+# Состав объединяемых ЗУ: «169, 178, 179». Отличает контур 2 этапа F_2_4 от
+# раздела строго по ДАННЫМ, без разбора имени слоя. Прочерк, пустое и мусор
+# (F_2_4 пишет в Этап-1 литерал «Состав_контуров») паттерну не соответствуют.
+_MERGED_COMPOSITION_RE = re.compile(r'^\d+(\s*,\s*\d+)+$')
 
 
 class Fsm_5_3_1_CoordinateList:
@@ -258,17 +263,95 @@ class Fsm_5_3_1_CoordinateList:
         return success
 
     @staticmethod
-    def _work_type_contour_title(layer_name: str, contour_id: Any) -> str:
+    def _format_ozu_contour_title(
+        contour_id: Any,
+        area: Any,
+        kn: Any,
+        composition: Any,
+        is_ngs: bool
+    ) -> str:
+        """
+        Шапка контура образуемого ЗУ: условный номер, площадь, способ образования.
+
+        Формулировки по ППРФ 564 п. 35 (реквизиты перечня) и ЗК РФ:
+        - раздел (ст. 11.4): "образуемый путем раздела земельного участка
+          с кадастровым номером {КН}";
+        - НГС (ст. 11.2 ч. 1): "образуемый из земель, находящихся в
+          государственной или муниципальной собственности, расположенный
+          в кадастровом квартале {КН}" — именно "из земель", участка-источника
+          у НГС не существует;
+        - объединение (ст. 11.6): "образуемый путем объединения земельных
+          участков с условными номерами {состав}".
+
+        Способ образования определяется по ДАННЫМ, не по полю Вид_Работ:
+        непустой список в Состав_контуров -> объединение (2 этап F_2_4).
+
+        Незаполненный реквизит НЕ подменяется прочерком — фрагмент опускается,
+        вызывающий сообщает о пропуске в лог.
+
+        Args:
+            contour_id: Условный номер ЗУ (поле ID) или порядковый номер контура
+            area: Площадь образуемого ЗУ, кв. м (поле Площадь_ОЗУ)
+            kn: КН исходного ЗУ (раздел) либо номер кадастрового квартала (НГС)
+            composition: Состав объединяемых ЗУ (поле Состав_контуров)
+            is_ngs: Контур образуется из земель гос./мун. собственности
+
+        Returns:
+            Текст шапки контура
+        """
+        title = f"Образуемый земельный участок с условным номером {contour_id}"
+
+        area_text = str(area).strip() if area not in (None, '') else ''
+        if area_text and area_text != '-':
+            # Неразрывные пробелы (U+00A0): «кв. м» не разрывается переносом и
+            # не отрывается от числа при переносе строки в ячейке Excel
+            title += f" площадью {area_text}\u00a0кв.\u00a0м"
+
+        kn_text = str(kn).strip() if kn not in (None, '') else ''
+        if kn_text == '-':
+            kn_text = ''
+
+        composition_text = str(composition).strip() if composition not in (None, '') else ''
+        if _MERGED_COMPOSITION_RE.match(composition_text):
+            return (
+                f"{title}, образуемый путем объединения земельных участков "
+                f"с условными номерами {composition_text}"
+            )
+
+        if is_ngs:
+            title += (
+                ", образуемый из земель, находящихся в государственной "
+                "или муниципальной собственности"
+            )
+            if kn_text:
+                title += f", расположенный в кадастровом квартале {kn_text}"
+            return title
+
+        title += ", образуемый путем раздела земельного участка"
+        if kn_text:
+            title += f" с кадастровым номером {kn_text}"
+        return title
+
+    @staticmethod
+    def _work_type_contour_title(
+        layer_name: str,
+        contour_id: Any,
+        attrs: Optional[Dict[str, Any]] = None
+    ) -> str:
         """
         Заголовок контура по типу работы (определяется из имени слоя).
 
-        Раздел/НГС/Без_Меж -> "Образуемый земельный участок N"
+        Раздел/НГС/Без_Меж -> формулировка образуемого ЗУ (_format_ozu_contour_title)
         ПС -> "Контур публичного сервитута N"
         Изм -> "Изменяемый земельный участок N"
+
+        ПС и Изм намеренно оставлены короткими: у публичного сервитута состав
+        реквизитов иной, у изменяемых ЗУ геометрия не меняется.
 
         Args:
             layer_name: Имя слоя (Le_2_1_1_* / Le_2_7_*)
             contour_id: ID контура (поле ID фичи или порядковый номер)
+            attrs: Атрибуты фичи по CONTOUR_TITLE_FIELDS (площадь, КН, состав)
 
         Returns:
             Текст заголовка контура
@@ -277,7 +360,25 @@ class Fsm_5_3_1_CoordinateList:
             return f"Контур публичного сервитута {contour_id}"
         if '_Изм_' in layer_name:
             return f"Изменяемый земельный участок {contour_id}"
-        return f"Образуемый земельный участок {contour_id}"
+
+        attrs = attrs or {}
+        area = attrs.get('Площадь_ОЗУ')
+        kn = attrs.get('КН')
+        composition = attrs.get('Состав_контуров')
+
+        missing = [
+            name for name, value in (('Площадь_ОЗУ', area), ('КН', kn))
+            if value in (None, '', '-')
+        ]
+        if missing:
+            log_warning(
+                f"Fsm_5_3_1: слой '{layer_name}', контур {contour_id} — "
+                f"шапка без реквизитов {', '.join(missing)} (поля не заполнены)"
+            )
+
+        return Fsm_5_3_1_CoordinateList._format_ozu_contour_title(
+            contour_id, area, kn, composition, is_ngs='_НГС' in layer_name
+        )
 
     def _export_to_excel(
         self,
@@ -343,7 +444,12 @@ class Fsm_5_3_1_CoordinateList:
             fmt = ExcelFormatManager(workbook)
 
             # Настройка ширины колонок
-            fmt.set_smart_column_widths(worksheet, ['', '№ Точки', 'X', 'Y', ''])
+            column_names = ['', '№ Точки', 'X', 'Y', '']
+            fmt.set_smart_column_widths(worksheet, column_names)
+            # Ширины B:D — для высоты merged-шапки контура (auto-fit там не работает)
+            contour_title_widths = ExcelFormatManager.calc_column_widths(
+                column_names
+            )[1:4]
 
             # Строка 1: Номер приложения (колонка E)
             appendix_text = f"Приложение {appendix_num}"
@@ -400,7 +506,8 @@ class Fsm_5_3_1_CoordinateList:
                         feature_id = contour_info.get('feature_id')
                         contour_id = feature_id if feature_id else contour_number
                         contour_title = self._work_type_contour_title(
-                            layer.name(), contour_id
+                            layer.name(), contour_id,
+                            contour_info.get('title_attrs')
                         )
                     elif template.contour_format:
                         contour_title = ExportUtils.format_template_text(
@@ -411,6 +518,12 @@ class Fsm_5_3_1_CoordinateList:
                         worksheet.merge_range(
                             current_row, 1, current_row, 3,
                             contour_title, subtitle_border_format
+                        )
+                        worksheet.set_row(
+                            current_row,
+                            ExcelFormatManager.calc_merged_row_height(
+                                contour_title, col_widths=contour_title_widths
+                            )
                         )
                     current_row += 1
 
@@ -534,7 +647,12 @@ class Fsm_5_3_1_CoordinateList:
             fmt = ExcelFormatManager(workbook)
 
             # Настройка ширины колонок
-            fmt.set_smart_column_widths(worksheet, ['', '№ Точки', 'X', 'Y', ''])
+            column_names = ['', '№ Точки', 'X', 'Y', '']
+            fmt.set_smart_column_widths(worksheet, column_names)
+            # Ширины B:D — для высоты merged-шапки контура (auto-fit там не работает)
+            contour_title_widths = ExcelFormatManager.calc_column_widths(
+                column_names
+            )[1:4]
 
             # Строка 1: Номер приложения (колонка E)
             appendix_text = f"Приложение {appendix_num}"
@@ -604,11 +722,18 @@ class Fsm_5_3_1_CoordinateList:
                         feature_id = contour_info.get('feature_id')
                         contour_id = feature_id if feature_id else contour_number
                         contour_title = self._work_type_contour_title(
-                            src_layer.name(), contour_id
+                            src_layer.name(), contour_id,
+                            contour_info.get('title_attrs')
                         )
                         worksheet.merge_range(
                             current_row, 1, current_row, 3,
                             contour_title, subtitle_border_format
+                        )
+                        worksheet.set_row(
+                            current_row,
+                            ExcelFormatManager.calc_merged_row_height(
+                                contour_title, col_widths=contour_title_widths
+                            )
                         )
                         current_row += 1
 
@@ -1466,12 +1591,21 @@ class Fsm_5_3_1_CoordinateList:
         all_raw_contours: List[Dict[str, Any]] = []
 
         has_id_field = layer.fields().indexOf('ID') >= 0
+        # Поля шапки контура: собираем только те, что реально есть в слое
+        # (ГПМТ, Выборка_ЗУ и прочие не-нарезочные слои их не имеют).
+        title_field_names = [
+            name for name in CONTOUR_TITLE_FIELDS
+            if layer.fields().indexOf(name) >= 0
+        ]
 
         for feature in layer.getFeatures():
             if not feature.hasGeometry():
                 continue
 
             feature_id = feature.attribute('ID') if has_id_field else None
+            title_attrs = {
+                name: feature.attribute(name) for name in title_field_names
+            }
 
             geometry = feature.geometry()
 
@@ -1502,7 +1636,8 @@ class Fsm_5_3_1_CoordinateList:
                             'ring_index': 0,
                             'points': points,
                             'area': area_sqm if polygon_idx == 0 else 0,
-                            'feature_id': feature_id
+                            'feature_id': feature_id,
+                            'title_attrs': title_attrs
                         })
 
                         # Внутренние контуры (дырки)
@@ -1560,7 +1695,8 @@ class Fsm_5_3_1_CoordinateList:
                 'ring_index': raw_contour.get('ring_index', 0),
                 'coordinates': contour_coords,
                 'area': raw_contour['area'],
-                'feature_id': raw_contour.get('feature_id')
+                'feature_id': raw_contour.get('feature_id'),
+                'title_attrs': raw_contour.get('title_attrs', {})
             })
 
         return contours
