@@ -74,7 +74,7 @@ class WorkTypeAssignmentManager:
             self._plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
         self._work_types_data: List[Dict] = []
-        self._work_types_by_vedomost: Dict[str, Dict] = {}
+        self._work_types_by_vedomost: Dict[str, List[Dict]] = {}
         self._vri_manager: Optional['VRIAssignmentManager'] = None
         self._loaded = False
 
@@ -100,11 +100,17 @@ class WorkTypeAssignmentManager:
                 log_error("M_22: Work_types.json пуст или не найден")
                 return False
 
-            # Строим индекс по vedomost_value
+            # Индекс по vedomost_value — СПИСОК записей на ключ: значение НЕ
+            # уникально. «Образование земельного участка путем раздела» стоит у
+            # трёх записей (7F.4 обычные, 7F.5 имущество общего пользования,
+            # 7F.6 территории общего пользования). Прежний индекс «ключ -> одна
+            # запись» оставлял последнюю и молча отдавал 7F.6 рядовому разделу.
             for wt in self._work_types_data:
                 vedomost_value = wt.get('vedomost_value', '')
                 if vedomost_value:
-                    self._work_types_by_vedomost[vedomost_value] = wt
+                    self._work_types_by_vedomost.setdefault(
+                        vedomost_value, []
+                    ).append(wt)
 
             log_info(f"M_22: Загружена база Work_types ({len(self._work_types_data)} записей)")
 
@@ -207,17 +213,6 @@ class WorkTypeAssignmentManager:
         return self._get_work_type_value(
             LayerType.RAZDEL, StageType.STAGE_2, list(merged_ids)
         )
-
-    def _get_work_type_record(self, vedomost_value: str) -> Optional[Dict]:
-        """Получить запись из Work_types по значению ведомости
-
-        Args:
-            vedomost_value: Значение для ведомости
-
-        Returns:
-            Словарь с данными или None
-        """
-        return self._work_types_by_vedomost.get(vedomost_value)
 
     def get_plan_vri_from_zpr(
         self,
